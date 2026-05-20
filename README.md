@@ -35,13 +35,7 @@ Create a YAML or JSON workflow config. A starter YAML template is provided at:
 From the command line:
 
 ```powershell
-Rscript inst/scripts/run_paper_policy_workflow.R --config inst/templates/workflow_config.yml
-```
-
-Legacy positional-argument mode is still supported:
-
-```powershell
-Rscript inst/scripts/run_paper_policy_workflow.R fishery_survey_tsl.xlsx outputs_paper_workflow cache false false
+Rscript inst/scripts/swfscfish.R --config inst/templates/workflow_config.yml
 ```
 
 ## Configuration notes
