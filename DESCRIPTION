@@ -1,0 +1,33 @@
+Package: tsbiomass
+Title: TS Biomass Model Transferability Workflows
+Version: 0.0.0.9000
+Authors@R: 
+    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"))
+Description: Bundles the TS-model transferability workflow, benchmark logic,
+    admissibility screening, uncertainty benchmarking, sensitivity analyses,
+    and figure-generation pipeline used for TS-to-biomass transfer analyses.
+    The package is configuration-driven and can be run from YAML/JSON workflow
+    files or from the preserved command-line interface.
+License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
+    license
+Encoding: UTF-8
+Imports:
+    cluster,
+    dplyr,
+    fs,
+    ggplot2,
+    ggrepel,
+    janitor,
+    jsonlite,
+    purrr,
+    readr,
+    readxl,
+    scico,
+    stringr,
+    tibble,
+    tidyr,
+    vegan,
+    wk,
+    yaml
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3

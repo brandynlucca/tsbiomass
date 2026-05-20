@@ -1,0 +1,516 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Portable policy registry for TS model transferability workflows. This file defines the allowed, testable policy universe for validation and documentation only. Inclusion in this registry does not imply that a policy is already implemented.",
+  "policies": [
+    {
+      "coded_name": "same_species_closest",
+      "display_name": "Same-species nearest model",
+      "description": "Select the single admissible model from the same species with the smallest combined distance.",
+      "policy_family": "single_model",
+      "candidate_pool": "same_species",
+      "aggregation_method": "nearest_by_combined_distance",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "closest_related_species",
+      "display_name": "Nearest related-species model",
+      "description": "Select the single admissible model from the closest related species neighborhood using phylogenetic or taxonomic proximity and then combined distance.",
+      "policy_family": "single_model",
+      "candidate_pool": "phylogenetic_neighborhood",
+      "aggregation_method": "nearest_by_combined_distance",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_genus_weighted",
+      "display_name": "Same-genus weighted ensemble",
+      "description": "Use all admissible models from the same genus and combine them with kernel weights.",
+      "policy_family": "weighted_ensemble",
+      "candidate_pool": "same_genus",
+      "aggregation_method": "kernel_weighted_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_family_weighted",
+      "display_name": "Same-family weighted ensemble",
+      "description": "Use all admissible models from the same family and combine them with kernel weights.",
+      "policy_family": "weighted_ensemble",
+      "candidate_pool": "same_family",
+      "aggregation_method": "kernel_weighted_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_swimbladder_weighted",
+      "display_name": "Same-swimbladder weighted ensemble",
+      "description": "Use all admissible models from the same swimbladder class and combine them with kernel weights.",
+      "policy_family": "weighted_ensemble",
+      "candidate_pool": "same_swimbladder",
+      "aggregation_method": "kernel_weighted_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_ellipse_closest",
+      "display_name": "Same-species-ellipse nearest model",
+      "description": "Select the single admissible model from the same species-level ordination ellipse with the smallest combined distance.",
+      "policy_family": "single_model",
+      "candidate_pool": "same_species_ellipse",
+      "aggregation_method": "nearest_by_combined_distance",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_ellipse_weighted",
+      "display_name": "Same-species-ellipse weighted ensemble",
+      "description": "Use all admissible models from the same species-level ordination ellipse and combine them with kernel weights.",
+      "policy_family": "weighted_ensemble",
+      "candidate_pool": "same_species_ellipse",
+      "aggregation_method": "kernel_weighted_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_cluster_weighted",
+      "display_name": "Same-NMDS-cluster weighted ensemble",
+      "description": "Use all admissible models from the same model-level NMDS cluster and combine them with kernel weights.",
+      "policy_family": "weighted_ensemble",
+      "candidate_pool": "same_nmds_cluster",
+      "aggregation_method": "kernel_weighted_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "all_models_weighted",
+      "display_name": "All-admissible weighted ensemble",
+      "description": "Use all admissible models and combine them with kernel weights.",
+      "policy_family": "weighted_ensemble",
+      "candidate_pool": "all_admissible",
+      "aggregation_method": "kernel_weighted_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "top_support_subset_weighted",
+      "display_name": "Top-support 80% weighted ensemble",
+      "description": "Use the top cumulative support subset of admissible models until 80% support is reached, then combine them with kernel weights.",
+      "policy_family": "weighted_ensemble",
+      "candidate_pool": "core_support_subset",
+      "aggregation_method": "kernel_weighted_mean",
+      "fixed_parameters": {
+        "support_cutoff": 0.8
+      },
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "closest_generalized_model",
+      "display_name": "Generalized-model nearest model",
+      "description": "Select the single admissible generalized model with the smallest combined distance.",
+      "policy_family": "single_model",
+      "candidate_pool": "generalized_models_only",
+      "aggregation_method": "nearest_by_combined_distance",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "generalized_models_weighted",
+      "display_name": "Generalized-model weighted ensemble",
+      "description": "Use all admissible generalized models and combine them with kernel weights.",
+      "policy_family": "weighted_ensemble",
+      "candidate_pool": "generalized_models_only",
+      "aggregation_method": "kernel_weighted_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "generalized_models_scan",
+      "display_name": "Generalized-model scan",
+      "description": "Evaluate generalized models individually and summarize the set as a scan-style generalized-model policy.",
+      "policy_family": "model_scan",
+      "candidate_pool": "generalized_models_only",
+      "aggregation_method": "equal_weight_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "all_models_unweighted",
+      "display_name": "All-admissible unweighted ensemble",
+      "description": "Use all admissible models and combine them with an unweighted arithmetic mean.",
+      "policy_family": "unweighted_ensemble",
+      "candidate_pool": "all_admissible",
+      "aggregation_method": "arithmetic_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_species_weighted",
+      "display_name": "Same-species weighted ensemble",
+      "description": "Use all admissible models from the same species and combine them with kernel weights.",
+      "policy_family": "weighted_ensemble",
+      "candidate_pool": "same_species",
+      "aggregation_method": "kernel_weighted_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_species_unweighted",
+      "display_name": "Same-species unweighted ensemble",
+      "description": "Use all admissible models from the same species and combine them with an unweighted arithmetic mean.",
+      "policy_family": "unweighted_ensemble",
+      "candidate_pool": "same_species",
+      "aggregation_method": "arithmetic_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_species_median",
+      "display_name": "Same-species median ensemble",
+      "description": "Use all admissible models from the same species and summarize them with a median-based ensemble.",
+      "policy_family": "robust_ensemble",
+      "candidate_pool": "same_species",
+      "aggregation_method": "median",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "related_species_weighted",
+      "display_name": "Related-species weighted ensemble",
+      "description": "Use admissible models from a related-species neighborhood and combine them with kernel weights.",
+      "policy_family": "weighted_ensemble",
+      "candidate_pool": "phylogenetic_neighborhood",
+      "aggregation_method": "kernel_weighted_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": [
+        "phylo_radius"
+      ]
+    },
+    {
+      "coded_name": "related_species_unweighted",
+      "display_name": "Related-species unweighted ensemble",
+      "description": "Use admissible models from a related-species neighborhood and combine them with an unweighted arithmetic mean.",
+      "policy_family": "unweighted_ensemble",
+      "candidate_pool": "phylogenetic_neighborhood",
+      "aggregation_method": "arithmetic_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": [
+        "phylo_radius"
+      ]
+    },
+    {
+      "coded_name": "related_species_median",
+      "display_name": "Related-species median ensemble",
+      "description": "Use admissible models from a related-species neighborhood and summarize them with a median-based ensemble.",
+      "policy_family": "robust_ensemble",
+      "candidate_pool": "phylogenetic_neighborhood",
+      "aggregation_method": "median",
+      "fixed_parameters": null,
+      "tunable_parameters": [
+        "phylo_radius"
+      ]
+    },
+    {
+      "coded_name": "same_genus_closest",
+      "display_name": "Same-genus nearest model",
+      "description": "Select the single admissible model from the same genus with the smallest combined distance.",
+      "policy_family": "single_model",
+      "candidate_pool": "same_genus",
+      "aggregation_method": "nearest_by_combined_distance",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_genus_unweighted",
+      "display_name": "Same-genus unweighted ensemble",
+      "description": "Use all admissible models from the same genus and combine them with an unweighted arithmetic mean.",
+      "policy_family": "unweighted_ensemble",
+      "candidate_pool": "same_genus",
+      "aggregation_method": "arithmetic_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_genus_median",
+      "display_name": "Same-genus median ensemble",
+      "description": "Use all admissible models from the same genus and summarize them with a median-based ensemble.",
+      "policy_family": "robust_ensemble",
+      "candidate_pool": "same_genus",
+      "aggregation_method": "median",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_family_closest",
+      "display_name": "Same-family nearest model",
+      "description": "Select the single admissible model from the same family with the smallest combined distance.",
+      "policy_family": "single_model",
+      "candidate_pool": "same_family",
+      "aggregation_method": "nearest_by_combined_distance",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_family_unweighted",
+      "display_name": "Same-family unweighted ensemble",
+      "description": "Use all admissible models from the same family and combine them with an unweighted arithmetic mean.",
+      "policy_family": "unweighted_ensemble",
+      "candidate_pool": "same_family",
+      "aggregation_method": "arithmetic_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_family_median",
+      "display_name": "Same-family median ensemble",
+      "description": "Use all admissible models from the same family and summarize them with a median-based ensemble.",
+      "policy_family": "robust_ensemble",
+      "candidate_pool": "same_family",
+      "aggregation_method": "median",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_order_closest",
+      "display_name": "Same-order nearest model",
+      "description": "Select the single admissible model from the same order with the smallest combined distance.",
+      "policy_family": "single_model",
+      "candidate_pool": "same_order",
+      "aggregation_method": "nearest_by_combined_distance",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_order_weighted",
+      "display_name": "Same-order weighted ensemble",
+      "description": "Use all admissible models from the same order and combine them with kernel weights.",
+      "policy_family": "weighted_ensemble",
+      "candidate_pool": "same_order",
+      "aggregation_method": "kernel_weighted_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_order_unweighted",
+      "display_name": "Same-order unweighted ensemble",
+      "description": "Use all admissible models from the same order and combine them with an unweighted arithmetic mean.",
+      "policy_family": "unweighted_ensemble",
+      "candidate_pool": "same_order",
+      "aggregation_method": "arithmetic_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_order_median",
+      "display_name": "Same-order median ensemble",
+      "description": "Use all admissible models from the same order and summarize them with a median-based ensemble.",
+      "policy_family": "robust_ensemble",
+      "candidate_pool": "same_order",
+      "aggregation_method": "median",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_swimbladder_closest",
+      "display_name": "Same-swimbladder nearest model",
+      "description": "Select the single admissible model from the same swimbladder class with the smallest combined distance.",
+      "policy_family": "single_model",
+      "candidate_pool": "same_swimbladder",
+      "aggregation_method": "nearest_by_combined_distance",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_swimbladder_unweighted",
+      "display_name": "Same-swimbladder unweighted ensemble",
+      "description": "Use all admissible models from the same swimbladder class and combine them with an unweighted arithmetic mean.",
+      "policy_family": "unweighted_ensemble",
+      "candidate_pool": "same_swimbladder",
+      "aggregation_method": "arithmetic_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_swimbladder_median",
+      "display_name": "Same-swimbladder median ensemble",
+      "description": "Use all admissible models from the same swimbladder class and summarize them with a median-based ensemble.",
+      "policy_family": "robust_ensemble",
+      "candidate_pool": "same_swimbladder",
+      "aggregation_method": "median",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_cluster_closest",
+      "display_name": "Same-NMDS-cluster nearest model",
+      "description": "Select the single admissible model from the same model-level NMDS cluster with the smallest combined distance.",
+      "policy_family": "single_model",
+      "candidate_pool": "same_nmds_cluster",
+      "aggregation_method": "nearest_by_combined_distance",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_cluster_unweighted",
+      "display_name": "Same-NMDS-cluster unweighted ensemble",
+      "description": "Use all admissible models from the same model-level NMDS cluster and combine them with an unweighted arithmetic mean.",
+      "policy_family": "unweighted_ensemble",
+      "candidate_pool": "same_nmds_cluster",
+      "aggregation_method": "arithmetic_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_cluster_median",
+      "display_name": "Same-NMDS-cluster median ensemble",
+      "description": "Use all admissible models from the same model-level NMDS cluster and summarize them with a median-based ensemble.",
+      "policy_family": "robust_ensemble",
+      "candidate_pool": "same_nmds_cluster",
+      "aggregation_method": "median",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_ellipse_unweighted",
+      "display_name": "Same-species-ellipse unweighted ensemble",
+      "description": "Use all admissible models from the same species-level ordination ellipse and combine them with an unweighted arithmetic mean.",
+      "policy_family": "unweighted_ensemble",
+      "candidate_pool": "same_species_ellipse",
+      "aggregation_method": "arithmetic_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_ellipse_median",
+      "display_name": "Same-species-ellipse median ensemble",
+      "description": "Use all admissible models from the same species-level ordination ellipse and summarize them with a median-based ensemble.",
+      "policy_family": "robust_ensemble",
+      "candidate_pool": "same_species_ellipse",
+      "aggregation_method": "median",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "all_models_median",
+      "display_name": "All-admissible median ensemble",
+      "description": "Use all admissible models and summarize them with a median-based ensemble.",
+      "policy_family": "robust_ensemble",
+      "candidate_pool": "all_admissible",
+      "aggregation_method": "median",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "top_support_subset_custom_weighted",
+      "display_name": "Top-support weighted ensemble",
+      "description": "Use the top cumulative support subset of admissible models up to a configurable support cutoff, then combine them with kernel weights.",
+      "policy_family": "weighted_ensemble",
+      "candidate_pool": "core_support_subset",
+      "aggregation_method": "kernel_weighted_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": [
+        "support_cutoff"
+      ]
+    },
+    {
+      "coded_name": "top_support_subset_90_weighted",
+      "display_name": "Top-support 90% weighted ensemble",
+      "description": "Use the top cumulative support subset of admissible models until 90% support is reached, then combine them with kernel weights.",
+      "policy_family": "weighted_ensemble",
+      "candidate_pool": "core_support_subset",
+      "aggregation_method": "kernel_weighted_mean",
+      "fixed_parameters": {
+        "support_cutoff": 0.9
+      },
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "top_support_subset_95_weighted",
+      "display_name": "Top-support 95% weighted ensemble",
+      "description": "Use the top cumulative support subset of admissible models until 95% support is reached, then combine them with kernel weights.",
+      "policy_family": "weighted_ensemble",
+      "candidate_pool": "core_support_subset",
+      "aggregation_method": "kernel_weighted_mean",
+      "fixed_parameters": {
+        "support_cutoff": 0.95
+      },
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "top_k_models_weighted",
+      "display_name": "Top-k weighted ensemble",
+      "description": "Use the top k admissible models ranked by support or similarity and combine them with kernel weights.",
+      "policy_family": "weighted_ensemble",
+      "candidate_pool": "top_k_admissible",
+      "aggregation_method": "kernel_weighted_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": [
+        "k"
+      ]
+    },
+    {
+      "coded_name": "top_k_models_unweighted",
+      "display_name": "Top-k unweighted ensemble",
+      "description": "Use the top k admissible models ranked by support or similarity and combine them with an unweighted arithmetic mean.",
+      "policy_family": "unweighted_ensemble",
+      "candidate_pool": "top_k_admissible",
+      "aggregation_method": "arithmetic_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": [
+        "k"
+      ]
+    },
+    {
+      "coded_name": "top_k_models_median",
+      "display_name": "Top-k median ensemble",
+      "description": "Use the top k admissible models ranked by support or similarity and summarize them with a median-based ensemble.",
+      "policy_family": "robust_ensemble",
+      "candidate_pool": "top_k_admissible",
+      "aggregation_method": "median",
+      "fixed_parameters": null,
+      "tunable_parameters": [
+        "k"
+      ]
+    },
+    {
+      "coded_name": "generalized_models_unweighted",
+      "display_name": "Generalized-model unweighted ensemble",
+      "description": "Use all admissible generalized models and combine them with an unweighted arithmetic mean.",
+      "policy_family": "unweighted_ensemble",
+      "candidate_pool": "generalized_models_only",
+      "aggregation_method": "arithmetic_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "generalized_models_median",
+      "display_name": "Generalized-model median ensemble",
+      "description": "Use all admissible generalized models and summarize them with a median-based ensemble.",
+      "policy_family": "robust_ensemble",
+      "candidate_pool": "generalized_models_only",
+      "aggregation_method": "median",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_fao_area_weighted",
+      "display_name": "Same-FAO-area weighted ensemble",
+      "description": "Use all admissible models from the same FAO area and combine them with kernel weights.",
+      "policy_family": "weighted_ensemble",
+      "candidate_pool": "same_fao_area",
+      "aggregation_method": "kernel_weighted_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    },
+    {
+      "coded_name": "same_ocean_basin_weighted",
+      "display_name": "Same-ocean-basin weighted ensemble",
+      "description": "Use all admissible models from the same ocean basin and combine them with kernel weights.",
+      "policy_family": "weighted_ensemble",
+      "candidate_pool": "same_ocean_basin",
+      "aggregation_method": "kernel_weighted_mean",
+      "fixed_parameters": null,
+      "tunable_parameters": null
+    }
+  ]
+}

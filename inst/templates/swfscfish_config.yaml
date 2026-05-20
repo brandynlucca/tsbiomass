@@ -1,0 +1,80 @@
+paths:
+  input_file: fishery_survey_tsl.xlsx
+  out_root: outputs_swfscfish
+  cache_dir: cache
+  supplemental_dir: supplemental
+  fao_polygon_csv: fao_areas.csv
+  log_file: outputs_swfscfish/tsbiomass_workflow.log
+
+workflow:
+  strict_length_pdf: false
+  run_multiplier_model: false
+  write_log: false
+
+tuning:
+  max_models_per_species: 2
+  n_resamples: 8
+
+policy:
+  alpha: 0.8
+  k_species: 4
+  k_study: 2
+  frequency_coherence_mode: numeric
+  require_same_frequency_label: false
+  max_frequency_gap_khz: 60
+  min_length_overlap_fraction: 0.25
+  min_depth_overlap_fraction: 0.25
+  missing_key_metadata_max_fraction: 0.25
+  length_overlap_weight: 2
+  depth_overlap_weight: 3
+  frequency_coherence_weight: 2
+  core_weight_cutoff: 0.8
+  conformal_alpha: 0.1
+  species_traits:
+    swimbladder_type: 5
+    body_shape: 3
+    order: 2
+    family: 2
+    genus: 2
+    species: 4
+    temperature_midpoint: 1
+    temperature_range: 1
+    ocean_basin: 1
+    trophic: 1
+  study_traits:
+    length_metric: 1
+    frequency: 1
+    fao_area: 1
+
+policies:
+  active:
+    - all_models_weighted
+    - top_support_subset_weighted
+    - same_species_closest
+    - closest_related_species
+    - same_genus_weighted
+    - same_family_weighted
+    - same_swimbladder_weighted
+    - same_cluster_weighted
+    - same_ellipse_closest
+    - same_ellipse_weighted
+    - closest_generalized_model
+    - generalized_models_weighted
+    - generalized_models_scan
+    - all_models_unweighted
+
+outputs:
+  fao_distribution:
+    studies: study_counts
+    models: model_counts
+  ordination: 
+    species: species_ordination
+    study: study_ordination
+    combined: combined_ordination
+  slope_dependence: 
+    distribution: slope_dependence_histogram
+    boxplots: slope_dependence_boxplot
+    support: slope_dependence_barchart
+  
+
+  

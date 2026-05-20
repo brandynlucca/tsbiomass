@@ -1,0 +1,16 @@
+^tsbiomass\.Rproj$
+^\.Rproj\.user$
+^.vscode$
+^\.tmp$
+^\.tmp/.*$
+^\.tmp_rlib$
+^\.tmp_rlib/.*$
+^\.github$
+^scratch$
+^tsbiomass\.Rproj$
+^tsbiomass\.Rcheck$
+^tsbiomass\.Rcheck/.*$
+^tsbiomass_.*\.tar\.gz$
+^.Rhistory$
+^outputs_swfscfish/.*$
+^cache/.*$

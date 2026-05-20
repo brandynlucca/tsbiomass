@@ -1,0 +1,640 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Portable trait registry for TS model transferability workflows. This file defines the accepted species-level and study-level trait universe for validation only.",
+  "species_traits": [
+    {
+      "coded_name": "class",
+      "display_name": "Taxonomic class",
+      "description": "Taxonomic class.",
+      "data_type": "categorical",
+      "unit": null,
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "order",
+      "display_name": "Taxonomic order",
+      "description": "Taxonomic order.",
+      "data_type": "categorical",
+      "unit": null,
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "family",
+      "display_name": "Taxonomic family",
+      "description": "Taxonomic family.",
+      "data_type": "categorical",
+      "unit": null,
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "genus",
+      "display_name": "Taxonomic genus",
+      "description": "Taxonomic genus.",
+      "data_type": "categorical",
+      "unit": null,
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "species",
+      "display_name": "Taxonomic species",
+      "description": "Taxonomic species.",
+      "data_type": "categorical",
+      "unit": null,
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "swimbladder_type",
+      "display_name": "Swimbladder type",
+      "description": "Swimbladder type.",
+      "data_type": "categorical",
+      "unit": null,
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": [
+        "physoclist",
+        "physostome",
+        "lipid_invested",
+        "swimbladderless",
+        "unknown"
+      ]
+    },
+    {
+      "coded_name": "ocean_basin",
+      "display_name": "Ocean basin",
+      "description": "Ocean-basin membership.",
+      "data_type": "set",
+      "unit": null,
+      "multi_valued": true,
+      "expandable": true,
+      "allowed_values": [
+        "atlantic",
+        "pacific",
+        "indian",
+        "mediterranean",
+        "southern",
+        "arctic"
+      ]
+    },
+    {
+      "coded_name": "fao_area",
+      "display_name": "FAO major fishing area",
+      "description": "FAO major fishing area membership.",
+      "data_type": "set",
+      "unit": null,
+      "multi_valued": true,
+      "expandable": true,
+      "allowed_values": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "18",
+        "21",
+        "27",
+        "31",
+        "34",
+        "37",
+        "41",
+        "47",
+        "48",
+        "51",
+        "57",
+        "58",
+        "61",
+        "67",
+        "71",
+        "77",
+        "81",
+        "87",
+        "88"
+      ]
+    },
+    {
+      "coded_name": "depth_min",
+      "display_name": "Minimum depth",
+      "description": "Minimum species depth range.",
+      "data_type": "numeric",
+      "unit": "m",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "depth_max",
+      "display_name": "Maximum depth",
+      "description": "Maximum species depth range.",
+      "data_type": "numeric",
+      "unit": "m",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "depth_range",
+      "display_name": "Depth range",
+      "description": "Depth range calculated as maximum minus minimum depth.",
+      "data_type": "numeric",
+      "unit": "m",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "depth_midpoint",
+      "display_name": "Depth midpoint",
+      "description": "Midpoint of the species depth range.",
+      "data_type": "numeric",
+      "unit": "m",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "temperature_min",
+      "display_name": "Minimum temperature",
+      "description": "Minimum species temperature tolerance.",
+      "data_type": "numeric",
+      "unit": "degC",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "temperature_max",
+      "display_name": "Maximum temperature",
+      "description": "Maximum species temperature tolerance.",
+      "data_type": "numeric",
+      "unit": "degC",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "temperature_range",
+      "display_name": "Temperature range",
+      "description": "Temperature tolerance range calculated as maximum minus minimum temperature.",
+      "data_type": "numeric",
+      "unit": "degC",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "temperature_midpoint",
+      "display_name": "Temperature midpoint",
+      "description": "Midpoint of the species temperature range.",
+      "data_type": "numeric",
+      "unit": "degC",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "temperature_preferred",
+      "display_name": "Preferred temperature",
+      "description": "Preferred species temperature.",
+      "data_type": "numeric",
+      "unit": "degC",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "body_shape",
+      "display_name": "Body shape",
+      "description": "General body-shape class.",
+      "data_type": "categorical",
+      "unit": null,
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": [
+        "eel_like",
+        "elongated",
+        "fusiform",
+        "short_deep",
+        "other"
+      ]
+    },
+    {
+      "coded_name": "trophic",
+      "display_name": "Trophic level",
+      "description": "Trophic level.",
+      "data_type": "numeric",
+      "unit": null,
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "length_max",
+      "display_name": "Maximum total length",
+      "description": "Maximum total length.",
+      "data_type": "numeric",
+      "unit": "cm",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "length_min",
+      "display_name": "Minimum total length",
+      "description": "Minimum total length or length at first maturity, depending on source.",
+      "data_type": "numeric",
+      "unit": "cm",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "length_midpoint",
+      "display_name": "Length midpoint",
+      "description": "Midpoint between minimum and maximum length.",
+      "data_type": "numeric",
+      "unit": "cm",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "length_infinity",
+      "display_name": "Asymptotic length",
+      "description": "Asymptotic length from a fitted growth model.",
+      "data_type": "numeric",
+      "unit": "cm",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "length_optimum",
+      "display_name": "Optimum-yield length",
+      "description": "Length of optimum yield.",
+      "data_type": "numeric",
+      "unit": "cm",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "habitat_vertical",
+      "display_name": "Vertical habitat",
+      "description": "Vertical habitat-type membership.",
+      "data_type": "set",
+      "unit": null,
+      "multi_valued": true,
+      "expandable": true,
+      "allowed_values": [
+        "benthic",
+        "demersal",
+        "neritic",
+        "epipelagic",
+        "mesopelagic",
+        "bathypelagic",
+        "abyssopelagic",
+        "hadopelagic",
+        "reef_associated",
+        "other",
+        "unknown"
+      ]
+    },
+    {
+      "coded_name": "habitat_horizontal",
+      "display_name": "Horizontal habitat",
+      "description": "Horizontal habitat-type membership.",
+      "data_type": "set",
+      "unit": null,
+      "multi_valued": true,
+      "expandable": true,
+      "allowed_values": [
+        "coastal",
+        "intertidal",
+        "estuarine",
+        "oceanic",
+        "littoral",
+        "reef_associated",
+        "other",
+        "unknown"
+      ]
+    },
+    {
+      "coded_name": "dvm",
+      "display_name": "Diel vertical migration",
+      "description": "Boolean flag for diel vertical migration.",
+      "data_type": "binary",
+      "unit": null,
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "gregarious",
+      "display_name": "Aggregation behavior",
+      "description": "Social behavior of aggregations.",
+      "data_type": "set",
+      "unit": null,
+      "multi_valued": true,
+      "expandable": true,
+      "allowed_values": [
+        "solitary",
+        "shoaling",
+        "schooling",
+        "other",
+        "unknown"
+      ]
+    },
+    {
+      "coded_name": "migratory_type",
+      "display_name": "Migratory type",
+      "description": "Migratory type or migration strategy.",
+      "data_type": "categorical",
+      "unit": null,
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": [
+        "anadromous",
+        "catadromous",
+        "oceanodromous",
+        "amphidromous",
+        "resident",
+        "non_migratory",
+        "other",
+        "unknown"
+      ]
+    },
+    {
+      "coded_name": "climate_zone",
+      "display_name": "Climate zone",
+      "description": "Species climate or thermal zone.",
+      "data_type": "categorical",
+      "unit": null,
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": [
+        "polar",
+        "subpolar",
+        "temperate",
+        "subtropical",
+        "tropical",
+        "cosmopolitan",
+        "other",
+        "unknown"
+      ]
+    },
+    {
+      "coded_name": "feeding_mode",
+      "display_name": "Feeding mode",
+      "description": "Primary feeding mode.",
+      "data_type": "categorical",
+      "unit": null,
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": [
+        "herbivore",
+        "planktivore",
+        "omnivore",
+        "invertivore",
+        "piscivore",
+        "detritivore",
+        "filter_feeder",
+        "generalist",
+        "other",
+        "unknown"
+      ]
+    },
+    {
+      "coded_name": "growth_k",
+      "display_name": "Growth coefficient K",
+      "description": "Von Bertalanffy growth coefficient K.",
+      "data_type": "numeric",
+      "unit": "1/year",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    }
+  ],
+  "study_traits": [
+    {
+      "coded_name": "fao_area",
+      "display_name": "Study FAO area",
+      "description": "FAO area in which the study was conducted.",
+      "data_type": "set",
+      "unit": null,
+      "multi_valued": true,
+      "expandable": true,
+      "allowed_values": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "18",
+        "21",
+        "27",
+        "31",
+        "34",
+        "37",
+        "41",
+        "47",
+        "48",
+        "51",
+        "57",
+        "58",
+        "61",
+        "67",
+        "71",
+        "77",
+        "81",
+        "87",
+        "88"
+      ]
+    },
+    {
+      "coded_name": "derivation_type",
+      "display_name": "Derivation type",
+      "description": "Experimental or analytical derivation method used to derive the model.",
+      "data_type": "set",
+      "unit": null,
+      "multi_valued": true,
+      "expandable": true,
+      "allowed_values": [
+        "empirical",
+        "derived",
+        "theoretical",
+        "indirect"
+      ]
+    },
+    {
+      "coded_name": "length_minimum",
+      "display_name": "Minimum study length",
+      "description": "Minimum length used in the study.",
+      "data_type": "numeric",
+      "unit": "cm",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "length_maximum",
+      "display_name": "Maximum study length",
+      "description": "Maximum length used in the study.",
+      "data_type": "numeric",
+      "unit": "cm",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "length_midpoint",
+      "display_name": "Length midpoint",
+      "description": "Midpoint of the study length range.",
+      "data_type": "numeric",
+      "unit": "cm",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "length_range",
+      "display_name": "Length range",
+      "description": "Range of lengths used in the study.",
+      "data_type": "numeric",
+      "unit": "cm",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "depth_minimum",
+      "display_name": "Minimum study depth",
+      "description": "Minimum study depth if reported.",
+      "data_type": "numeric",
+      "unit": "m",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "depth_maximum",
+      "display_name": "Maximum study depth",
+      "description": "Maximum study depth if reported.",
+      "data_type": "numeric",
+      "unit": "m",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "depth_midpoint",
+      "display_name": "Depth midpoint",
+      "description": "Midpoint of the study depth range.",
+      "data_type": "numeric",
+      "unit": "m",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "depth_range",
+      "display_name": "Depth range",
+      "description": "Range of study depths.",
+      "data_type": "numeric",
+      "unit": "m",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "length_metric",
+      "display_name": "Length metric",
+      "description": "Categorical representing the length metric used in the study.",
+      "data_type": "categorical",
+      "unit": null,
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": [
+        "fork",
+        "standard",
+        "total",
+        "unknown"
+      ]
+    },
+    {
+      "coded_name": "pressure_corrected",
+      "display_name": "Pressure corrected",
+      "description": "Boolean indicating whether pressure was directly accounted for or taken into consideration.",
+      "data_type": "binary",
+      "unit": null,
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "frequency",
+      "display_name": "Transmit frequency",
+      "description": "Transmit frequency.",
+      "data_type": "numeric",
+      "unit": "kHz",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "equation_form",
+      "display_name": "Equation form",
+      "description": "Functional form of the fitted model.",
+      "data_type": "categorical",
+      "unit": null,
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": [
+        "20log10_ind",
+        "mlog10_ind",
+        "mlog10_kg"
+      ]
+    },
+    {
+      "coded_name": "sample_size",
+      "display_name": "Sample size",
+      "description": "Sample size if reported.",
+      "data_type": "numeric",
+      "unit": "count",
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": null
+    },
+    {
+      "coded_name": "season",
+      "display_name": "Season",
+      "description": "Study season.",
+      "data_type": "categorical",
+      "unit": null,
+      "multi_valued": false,
+      "expandable": false,
+      "allowed_values": [
+        "spring",
+        "summer",
+        "autumn",
+        "winter",
+        "annual",
+        "unknown"
+      ]
+    }
+  ]
+}
