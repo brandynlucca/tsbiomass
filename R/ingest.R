@@ -29,7 +29,7 @@ fetch_worms <- function(species, cache_path = NULL, refresh = FALSE) {
   # Validate the optional cache control arguments before any filesystem or API
   # work begins.
   if (!is.null(cache_path) &&
-      (!is.character(cache_path) || length(cache_path) != 1)) {
+    (!is.character(cache_path) || length(cache_path) != 1)) {
     stop("'cache_path' must be NULL or a single file path.", call. = FALSE)
   }
 
@@ -86,8 +86,8 @@ fetch_worms <- function(species, cache_path = NULL, refresh = FALSE) {
   if (nzchar(alias_path) && file.exists(alias_path)) {
     alias_cfg <- read_json_file(alias_path)
     if (is.list(alias_cfg) &&
-        "worrms" %in% names(alias_cfg) &&
-        is.list(alias_cfg$worrms)) {
+      "worrms" %in% names(alias_cfg) &&
+      is.list(alias_cfg$worrms)) {
       source_aliases <- unlist(alias_cfg$worrms, use.names = TRUE)
     }
   }
@@ -223,7 +223,7 @@ read_tsl_table <- function(path, sheet = NULL) {
   }
 
   if (!is.null(sheet) &&
-      (!(is.character(sheet) || is.numeric(sheet)) || length(sheet) != 1)) {
+    (!(is.character(sheet) || is.numeric(sheet)) || length(sheet) != 1)) {
     stop("'sheet' must be NULL or a single sheet name/index.", call. = FALSE)
   }
 
@@ -312,47 +312,120 @@ read_tsl_table <- function(path, sheet = NULL) {
     dat$derivation_type <- dat$derivation
   }
 
+  parse_study_interval <- function(x, nonphysical_max = Inf) {
+    x_chr <- dplyr::coalesce(as.character(x), "")
+    x_chr <- stringr::str_squish(stringr::str_to_lower(x_chr))
+    num_chr <- stringr::str_extract_all(x_chr, "\\d+(?:\\.\\d+)?")
+
+    vals <- lapply(num_chr, function(z) {
+      z <- suppressWarnings(as.numeric(z))
+      z[is.finite(z)]
+    })
+
+    out <- tibble::tibble(
+      minimum = rep(NA_real_, length(vals)),
+      maximum = rep(NA_real_, length(vals))
+    )
+
+    for (i in seq_along(vals)) {
+      z <- vals[[i]]
+      if (length(z) == 1) {
+        out$minimum[[i]] <- z[[1]]
+        out$maximum[[i]] <- z[[1]]
+      } else if (length(z) >= 2) {
+        out$minimum[[i]] <- min(z[[1]], z[[2]], na.rm = TRUE)
+        out$maximum[[i]] <- max(z[[1]], z[[2]], na.rm = TRUE)
+      }
+    }
+
+    excel_serial_like <- stringr::str_detect(x_chr, "^[0-9]{5}(?:\\.0+)?$")
+    nonphysical <- (is.finite(out$minimum) & out$minimum > nonphysical_max) |
+      (is.finite(out$maximum) & out$maximum > nonphysical_max)
+    bad_rows <- excel_serial_like | nonphysical
+    out$minimum[bad_rows] <- NA_real_
+    out$maximum[bad_rows] <- NA_real_
+
+    out$range <- out$maximum - out$minimum
+    out$midpoint <- (out$minimum + out$maximum) / 2
+    out$range[!is.finite(out$range)] <- NA_real_
+    out$midpoint[!is.finite(out$midpoint)] <- NA_real_
+    out
+  }
+
+  normalize_season <- function(x) {
+    season <- dplyr::coalesce(as.character(x), "unknown")
+    season <- stringr::str_to_lower(stringr::str_squish(season))
+    season <- stringr::str_replace_all(season, "\\bautumn\\b", "fall")
+    season <- stringr::str_replace_all(
+      season,
+      "\\b(annual|year[- ]?round|all seasons|full year)\\b",
+      "winter;spring;summer;fall"
+    )
+    season <- stringr::str_replace_all(season, "\\b(and|to)\\b|/|,|\\+|&", ";")
+    season <- stringr::str_replace_all(season, "\\s*;\\s*", ";")
+
+    allowed <- c("winter", "spring", "summer", "fall", "unknown")
+    vapply(season, function(z) {
+      parts <- unique(stringr::str_trim(unlist(strsplit(z, ";", fixed = TRUE))))
+      parts <- parts[nzchar(parts)]
+      parts <- intersect(parts, allowed)
+      if (length(parts) == 0) {
+        return(NA_character_)
+      }
+      if (length(parts) > 1) {
+        parts <- setdiff(parts, "unknown")
+      }
+      if (length(parts) == 0 || identical(parts, "unknown")) {
+        return(NA_character_)
+      }
+      paste(parts, collapse = ";")
+    }, character(1))
+  }
+
+  normalize_diel <- function(x) {
+    diel <- dplyr::coalesce(as.character(x), "unknown")
+    diel <- stringr::str_to_lower(stringr::str_squish(diel))
+    dplyr::case_when(
+      stringr::str_detect(diel, "full|24|day.*night|night.*day|both") ~ "full",
+      stringr::str_detect(diel, "^day$|daytime|diurnal") ~ "day",
+      stringr::str_detect(diel, "^night$|nighttime|nocturnal") ~ "night",
+      stringr::str_detect(diel, "unknown|not reported|^$") ~ NA_character_,
+      TRUE ~ NA_character_
+    )
+  }
+
   # Parse the study fitting length range when that source column is present.
   # These are the study-reported fitting lengths, not species-level body-length
   # traits from external databases.
   if ("length_range_cm" %in% names(dat)) {
-    range_chr <- dplyr::coalesce(as.character(dat$length_range_cm), "")
-    range_chr <- stringr::str_squish(range_chr)
-    split_mat <- stringr::str_split(
-      stringr::str_replace_all(range_chr, "\\s", ""),
-      ",",
-      simplify = TRUE
-    )
+    parsed_length <- parse_study_interval(dat$length_range_cm, nonphysical_max = 1000)
+    dat$length_min <- parsed_length$minimum
+    dat$length_max <- parsed_length$maximum
+    dat$length_range <- parsed_length$range
+    dat$length_midpoint <- parsed_length$midpoint
+  }
 
-    if (ncol(split_mat) >= 2) {
-      min_len <- suppressWarnings(as.numeric(split_mat[, 1]))
-      max_len <- suppressWarnings(as.numeric(split_mat[, 2]))
-    } else {
-      min_len <- rep(NA_real_, nrow(dat))
-      max_len <- rep(NA_real_, nrow(dat))
+  if ("depth_interval" %in% names(dat)) {
+    parsed_depth <- parse_study_interval(dat$depth_interval)
+    for (nm in c("depth_min", "depth_max", "depth_midpoint", "depth_range")) {
+      if (!nm %in% names(dat)) {
+        dat[[nm]] <- NA_real_
+      }
+      dat[[nm]] <- suppressWarnings(as.numeric(dat[[nm]]))
+      dat[[nm]][!is.finite(dat[[nm]])] <- NA_real_
     }
+    dat$depth_min <- dplyr::coalesce(dat$depth_min, parsed_depth$minimum)
+    dat$depth_max <- dplyr::coalesce(dat$depth_max, parsed_depth$maximum)
+    dat$depth_midpoint <- dplyr::coalesce(dat$depth_midpoint, parsed_depth$midpoint)
+    dat$depth_range <- dplyr::coalesce(dat$depth_range, parsed_depth$range)
+  }
 
-    # Guard against spreadsheet artifacts where the length range was imported
-    # as an Excel serial date or as another clearly non-physical large value.
-    excel_serial_like <- stringr::str_detect(range_chr, "^[0-9]{5}(?:\\.0+)?$")
-    nonphysical_len <- (is.finite(min_len) & min_len > 1000) |
-      (is.finite(max_len) & max_len > 1000)
-    bad_len_rows <- excel_serial_like | nonphysical_len
-    min_len[bad_len_rows] <- NA_real_
-    max_len[bad_len_rows] <- NA_real_
+  if ("season" %in% names(dat)) {
+    dat$season <- normalize_season(dat$season)
+  }
 
-    dat$length_min <- pmin(min_len, max_len, na.rm = TRUE)
-    dat$length_max <- pmax(min_len, max_len, na.rm = TRUE)
-    dat$length_range <- dat$length_max - dat$length_min
-
-    dat$length_min[!is.finite(dat$length_min)] <- NA_real_
-    dat$length_max[!is.finite(dat$length_max)] <- NA_real_
-    dat$length_range[!is.finite(dat$length_range)] <- NA_real_
-    dat$length_midpoint <- ifelse(
-      is.finite(dat$length_min) & is.finite(dat$length_max),
-      (dat$length_min + dat$length_max) / 2,
-      NA_real_
-    )
+  if ("diel" %in% names(dat)) {
+    dat$diel <- normalize_diel(dat$diel)
   }
 
   # Retain only the canonical study-analysis columns needed downstream.
@@ -375,9 +448,13 @@ read_tsl_table <- function(path, sheet = NULL) {
     "length_min",
     "length_max",
     "length_midpoint",
+    "length_range",
     "depth_min",
     "depth_max",
     "depth_midpoint",
+    "depth_range",
+    "season",
+    "diel",
     "reference_tsl_short"
   )
 
@@ -392,8 +469,8 @@ read_tsl_table <- function(path, sheet = NULL) {
   # pared-down study table.
   for (nm in c(
     "slope", "intercept", "sample_size", "frequency",
-    "length_min", "length_max", "length_midpoint",
-    "depth_min", "depth_max", "depth_midpoint"
+    "length_min", "length_max", "length_midpoint", "length_range",
+    "depth_min", "depth_max", "depth_midpoint", "depth_range"
   )) {
     dat[[nm]] <- suppressWarnings(as.numeric(dat[[nm]]))
     dat[[nm]][!is.finite(dat[[nm]])] <- NA_real_
@@ -433,7 +510,7 @@ fetch_fishbase <- function(species, cache_path = NULL, refresh = FALSE) {
   # Validate the optional cache control arguments before any filesystem or API
   # work begins.
   if (!is.null(cache_path) &&
-      (!is.character(cache_path) || length(cache_path) != 1)) {
+    (!is.character(cache_path) || length(cache_path) != 1)) {
     stop("'cache_path' must be NULL or a single file path.", call. = FALSE)
   }
 
@@ -481,8 +558,8 @@ fetch_fishbase <- function(species, cache_path = NULL, refresh = FALSE) {
   if (nzchar(alias_path) && file.exists(alias_path)) {
     alias_cfg <- read_json_file(alias_path)
     if (is.list(alias_cfg) &&
-        "fishbase" %in% names(alias_cfg) &&
-        is.list(alias_cfg$fishbase)) {
+      "fishbase" %in% names(alias_cfg) &&
+      is.list(alias_cfg$fishbase)) {
       source_aliases <- unlist(alias_cfg$fishbase, use.names = TRUE)
     }
   }
@@ -621,7 +698,7 @@ fetch_fishbase <- function(species, cache_path = NULL, refresh = FALSE) {
           numeric_try <- suppressWarnings(as.numeric(value_df$value_raw))
           numeric_idx <- !is.na(value_df$value_raw)
           if (any(numeric_idx) &&
-              all(!is.na(numeric_try[numeric_idx]))) {
+            all(!is.na(numeric_try[numeric_idx]))) {
             value_df$value_raw <- numeric_try
             target_type <- "numeric"
           }
@@ -722,7 +799,7 @@ read_pelagic_db <- function(species,
   }
 
   if (!is.null(cache_path) &&
-      (!is.character(cache_path) || length(cache_path) != 1)) {
+    (!is.character(cache_path) || length(cache_path) != 1)) {
     stop("'cache_path' must be NULL or a single file path.", call. = FALSE)
   }
 
@@ -805,8 +882,8 @@ read_pelagic_db <- function(species,
   if (nzchar(alias_path) && file.exists(alias_path)) {
     alias_cfg <- read_json_file(alias_path)
     if (is.list(alias_cfg) &&
-        "pelagic_db" %in% names(alias_cfg) &&
-        is.list(alias_cfg$pelagic_db)) {
+      "pelagic_db" %in% names(alias_cfg) &&
+      is.list(alias_cfg$pelagic_db)) {
       source_aliases <- unlist(alias_cfg$pelagic_db, use.names = TRUE)
     }
   }
@@ -937,7 +1014,7 @@ read_pelagic_db <- function(species,
       # species-level values. This keeps juvenile or larval sizes from diluting
       # the adult morphology values that should anchor the species table.
       if (target_col %in% c("length_min", "length_max") &&
-          "life_stage" %in% names(value_df)) {
+        "life_stage" %in% names(value_df)) {
         value_df <- value_df |>
           dplyr::group_by(species_name_query) |>
           dplyr::mutate(
@@ -1089,7 +1166,7 @@ read_azores_db <- function(species,
   }
 
   if (!is.null(cache_path) &&
-      (!is.character(cache_path) || length(cache_path) != 1)) {
+    (!is.character(cache_path) || length(cache_path) != 1)) {
     stop("'cache_path' must be NULL or a single file path.", call. = FALSE)
   }
 
@@ -1171,8 +1248,8 @@ read_azores_db <- function(species,
   if (nzchar(alias_path) && file.exists(alias_path)) {
     alias_cfg <- read_json_file(alias_path)
     if (is.list(alias_cfg) &&
-        "azores_db" %in% names(alias_cfg) &&
-        is.list(alias_cfg$azores_db)) {
+      "azores_db" %in% names(alias_cfg) &&
+      is.list(alias_cfg$azores_db)) {
       source_aliases <- unlist(alias_cfg$azores_db, use.names = TRUE)
     }
   }
@@ -1238,7 +1315,7 @@ read_azores_db <- function(species,
       value_num[!is.finite(value_num)] <- NA_real_
       value_df$value_raw <- value_num / 10
     } else if (target_col == "length_max" &&
-               source_col == "size_habitat_use_maximum_body_length") {
+      source_col == "size_habitat_use_maximum_body_length") {
       value_chr <- stringr::str_squish(as.character(value_df$value_raw))
       value_chr[!nzchar(value_chr)] <- NA_character_
       value_df$value_raw <- suppressWarnings(as.numeric(
@@ -1377,7 +1454,7 @@ read_continental_db <- function(species,
   }
 
   if (!is.null(cache_path) &&
-      (!is.character(cache_path) || length(cache_path) != 1)) {
+    (!is.character(cache_path) || length(cache_path) != 1)) {
     stop("'cache_path' must be NULL or a single file path.", call. = FALSE)
   }
 
@@ -1459,8 +1536,8 @@ read_continental_db <- function(species,
   if (nzchar(alias_path) && file.exists(alias_path)) {
     alias_cfg <- read_json_file(alias_path)
     if (is.list(alias_cfg) &&
-        "continental_db" %in% names(alias_cfg) &&
-        is.list(alias_cfg$continental_db)) {
+      "continental_db" %in% names(alias_cfg) &&
+      is.list(alias_cfg$continental_db)) {
       source_aliases <- unlist(alias_cfg$continental_db, use.names = TRUE)
     }
   }
@@ -1653,7 +1730,7 @@ read_mstraits_db <- function(species,
   }
 
   if (!is.null(cache_path) &&
-      (!is.character(cache_path) || length(cache_path) != 1)) {
+    (!is.character(cache_path) || length(cache_path) != 1)) {
     stop("'cache_path' must be NULL or a single file path.", call. = FALSE)
   }
 
@@ -1735,8 +1812,8 @@ read_mstraits_db <- function(species,
   if (nzchar(alias_path) && file.exists(alias_path)) {
     alias_cfg <- read_json_file(alias_path)
     if (is.list(alias_cfg) &&
-        "mstraits_db" %in% names(alias_cfg) &&
-        is.list(alias_cfg$mstraits_db)) {
+      "mstraits_db" %in% names(alias_cfg) &&
+      is.list(alias_cfg$mstraits_db)) {
       source_aliases <- unlist(alias_cfg$mstraits_db, use.names = TRUE)
     }
   }
@@ -1963,8 +2040,7 @@ format_db_entry <- function(entry,
   # Read the registry and build the trait-definition set for the requested
   # scope so the formatter follows the installed JSON exactly.
   registry <- read_trait_registry(registry_path = registry_path)
-  trait_defs <- switch(
-    scope,
+  trait_defs <- switch(scope,
     species = registry$species_traits,
     study = registry$study_traits,
     all = c(registry$species_traits, registry$study_traits)
@@ -2122,8 +2198,8 @@ enrich_species_db <- function(db_list,
   }
 
   if (is.null(names(db_list)) ||
-      any(is.na(names(db_list))) ||
-      any(!nzchar(names(db_list)))) {
+    any(is.na(names(db_list))) ||
+    any(!nzchar(names(db_list)))) {
     stop("'db_list' must be a named list.", call. = FALSE)
   }
 
@@ -2151,7 +2227,7 @@ enrich_species_db <- function(db_list,
   }
 
   if (!is.null(cache_path) &&
-      (!is.character(cache_path) || length(cache_path) != 1)) {
+    (!is.character(cache_path) || length(cache_path) != 1)) {
     stop("'cache_path' must be NULL or a single file path.", call. = FALSE)
   }
 
@@ -2453,3 +2529,5 @@ enrich_species_db <- function(db_list,
 
   out
 }
+
+

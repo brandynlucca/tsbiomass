@@ -1,0 +1,522 @@
+test_that("plot.Candidates dispatches through base plot without replacing it", {
+  candidates <- make_candidates()
+  seen <- new.env(parent = emptyenv())
+
+  testthat::local_mocked_bindings(
+    plot_area_distribution = function(model_data,
+                                      count_type = "studies") {
+      seen$n_models <- nrow(model_data)
+      seen$count_type <- count_type
+      ggplot2::ggplot()
+    },
+    .package = "tsbiomass"
+  )
+
+  p <- plot(candidates, count_type = "models")
+
+  expect_s3_class(p, "ggplot")
+  expect_equal(seen$n_models, nrow(candidates@candidate_models))
+  expect_equal(seen$count_type, "models")
+})
+
+test_that("plot.Candidates renders admissibility and anchor-review plots", {
+  anchor_row <- minimal_candidate_models()[1, , drop = FALSE]
+  scored_tbl <- tibble::tibble(
+    anchor_model_id = c("1", "1"),
+    anchor_species = c("Alpha alpha", "Alpha alpha"),
+    species_name = c("Beta beta", "Gamma gamma"),
+    model_id_chr = c("3", "4"),
+    admissible = c(TRUE, TRUE),
+    biomass_multiplier_if_replace = c(1.20, 0.92),
+    w_adm = c(0.62, 0.38),
+    w_combined = c(0.58, 0.42),
+    combined_distance = c(0.22, 0.31),
+    d_species = c(0.12, 0.21),
+    d_study = c(0.18, 0.26),
+    overlap_same_species = c(FALSE, FALSE),
+    swimbladder_type = c("physostome", "physoclist")
+  )
+  ranked_tbl <- tibble::tibble(
+    candidate_label = c("Beta beta {m3}", "Gamma gamma {m4}"),
+    species_name = c("Beta beta", "Gamma gamma"),
+    model_id_chr = c("3", "4"),
+    w_adm = c(0.62, 0.38),
+    biomass_multiplier_if_replace = c(1.20, 0.92)
+  )
+  overlap_tbl <- tibble::tibble(
+    anchor_species = "Alpha alpha",
+    w_same_species = 0.70,
+    w_same_family = 0.92,
+    w_same_swimbladder = 0.81,
+    w_same_fao = 0.66,
+    w_same_ocean_basin = 0.66,
+    mean_length_overlap_fraction = 0.54,
+    mean_depth_overlap_fraction = 0.43
+  )
+  gates_tbl <- tibble::tibble(
+    anchor_species = c("Alpha alpha", "Alpha alpha"),
+    inadmissible_reason = c("admissible", "self"),
+    n_models = c(3L, 1L)
+  )
+  candidates <- make_candidates(
+    admissibility = list(
+      anchors = list(
+        "1" = list(
+          anchor = anchor_row,
+          scored = scored_tbl,
+          ranked = ranked_tbl,
+          overlap = overlap_tbl,
+          gates = gates_tbl,
+          summary = tibble::tibble(
+            combined_consensus_multiplier = 1.10,
+            combined_multiplier_q05 = 0.94,
+            combined_multiplier_q95 = 1.28
+          )
+        )
+      ),
+      all_scores = scored_tbl,
+      all_overlap = overlap_tbl,
+      all_gates = gates_tbl,
+      anchor_summary = tibble::tibble(
+        anchor_model_id = "1",
+        anchor_species = "Alpha alpha",
+        q05_multiplier_admissible = 0.94,
+        q50_multiplier_admissible = 1.08,
+        q95_multiplier_admissible = 1.28
+      )
+    )
+  )
+
+  p_gate <- plot(candidates, type = "admissibility", view = "gate_composition")
+  p_overlap <- plot(candidates, type = "admissibility", view = "overlap_profile")
+  p_top <- plot(candidates, type = "most_similar", anchor_model_id = "1")
+  p_top_alias <- plot(candidates, type = "candidate_review", view = "top_candidates", anchor_model_id = "1")
+  p_biomass <- plot(candidates, type = "candidate_biomass_response", anchor_species = "Alpha alpha")
+  p_weights <- plot(candidates, type = "model_weights", anchor_species = "Alpha alpha")
+  p_similarity <- plot(candidates, type = "candidate_review", view = "similarity_map", anchor_species = "Alpha alpha")
+
+  expect_s3_class(p_gate, "ggplot")
+  expect_s3_class(p_overlap, "ggplot")
+  expect_s3_class(p_top, "ggplot")
+  expect_s3_class(p_top_alias, "ggplot")
+  expect_s3_class(p_biomass, "ggplot")
+  expect_s3_class(p_weights, "ggplot")
+  expect_s3_class(p_similarity, "ggplot")
+})
+
+test_that("plot.Candidates exposes ordination, tuning, and slope diagnostics", {
+  models <- minimal_candidate_models()
+  ordination_bundle <- list(
+    model = list(
+      points = tibble::tibble(
+        model_id = models$model_id_chr,
+        MDS1 = c(-0.4, -0.2, 0.3, 0.5),
+        MDS2 = c(0.4, 0.1, -0.1, -0.5),
+        species_name = models$species_name,
+        common = models$common,
+        is_reference = c(TRUE, FALSE, FALSE, TRUE),
+        nmds_cluster_id = c("cluster_1", "cluster_1", "cluster_2", "cluster_2")
+      ),
+      loadings = tibble::tibble(
+        trait = c("frequency", "length_min"),
+        MDS1 = c(0.7, -0.4),
+        MDS2 = c(0.2, 0.6),
+        p_value = c(0.01, 0.03),
+        r2 = c(0.45, 0.31)
+      ),
+      centroids = tibble::tibble(
+        trait = "fao_area",
+        level = c("61", "67"),
+        MDS1 = c(-0.2, 0.4),
+        MDS2 = c(0.3, -0.2),
+        n = c(3L, 1L)
+      ),
+      hulls = tibble::tibble(
+        MDS1 = c(-0.45, -0.15, -0.3, 0.2, 0.55, 0.35),
+        MDS2 = c(0.45, 0.15, -0.05, -0.15, -0.45, -0.55),
+        nmds_cluster_id = c("cluster_1", "cluster_1", "cluster_1", "cluster_2", "cluster_2", "cluster_2")
+      )
+    ),
+    species = list(
+      points = tibble::tibble(
+        species_name = c("Alpha alpha", "Beta beta", "Gamma gamma"),
+        MDS1 = c(-0.3, 0.1, 0.4),
+        MDS2 = c(0.4, -0.1, -0.4),
+        species_cluster_id = c("species_1", "species_1", "species_2"),
+        is_reference = c(TRUE, FALSE, TRUE)
+      ),
+      loadings = tibble::tibble(
+        trait = "family",
+        MDS1 = 0.5,
+        MDS2 = 0.3,
+        p_value = 0.02,
+        r2 = 0.40
+      ),
+      centroids = tibble::tibble(
+        trait = "order",
+        level = c("Ord1", "Ord2"),
+        MDS1 = c(-0.2, 0.3),
+        MDS2 = c(0.2, -0.3),
+        n = c(2L, 1L)
+      )
+    )
+  )
+  candidates <- make_candidates(ordination = ordination_bundle)
+
+  p_combined_vectors <- plot(candidates, type = "ordination", dissimilarity = "combined", view = "vectors")
+  p_species_centers <- plot(candidates, type = "ordination", dissimilarity = "species", view = "centers")
+  p_tuning <- plot(candidates, type = "tuning_variation")
+  p_component <- plot(candidates, type = "similarity_tuning", view = "component_importance")
+  p_slope_group <- plot(candidates, type = "slope_support", view = "group")
+
+  expect_s3_class(p_combined_vectors, "ggplot")
+  expect_s3_class(p_species_centers, "ggplot")
+  expect_s3_class(p_tuning, "ggplot")
+  expect_s3_class(p_component, "ggplot")
+  expect_s3_class(p_slope_group, "ggplot")
+})
+
+test_that("plot.PolicySelector dispatches benchmark and uncertainty summaries", {
+  selector <- make_selector(
+    benchmark = list(
+      policy_perf = minimal_policy_performance(),
+      species_block_perf = minimal_policy_performance()
+    ),
+    uncertainty = minimal_uncertainty()
+  )
+
+  p_policy <- plot(selector, type = "policy_benchmark")
+  p_heat <- plot(selector, type = "strategy_error_heatmap")
+  p_ranked <- plot(selector, type = "species_policy_ranked")
+  p_conf <- plot(selector, type = "conformal_scores")
+
+  expect_s3_class(p_policy, "ggplot")
+  expect_s3_class(p_heat, "ggplot")
+  expect_s3_class(p_ranked, "ggplot")
+  expect_s3_class(p_conf, "ggplot")
+})
+
+test_that("plot.PolicyPredictions dispatches selected intervals and policy competition", {
+  predictions <- PolicyPredictions(
+    intervals = tibble::tibble(
+      anchor_model_id = c("1", "1", "4", "4"),
+      anchor_species = c("Alpha alpha", "Alpha alpha", "Gamma gamma", "Gamma gamma"),
+      policy = c("same_species_closest", "same_genus_weighted", "same_species_closest", "same_genus_weighted"),
+      multiplier_pred = c(1.10, 1.30, 1.20, 1.38),
+      multiplier_lo = c(1.00, 1.12, 1.08, 1.18),
+      multiplier_hi = c(1.22, 1.52, 1.34, 1.61),
+      valid_prediction = TRUE,
+      is_selected = c(TRUE, FALSE, TRUE, FALSE)
+    ),
+    selections = tibble::tibble(
+      anchor_model_id = c("1", "4"),
+      anchor_species = c("Alpha alpha", "Gamma gamma"),
+      selected_policy = c("same_species_closest", "same_species_closest"),
+      selected_policy_display = c("same_species_closest", "same_species_closest"),
+      multiplier_pred = c(1.10, 1.20),
+      multiplier_lo = c(1.00, 1.08),
+      multiplier_hi = c(1.22, 1.34)
+    ),
+    consensus = tibble::tibble()
+  )
+
+  p_selected <- plot(predictions, type = "selected_intervals")
+  p_competition <- plot(predictions, type = "strategy_competition", anchor_species = "Alpha alpha")
+
+  expect_s3_class(p_selected, "ggplot")
+  expect_s3_class(p_competition, "ggplot")
+})
+
+test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
+  selected_tbl <- tibble::tibble(
+    anchor_model_id = c("1", "4"),
+    anchor_species = c("Alpha alpha", "Gamma gamma"),
+    selected_policy = c("same_species_closest", "same_species_closest"),
+    selected_policy_display = c("same_species_closest", "same_species_closest"),
+    multiplier_pred = c(1.10, 1.20),
+    multiplier_lo = c(1.00, 1.08),
+    multiplier_hi = c(1.22, 1.34),
+    meta_post_selection_multiplier_lo = c(1.00, 1.08),
+    meta_post_selection_multiplier_hi = c(1.22, 1.34),
+    expected_length_cm = c(20, 24),
+    length_support_min_cm = c(10, 15),
+    length_support_max_cm = c(30, 28),
+    policy_slope_len = c(20.0, 19.5),
+    policy_slope_len_lo_95 = c(19.0, 18.8),
+    policy_slope_len_hi_95 = c(21.0, 20.2),
+    policy_intercept_len = c(-70.0, -69.0),
+    policy_intercept_len_lo_95 = c(-71.0, -70.1),
+    policy_intercept_len_hi_95 = c(-69.0, -67.9)
+  )
+  intervals_tbl <- tibble::tibble(
+    anchor_model_id = c("1", "1", "4", "4"),
+    anchor_species = c("Alpha alpha", "Alpha alpha", "Gamma gamma", "Gamma gamma"),
+    policy = c("same_species_closest", "same_genus_weighted", "same_species_closest", "same_genus_weighted"),
+    multiplier_pred = c(1.10, 1.30, 1.20, 1.38),
+    multiplier_lo = c(1.00, 1.12, 1.08, 1.18),
+    multiplier_hi = c(1.22, 1.52, 1.34, 1.61),
+    valid_prediction = TRUE,
+    is_selected = c(TRUE, FALSE, TRUE, FALSE)
+  )
+  ts_panel_tbl <- tibble::tibble(
+    anchor_model_id = rep(c("1", "4"), each = 2),
+    anchor_species = rep(c("Alpha alpha", "Gamma gamma"), each = 2),
+    selected_policy = rep(c("same_species_closest", "same_species_closest"), each = 2),
+    length_cm = rep(c(10, 20), 2),
+    ts_pred = c(-55, -50, -57, -52),
+    ts_anchor = c(-54, -49, -56, -51),
+    ts_top_candidate = c(-55.5, -50.4, -57.5, -52.4),
+    ts_lo_99 = c(-58, -53, -60, -55),
+    ts_hi_99 = c(-52, -47, -54, -49),
+    ts_lo_95 = c(-57, -52, -59, -54),
+    ts_hi_95 = c(-53, -48, -55, -50),
+    ts_lo_90 = c(-56.5, -51.5, -58.5, -53.5),
+    ts_hi_90 = c(-53.5, -48.5, -55.5, -50.5),
+    ts_lo_80 = c(-56, -51, -58, -53),
+    ts_hi_80 = c(-54, -49, -56, -51)
+  )
+  selection_diagnostics <- tibble::tibble(
+    anchor_species = c("Alpha alpha", "Gamma gamma"),
+    selected_policy = c("same_species_closest", "same_species_closest"),
+    species_rank = c(1, 2),
+    selection_source = c("deterministic_policy_selection", "deterministic_policy_selection")
+  )
+  anchor_summary_tbl <- tibble::tibble(
+    anchor_model_id = c("1", "4"),
+    anchor_species = c("Alpha alpha", "Gamma gamma"),
+    selected_policy_display = c("same_species_closest", "same_species_closest"),
+    multiplier_pred = c(1.10, 1.20),
+    multiplier_lo = c(1.00, 1.08),
+    multiplier_hi = c(1.22, 1.34),
+    combined_multiplier_q05 = c(0.95, 1.02),
+    combined_multiplier_q50 = c(1.08, 1.16),
+    combined_multiplier_q95 = c(1.24, 1.36)
+  )
+  anchor_audit_tbl <- tibble::tibble(
+    anchor_species = c("Alpha alpha", "Gamma gamma"),
+    selected_policy_display = c("same_species_closest", "same_species_closest"),
+    empirical_coverage = c(0.90, 0.88),
+    interval_log_width = c(0.20, 0.24),
+    local_effective_support = c(3.0, 2.5),
+    local_mean_combined_distance = c(0.12, 0.18)
+  )
+  field_missing_tbl <- tibble::tibble(
+    field = c("family", "frequency"),
+    missing_fraction = c(0.10, 0.04)
+  )
+  anchor_missing_tbl <- tibble::tibble(
+    anchor_species = c("Alpha alpha", "Gamma gamma"),
+    prop_fail_missing_metadata = c(0.08, 0.15)
+  )
+  status_tbl <- tibble::tibble(
+    component = character(),
+    status = character(),
+    message = character()
+  )
+  scorecard <- Scorecard(
+    intervals = intervals_tbl,
+    selected = selected_tbl,
+    ts_panel = ts_panel_tbl,
+    recommendation_cards = tibble::tibble(),
+    surrogate_rules = tibble::tibble(),
+    consensus = tibble::tibble(),
+    anchor_summary = anchor_summary_tbl,
+    anchor_audit = anchor_audit_tbl,
+    species_coverage = tibble::tibble(),
+    selection_diagnostics = selection_diagnostics,
+    key_missing_overall = tibble::tibble(),
+    key_missing_by_field = field_missing_tbl,
+    key_missing_by_model = tibble::tibble(),
+    anchor_missing_gate = anchor_missing_tbl,
+    status = status_tbl
+  )
+  candidates <- make_candidates(
+    admissibility = list(
+      all_scores = tibble::tibble(
+        anchor_model_id = c("1", "1", "4", "4"),
+        anchor_species = c("Alpha alpha", "Alpha alpha", "Gamma gamma", "Gamma gamma"),
+        model_id_chr = c("2", "3", "1", "2"),
+        species_name = c("Alpha alpha", "Beta beta", "Alpha alpha", "Alpha alpha"),
+        admissible = c(TRUE, TRUE, TRUE, TRUE),
+        biomass_multiplier_if_replace = c(1.00, 1.18, 1.12, 1.28),
+        slope_len = c(18, 20, 20, 18),
+        intercept_len = c(-68, -65, -70, -68),
+        w_adm = c(0.55, 0.45, 0.60, 0.40),
+        w_combined = c(0.52, 0.48, 0.58, 0.42),
+        lw_a_g = c(0.013, 0.011, 0.012, 0.013),
+        lw_b = c(3.1, 2.9, 3.0, 3.1)
+      )
+    )
+  )
+  selector <- make_selector(candidates = candidates)
+  referee <- Referee(
+    selector = selector,
+    learner = NULL,
+    predictions = NULL,
+    config = list(),
+    scorecard = scorecard
+  )
+
+  p_ts <- plot(scorecard, type = "ts_length_conformal")
+  p_ts_top <- plot(scorecard, type = "ts_length_conformal", show_top_candidate = TRUE)
+  p_ts_alias <- plot(scorecard, type = "ts_length", scale = "ts")
+  p_mult <- plot(scorecard, type = "ts_length_multiplier")
+  p_mult_alias <- plot(scorecard, type = "ts_length", scale = "multiplier")
+  p_bands <- plot(scorecard, type = "ts_length_bands", anchor_species = "Alpha alpha")
+  p_bands_top <- plot(scorecard, type = "ts_length_bands", anchor_species = "Alpha alpha", show_top_candidate = TRUE)
+  p_coef <- plot(scorecard, type = "coefficient_uncertainty")
+  p_rank <- plot(scorecard, type = "selection_rank")
+  p_selected <- plot(scorecard, type = "selected_intervals")
+  p_selected_multiplier <- plot(scorecard, type = "selected_multiplier_summary")
+  p_selected_counts <- plot(scorecard, type = "selected_policy_counts")
+  p_selected_counts_anchor <- plot(scorecard, type = "selected_policy_counts", view = "by_anchor")
+  p_competition_scorecard <- plot(scorecard, type = "strategy_competition", anchor_species = "Alpha alpha")
+  p_field_missing <- plot(scorecard, type = "field_missingness")
+  p_summary <- plot(referee, type = "anchor_multiplier_summary")
+  p_competition <- plot(referee, type = "strategy_competition", anchor_species = "Alpha alpha")
+  p_competition_alias <- plot(referee, type = "anchor_multiplier_summary", view = "strategy_competition", anchor_species = "Alpha alpha")
+  p_length_density <- plot(referee, type = "length_density", anchor_species = "Alpha alpha")
+  p_length_density_panel <- plot(referee, type = "length_density")
+
+  expect_s3_class(p_ts, "ggplot")
+  expect_s3_class(p_ts_top, "ggplot")
+  expect_s3_class(p_ts_alias, "ggplot")
+  expect_s3_class(p_mult, "ggplot")
+  expect_s3_class(p_mult_alias, "ggplot")
+  expect_s3_class(p_bands, "ggplot")
+  expect_s3_class(p_bands_top, "ggplot")
+  expect_s3_class(p_coef, "ggplot")
+  expect_s3_class(p_rank, "ggplot")
+  expect_s3_class(p_selected, "ggplot")
+  expect_s3_class(p_selected_multiplier, "ggplot")
+  expect_s3_class(p_selected_counts, "ggplot")
+  expect_s3_class(p_selected_counts_anchor, "ggplot")
+  expect_s3_class(p_competition_scorecard, "ggplot")
+  expect_s3_class(p_field_missing, "ggplot")
+  expect_s3_class(p_summary, "ggplot")
+  expect_s3_class(p_competition, "ggplot")
+  expect_s3_class(p_competition_alias, "ggplot")
+  expect_s3_class(p_length_density, "ggplot")
+  expect_s3_class(p_length_density_panel, "ggplot")
+})
+
+test_that("plot.PolicyLearner exposes calibration and residual diagnostics", {
+  all_rows <- minimal_crossfit_predictions() |>
+    dplyr::mutate(
+      .outcome = error_abs_log,
+      .outcome_raw = c(0.12, 0.21, 0.11, 0.23),
+      .outcome_was_clipped = c(TRUE, FALSE, FALSE, TRUE),
+      post_selection_support_bin = c("bin_1", "bin_2", "bin_1", "bin_2"),
+      post_selection_support_label = c("Lower support", "Higher support", "Lower support", "Higher support"),
+      policy_display = policy
+    )
+  selected_rows <- all_rows |>
+    dplyr::group_by(anchor_model_id, anchor_species) |>
+    dplyr::slice_min(.meta_predicted_score, with_ties = FALSE) |>
+    dplyr::ungroup() |>
+    dplyr::mutate(
+      selected_policy = policy,
+      selected_policy_display = policy,
+      selected_equation_branch_filter = equation_branch_filter
+    )
+  learner <- PolicyLearner(
+    selector = make_selector(
+      benchmark = list(
+        species_block_perf = minimal_policy_performance()
+      )
+    ),
+    config = list(),
+    training_data = tibble::as_tibble(all_rows),
+    crossfit = list(
+      result = list(predictions = all_rows),
+      outcome_col = "error_abs_log"
+    ),
+    fitted_model = list(method = "glm"),
+    calibration = list(
+      predictions = all_rows,
+      selected = selected_rows,
+      outcome_col = "error_abs_log"
+    )
+  )
+
+  p_predicted <- plot(learner, type = "predicted_vs_observed")
+  p_calibration <- plot(learner, type = "calibration_curve")
+  p_calibration_raw <- plot(learner, type = "calibration_curve", outcome = "raw")
+  p_selected_calibration <- plot(learner, type = "calibration_curve", rows = "selected", outcome = "raw")
+  p_residual_policy <- plot(learner, type = "residuals", view = "by_policy", outcome = "raw")
+  p_residual_branch <- plot(learner, type = "residuals", view = "by_branch", outcome = "raw")
+  p_score <- plot(learner, type = "score_by_policy")
+  p_support <- plot(learner, type = "support_bin_error", outcome = "raw")
+  p_counts <- plot(learner, type = "selected_policy_counts")
+  p_counts_anchor <- plot(learner, type = "selected_policy_counts", view = "by_anchor")
+  p_stability <- plot(learner, type = "recommendation_stability")
+
+  expect_s3_class(p_predicted, "ggplot")
+  expect_s3_class(p_calibration, "ggplot")
+  expect_s3_class(p_calibration_raw, "ggplot")
+  expect_s3_class(p_selected_calibration, "ggplot")
+  expect_s3_class(p_residual_policy, "ggplot")
+  expect_s3_class(p_residual_branch, "ggplot")
+  expect_s3_class(p_score, "ggplot")
+  expect_s3_class(p_support, "ggplot")
+  expect_s3_class(p_counts, "ggplot")
+  expect_s3_class(p_counts_anchor, "ggplot")
+  expect_s3_class(p_stability, "ggplot")
+})
+
+test_that("plot.PolicySimulator exposes sensitivity summaries", {
+  sensitivity_rows <- dplyr::bind_rows(
+    minimal_selection_ref() |>
+      dplyr::slice(1) |>
+      dplyr::mutate(scenario = "baseline", .before = 1),
+    minimal_selection_ref() |>
+      dplyr::slice(2) |>
+      dplyr::mutate(scenario = "stricter_overlap_0_50", .before = 1)
+  )
+  anchor_selected_rows <- tibble::tibble(
+    scenario = c("baseline", "baseline", "stricter_overlap_0_50", "stricter_overlap_0_50"),
+    anchor_model_id = c("1", "4", "1", "4"),
+    anchor_species = c("Alpha alpha", "Gamma gamma", "Alpha alpha", "Gamma gamma"),
+    selected_policy = c(
+      "same_species_closest",
+      "same_genus_closest",
+      "same_species_closest",
+      "same_family_closest"
+    ),
+    selected_policy_display = c(
+      "same_species_closest",
+      "same_genus_closest",
+      "same_species_closest",
+      "same_family_closest"
+    ),
+    multiplier_pred = c(1.10, 1.25, 1.18, 1.05),
+    equivalence_class_members = c(
+      "same_species_closest",
+      "same_genus_closest",
+      "same_species_closest",
+      "same_family_closest"
+    )
+  )
+  simulator <- PolicySimulator(
+    selector = make_selector(),
+    config = list(),
+    scenarios = list(),
+    results = list(),
+    manifest = tibble::tibble(scenario = c("baseline", "stricter_overlap_0_50")),
+    tables = list(
+      select_ref = sensitivity_rows,
+      anchor_selected = anchor_selected_rows,
+      equiv_pairs = tibble::tibble(),
+      equiv_sets = tibble::tibble(),
+      conf_cal = tibble::tibble()
+    )
+  )
+
+  p <- plot(simulator)
+  p_stability <- plot(simulator, type = "policy_stability")
+  p_drift <- plot(simulator, type = "multiplier_drift")
+
+  expect_s3_class(p, "ggplot")
+  expect_s3_class(p_stability, "ggplot")
+  expect_s3_class(p_drift, "ggplot")
+})

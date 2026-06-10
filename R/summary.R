@@ -1,68 +1,34 @@
-#' Bind anchor result tables
+#' Add key-metadata missingness for a [Candidates] object
 #'
-#' Binds the collected per-anchor interval, selection, summary, audit, and
-#' sensitivity rows into one list of benchmark summary tables.
+#' @name screen_missing_metadata.Candidates
 #'
-#' @param all_intervals List of per-anchor policy interval tables.
-#' @param sel_rows List of selected-policy rows.
-#' @param hybrid_rows List of hybrid-summary rows.
-#' @param audit_rows List of policy-audit tables.
-#' @param adm_rows List of admissibility-summary rows.
-#' @param sens_rows List of policy-sensitivity rows.
-#'
-#' @return A list of bound tibbles.
-#'
-#' @export
-bind_anchor_tables <- function(all_intervals,
-                               sel_rows,
-                               hybrid_rows,
-                               audit_rows,
-                               adm_rows,
-                               sens_rows) {
-  # Bind the repeatedly collected per-anchor tables only after every list has
-  # been fully accumulated by the caller.
-  sel_tbl <- dplyr::bind_rows(sel_rows)
+#' @keywords internal
+S7::method(screen_missing_metadata, Candidates) <- function(candidate_models,
+                                                            key_cols = NULL) {
+  # Reuse the staged candidate key columns before delegating to the tabular
+  # default method.
+  key_cols <- key_cols %||% candidates_similarity_key_cols(candidate_models)
 
-  list(
-    policy_intervals = dplyr::bind_rows(all_intervals),
-    selected_intervals = sel_tbl,
-    hybrid_summary = dplyr::bind_rows(hybrid_rows),
-    policy_audit = dplyr::bind_rows(audit_rows),
-    admissibility_summary = dplyr::bind_rows(adm_rows),
-    policy_sensitivity = dplyr::bind_rows(sens_rows)
+  screen_missing_metadata(
+    candidate_models = candidate_models@candidate_models,
+    key_cols = key_cols
   )
 }
 
-#' Collect selected interval columns
+#' Add key-metadata missingness for a [PolicySelector] object
 #'
-#' Restricts the selected-policy table to the standard reporting columns.
+#' @name screen_missing_metadata.PolicySelector
 #'
-#' @param sel_tbl Selected-policy table.
-#'
-#' @return A tibble.
-#'
-#' @export
-collect_select_columns <- function(sel_tbl) {
-  # Keep the selected-policy reporting table restricted to the standard audit
-  # columns so downstream summaries do not depend on transient extras.
-  tibble::as_tibble(sel_tbl) |>
-    dplyr::select(dplyr::any_of(c(
-      "anchor_model_id", "anchor_species", "selected_policy", "selected_policy_display",
-      "collapsed_policy_set", "n_collapsed_policies", "equivalent_policy_set",
-      "multiplier_pred", "multiplier_lo", "multiplier_hi", "q_abs_log", "n", "median_abs_log",
-      "selection_rule", "acceptable_policy_set_n", "equivalent_policy_set_n",
-      "equivalence_class_id", "equivalence_class_size", "equivalence_class_members",
-      "acceptable_one_se", "acceptable_bootstrap", "acceptable_global",
-      "equivalent_to_best_global", "paired_mean_diff_to_best",
-      "mean_species_median_abs_log", "one_se_threshold",
-      "bootstrap_prob_within_threshold", "bootstrap_prob_best", "bootstrap_median_rank",
-      "interval_log_width", "specificity_rank",
-      "local_n_models", "local_min_models_required", "local_feasible",
-      "local_support_mass", "local_species_n", "local_weighted_missingness",
-      "local_effective_support",
-      "local_mean_combined_distance",
-      "local_mean_length_overlap", "local_mean_depth_overlap", "local_pivot_ts_sd", "local_screen_score"
-    )))
+#' @keywords internal
+S7::method(screen_missing_metadata, PolicySelector) <- function(candidate_models,
+                                                                key_cols = NULL) {
+  # Pull the selector's candidate layer and apply the same missingness screen.
+  key_cols <- key_cols %||% candidates_similarity_key_cols(candidate_models@candidates)
+
+  screen_missing_metadata(
+    candidate_models = candidate_models@candidates,
+    key_cols = key_cols
+  )
 }
 
 #' Build a species-block coverage table
@@ -73,10 +39,20 @@ collect_select_columns <- function(sel_tbl) {
 #'
 #' @return A tibble.
 #'
+#' @examples
+#' \dontrun{
+#' build_species_coverage(selector)
+#' }
+#'
 #' @export
-build_species_coverage <- function(pseudo_sum,
-                                   species_sum,
-                                   bench_label = "species_block") {
+build_species_coverage <- S7::new_generic("build_species_coverage", "pseudo_sum")
+
+#' Build a species-block coverage table from conformal summary lists
+#'
+#' @name build_species_coverage.default
+S7::method(build_species_coverage, S7::class_any) <- function(pseudo_sum,
+                                                              species_sum,
+                                                              bench_label = "species_block") {
   # Bind the conformal coverage summaries across benchmark schemes, then keep
   # only the requested benchmark label.
   dplyr::bind_rows(
@@ -84,7 +60,28 @@ build_species_coverage <- function(pseudo_sum,
     tibble::as_tibble(species_sum$overall)
   ) |>
     dplyr::filter(benchmark_label == bench_label) |>
-    dplyr::select(policy, empirical_coverage, median_interval_log_width)
+    standardize_policies() |>
+    dplyr::select(policy, equation_branch_filter, empirical_coverage, median_interval_log_width)
+}
+
+#' Build a species-block coverage table from a [PolicySelector]
+#'
+#' @name build_species_coverage.PolicySelector
+S7::method(build_species_coverage, PolicySelector) <- function(pseudo_sum,
+                                                               species_sum = NULL,
+                                                               bench_label = "species_block") {
+  # Pull the stored uncertainty bundle from the selector, then reuse the
+  # default summary-list method.
+  if (length(pseudo_sum@uncertainty) == 0) {
+    stop("No uncertainty calibration is stored on this `PolicySelector`.", call. = FALSE)
+  }
+  uncertainty_obj <- pseudo_sum@uncertainty
+
+  build_species_coverage(
+    pseudo_sum = uncertainty_obj$pseudo_sum %||% list(overall = tibble::tibble()),
+    species_sum = uncertainty_obj$species_sum %||% list(overall = tibble::tibble()),
+    bench_label = bench_label
+  )
 }
 
 #' Build the anchor support audit
@@ -98,26 +95,42 @@ build_species_coverage <- function(pseudo_sum,
 #' @param sens_detail Optional sensitivity-detail table.
 #' @param sens_tbl Optional full policy-sensitivity table.
 #' @param baseline_label Baseline scenario label.
+#' @param selector Optional [PolicySelector] object used when `sel_tbl` is a
+#'   [PolicyPredictions] object.
 #'
 #' @return A tibble.
 #'
+#' @examples
+#' \dontrun{
+#' predictions <- predict(selector)
+#' build_anchor_audit(predictions, selector = selector)
+#' }
+#'
 #' @export
-build_anchor_audit <- function(sel_tbl,
-                               select_ref,
-                               cover_tbl,
-                               sens_detail = NULL,
-                               sens_tbl = NULL,
-                               baseline_label = "baseline") {
+build_anchor_audit <- S7::new_generic("build_anchor_audit", "sel_tbl")
+
+#' Build an anchor support audit from selected-policy interval tables
+#'
+#' @name build_anchor_audit.default
+S7::method(build_anchor_audit, S7::class_any) <- function(sel_tbl,
+                                                          select_ref,
+                                                          cover_tbl,
+                                                          sens_detail = NULL,
+                                                          sens_tbl = NULL,
+                                                          baseline_label = "baseline",
+                                                          selector = NULL) {
   # Start from the selected-policy rows and layer on the global benchmark and
   # conformal coverage summaries by selected policy.
   sel_tbl <- tibble::as_tibble(sel_tbl)
   sel_tbl$selected_policy <- resolve_selected_policy_values(sel_tbl)
   sel_tbl$selected_policy_display <- resolve_selected_policy_names(sel_tbl)
+  sel_tbl$selected_equation_branch_filter <- selected_branches(sel_tbl)
   sel_tbl$equivalent_policy_set <- resolve_equivalent_policy_sets(sel_tbl)
 
   out <- sel_tbl |>
     dplyr::select(dplyr::any_of(c(
       "anchor_model_id", "anchor_species", "selected_policy", "selected_policy_display",
+      "selected_equation_branch_filter",
       "equivalent_policy_set", "equivalent_policy_set_n",
       "equivalence_class_id", "equivalence_class_size", "equivalence_class_members",
       "multiplier_pred", "multiplier_lo", "multiplier_hi", "interval_log_width",
@@ -126,29 +139,35 @@ build_anchor_audit <- function(sel_tbl,
     ))) |>
     dplyr::left_join(
       {
-        select_ref_tbl <- tibble::as_tibble(select_ref)
+        select_ref_tbl <- standardize_policies(select_ref)
         select_ref_tbl$policy <- resolve_policy_names(select_ref_tbl)
         select_ref_tbl
       } |>
         dplyr::select(
-          policy, mean_species_median_abs_log, acceptable_global, equivalent_to_best_global,
+          policy, equation_branch_filter, mean_species_median_abs_log, acceptable_global, equivalent_to_best_global,
           bootstrap_prob_within_threshold, bootstrap_median_rank
         ),
-      by = c("selected_policy" = "policy")
+      by = c(
+        "selected_policy" = "policy",
+        "selected_equation_branch_filter" = "equation_branch_filter"
+      )
     ) |>
     dplyr::left_join(
       {
-        cover_tbl <- tibble::as_tibble(cover_tbl)
+        cover_tbl <- standardize_policies(cover_tbl)
         cover_tbl$policy <- resolve_policy_names(cover_tbl)
         cover_tbl
       },
-      by = c("selected_policy" = "policy")
+      by = c(
+        "selected_policy" = "policy",
+        "selected_equation_branch_filter" = "equation_branch_filter"
+      )
     )
 
   # When sensitivity summaries are available, append per-anchor scenario-change
   # counts and multiplier-drift summaries.
   if (!is.null(sens_detail) && !is.null(sens_tbl) &&
-      nrow(sens_detail) > 0 && nrow(sens_tbl) > 0) {
+    nrow(sens_detail) > 0 && nrow(sens_tbl) > 0) {
     base_mult <- tibble::as_tibble(sens_tbl) |>
       dplyr::filter(scenario == baseline_label) |>
       dplyr::select(anchor_model_id, baseline_multiplier = multiplier_pred)
@@ -181,6 +200,43 @@ build_anchor_audit <- function(sel_tbl,
   out
 }
 
+#' Build an anchor support audit from a [PolicyPredictions] object
+#'
+#' @name build_anchor_audit.PolicyPredictions
+S7::method(build_anchor_audit, PolicyPredictions) <- function(sel_tbl,
+                                                              select_ref = NULL,
+                                                              cover_tbl = NULL,
+                                                              sens_detail = NULL,
+                                                              sens_tbl = NULL,
+                                                              baseline_label = "baseline",
+                                                              selector = NULL) {
+  if ((inherits(select_ref, "S7_object") && exists("PolicySelector", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(select_ref, PolicySelector), error = function(e) FALSE))) && is.null(selector)) {
+    selector <- select_ref
+    select_ref <- NULL
+  }
+  selector <- selector %||% select_ref
+  if (!(inherits(selector, "S7_object") && exists("PolicySelector", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(selector, PolicySelector), error = function(e) FALSE)))) {
+    stop(
+      "When `sel_tbl` is a `PolicyPredictions` object, `selector` must be a `PolicySelector` object.",
+      call. = FALSE
+    )
+  }
+
+  # Pull the global selection summaries and policy-level coverage directly from
+  # the selector unless the caller supplied explicit replacements.
+  select_ref <- select_ref %||% (selector@selection)$final_ref %||% tibble::tibble()
+  cover_tbl <- cover_tbl %||% build_species_coverage(selector)
+
+  build_anchor_audit(
+    sel_tbl = sel_tbl@selections,
+    select_ref = select_ref,
+    cover_tbl = cover_tbl,
+    sens_detail = sens_detail,
+    sens_tbl = sens_tbl,
+    baseline_label = baseline_label
+  )
+}
+
 #' Summarize key-field missingness
 #'
 #' Computes overall, field-level, and model-level key-field missingness from a
@@ -195,13 +251,23 @@ build_anchor_audit <- function(sel_tbl,
 #'
 #' @return A list of tibbles.
 #'
+#' @examples
+#' \dontrun{
+#' summarize_key_missing(selector)
+#' }
+#'
 #' @export
-summarize_key_missing <- function(candidate_models,
-                                  key_cols,
-                                  threshold,
-                                  model_id_col = "model_id",
-                                  species_col = "species_name",
-                                  common_col = "common") {
+summarize_key_missing <- S7::new_generic("summarize_key_missing", "candidate_models")
+
+#' Summarize key-field missingness for candidate-model tables
+#'
+#' @name summarize_key_missing.default
+S7::method(summarize_key_missing, S7::class_any) <- function(candidate_models,
+                                                             key_cols,
+                                                             threshold,
+                                                             model_id_col = "model_id",
+                                                             species_col = "species_name",
+                                                             common_col = "common") {
   # Summarize key-field missingness at the overall, per-field, and per-model
   # levels from the already prepared candidate table.
   models_tbl <- tibble::as_tibble(candidate_models)
@@ -236,17 +302,83 @@ summarize_key_missing <- function(candidate_models,
   list(overall = overall, by_field = by_field, by_model = by_model)
 }
 
+#' Summarize key-field missingness for a [Candidates] object
+#'
+#' @name summarize_key_missing.Candidates
+S7::method(summarize_key_missing, Candidates) <- function(candidate_models,
+                                                          key_cols = NULL,
+                                                          threshold = NA_real_,
+                                                          model_id_col = "model_id",
+                                                          species_col = "species_name",
+                                                          common_col = "common") {
+  # Materialize the keyed missingness screen first, then summarize that staged
+  # table through the default method.
+  key_cols <- key_cols %||% candidates_similarity_key_cols(candidate_models)
+  models_tbl <- screen_missing_metadata(
+    candidate_models = candidate_models,
+    key_cols = key_cols
+  )
+
+  summarize_key_missing(
+    candidate_models = models_tbl,
+    key_cols = key_cols,
+    threshold = threshold,
+    model_id_col = model_id_col,
+    species_col = species_col,
+    common_col = common_col
+  )
+}
+
+#' Summarize key-field missingness for a [PolicySelector] object
+#'
+#' @name summarize_key_missing.PolicySelector
+S7::method(summarize_key_missing, PolicySelector) <- function(candidate_models,
+                                                              key_cols = NULL,
+                                                              threshold = NULL,
+                                                              model_id_col = "model_id",
+                                                              species_col = "species_name",
+                                                              common_col = "common") {
+  key_cols <- key_cols %||% candidates_similarity_key_cols(candidate_models@candidates)
+  threshold <- threshold %||% policy_selector_anchor_config(candidate_models)$missing_key_metadata_max_fraction %||% NA_real_
+
+  summarize_key_missing(
+    candidate_models = candidate_models@candidates,
+    key_cols = key_cols,
+    threshold = threshold,
+    model_id_col = model_id_col,
+    species_col = species_col,
+    common_col = common_col
+  )
+}
+
 #' Summarize missingness gate outcomes
 #'
 #' @param adm_tbl Admissibility summary table.
 #'
 #' @return A tibble.
 #'
+#' @examples
+#' \dontrun{
+#' summarize_missing_gate(selector)
+#' }
+#'
 #' @export
-summarize_missing_gate <- function(adm_tbl) {
+summarize_missing_gate <- S7::new_generic("summarize_missing_gate", "adm_tbl")
+
+#' Summarize missingness gate outcomes for admissibility summary tables
+#'
+#' @name summarize_missing_gate.default
+S7::method(summarize_missing_gate, S7::class_any) <- function(adm_tbl) {
   # Reduce candidate-level or anchor-level admissibility results to the
   # missingness-gate view used in later reporting.
   out <- tibble::as_tibble(adm_tbl)
+
+  if (nrow(out) == 0) {
+    stop(
+      "Missing-gate summarization requires a non-empty admissibility table.",
+      call. = FALSE
+    )
+  }
 
   if (all(c("anchor_model_id", "anchor_species", "admissible", "gate_missing_key_metadata") %in% names(out))) {
     return(
@@ -263,7 +395,7 @@ summarize_missing_gate <- function(adm_tbl) {
   }
 
   # Support both the older anchor-level gate summary and the current
-  # admissible-pool summary emitted by `evaluate_anchor_set()`.
+  # admissible-pool summary emitted by `screen_admissibility()`.
   if (all(c("n_candidates_total", "prop_admissible", "prop_fail_missing_metadata") %in% names(out))) {
     return(
       out |>
@@ -278,15 +410,53 @@ summarize_missing_gate <- function(adm_tbl) {
     )
   }
 
-  out |>
-    dplyr::transmute(
-      anchor_model_id,
-      anchor_species,
-      n_candidates_total = NA_real_,
-      n_candidates_admissible = dplyr::coalesce(as.numeric(n_admissible), 0),
-      prop_fail_missing_metadata = NA_real_
-    ) |>
-    dplyr::arrange(anchor_species)
+  if (all(c("anchor_model_id", "anchor_species", "n_admissible") %in% names(out))) {
+    return(
+      out |>
+        dplyr::transmute(
+          anchor_model_id,
+          anchor_species,
+          n_candidates_total = NA_real_,
+          n_candidates_admissible = dplyr::coalesce(as.numeric(n_admissible), 0),
+          prop_fail_missing_metadata = NA_real_
+        ) |>
+        dplyr::arrange(anchor_species)
+    )
+  }
+
+  stop(
+    paste0(
+      "Missing-gate summarization requires one of the supported admissibility schemas. ",
+      "Received columns: ",
+      paste(names(out), collapse = ", ")
+    ),
+    call. = FALSE
+  )
+}
+
+#' Summarize missingness gate outcomes for a [Candidates] object
+#'
+#' @name summarize_missing_gate.Candidates
+S7::method(summarize_missing_gate, Candidates) <- function(adm_tbl) {
+  scores_tbl <- if (!(inherits(adm_tbl, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(adm_tbl, Candidates), error = function(e) FALSE))) || length(adm_tbl@admissibility) == 0) {
+    tibble::tibble()
+  } else {
+    tibble::as_tibble((adm_tbl@admissibility)$all_scores %||% tibble::tibble())
+  }
+  if (nrow(scores_tbl) == 0) {
+    stop(
+      "Candidates do not carry stored admissibility scores for missing-gate summarization.",
+      call. = FALSE
+    )
+  }
+  summarize_missing_gate(scores_tbl)
+}
+
+#' Summarize missingness gate outcomes for a [PolicySelector] object
+#'
+#' @name summarize_missing_gate.PolicySelector
+S7::method(summarize_missing_gate, PolicySelector) <- function(adm_tbl) {
+  summarize_missing_gate(adm_tbl@candidates)
 }
 
 #' Bind uncertainty tables
@@ -641,11 +811,11 @@ build_area_inset_tiles <- function(count_tbl) {
   # Join the study-count table onto the fixed inset layout so the plotting
   # layer can draw the normalized inland codes without more data wrangling.
   tibble::tribble(
-    ~fao_area_chr, ~area_label,            ~xmin, ~xmax, ~ymin, ~ymax,
-    "0",           "0\nUnknown/other",      198,   232,   30,    48,
-    "2",           "2\nNormalized inland",  198,   232,    6,    24,
-    "4",           "4\nNormalized inland",  198,   232,  -18,     0,
-    "5",           "5\nNormalized inland",  198,   232,  -42,   -24
+    ~fao_area_chr, ~area_label, ~xmin, ~xmax, ~ymin, ~ymax,
+    "0", "0\nUnknown/other", 198, 232, 30, 48,
+    "2", "2\nNormalized inland", 198, 232, 6, 24,
+    "4", "4\nNormalized inland", 198, 232, -18, 0,
+    "5", "5\nNormalized inland", 198, 232, -42, -24
   ) |>
     dplyr::left_join(tibble::as_tibble(count_tbl), by = "fao_area_chr") |>
     dplyr::mutate(
@@ -654,3 +824,5 @@ build_area_inset_tiles <- function(count_tbl) {
       ymid = (ymin + ymax) / 2
     )
 }
+
+

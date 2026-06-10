@@ -42,7 +42,7 @@ run_sensitivity_tests <- function(sensitivity_specs,
     stop("'benchmark_args' must be a named list.", call. = FALSE)
   }
   if (!is.null(cache_path) &&
-      (!is.character(cache_path) || length(cache_path) != 1 || !nzchar(cache_path))) {
+    (!is.character(cache_path) || length(cache_path) != 1 || !nzchar(cache_path))) {
     stop("'cache_path' must be NULL or a single file path.", call. = FALSE)
   }
   if (!is.logical(refresh) || length(refresh) != 1 || is.na(refresh)) {
@@ -52,7 +52,7 @@ run_sensitivity_tests <- function(sensitivity_specs,
     stop("'workers' must be one finite number >= 1.", call. = FALSE)
   }
   if (!is.null(package_dir) &&
-      (!is.character(package_dir) || length(package_dir) != 1 || !nzchar(package_dir))) {
+    (!is.character(package_dir) || length(package_dir) != 1 || !nzchar(package_dir))) {
     stop("'package_dir' must be NULL or a single non-empty path.", call. = FALSE)
   }
   if (!is.logical(progress) || length(progress) != 1 || is.na(progress)) {
@@ -220,10 +220,22 @@ run_sensitivity_tests <- function(sensitivity_specs,
 #'
 #' @return A tibble.
 #'
+#' @examples
+#' \dontrun{
+#' simulator <- as_policy_simulator(selector)
+#' simulator <- simulate(simulator)
+#' build_sensitivity_table(simulator)
+#' }
+#'
 #' @export
-build_sensitivity_table <- function(sensitivity_specs,
-                                    sensitivity_map,
-                                    config = NULL) {
+build_sensitivity_table <- S7::new_generic("build_sensitivity_table", "sensitivity_specs")
+
+#' Build a scenario manifest from named sensitivity scenario lists
+#'
+#' @name build_sensitivity_table.default
+S7::method(build_sensitivity_table, S7::class_any) <- function(sensitivity_specs,
+                                                               sensitivity_map,
+                                                               config = NULL) {
   # Combine the scenario inputs and the benchmark outputs into one compact
   # scenario-level manifest for later audits.
   # Resolve the scenario-summary defaults directly at the call site to avoid
@@ -281,6 +293,26 @@ build_sensitivity_table <- function(sensitivity_specs,
   })
 }
 
+#' Build a scenario manifest from a [PolicySimulator]
+#'
+#' @name build_sensitivity_table.PolicySimulator
+S7::method(build_sensitivity_table, PolicySimulator) <- function(sensitivity_specs,
+                                                                 sensitivity_map = NULL,
+                                                                 config = NULL) {
+  if (nrow(sensitivity_specs@manifest) > 0) {
+    return(tibble::as_tibble(sensitivity_specs@manifest))
+  }
+  if (length(sensitivity_specs@scenarios) == 0 || length(sensitivity_specs@results) == 0) {
+    return(tibble::tibble())
+  }
+
+  build_sensitivity_table(
+    sensitivity_specs = sensitivity_specs@scenarios,
+    sensitivity_map = sensitivity_specs@results,
+    config = sensitivity_specs@config
+  )
+}
+
 #' Bind scenario benchmark tables
 #'
 #' Binds selection, pairwise equivalence, equivalence-class, and conformal
@@ -290,13 +322,29 @@ build_sensitivity_table <- function(sensitivity_specs,
 #'
 #' @return A list of bound tibbles.
 #'
+#' @examples
+#' \dontrun{
+#' simulator <- as_policy_simulator(selector)
+#' simulator <- simulate(simulator)
+#' bind_sensitivity_data(simulator)
+#' }
+#'
 #' @export
-bind_sensitivity_data <- function(sensitivity_map) {
+bind_sensitivity_data <- S7::new_generic("bind_sensitivity_data", "sensitivity_map")
+
+#' Bind scenario benchmark tables from a named scenario-result map
+#'
+#' @name bind_sensitivity_data.default
+S7::method(bind_sensitivity_data, S7::class_any) <- function(sensitivity_map) {
   # Bind the benchmark reference tables across scenarios while keeping the
   # scenario name as the leading key column.
   list(
     select_ref = purrr::imap_dfr(sensitivity_map, function(obj, scenario_nm) {
       tibble::as_tibble(obj$selection_ref) |>
+        dplyr::mutate(scenario = scenario_nm, .before = 1)
+    }),
+    anchor_selected = purrr::imap_dfr(sensitivity_map, function(obj, scenario_nm) {
+      tibble::as_tibble(obj$anchor_selected %||% tibble::tibble()) |>
         dplyr::mutate(scenario = scenario_nm, .before = 1)
     }),
     equiv_pairs = purrr::imap_dfr(sensitivity_map, function(obj, scenario_nm) {
@@ -314,13 +362,31 @@ bind_sensitivity_data <- function(sensitivity_map) {
   )
 }
 
+#' Bind scenario benchmark tables from a [PolicySimulator]
+#'
+#' @name bind_sensitivity_data.PolicySimulator
+S7::method(bind_sensitivity_data, PolicySimulator) <- function(sensitivity_map) {
+  if (length(sensitivity_map@tables) > 0) {
+    return(sensitivity_map@tables)
+  }
+  if (length(sensitivity_map@results) == 0) {
+    return(list())
+  }
+
+  bind_sensitivity_data(sensitivity_map@results)
+}
+
 #' Summarize policy sensitivity
 #'
 #' Compares policy-selection outputs against the baseline scenario and
 #' summarizes how often the selected policy, display label, and equivalent
-#' policy set change.
+#' policy set change. The input may be either:
+#' 1. an anchor-level table with one selected row per anchor and scenario, or
+#' 2. a scenario-level benchmark reference table with one row per policy and
+#'    scenario.
 #'
-#' @param sensitivity_table Policy-sensitivity table with one row per anchor-scenario.
+#' @param sensitivity_table Policy-sensitivity table with one row per
+#'   anchor-scenario or one row per policy-scenario.
 #' @param baseline_label Baseline scenario label.
 #'
 #' @return A list with `detail` and `summary`.
@@ -328,29 +394,167 @@ bind_sensitivity_data <- function(sensitivity_map) {
 #' @export
 summarize_sensitivity <- function(sensitivity_table,
                                   baseline_label = "baseline") {
-  # Join each non-baseline row to its baseline row first so all sensitivity
-  # change flags are computed relative to the same reference scenario.
   out <- tibble::as_tibble(sensitivity_table)
   if (nrow(out) == 0) {
     return(list(detail = tibble::tibble(), summary = tibble::tibble()))
+  }
+
+  # Anchor-level sensitivity tables already contain one selected row per
+  # anchor-scenario, so compare each non-baseline row against the baseline row
+  # for the same anchor.
+  if ("anchor_model_id" %in% names(out)) {
+    out$selected_policy <- resolve_selected_policy_values(out)
+    out$selected_policy_display <- resolve_selected_policy_names(out)
+    out$equivalent_policy_set <- resolve_equivalent_policy_sets(out)
+
+    detail <- out |>
+      dplyr::filter(scenario != baseline_label) |>
+      dplyr::left_join(
+        out |>
+          dplyr::filter(scenario == baseline_label) |>
+          dplyr::select(
+            anchor_model_id,
+            baseline_policy = selected_policy,
+            baseline_display = selected_policy_display,
+            baseline_equiv_set = equivalent_policy_set
+          ),
+        by = "anchor_model_id"
+      ) |>
+      dplyr::mutate(
+        policy_changed = selected_policy != baseline_policy,
+        display_changed = selected_policy_display != baseline_display,
+        equiv_set_changed = equivalent_policy_set != baseline_equiv_set
+      )
+
+    # Summarize the cross-anchor change rates by scenario after the row-level
+    # baseline comparison has been computed.
+    summary <- detail |>
+      dplyr::group_by(scenario) |>
+      dplyr::summarise(
+        n_anchors = dplyr::n(),
+        n_policy_changed = sum(policy_changed, na.rm = TRUE),
+        n_display_changed = sum(display_changed, na.rm = TRUE),
+        n_equiv_set_changed = sum(equiv_set_changed, na.rm = TRUE),
+        prop_policy_changed = mean(policy_changed, na.rm = TRUE),
+        prop_display_changed = mean(display_changed, na.rm = TRUE),
+        prop_equiv_set_changed = mean(equiv_set_changed, na.rm = TRUE),
+        .groups = "drop"
+      )
+
+    return(list(detail = detail, summary = summary))
+  }
+
+  # Scenario-level benchmark reference tables contain one row per policy and
+  # scenario. Reduce each scenario to its best displayed policy and its full
+  # equivalent-best set before comparing the scenarios against baseline.
+  if (!all(c("scenario", "policy") %in% names(out))) {
+    stop(
+      "'sensitivity_table' must contain either anchor-level rows with 'anchor_model_id' ",
+      "or scenario-level benchmark rows with 'scenario' and 'policy'.",
+      call. = FALSE
+    )
   }
 
   out$selected_policy <- resolve_selected_policy_values(out)
   out$selected_policy_display <- resolve_selected_policy_names(out)
   out$equivalent_policy_set <- resolve_equivalent_policy_sets(out)
 
-  detail <- out |>
+  scenario_summary <- out |>
+    dplyr::group_by(scenario) |>
+    dplyr::summarise(
+      selected_policy = {
+        best_rows <- dplyr::pick(
+          dplyr::any_of(c(
+            "selected_policy",
+            "selected_policy_display",
+            "policy",
+            "acceptable_global",
+            "equivalent_to_best_global",
+            "mean_species_median_abs_log",
+            "specificity_rank"
+          ))
+        ) |>
+          dplyr::mutate(
+            .acceptable_global = dplyr::coalesce(.data$acceptable_global, FALSE),
+            .equivalent_to_best_global = dplyr::coalesce(.data$equivalent_to_best_global, FALSE),
+            .mean_species_median_abs_log = dplyr::coalesce(.data$mean_species_median_abs_log, Inf),
+            .specificity_rank = dplyr::coalesce(.data$specificity_rank, Inf)
+          ) |>
+          dplyr::arrange(
+            dplyr::desc(.acceptable_global),
+            dplyr::desc(.equivalent_to_best_global),
+            .mean_species_median_abs_log,
+            .specificity_rank,
+            .data$policy
+          ) |>
+          dplyr::slice(1)
+        dplyr::coalesce(best_rows$selected_policy[[1]], best_rows$policy[[1]])
+      },
+      selected_policy_display = {
+        best_rows <- dplyr::pick(
+          dplyr::any_of(c(
+            "selected_policy",
+            "selected_policy_display",
+            "policy",
+            "acceptable_global",
+            "equivalent_to_best_global",
+            "mean_species_median_abs_log",
+            "specificity_rank"
+          ))
+        ) |>
+          dplyr::mutate(
+            .acceptable_global = dplyr::coalesce(.data$acceptable_global, FALSE),
+            .equivalent_to_best_global = dplyr::coalesce(.data$equivalent_to_best_global, FALSE),
+            .mean_species_median_abs_log = dplyr::coalesce(.data$mean_species_median_abs_log, Inf),
+            .specificity_rank = dplyr::coalesce(.data$specificity_rank, Inf)
+          ) |>
+          dplyr::arrange(
+            dplyr::desc(.acceptable_global),
+            dplyr::desc(.equivalent_to_best_global),
+            .mean_species_median_abs_log,
+            .specificity_rank,
+            .data$policy
+          ) |>
+          dplyr::slice(1)
+        dplyr::coalesce(best_rows$selected_policy_display[[1]], best_rows$policy[[1]])
+      },
+      equivalent_policy_set = {
+        equiv_rows <- dplyr::pick(
+          dplyr::any_of(c("equivalent_to_best_global", "policy", "equivalence_class_members"))
+        )
+        if ("equivalence_class_members" %in% names(equiv_rows) &&
+          any(is.finite(nchar(as.character(equiv_rows$equivalence_class_members))))) {
+          members <- as.character(equiv_rows$equivalence_class_members)
+          members <- members[is.finite(nchar(members)) & nzchar(members)]
+          members[[1]] %||% NA_character_
+        } else {
+          equiv_set <- equiv_rows |>
+            dplyr::filter(dplyr::coalesce(.data$equivalent_to_best_global, FALSE)) |>
+            dplyr::arrange(.data$policy)
+          paste(equiv_set$policy, collapse = "; ")
+        }
+      },
+      best_mean_species_median_abs_log = suppressWarnings(
+        min(mean_species_median_abs_log, na.rm = TRUE)
+      ),
+      .groups = "drop"
+    )
+
+  scenario_summary$best_mean_species_median_abs_log[
+    !is.finite(scenario_summary$best_mean_species_median_abs_log)
+  ] <- NA_real_
+
+  detail <- scenario_summary |>
     dplyr::filter(scenario != baseline_label) |>
-    dplyr::left_join(
-      out |>
+    dplyr::cross_join(
+      scenario_summary |>
         dplyr::filter(scenario == baseline_label) |>
-        dplyr::select(
-          anchor_model_id,
+        dplyr::transmute(
           baseline_policy = selected_policy,
           baseline_display = selected_policy_display,
-          baseline_equiv_set = equivalent_policy_set
-        ),
-      by = "anchor_model_id"
+          baseline_equiv_set = equivalent_policy_set,
+          baseline_best_mean_species_median_abs_log = best_mean_species_median_abs_log
+        )
     ) |>
     dplyr::mutate(
       policy_changed = selected_policy != baseline_policy,
@@ -358,19 +562,16 @@ summarize_sensitivity <- function(sensitivity_table,
       equiv_set_changed = equivalent_policy_set != baseline_equiv_set
     )
 
-  # Summarize the cross-anchor change rates by scenario after the row-level
-  # baseline comparison has been computed.
   summary <- detail |>
-    dplyr::group_by(scenario) |>
-    dplyr::summarise(
-      n_anchors = dplyr::n(),
-      n_policy_changed = sum(policy_changed, na.rm = TRUE),
-      n_display_changed = sum(display_changed, na.rm = TRUE),
-      n_equiv_set_changed = sum(equiv_set_changed, na.rm = TRUE),
-      prop_policy_changed = mean(policy_changed, na.rm = TRUE),
-      prop_display_changed = mean(display_changed, na.rm = TRUE),
-      prop_equiv_set_changed = mean(equiv_set_changed, na.rm = TRUE),
-      .groups = "drop"
+    dplyr::transmute(
+      scenario = scenario,
+      n_anchors = 1L,
+      n_policy_changed = as.integer(policy_changed),
+      n_display_changed = as.integer(display_changed),
+      n_equiv_set_changed = as.integer(equiv_set_changed),
+      prop_policy_changed = as.numeric(policy_changed),
+      prop_display_changed = as.numeric(display_changed),
+      prop_equiv_set_changed = as.numeric(equiv_set_changed)
     )
 
   list(detail = detail, summary = summary)
@@ -419,7 +620,7 @@ build_policy_sensitivity_scenarios <- function(candidate_models,
       has_species & as.character(models_tbl$species_name) == "NA NA" ~ TRUE,
       has_genus & has_species_epithet &
         (is.na(models_tbl$genus) | !nzchar(as.character(models_tbl$genus)) |
-           is.na(models_tbl$species) | !nzchar(as.character(models_tbl$species))) ~ TRUE,
+          is.na(models_tbl$species) | !nzchar(as.character(models_tbl$species))) ~ TRUE,
       TRUE ~ FALSE
     )
   }
@@ -493,6 +694,132 @@ build_policy_sensitivity_scenarios <- function(candidate_models,
   )
 }
 
+#' Decompose sensitivity variance
+#'
+#' Computes a two-component variance decomposition from the output of
+#' [bind_sensitivity_data()]:
+#'
+#' - **Between-scenario** (`between_scenario`): per-anchor spread of the
+#'   selected log-multiplier across scenarios. Quantifies how much the biomass
+#'   correction changes when the analysis pipeline is stressed.
+#' - **Within-scenario policy** (`within_scenario_policy`): per-scenario spread
+#'   of `mean_species_median_abs_log` across policies. Quantifies how much the
+#'   specific policy choice within a fixed scenario matters.
+#'
+#' A `variance_ratio` column in `summary` expresses the between-scenario SD as
+#' a fraction of the within-scenario SD, giving a rough relative importance of
+#' "how we set up the analysis" versus "which policy we pick given the setup".
+#'
+#' @param sens_data Named list returned by [bind_sensitivity_data()], with at
+#'   least `anchor_selected` and `select_ref` elements.
+#' @param log_multiplier_col Name of the log-scale central prediction column in
+#'   `anchor_selected`. Defaults to `"log_multiplier_central"`.
+#' @param policy_error_col Name of the policy-level mean error column in
+#'   `select_ref`. Defaults to `"mean_species_median_abs_log"`.
+#'
+#' @return A list with three elements:
+#'   - `between_scenario`: per-anchor SD and IQR of log-multiplier across
+#'     scenarios.
+#'   - `within_scenario_policy`: per-scenario SD and IQR of policy-level mean
+#'     error across policies.
+#'   - `summary`: one-row summary with global SDs and variance ratio.
+#'
+#' @export
+bind_sensitivity_variance <- function(sens_data,
+                                      log_multiplier_col = "log_multiplier_central",
+                                      policy_error_col = "mean_species_median_abs_log") {
+  anchor_sel <- tibble::as_tibble(sens_data$anchor_selected %||% tibble::tibble())
+  select_ref <- tibble::as_tibble(sens_data$select_ref %||% tibble::tibble())
+
+  # Between-scenario component: per-anchor spread of the selected log-multiplier
+  # across scenarios. Falls back to log(multiplier_central) when a dedicated
+  # log column is absent.
+  between_scenario <- if (nrow(anchor_sel) > 0 && "anchor_model_id" %in% names(anchor_sel)) {
+    mult_col <- if (log_multiplier_col %in% names(anchor_sel)) {
+      log_multiplier_col
+    } else if ("multiplier_central" %in% names(anchor_sel)) {
+      "multiplier_central_log"
+    } else {
+      NULL
+    }
+
+    if (!is.null(mult_col)) {
+      if (mult_col == "multiplier_central_log") {
+        anchor_sel$multiplier_central_log <- suppressWarnings(
+          log(as.numeric(anchor_sel$multiplier_central))
+        )
+      }
+      anchor_sel |>
+        dplyr::filter(is.finite(.data[[mult_col]])) |>
+        dplyr::group_by(anchor_model_id) |>
+        dplyr::summarise(
+          n_scenarios = dplyr::n_distinct(scenario),
+          between_sd_log_multiplier = stats::sd(.data[[mult_col]], na.rm = TRUE),
+          between_iqr_log_multiplier = stats::IQR(.data[[mult_col]], na.rm = TRUE),
+          between_range_log_multiplier = suppressWarnings(
+            diff(range(.data[[mult_col]], na.rm = TRUE))
+          ),
+          .groups = "drop"
+        )
+    } else {
+      tibble::tibble()
+    }
+  } else {
+    tibble::tibble()
+  }
+
+  # Within-scenario component: per-scenario spread of policy-level mean error.
+  within_scenario_policy <- if (nrow(select_ref) > 0 &&
+    all(c("scenario", policy_error_col) %in% names(select_ref))) {
+    select_ref |>
+      dplyr::filter(is.finite(.data[[policy_error_col]])) |>
+      dplyr::group_by(scenario) |>
+      dplyr::summarise(
+        n_policies = dplyr::n_distinct(policy),
+        within_sd_policy_error = stats::sd(.data[[policy_error_col]], na.rm = TRUE),
+        within_iqr_policy_error = stats::IQR(.data[[policy_error_col]], na.rm = TRUE),
+        within_range_policy_error = suppressWarnings(
+          diff(range(.data[[policy_error_col]], na.rm = TRUE))
+        ),
+        .groups = "drop"
+      )
+  } else {
+    tibble::tibble()
+  }
+
+  # One-row global summary with variance ratio for quick reporting.
+  global_between_sd <- if (nrow(between_scenario) > 0 &&
+    "between_sd_log_multiplier" %in% names(between_scenario)) {
+    suppressWarnings(mean(between_scenario$between_sd_log_multiplier, na.rm = TRUE))
+  } else {
+    NA_real_
+  }
+  global_within_sd <- if (nrow(within_scenario_policy) > 0 &&
+    "within_sd_policy_error" %in% names(within_scenario_policy)) {
+    suppressWarnings(mean(within_scenario_policy$within_sd_policy_error, na.rm = TRUE))
+  } else {
+    NA_real_
+  }
+  variance_ratio <- if (is.finite(global_between_sd) && is.finite(global_within_sd) && global_within_sd > 0) {
+    global_between_sd / global_within_sd
+  } else {
+    NA_real_
+  }
+  summary <- tibble::tibble(
+    n_scenarios = dplyr::n_distinct(select_ref$scenario %||% character()),
+    n_anchors = if (nrow(between_scenario) > 0) nrow(between_scenario) else NA_integer_,
+    global_between_sd_log_multiplier = global_between_sd,
+    global_within_sd_policy_error = global_within_sd,
+    variance_ratio_between_within = variance_ratio
+  )
+
+  list(
+    between_scenario = between_scenario,
+    within_scenario_policy = within_scenario_policy,
+    summary = summary
+  )
+}
+
 #' Rerun one policy benchmark scenario
 #'
 #' Rebuilds ordination support objects, reruns the benchmark layer, recalibrates
@@ -505,13 +832,18 @@ build_policy_sensitivity_scenarios <- function(candidate_models,
 #' @param reference_ids Optional reference-anchor model IDs.
 #' @param tolerance Practical equivalence tolerance.
 #' @param n_boot Number of bootstrap resamples used in policy selection.
+#' @param candidate_template Optional staged [Candidates] object used to rebuild
+#'   anchor-level predictions for each scenario.
+#' @param reference_anchors Optional reference-anchor table override used for
+#'   scenario prediction.
 #' @param registry_path Optional trait-registry path.
 #' @param include_ts_error Logical scalar. If `TRUE`, retain the TS-error
 #'   benchmark table for the scenario rerun.
 #' @param progress Logical scalar. If `TRUE`, show benchmark progress.
 #'
 #' @return A list containing ordination context, benchmark tables, conformal
-#'   calibration, and policy-selection summaries.
+#'   calibration, global policy-selection summaries, and anchor-level selected
+#'   policy rows for the scenario.
 #'
 #' @export
 run_policy_sensitivity_reference <- function(candidate_models,
@@ -520,12 +852,28 @@ run_policy_sensitivity_reference <- function(candidate_models,
                                              reference_ids = NULL,
                                              tolerance = 0.05,
                                              n_boot = 500L,
+                                             candidate_template = NULL,
+                                             reference_anchors = NULL,
                                              registry_path = NULL,
                                              include_ts_error = FALSE,
                                              progress = FALSE) {
   # Rebuild the similarity object for this scenario from its own policy and
   # admissibility settings so the ordination and benchmark layers stay aligned.
   config_values <- read_similarity_config(config)
+  candidate_models <- tibble::as_tibble(candidate_models)
+  reference_key <- if ("model_id_chr" %in% names(candidate_models)) {
+    as.character(candidate_models$model_id_chr)
+  } else if ("model_id" %in% names(candidate_models)) {
+    as.character(candidate_models$model_id)
+  } else {
+    character()
+  }
+  if (!is.null(reference_ids) && length(reference_key) > 0) {
+    reference_ids <- intersect(as.character(reference_ids), reference_key)
+    if (length(reference_ids) == 0) {
+      reference_ids <- NULL
+    }
+  }
   coherence_config <- list(
     length_coherence = list(method = "overlap", weight = config_values$length_overlap_weight %||% 0),
     depth_coherence = list(method = "overlap", weight = config_values$depth_overlap_weight %||% 0),
@@ -552,7 +900,7 @@ run_policy_sensitivity_reference <- function(candidate_models,
   ordination_obj <- run_ordination(
     dist_mat = distance_obj$combined_dist,
     trait_table = candidate_models |>
-      dplyr::select(dplyr::all_of(distance_obj$trait_cols))
+      dplyr::select(dplyr::all_of(distance_obj$envfit_trait_cols %||% distance_obj$trait_cols))
   )
   ordination_points <- join_ordination_points(
     ordination_points = ordination_obj$points,
@@ -563,13 +911,18 @@ run_policy_sensitivity_reference <- function(candidate_models,
   points_missing_df <- add_ordination_missing(
     points_df = ordination_points,
     candidate_models = candidate_models,
-    trait_cols = distance_obj$trait_cols
+    trait_cols = distance_obj$missingness_trait_cols %||% distance_obj$trait_cols
   )
 
   species_ordination_obj <- run_ordination(
     dist_mat = distance_obj$species_dist,
     trait_table = similarity_obj$species_profiles |>
-      dplyr::select(-species_name)
+      dplyr::select(dplyr::all_of(
+        intersect(
+          distance_obj$envfit_trait_cols %||% distance_obj$trait_cols,
+          names(similarity_obj$species_profiles)
+        )
+      ))
   )
   species_points <- assign_ordination_groups(
     points_df = species_ordination_obj$points |>
@@ -611,6 +964,74 @@ run_policy_sensitivity_reference <- function(candidate_models,
       n_boot = n_boot
     )
   )
+  anchor_selected <- tibble::tibble()
+
+  # Rebuild one selector from the scenario-specific benchmark state so the
+  # sensitivity workflow retains per-anchor selected policies and multipliers,
+  # not just the global cross-species policy ranking.
+  template_data <- if ((inherits(candidate_template, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_template, Candidates), error = function(e) FALSE)))) {
+    list(
+      spec = candidate_template@spec,
+      study_db = candidate_template@study_db,
+      species_vector = candidate_template@species_vector,
+      source_dbs = candidate_template@source_dbs,
+      species_db = candidate_template@species_db,
+      similarity_tuning = candidate_template@similarity_tuning,
+      reference_anchors = candidate_template@reference_anchors
+    )
+  } else if (is.list(candidate_template)) {
+    candidate_template
+  } else {
+    list()
+  }
+
+  if (length(template_data) > 0) {
+    anchors_tbl <- tibble::as_tibble(reference_anchors %||% template_data$reference_anchors %||% tibble::tibble())
+    if (nrow(anchors_tbl) > 0 && !is.null(reference_ids)) {
+      anchor_key <- if ("model_id_chr" %in% names(anchors_tbl)) {
+        as.character(anchors_tbl$model_id_chr)
+      } else if ("model_id" %in% names(anchors_tbl)) {
+        as.character(anchors_tbl$model_id)
+      } else {
+        character()
+      }
+      if (length(anchor_key) > 0) {
+        anchors_tbl <- anchors_tbl[anchor_key %in% as.character(reference_ids), , drop = FALSE]
+      }
+    }
+
+    scenario_candidates <- Candidates(
+      spec = template_data$spec,
+      study_db = tibble::as_tibble(template_data$study_db %||% tibble::tibble()),
+      species_vector = as.character(template_data$species_vector %||% character()),
+      source_dbs = template_data$source_dbs %||% list(),
+      species_db = tibble::as_tibble(template_data$species_db %||% tibble::tibble()),
+      candidate_models = tibble::as_tibble(candidate_models),
+      reference_anchors = anchors_tbl,
+      similarity_matrix = similarity_obj,
+      gower_distances = distance_obj,
+      ordination = list(
+        model = list(
+          model_scores = tibble::as_tibble(model_scores),
+          points_missing = tibble::as_tibble(points_missing_df)
+        ),
+        species_lookup = species_lookup
+      ),
+      admissibility = list(),
+      similarity_tuning = template_data$similarity_tuning %||% list()
+    )
+    scenario_selector <- PolicySelector(
+      candidates = scenario_candidates,
+      config = config_values,
+      benchmark = benchmark_obj,
+      uncertainty = conformal_obj,
+      selection = selection_obj
+    )
+    anchor_selected <- stats::predict(
+      scenario_selector,
+      reuse_admissibility = FALSE
+    )@selections
+  }
 
   list(
     ord_ctx = list(
@@ -622,7 +1043,10 @@ run_policy_sensitivity_reference <- function(candidate_models,
     species_block_perf = benchmark_obj$species_block_perf,
     conf_cal = conformal_obj$conf_cal,
     selection_ref = selection_obj$final_ref,
+    anchor_selected = anchor_selected,
     equivalence_pairs = selection_obj$equiv_ref$pairs,
     equivalence_classes = selection_obj$equiv_sets
   )
 }
+
+

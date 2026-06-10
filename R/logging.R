@@ -22,7 +22,7 @@ build_workflow_logger <- function(log_file = NULL,
     stop("'append' must be TRUE or FALSE.", call. = FALSE)
   }
   if (!is.null(log_file) &&
-      (!is.character(log_file) || length(log_file) != 1 || !nzchar(log_file))) {
+    (!is.character(log_file) || length(log_file) != 1 || !nzchar(log_file))) {
     stop("'log_file' must be NULL or a single non-empty path.", call. = FALSE)
   }
 
@@ -113,3 +113,5 @@ log_header <- function(logger,
   log_message(logger, "====================================================================", timestamp = FALSE)
   invisible(NULL)
 }
+
+

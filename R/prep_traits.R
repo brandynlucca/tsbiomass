@@ -31,11 +31,11 @@
 #'
 #' @export
 prepare_traits <- function(species_db,
-                        study_db,
-                        cache_path = NULL,
-                        refresh = FALSE,
-                        registry_path = NULL,
-                        missing_tokens = c("-9999")) {
+                           study_db,
+                           cache_path = NULL,
+                           refresh = FALSE,
+                           registry_path = NULL,
+                           missing_tokens = c("-9999")) {
   # Validate the core inputs and cache controls before any registry or merge
   # work begins.
   if (!is.data.frame(species_db)) {
@@ -47,7 +47,7 @@ prepare_traits <- function(species_db,
   }
 
   if (!is.null(cache_path) &&
-      (!is.character(cache_path) || length(cache_path) != 1)) {
+    (!is.character(cache_path) || length(cache_path) != 1)) {
     stop("'cache_path' must be NULL or a single file path.", call. = FALSE)
   }
 
@@ -303,11 +303,20 @@ prepare_traits <- function(species_db,
     temp_range_c = "temperature_range",
     troph = "trophic",
     length_metric_clean = "length_metric",
-    frequency_khz = "frequency"
+    frequency_khz = "frequency",
+    depth_min = "species_depth_min",
+    depth_max = "species_depth_max",
+    depth_range = "species_depth_range",
+    depth_midpoint = "species_depth_midpoint",
+    length_min = "species_length_min",
+    length_max = "species_length_max",
+    length_midpoint = "species_length_midpoint"
   )
   for (alias_nm in names(alias_pairs)) {
     source_nm <- alias_pairs[[alias_nm]]
-    if (!alias_nm %in% names(out) && source_nm %in% names(out)) {
+    alias_empty <- !alias_nm %in% names(out) ||
+      all(is.na(out[[alias_nm]]) | as.character(out[[alias_nm]]) == "")
+    if (alias_empty && source_nm %in% names(out)) {
       out[[alias_nm]] <- out[[source_nm]]
     }
   }
@@ -446,6 +455,28 @@ prepare_traits <- function(species_db,
     }
   }
 
+  # Re-create registry-coded species interval aliases after the study interval
+  # columns have been renamed. These aliases let the similarity configuration
+  # use the trait-registry species names while retaining explicit study_* names
+  # for study-level interval traits.
+  final_species_alias_pairs <- c(
+    depth_min = "species_depth_min",
+    depth_max = "species_depth_max",
+    depth_range = "species_depth_range",
+    depth_midpoint = "species_depth_midpoint",
+    length_min = "species_length_min",
+    length_max = "species_length_max",
+    length_midpoint = "species_length_midpoint"
+  )
+  for (alias_nm in names(final_species_alias_pairs)) {
+    source_nm <- final_species_alias_pairs[[alias_nm]]
+    alias_empty <- !alias_nm %in% names(out) ||
+      all(is.na(out[[alias_nm]]) | as.character(out[[alias_nm]]) == "")
+    if (alias_empty && source_nm %in% names(out)) {
+      out[[alias_nm]] <- out[[source_nm]]
+    }
+  }
+
   # Persist the prepared merged table exactly as returned when the caller
   # explicitly supplies a cache path.
   if (!is.null(cache_path)) {
@@ -533,8 +564,7 @@ convert_to_length_form <- function(tbl) {
     rep(NA_real_, nrow(tbl))
   }
 
-  lw_a[!is.finite(lw_a) | is.na(lw_a)] <- 0.01
-  lw_b[!is.finite(lw_b) | is.na(lw_b)] <- 3.0
+  valid_lw <- is.finite(lw_a) & lw_a > 0 & is.finite(lw_b)
 
   # Identify inverse-length equations first so they can be excluded from direct
   # TS-length conversion.
@@ -547,22 +577,60 @@ convert_to_length_form <- function(tbl) {
   intercept_num <- suppressWarnings(as.numeric(tbl$intercept))
   eq_form <- stringr::str_to_lower(as.character(tbl$equation_form))
 
-  # Apply the legacy weight-to-length conversion only to the weight-based model
-  # form; otherwise preserve the original slope/intercept.
+  # Apply the weight-to-length conversion only when length-weight coefficients
+  # were observed. Missing coefficients leave the converted coefficients unset
+  # instead of silently imposing canonical geometric scaling.
   tbl$slope_len <- dplyr::case_when(
     eq_form %in% c("20log10_ind", "mlog10_ind") ~ slope_num,
-    eq_form == "mlog10_kg" ~ slope_num + 10 * lw_b,
+    eq_form == "mlog10_kg" & valid_lw ~ slope_num + 10 * lw_b,
+    eq_form == "mlog10_kg" ~ NA_real_,
     TRUE ~ slope_num
   )
 
   tbl$intercept_len <- dplyr::case_when(
     eq_form %in% c("20log10_ind", "mlog10_ind") ~ intercept_num,
-    eq_form == "mlog10_kg" ~ intercept_num + 10 * (log10(lw_a) - 3),
+    eq_form == "mlog10_kg" & valid_lw ~ intercept_num + 10 * (log10(lw_a) - 3),
+    eq_form == "mlog10_kg" ~ NA_real_,
     TRUE ~ intercept_num
   )
 
   tbl$slope_len[tbl$inverse_length_equation_flag %in% TRUE] <- NA_real_
   tbl$intercept_len[tbl$inverse_length_equation_flag %in% TRUE] <- NA_real_
 
+  extract_length_bounds <- function(tbl_now) {
+    n_now <- nrow(tbl_now)
+    lower_now <- rep(NA_real_, n_now)
+    upper_now <- rep(NA_real_, n_now)
+
+    if (all(c("study_length_min", "study_length_max") %in% names(tbl_now))) {
+      lower_now <- suppressWarnings(as.numeric(tbl_now$study_length_min))
+      upper_now <- suppressWarnings(as.numeric(tbl_now$study_length_max))
+      return(list(lower = lower_now, upper = upper_now))
+    }
+
+    if ("length_range_cm" %in% names(tbl_now)) {
+      range_chr <- as.character(tbl_now$length_range_cm %||% rep(NA_character_, n_now))
+      nums_now <- stringr::str_extract_all(range_chr, "[-+]?[0-9]*\\.?[0-9]+")
+      lower_now <- vapply(nums_now, function(x) {
+        if (length(x) >= 1) suppressWarnings(as.numeric(x[[1]])) else NA_real_
+      }, numeric(1))
+      upper_now <- vapply(nums_now, function(x) {
+        if (length(x) >= 2) suppressWarnings(as.numeric(x[[2]])) else NA_real_
+      }, numeric(1))
+    }
+
+    list(lower = lower_now, upper = upper_now)
+  }
+
+  length_bounds <- extract_length_bounds(tbl)
+  ts_at_lower <- tbl$slope_len * log10(pmax(length_bounds$lower, 1e-6)) + tbl$intercept_len
+  ts_at_upper <- tbl$slope_len * log10(pmax(length_bounds$upper, 1e-6)) + tbl$intercept_len
+  tbl$invalid_ts_length_curve <- is.finite(ts_at_lower) & is.finite(ts_at_upper) &
+    (ts_at_lower >= 0 | ts_at_upper >= 0)
+  tbl$slope_len[tbl$invalid_ts_length_curve %in% TRUE] <- NA_real_
+  tbl$intercept_len[tbl$invalid_ts_length_curve %in% TRUE] <- NA_real_
+
   tbl
 }
+
+

@@ -1,0 +1,505 @@
+test_that("reference anchors can be assigned by dynamic selector", {
+  candidates <- make_candidates()
+  anchored <- set_reference_anchors(candidates, selector = list(regional_body = "SWFSC"))
+
+  expect_true(S7::S7_inherits(anchored, Candidates))
+  expect_equal(sort(anchored@reference_anchors$model_id), c(1L, 2L, 4L))
+  expect_true(all(anchored@reference_anchors$regional_body == "SWFSC"))
+})
+
+test_that("candidate source ids infer built-in adapters without type or engine", {
+  tmp_dir <- tempfile("candidate-config-")
+  dir.create(tmp_dir)
+
+  study_path <- file.path(tmp_dir, "input.xlsx")
+  azores_path <- file.path(tmp_dir, "azores.tab")
+  dir.create(file.path(tmp_dir, "supplemental"))
+  file.create(study_path)
+  file.create(azores_path)
+
+  spec <- tsbiomass:::normalize_candidates_config(
+    list(
+      data = list(
+        list(id = "study_metadata", path = study_path),
+        list(id = "worms"),
+        list(id = "Fishbase"),
+        list(id = "AzoresTraits", path = azores_path),
+        list(id = "PelagicTraits", alias = "pelagic", path = file.path(tmp_dir, "supplemental"))
+      ),
+      enrich = list(
+        precedence = c("pelagic", "azorestraits", "fishbase", "worms")
+      ),
+      prepare = list()
+    ),
+    base_dir = tmp_dir
+  )
+
+  expect_equal(spec$study$path, normalizePath(study_path, winslash = "/", mustWork = FALSE))
+  expect_equal(names(spec$sources), c("worms", "fishbase", "azorestraits", "pelagic"))
+  expect_equal(spec$sources$worms$adapter, "worms")
+  expect_equal(spec$sources$fishbase$adapter, "fishbase")
+  expect_equal(spec$sources$azorestraits$adapter, "azores")
+  expect_equal(spec$sources$pelagic$adapter, "pelagic")
+  expect_equal(spec$enrich$precedence, c("pelagic", "azorestraits", "fishbase", "worms"))
+})
+
+test_that("prepare_similarity_matrix stores prepared state on Candidates", {
+  candidates <- make_candidates(seed_similarity_tuning = FALSE)
+
+  prepared <- prepare_similarity_matrix(
+    candidate_models = candidates,
+    config = minimal_similarity_config()
+  )
+
+  expect_true(S7::S7_inherits(prepared, Candidates))
+  expect_true(length(prepared@similarity_matrix) > 0)
+  expect_true(all(c("species_weights", "study_weights", "candidate_models") %in% names(prepared@similarity_matrix)))
+  expect_true(any(grepl("^fao_area__", names(prepared@similarity_matrix$candidate_models))))
+  expect_false(any(grepl("^fao_area__", names(prepared@candidate_models))))
+})
+
+test_that("prepare_similarity_matrix preserves tuning state and trims stored candidate table", {
+  candidates <- make_candidates(seed_similarity_tuning = TRUE)
+  candidates@spec$workflow_config <- tsbiomass:::merge_cfg(
+    minimal_workflow_config(),
+    list(
+      similarity = list(
+        species_traits = c("genus", "family"),
+        study_traits = c("frequency", "fao_area")
+      )
+    )
+  )
+
+  prepared <- prepare_similarity_matrix(
+    candidate_models = candidates,
+    config = minimal_similarity_config()
+  )
+
+  expect_true(length(prepared@similarity_tuning) > 0)
+  expect_true("config_tuned" %in% names(prepared@similarity_tuning))
+  expect_false("ocean_basin" %in% names(prepared@candidate_models))
+  expect_false("class" %in% names(prepared@candidate_models))
+  expect_true("genus" %in% names(prepared@candidate_models))
+  expect_true("family" %in% names(prepared@candidate_models))
+  expect_true("frequency" %in% names(prepared@candidate_models))
+  expect_true("fao_area" %in% names(prepared@candidate_models))
+})
+
+test_that("build_gower_distances stores distance matrices on Candidates", {
+  candidates <- make_candidates(seed_similarity_tuning = FALSE)
+  candidates <- prepare_similarity_matrix(
+    candidate_models = candidates,
+    config = minimal_similarity_config()
+  )
+
+  distance_candidates <- build_gower_distances(candidates)
+
+  expect_true(S7::S7_inherits(distance_candidates, Candidates))
+  expect_true(length(distance_candidates@gower_distances) > 0)
+  expect_equal(
+    dim(distance_candidates@gower_distances$combined_dist),
+    c(nrow(distance_candidates@candidate_models), nrow(distance_candidates@candidate_models))
+  )
+  expect_equal(
+    unname(diag(distance_candidates@gower_distances$combined_dist)),
+    rep(0, nrow(distance_candidates@candidate_models))
+  )
+})
+
+test_that("missingness summaries dispatch through Candidates and PolicySelector", {
+  candidates <- make_candidates()
+  screened <- tsbiomass:::screen_missing_metadata(candidates)
+
+  expect_true("key_metadata_missing_fraction" %in% names(screened))
+  expect_equal(nrow(screened), nrow(candidates@candidate_models))
+
+  selector <- make_selector(candidates = candidates)
+  summary_obj <- summarize_key_missing(selector)
+
+  expect_true(all(c("overall", "by_field", "by_model") %in% names(summary_obj)))
+  expect_true("missing_fraction" %in% names(summary_obj$by_field))
+})
+
+test_that("tune_similarity_matrix writes tuning results back to Candidates", {
+  candidates <- make_candidates(seed_similarity_tuning = FALSE)
+
+  testthat::local_mocked_bindings(
+    prepare_similarity_matrix = function(candidate_models,
+                                         species_traits = NULL,
+                                         study_traits = NULL,
+                                         alpha = NULL,
+                                         k_species = NULL,
+                                         k_study = NULL,
+                                         ...) {
+      candidate_tbl <- if (inherits(candidate_models, "S7_object")) {
+        candidate_models@candidate_models
+      } else {
+        tibble::as_tibble(candidate_models)
+      }
+
+      sim_obj <- list(
+        candidate_models = candidate_tbl,
+        species_weights = unlist(species_traits %||% list(genus = 1, family = 0.5)),
+        study_weights = unlist(study_traits %||% list(frequency = 1, fao_area = 1)),
+        alpha = alpha %||% 0.65,
+        kernel_scale = k_species %||% k_study %||% 2,
+        k_species = k_species %||% 2,
+        k_study = k_study %||% 2,
+        seed = 42L,
+        config = list(
+          alpha_grid = c(0.45, 0.65, 0.85),
+          kernel_scale_grid = c(1, 2, 3),
+          length_coherence = list(method = "overlap", weight = 1),
+          depth_coherence = list(method = "overlap", weight = 1),
+          frequency_coherence = list(method = "numeric", weight = 1)
+        )
+      )
+
+      if (inherits(candidate_models, "S7_object")) {
+        return(tsbiomass:::candidates_with_similarity_matrix(candidate_models, sim_obj))
+      }
+
+      sim_obj
+    },
+    build_tuning_subset = function(candidate_models, ...) {
+      tibble::as_tibble(candidate_models)
+    },
+    run_tuning_grid_search = function(...) {
+      list(
+        alpha_best = 0.75,
+        kernel_scale_best = 3,
+        k_species_best = 3,
+        k_study_best = 3,
+        baseline = tibble::tibble(stage = "baseline", rmse = 0.20),
+        grid_scores = tibble::tibble(stage = "grid", rmse = 0.10)
+      )
+    },
+    run_component_dropout = function(...) {
+      tibble::tibble(component = "full_model", rmse = 0.10, mae = 0.08, n_eval = 4L)
+    },
+    apply_component_weights = function(...) {
+      list(
+        species_weights = c(genus = 2, family = 1),
+        study_weights = c(frequency = 0.5, fao_area = 1.5),
+        config = list(
+          length_coherence = list(method = "overlap", weight = 2),
+          depth_coherence = list(method = "overlap", weight = 1),
+          frequency_coherence = list(method = "numeric", weight = 1)
+        )
+      )
+    },
+    score_similarity_config = function(...) {
+      tibble::tibble(rmse = 0.09, mae = 0.07, n_eval = 4L)
+    },
+    .package = "tsbiomass"
+  )
+
+  tuned <- tune_similarity_matrix(candidates)
+
+  expect_true(S7::S7_inherits(tuned, Candidates))
+  expect_true(length(tuned@similarity_tuning) > 0)
+  expect_true(length(tuned@similarity_matrix) > 0)
+  expect_equal(tuned@similarity_tuning$config_tuned$alpha, 0.75)
+  expect_equal(tuned@similarity_tuning$config_tuned$kernel_scale, 3)
+  expect_equal(tuned@similarity_tuning$config_tuned$species_weights[["genus"]], 2)
+  expect_equal(tuned@similarity_matrix$alpha, 0.75)
+  expect_equal(tuned@similarity_matrix$kernel_scale, 3)
+  expect_equal(tuned@similarity_matrix$species_weights[["genus"]], 2)
+  expect_true("stability_summary" %in% names(tuned@similarity_tuning))
+  expect_true(all(c("component", "component_type", "median_value") %in% names(tuned@similarity_tuning$stability_summary)))
+})
+
+test_that("run_tuning_grid_search uses staged screening and refinement", {
+  search_object <- tsbiomass:::run_tuning_grid_search(
+    tune_models = minimal_candidate_models(),
+    base_sim = minimal_similarity_matrix(),
+    registry_path = NULL,
+    n_cores = 1L
+  )
+
+  expect_true(all(c("baseline", "grid_scores", "alpha_best", "kernel_scale_best", "k_species_best", "k_study_best") %in% names(search_object)))
+  expect_true(any(grepl("^search_screen_", search_object$grid_scores$stage)))
+  expect_true(any(grepl("^search_full$", search_object$grid_scores$stage)))
+  expect_true(is.finite(search_object$alpha_best))
+  expect_true(is.finite(search_object$kernel_scale_best))
+  expect_true(is.finite(search_object$k_species_best))
+  expect_true(is.finite(search_object$k_study_best))
+  expect_equal(search_object$k_species_best, search_object$k_study_best)
+})
+
+test_that("similarity scoring integrates over the held-out length distribution", {
+  models_subset <- minimal_candidate_models() |>
+    dplyr::mutate(
+      study_length_min = length_min,
+      study_length_max = length_max
+    )
+  score_basis <- tsbiomass:::prepare_similarity_score_basis(
+    models_subset = models_subset,
+    species_weights = c(genus = 1, family = 0.5),
+    study_weights = c(frequency = 1, fao_area = 1),
+    alpha_now = 0.65,
+    k_species_now = 2,
+    k_study_now = 1,
+    cfg_now = minimal_similarity_config(),
+    registry_path = NULL,
+    seed_now = 42L
+  )
+
+  row_one <- models_subset[1, , drop = FALSE]
+  manual_pdf <- tibble::tibble(
+    length_cm = seq(row_one$study_length_min[[1]], row_one$study_length_max[[1]], length.out = 400),
+    f_len = rep(1 / 400, 400)
+  )
+  expected_sigma <- tsbiomass:::equation_sigma_mean(
+    slope = row_one$slope_len[[1]],
+    intercept = row_one$intercept_len[[1]],
+    anchor_pdf = manual_pdf
+  )
+  midpoint_sigma <- 10^(
+    tsbiomass:::ts_at_length(
+      slope = row_one$slope_len[[1]],
+      intercept = row_one$intercept_len[[1]],
+      lengths_cm = mean(c(row_one$study_length_min[[1]], row_one$study_length_max[[1]]))
+    ) / 10
+  )
+
+  expect_equal(score_basis$target_sigma[[1]], expected_sigma, tolerance = 1e-8)
+  expect_false(isTRUE(all.equal(score_basis$target_sigma[[1]], midpoint_sigma, tolerance = 1e-8)))
+})
+
+test_that("similarity tuning basis excludes same-species donors from scoring", {
+  models_subset <- minimal_candidate_models() |>
+    dplyr::mutate(
+      species_name = c("species_a", "species_a", "species_b", "species_c"),
+      genus = c("genus_a", "genus_a", "genus_b", "genus_c"),
+      species = c("a", "a", "b", "c")
+    )
+
+  score_basis <- tsbiomass:::prepare_similarity_score_basis(
+    models_subset = models_subset,
+    species_weights = c(genus = 1, family = 0.5),
+    study_weights = c(frequency = 1, fao_area = 1),
+    alpha_now = 0.65,
+    k_species_now = 2,
+    k_study_now = 1,
+    cfg_now = minimal_similarity_config(),
+    registry_path = NULL,
+    seed_now = 42L
+  )
+
+  expect_true(isTRUE(score_basis$same_species_mask[1, 2]))
+  expect_true(isTRUE(score_basis$same_species_mask[2, 1]))
+  expect_false(isTRUE(score_basis$same_species_mask[1, 1]))
+  expect_false(isTRUE(score_basis$same_species_mask[1, 3]))
+})
+
+test_that("anchor density uses study interval or midpoint without Lmax fallback", {
+  cfg <- tsbiomass:::default_anchor_config()
+
+  interval_anchor <- tibble::tibble(
+    study_length_min = 10,
+    study_length_max = 30,
+    study_length_midpoint = NA_real_
+  )
+  interval_pdf <- tsbiomass:::build_anchor_density(interval_anchor, cfg, n = 5)
+  expect_equal(interval_pdf$length_cm, seq(10, 30, length.out = 5))
+  expect_equal(interval_pdf$f_len, rep(0.2, 5))
+
+  midpoint_anchor <- tibble::tibble(
+    study_length_min = NA_real_,
+    study_length_max = NA_real_,
+    study_length_midpoint = 17
+  )
+  midpoint_pdf <- tsbiomass:::build_anchor_density(midpoint_anchor, cfg, n = 5)
+  expect_equal(midpoint_pdf$length_cm, 17)
+  expect_equal(midpoint_pdf$f_len, 1)
+
+  missing_anchor <- tibble::tibble(
+    study_length_min = NA_real_,
+    study_length_max = NA_real_,
+    study_length_midpoint = NA_real_,
+    species_length_max = 44
+  )
+  expect_error(
+    tsbiomass:::build_anchor_density(missing_anchor, cfg, n = 5),
+    "No valid anchor study length interval or midpoint was available"
+  )
+})
+
+test_that("candidate trimming removes unused configured traits", {
+  candidate_specification <- list(
+    workflow_config = tsbiomass:::merge_cfg(
+      minimal_workflow_config(),
+      list(
+        similarity = list(
+          species_traits = list(
+            swimbladder_type = 5,
+            body_shape = 3,
+            family = 1,
+            genus = 1,
+            species = 1,
+            fao_area = 1,
+            trophic = 1,
+            habitat_vertical = 1
+          ),
+          study_traits = list(
+            length_metric = 1,
+            fao_area = 1,
+            equation_form = 1,
+            pressure_corrected = 1,
+            season = 1,
+            diel = 1
+          )
+        )
+      )
+    ),
+    registry_path = trait_registry_path()
+  )
+
+  species_table <- tibble::tibble(
+    species_name = "Alpha alpha",
+    genus = "Alpha",
+    species = "alpha",
+    family = "Fam1",
+    order = "Ord1",
+    swimbladder_type = "physoclist",
+    fao_area = "61",
+    trophic = 3.5,
+    habitat_vertical = "pelagic",
+    temperature_min = 5,
+    temperature_max = 14,
+    sample_size = 20,
+    tags = "test",
+    source_type = "fishbase",
+    lw_a_g = 0.01,
+    lw_b = 3.0
+  )
+
+  trimmed_species <- tsbiomass:::trim_species_data(
+    data_table = species_table,
+    candidate_specification = candidate_specification
+  )
+
+  expect_false("temperature_min" %in% names(trimmed_species))
+  expect_false("temperature_max" %in% names(trimmed_species))
+  expect_true(all(c("swimbladder_type", "family", "genus", "species", "fao_area", "trophic", "habitat_vertical", "lw_a_g", "lw_b") %in% names(trimmed_species)))
+  expect_true(all(c("sample_size", "tags", "source_type") %in% names(trimmed_species)))
+
+  candidate_table <- tibble::tibble(
+    model_id = 1L,
+    model_id_chr = "1",
+    species_name = "Alpha alpha",
+    genus = "Alpha",
+    species = "alpha",
+    family = "Fam1",
+    order = "Ord1",
+    swimbladder_type = "physoclist",
+    slope_len = 20,
+    intercept_len = -70,
+    frequency = 38,
+    equation_form = "standardized_length",
+    fao_area = "61",
+    trophic = 3.5,
+    habitat_vertical = "pelagic",
+    season = "summer",
+    diel = "day",
+    pressure_corrected = TRUE,
+    temperature_min = 5,
+    temperature_max = 14,
+    sample_size = 20
+  )
+
+  trimmed_candidates <- tsbiomass:::trim_candidate_data(
+    data_table = candidate_table,
+    candidate_specification = candidate_specification
+  )
+
+  expect_false("temperature_min" %in% names(trimmed_candidates))
+  expect_false("temperature_max" %in% names(trimmed_candidates))
+  expect_false("sample_size" %in% names(trimmed_candidates))
+  expect_true(all(c("model_id", "slope_len", "intercept_len", "frequency", "equation_form", "fao_area", "season", "diel", "pressure_corrected") %in% names(trimmed_candidates)))
+})
+
+test_that("class printing is compact and informative", {
+  candidates <- make_candidates()
+  selector <- make_selector(candidates = candidates)
+  learner <- as_policy_learner(selector)
+
+  expect_output(print(candidates), "^Candidates")
+  expect_output(print(selector), "^PolicySelector")
+  expect_output(print(learner), "^PolicyLearner")
+})
+
+test_that("equal-weight starts and range bounds are read from workflow config", {
+  cfg <- minimal_workflow_config()
+  parsed <- tsbiomass:::read_similarity_config(cfg)
+  normalized <- tsbiomass:::resolve_similarity_setup(
+    cfg_user = parsed,
+    alpha = parsed$alpha %||% 0.8,
+    k_species = parsed$kernel_scale %||% parsed$k_species %||% 4,
+    k_study = parsed$kernel_scale %||% parsed$k_study %||% 4
+  )
+
+  expect_true(isTRUE(parsed$equal_start_weights))
+  expect_equal(normalized$alpha_range, c(0.1, 0.9))
+  expect_equal(normalized$kernel_scale_range, c(1, 8))
+  expect_equal(normalized$k_species_range, c(1, 8))
+  expect_equal(normalized$k_study_range, c(1, 8))
+})
+
+test_that("equal-weight starts preserve trait names from named numeric maps", {
+  trait_map <- c(swimbladder_type = 5, body_shape = 3, family = 1)
+  out <- tsbiomass:::equal_start_weights(trait_map)
+
+  expect_equal(out, c(swimbladder_type = 1, body_shape = 1, family = 1))
+})
+
+test_that("tune_similarity_matrix accepts WorkflowConfig trait maps under equal starts", {
+  candidates <- make_candidates(seed_similarity_tuning = FALSE)
+  cfg <- as_configurer(minimal_workflow_config(), base_dir = tempdir())
+
+  testthat::local_mocked_bindings(
+    build_tuning_subset = function(candidate_models, ...) {
+      tibble::as_tibble(candidate_models)
+    },
+    run_tuning_grid_search = function(...) {
+      list(
+        alpha_best = 0.75,
+        kernel_scale_best = 3,
+        k_species_best = 3,
+        k_study_best = 3,
+        baseline = tibble::tibble(stage = "baseline", rmse = 0.20),
+        grid_scores = tibble::tibble(stage = "grid", rmse = 0.10)
+      )
+    },
+    run_component_dropout = function(...) {
+      tibble::tibble(component = "full_model", rmse = 0.10, mae = 0.08, n_eval = 4L)
+    },
+    apply_component_weights = function(base_sim, ...) {
+      expect_equal(base_sim$species_weights, c(genus = 1, family = 1))
+      expect_equal(base_sim$study_weights, c(frequency = 1, fao_area = 1))
+      list(
+        species_weights = c(genus = 2, family = 1),
+        study_weights = c(frequency = 0.5, fao_area = 1.5),
+        config = list(
+          length_coherence = list(method = "overlap", weight = 2),
+          depth_coherence = list(method = "overlap", weight = 1),
+          frequency_coherence = list(method = "overlap", weight = 1)
+        )
+      )
+    },
+    score_similarity_config = function(...) {
+      tibble::tibble(rmse = 0.09, mae = 0.07, n_eval = 4L)
+    },
+    .package = "tsbiomass"
+  )
+
+  tuned <- tune_similarity_matrix(
+    candidate_models = candidates,
+    config = cfg
+  )
+
+  expect_true(S7::S7_inherits(tuned, Candidates))
+})
+
+

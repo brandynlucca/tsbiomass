@@ -1,9 +1,45 @@
+# Synthetic interval-overlap columns are pairwise distance components, not
+# row-level ordination envfit labels.
+ordination_synthetic_overlap_traits <- function() {
+  unique(c(
+    "depth_interval_overlap",
+    "length_interval_overlap",
+    "study_depth_interval_overlap",
+    "study_length_interval_overlap",
+    "species_depth_interval_overlap",
+    "species_length_interval_overlap"
+  ))
+}
+
+drop_ordination_synthetic_overlap_traits <- function(x,
+                                                     trait_col = NULL) {
+  synthetic_overlap_traits <- ordination_synthetic_overlap_traits()
+  if (is.null(x)) {
+    return(x)
+  }
+
+  if (is.data.frame(x)) {
+    out <- tibble::as_tibble(x)
+    if (is.character(trait_col) && length(trait_col) == 1 && trait_col %in% names(out)) {
+      trait_values <- as.character(out[[trait_col]])
+      keep <- !(trait_values %in% synthetic_overlap_traits | endsWith(trait_values, "_interval_overlap"))
+      return(out[keep, , drop = FALSE])
+    }
+    keep_cols <- !(names(out) %in% synthetic_overlap_traits | endsWith(names(out), "_interval_overlap"))
+    return(out[, keep_cols, drop = FALSE])
+  }
+
+  x_chr <- as.character(x)
+  x_chr[!(x_chr %in% synthetic_overlap_traits | endsWith(x_chr, "_interval_overlap"))]
+}
+
 #' Run an NMDS ordination
 #'
 #' Runs a two-dimensional NMDS on a distance matrix and optionally fits trait
 #' vectors and factor centroids with `vegan::envfit()`.
 #'
-#' @param dist_mat A distance matrix or `dist` object.
+#' @param dist_mat A distance matrix, `dist` object, or a [Candidates] object
+#'   with populated `@gower_distances`.
 #' @param trait_table Optional trait table aligned to `dist_mat`.
 #' @param nmds_args Optional named list of arguments passed to
 #'   `vegan::metaMDS()`.
@@ -13,16 +49,291 @@
 #'   for factor traits.
 #' @param envfit_args Optional named list of arguments passed to
 #'   `vegan::envfit()`.
+#' @param reference_ids Optional vector of reference model IDs. When `dist_mat`
+#'   is a [Candidates] object and `reference_ids` is `NULL`, the stored
+#'   `@reference_anchors` table is used automatically.
+#' @param join_cols Additional model metadata columns to join onto the stored
+#'   model-level ordination points when `dist_mat` is a [Candidates] object.
+#' @param cluster_args Optional named list passed to
+#'   [assign_ordination_groups()] for the model-level ordination.
+#' @param species_cluster_args Optional named list passed to
+#'   [assign_ordination_groups()] for the species-level ordination.
+#' @param species_refine_args Optional named list passed to
+#'   [refine_species_clusters()] for the species-level ordination.
+#' @param model_id_col Model-ID column name used when `dist_mat` is a
+#'   [Candidates] object.
+#' @param progress Logical scalar controlling stage messages.
 #'
-#' @return A list with `ordination`, `points`, `loadings`, and `centroids`.
+#' @return When `dist_mat` is a [Candidates] object, returns that object with a
+#'   downstream-ready ordination bundle stored in `@ordination`. Otherwise,
+#'   returns a list with `ordination`, `points`, `loadings`, and `centroids`.
+#'
+#' @examples
+#' \dontrun{
+#' candidates <- as_candidates(list(
+#'   study = list(path = "input.xlsx"),
+#'   anchors = list(selector = list(regional_body = "SWFSC"))
+#' ))
+#' candidates <- prepare_similarity_matrix(candidate_models = candidates)
+#' candidates <- build_gower_distances(candidates)
+#' candidates <- run_ordination(candidates)
+#' candidates@ordination$model$model_scores
+#' }
 #'
 #' @export
 run_ordination <- function(dist_mat,
-                     trait_table = NULL,
-                     nmds_args = list(),
-                     include_loadings = FALSE,
-                     include_centroids = FALSE,
-                     envfit_args = list()) {
+                           trait_table = NULL,
+                           nmds_args = NULL,
+                           include_loadings = NULL,
+                           include_centroids = NULL,
+                           envfit_args = NULL,
+                           reference_ids = NULL,
+                           join_cols = c("species_name", "common", "swimbladder_type", "family", "regional_body", "is_group_model"),
+                           cluster_args = list(),
+                           species_cluster_args = list(cluster_col = "species_cluster_id"),
+                           species_refine_args = list(cluster_col = "species_cluster_id"),
+                           model_id_col = "model_id",
+                           progress = NULL) {
+  # Support the high-level `Candidates` workflow path first so model and
+  # species ordination support objects can be built in one call and stored back
+  # onto the staged candidate object.
+  if ((inherits(dist_mat, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(dist_mat, Candidates), error = function(e) FALSE)))) {
+    candidates_obj <- dist_mat
+    workflow_cfg <- candidates_workflow_config(candidates_obj)
+    ordination_cfg <- workflow_cfg$ordination %||% list()
+    progress <- progress %||% ordination_cfg$progress %||% FALSE
+    workflow_progress(progress, "Running ordination.")
+    nmds_args <- nmds_args %||% ordination_cfg$nmds_args %||% list()
+    envfit_args <- envfit_args %||% ordination_cfg$envfit_args %||% list()
+    include_loadings <- include_loadings %||% ordination_cfg$include_loadings %||% FALSE
+    include_centroids <- include_centroids %||% ordination_cfg$include_centroids %||% FALSE
+    if (length(candidates_obj@gower_distances) == 0) {
+      stop(
+        "Candidates object has no Gower-distance bundle. Run `build_gower_distances()` first.",
+        call. = FALSE
+      )
+    }
+    if (length(candidates_obj@similarity_matrix) == 0) {
+      stop(
+        "Candidates object has no prepared similarity state. Run `prepare_similarity_matrix()` first.",
+        call. = FALSE
+      )
+    }
+
+    if (!is.list(cluster_args)) {
+      stop("'cluster_args' must be a list.", call. = FALSE)
+    }
+    if (!is.list(species_cluster_args)) {
+      stop("'species_cluster_args' must be a list.", call. = FALSE)
+    }
+    if (!is.list(species_refine_args)) {
+      stop("'species_refine_args' must be a list.", call. = FALSE)
+    }
+    if (!is.character(model_id_col) || length(model_id_col) != 1 || !nzchar(model_id_col)) {
+      stop("'model_id_col' must be a single column name.", call. = FALSE)
+    }
+
+    distance_obj <- candidates_obj@gower_distances
+    similarity_obj <- candidates_obj@similarity_matrix
+    candidate_models <- tibble::as_tibble(candidates_obj@candidate_models)
+    trait_cols <- as.character(distance_obj$trait_cols %||% character(0))
+    model_cluster_col <- as.character(cluster_args$cluster_col %||% "nmds_cluster_id")
+    species_cluster_col <- as.character(species_cluster_args$cluster_col %||% "species_cluster_id")
+
+    # Default the reference ID set from the stored anchor table so callers do
+    # not need to repeat the anchor selection step when running ordination.
+    if (is.null(reference_ids) && nrow(candidates_obj@reference_anchors) > 0) {
+      if ("model_id_chr" %in% names(candidates_obj@reference_anchors)) {
+        reference_ids <- as.character(candidates_obj@reference_anchors$model_id_chr)
+      } else if ("model_id" %in% names(candidates_obj@reference_anchors)) {
+        reference_ids <- as.character(candidates_obj@reference_anchors$model_id)
+      }
+    }
+
+    model_trait_cols <- intersect(trait_cols, names(candidate_models))
+    model_trait_table <- if (length(model_trait_cols) > 0) {
+      candidate_models |>
+        dplyr::select(dplyr::all_of(model_trait_cols))
+    } else {
+      NULL
+    }
+
+    model_ordination <- run_ordination(
+      dist_mat = distance_obj$combined_dist,
+      trait_table = model_trait_table,
+      nmds_args = nmds_args,
+      include_loadings = include_loadings,
+      include_centroids = include_centroids,
+      envfit_args = envfit_args
+    )
+
+    model_points <- join_ordination_points(
+      ordination_points = model_ordination$points,
+      candidate_models = candidate_models,
+      reference_ids = reference_ids,
+      model_id_col = model_id_col,
+      join_cols = join_cols,
+      cluster_args = cluster_args
+    )
+    model_scores <- extract_ordination_scores(
+      points_df = model_points,
+      cluster_col = model_cluster_col
+    )
+    model_points_missing <- if (length(model_trait_cols) > 0) {
+      add_ordination_missing(
+        points_df = model_points,
+        candidate_models = candidate_models,
+        trait_cols = model_trait_cols,
+        model_id_col = model_id_col
+      )
+    } else {
+      tibble::as_tibble(model_points) |>
+        dplyr::mutate(
+          missing_trait_count = NA_integer_,
+          missing_trait_fraction = NA_real_,
+          missingness_group = NA_character_
+        )
+    }
+
+    model_hulls <- tryCatch(
+      build_ordination_hulls(model_points, cluster_col = model_cluster_col),
+      error = function(e) tibble::tibble()
+    )
+    model_scale <- compute_ordination_scale(model_points)
+
+    species_points_empty <- tibble::tibble(
+      species_name = character(),
+      MDS1 = numeric(),
+      MDS2 = numeric(),
+      cluster_id = character(),
+      nmds_cluster_k = integer(),
+      nmds_cluster_sil = numeric()
+    ) |>
+      dplyr::rename(!!species_cluster_col := cluster_id)
+    species_pairwise_tests <- tibble::tibble()
+    species_lookup <- list()
+    species_manifest <- tibble::tibble()
+    species_ordination <- list(
+      ordination = NULL,
+      points = species_points_empty,
+      loadings = tibble::tibble(),
+      centroids = tibble::tibble()
+    )
+
+    species_dist <- distance_obj$species_dist
+    species_trait_cols <- intersect(trait_cols, names(similarity_obj$species_profiles %||% tibble::tibble()))
+    species_labels <- if (inherits(species_dist, "dist")) {
+      attr(species_dist, "Labels") %||% character(0)
+    } else {
+      rownames(species_dist) %||% character(0)
+    }
+    species_size <- if (inherits(species_dist, "dist")) {
+      as.integer(attr(species_dist, "Size") %||% 0L)
+    } else if (is.matrix(species_dist)) {
+      nrow(species_dist)
+    } else {
+      0L
+    }
+    can_run_species <- (inherits(species_dist, "dist") || is.matrix(species_dist)) &&
+      species_size >= 2 &&
+      length(unique(species_labels)) >= 2
+
+    if (isTRUE(can_run_species)) {
+      species_trait_table <- if (length(species_trait_cols) > 0) {
+        tibble::as_tibble(similarity_obj$species_profiles) |>
+          dplyr::select(dplyr::all_of(species_trait_cols))
+      } else {
+        NULL
+      }
+
+      species_ordination <- run_ordination(
+        dist_mat = species_dist,
+        trait_table = species_trait_table,
+        nmds_args = nmds_args,
+        include_loadings = include_loadings,
+        include_centroids = include_centroids,
+        envfit_args = envfit_args
+      )
+
+      species_points <- species_ordination$points |>
+        dplyr::rename(species_name = model_id)
+
+      species_points <- do.call(
+        assign_ordination_groups,
+        c(list(points_df = species_points), species_cluster_args)
+      )
+
+      species_refined <- do.call(
+        refine_species_clusters,
+        c(
+          list(
+            species_points_df = species_points,
+            dist_mat = species_dist
+          ),
+          species_refine_args
+        )
+      )
+      species_points <- tibble::as_tibble(species_refined$points)
+      species_pairwise_tests <- tibble::as_tibble(species_refined$pairwise_tests)
+
+      lookup_model_id_col <- if (endsWith(model_id_col, "_chr")) {
+        model_id_col
+      } else if (paste0(model_id_col, "_chr") %in% names(candidate_models)) {
+        paste0(model_id_col, "_chr")
+      } else {
+        model_id_col
+      }
+
+      species_lookup_obj <- build_species_lookup(
+        species_points_df = species_points,
+        candidate_models = candidate_models,
+        cluster_col = species_cluster_col,
+        model_id_col = lookup_model_id_col
+      )
+      species_lookup <- species_lookup_obj$lookup
+      species_manifest <- species_lookup_obj$manifest
+
+      species_ordination <- list(
+        ordination = species_ordination$ordination,
+        points = species_points,
+        loadings = species_ordination$loadings,
+        centroids = species_ordination$centroids
+      )
+    }
+
+    ordination_bundle <- list(
+      model = list(
+        ordination = model_ordination$ordination,
+        points = tibble::as_tibble(model_points),
+        loadings = model_ordination$loadings,
+        centroids = model_ordination$centroids,
+        model_scores = tibble::as_tibble(model_scores),
+        points_missing = tibble::as_tibble(model_points_missing),
+        hulls = tibble::as_tibble(model_hulls),
+        scale = model_scale
+      ),
+      species = list(
+        ordination = species_ordination$ordination,
+        points = tibble::as_tibble(species_ordination$points),
+        loadings = tibble::as_tibble(species_ordination$loadings),
+        centroids = tibble::as_tibble(species_ordination$centroids),
+        pairwise_tests = tibble::as_tibble(species_pairwise_tests)
+      ),
+      species_lookup = species_lookup,
+      species_manifest = tibble::as_tibble(species_manifest),
+      reference_ids = as.character(reference_ids %||% character(0)),
+      trait_cols = trait_cols
+    )
+    workflow_progress(progress, "Completed ordination.")
+
+    return(candidates_with_ordination(candidates_obj, ordination_bundle))
+  }
+
+  nmds_args <- nmds_args %||% list()
+  envfit_args <- envfit_args %||% list()
+  include_loadings <- include_loadings %||% FALSE
+  include_centroids <- include_centroids %||% FALSE
+
   # Accept either a matrix or a `dist` object and normalize the ordination
   # arguments before calling `metaMDS()`.
   if (inherits(dist_mat, "dist")) {
@@ -48,10 +359,26 @@ run_ordination <- function(dist_mat,
 
   # Start from the standard package defaults, then let the caller override only
   # the metaMDS arguments they actually care about.
-  nmds_call <- c(
-    list(comm = dist_obj, k = 2, trymax = 50, autotransform = FALSE, trace = FALSE),
-    nmds_args
+  # Keep the default restart budget modest because the object workflow may run
+  # both model-level and species-level ordinations in one pass, and callers can
+  # always raise these values explicitly when they want a more exhaustive NMDS
+  # search.
+  nmds_defaults <- list(
+    comm = dist_obj,
+    k = 2,
+    try = 6,
+    trymax = 12,
+    autotransform = FALSE,
+    trace = FALSE
   )
+  nmds_override <- nmds_args
+  if (length(nmds_override) > 0) {
+    nmds_override <- nmds_override[!is.na(names(nmds_override)) & nzchar(names(nmds_override))]
+  }
+  if (length(nmds_override) > 0) {
+    nmds_defaults[names(nmds_override)] <- NULL
+  }
+  nmds_call <- c(nmds_defaults, nmds_override)
   ord <- do.call(vegan::metaMDS, nmds_call)
 
   # Return the NMDS point coordinates with row identifiers preserved from the
@@ -98,7 +425,7 @@ run_ordination <- function(dist_mat,
   # Also coerce expanded binary indicator columns (names containing "__") that
   # only carry {0, 1, NA} values to factors so envfit places them in $factors
   # (centroids) rather than $vectors (loadings).
-  fit_input <- tibble::as_tibble(trait_table) |>
+  fit_input <- drop_ordination_synthetic_overlap_traits(trait_table) |>
     dplyr::mutate(dplyr::across(where(is.character), as.factor)) |>
     dplyr::mutate(dplyr::across(
       dplyr::matches("__"),
@@ -138,16 +465,21 @@ run_ordination <- function(dist_mat,
 
   # Fit trait vectors and factor centroids only after the envfit inputs have
   # been reduced to informative columns.
-  envfit_call <- c(
-    list(ord = ord, env = fit_input, permutations = 999, na.rm = TRUE),
-    envfit_args
-  )
+  envfit_defaults <- list(ord = ord, env = fit_input, permutations = 999, na.rm = TRUE)
+  envfit_override <- envfit_args
+  if (length(envfit_override) > 0) {
+    envfit_override <- envfit_override[!is.na(names(envfit_override)) & nzchar(names(envfit_override))]
+  }
+  if (length(envfit_override) > 0) {
+    envfit_defaults[names(envfit_override)] <- NULL
+  }
+  envfit_call <- c(envfit_defaults, envfit_override)
   fit <- do.call(vegan::envfit, envfit_call)
 
   loadings <- empty_loadings
   if (isTRUE(include_loadings) &&
-      !is.null(fit$vectors) &&
-      !is.null(fit$vectors$arrows)) {
+    !is.null(fit$vectors) &&
+    !is.null(fit$vectors$arrows)) {
     vec <- as.data.frame(fit$vectors$arrows) |>
       tibble::rownames_to_column("trait")
     if (ncol(vec) >= 3) {
@@ -179,8 +511,8 @@ run_ordination <- function(dist_mat,
 
   centroids <- empty_centroids
   if (isTRUE(include_centroids) &&
-      !is.null(fit$factors) &&
-      !is.null(fit$factors$centroids)) {
+    !is.null(fit$factors) &&
+    !is.null(fit$factors$centroids)) {
     ctr <- as.data.frame(fit$factors$centroids) |>
       tibble::rownames_to_column("trait_level")
     if (ncol(ctr) >= 3) {
@@ -190,8 +522,8 @@ run_ordination <- function(dist_mat,
     # vegan::envfit concatenates trait name + level label with no separator
     # (e.g. "swimbladder_typephysoclist"). Recover the split by matching each
     # centroid rowname against the known factor trait names (from pvals).
-    fac_pvals <- fit$factors$pvals   # named by factor column name
-    fac_r2    <- fit$factors$r       # named by factor column name
+    fac_pvals <- fit$factors$pvals # named by factor column name
+    fac_r2 <- fit$factors$r # named by factor column name
     factor_trait_names <- names(fac_pvals)
 
     # Sort longest-first so longer names match before their shorter prefixes.
@@ -245,9 +577,9 @@ run_ordination <- function(dist_mat,
 #'
 #' @export
 assign_ordination_groups <- function(points_df,
-                                 max_k = 8,
-                                 min_silhouette = 0.10,
-                                 cluster_col = "nmds_cluster_id") {
+                                     max_k = 8,
+                                     min_silhouette = 0.10,
+                                     cluster_col = "nmds_cluster_id") {
   # Validate the point table and clustering arguments before building any
   # coordinate distance objects.
   if (!is.data.frame(points_df)) {
@@ -381,7 +713,7 @@ join_ordination_points <- function(ordination_points,
     dplyr::mutate(is_reference = dplyr::coalesce(is_reference, FALSE))
 
   do.call(
-      assign_ordination_groups,
+    assign_ordination_groups,
     c(list(points_df = out), cluster_args)
   )
 }
@@ -399,8 +731,8 @@ join_ordination_points <- function(ordination_points,
 #'
 #' @export
 extract_ordination_scores <- function(points_df,
-                                cluster_col = "nmds_cluster_id",
-                                reference_col = "is_reference") {
+                                      cluster_col = "nmds_cluster_id",
+                                      reference_col = "is_reference") {
   # Keep only the compact score columns used by downstream neighborhood logic.
   if (!is.data.frame(points_df)) {
     stop("'points_df' must be a data frame or tibble.", call. = FALSE)
@@ -435,8 +767,8 @@ extract_ordination_scores <- function(points_df,
 #'
 #' @export
 count_ordination_groups <- function(points_df,
-                                cluster_col = "nmds_cluster_id",
-                                count_col = "cluster_n") {
+                                    cluster_col = "nmds_cluster_id",
+                                    count_col = "cluster_n") {
   if (!is.data.frame(points_df) || !cluster_col %in% names(points_df)) {
     stop("'points_df' must contain the requested cluster column.", call. = FALSE)
   }
@@ -455,8 +787,8 @@ count_ordination_groups <- function(points_df,
 #'
 #' @export
 build_ordination_hulls <- function(points_df,
-                             cluster_col = "nmds_cluster_id",
-                             min_points = 3L) {
+                                   cluster_col = "nmds_cluster_id",
+                                   min_points = 3L) {
   # Compute one convex hull per cluster only when that cluster has enough
   # points to define a polygon.
   if (!is.data.frame(points_df)) {
@@ -506,9 +838,9 @@ compute_ordination_scale <- function(points_df) {
 #'
 #' @export
 add_ordination_missing <- function(points_df,
-                                 candidate_models,
-                                 trait_cols,
-                                 model_id_col = "model_id") {
+                                   candidate_models,
+                                   trait_cols,
+                                   model_id_col = "model_id") {
   # Join per-model missing-trait summaries onto the NMDS points and collapse
   # them into low/medium/high missingness groups by tertiles.
   if (!is.data.frame(points_df) || !"model_id" %in% names(points_df)) {
@@ -576,9 +908,10 @@ refine_species_clusters <- function(species_points_df,
   if (!all(c(species_col, cluster_col, "MDS1", "MDS2") %in% names(species_points_df))) {
     stop("'species_points_df' is missing required species-cluster columns.", call. = FALSE)
   }
-  if (!is.matrix(dist_mat)) {
-    stop("'dist_mat' must be a species-by-species matrix.", call. = FALSE)
+  if (!(is.matrix(dist_mat) || inherits(dist_mat, "dist"))) {
+    stop("'dist_mat' must be a species-by-species matrix or 'dist' object.", call. = FALSE)
   }
+  dist_lookup <- if (inherits(dist_mat, "dist")) as.matrix(dist_mat) else dist_mat
 
   out <- tibble::as_tibble(species_points_df) |>
     dplyr::filter(is.finite(MDS1), is.finite(MDS2)) |>
@@ -613,7 +946,7 @@ refine_species_clusters <- function(species_points_df,
       p_val <- NA_real_
       if (length(group_sizes) == 2 && all(group_sizes >= 2)) {
         spp <- as.character(sub_df[[species_col]])
-        sub_dist <- dist_mat[spp, spp, drop = FALSE]
+        sub_dist <- dist_lookup[spp, spp, drop = FALSE]
         meta <- data.frame(cluster = factor(sub_df[[cluster_col]]))
         fit <- tryCatch(
           vegan::adonis2(stats::as.dist(sub_dist) ~ cluster, data = meta, permutations = permutations),
@@ -793,12 +1126,12 @@ build_species_lookup <- function(species_points_df,
 #'
 #' @export
 build_anchor_ordination <- function(anchor_row,
-                              model_scores,
-                              species_lookup,
-                              anchor_id_col = "model_id",
-                              score_id_col = "model_id_chr",
-                              cluster_col = "nmds_cluster",
-                              species_col = "species_name") {
+                                    model_scores,
+                                    species_lookup,
+                                    anchor_id_col = "model_id",
+                                    score_id_col = "model_id_chr",
+                                    cluster_col = "nmds_cluster",
+                                    species_col = "species_name") {
   # Extract the anchor's ordination cluster and the precomputed same-cluster
   # model-ID lookup so later policy code can use both directly.
   if (!is.data.frame(anchor_row) || nrow(anchor_row) != 1) {
@@ -820,3 +1153,5 @@ build_anchor_ordination <- function(anchor_row,
     species_ellipse_ids = species_lookup[[anchor_species]] %||% character(0)
   )
 }
+
+

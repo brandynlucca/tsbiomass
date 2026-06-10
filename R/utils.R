@@ -10,6 +10,84 @@
   if (is.null(x) || length(x) == 0) y else x
 }
 
+#' Resolve workflow-config data
+#'
+#' @param config Workflow-config input.
+#'
+#' @return A workflow-config list.
+#' @keywords internal
+workflow_data <- function(config) {
+  if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
+    return(config@data)
+  }
+  if ((inherits(config, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Candidates), error = function(e) FALSE)))) {
+    return(candidates_workflow_config(config) %||% list())
+  }
+  if ((inherits(config, "S7_object") && exists("PolicySelector", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, PolicySelector), error = function(e) FALSE)))) {
+    return(config@config %||% list())
+  }
+  if ((inherits(config, "S7_object") && exists("PolicyLearner", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, PolicyLearner), error = function(e) FALSE)))) {
+    return(policy_learner_config(config))
+  }
+  if ((inherits(config, "S7_object") && exists("PolicySimulator", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, PolicySimulator), error = function(e) FALSE)))) {
+    return(merge_cfg(
+      config@selector@config,
+      config@config
+    ))
+  }
+  if (is.list(config)) {
+    return(config)
+  }
+
+  list()
+}
+
+#' Resolve one workflow setting
+#'
+#' @param config Workflow-config input.
+#' @param key Setting name.
+#' @param sections Optional nested sections searched after the top level.
+#'
+#' @return The resolved value or `NULL`.
+#' @keywords internal
+workflow_value <- function(config,
+                           key,
+                           sections = character()) {
+  cfg <- workflow_data(config)
+  if (!is.list(cfg)) {
+    return(NULL)
+  }
+
+  if (!is.null(cfg[[key]])) {
+    return(cfg[[key]])
+  }
+
+  for (section in sections) {
+    if (is.list(cfg[[section]]) && !is.null(cfg[[section]][[key]])) {
+      return(cfg[[section]][[key]])
+    }
+  }
+
+  NULL
+}
+
+#' Emit one workflow progress message
+#'
+#' @param progress Logical scalar.
+#' @param ... Message fragments.
+#'
+#' @return Invisibly returns `NULL`.
+#' @keywords internal
+workflow_progress <- function(progress,
+                              ...) {
+  if (!isTRUE(progress)) {
+    return(invisible(NULL))
+  }
+
+  tsb_message(...)
+  invisible(NULL)
+}
+
 
 #' Recursively merge two lists
 #'
@@ -157,13 +235,65 @@ installed_script_path <- function(name) {
 #' @return Character vector.
 #' @keywords internal
 resolve_policy_names <- function(tbl) {
-  out <- tibble::as_tibble(tbl)
+  if ("policy" %in% names(tbl)) {
+    return(canonical_policy_name(as.character(tbl$policy)))
+  }
+  rep(NA_character_, nrow(tbl))
+}
 
-  if ("policy" %in% names(out)) {
-    return(as.character(out$policy))
+#' Standardize policy branch filters from a table
+#'
+#' @param data Data frame or tibble.
+#' @param branch_col Branch-filter column name.
+#'
+#' @return Character vector.
+#' @keywords internal
+standardize_branches <- function(data,
+                                 branch_col = "equation_branch_filter") {
+  if (branch_col %in% names(data)) {
+    branch_values <- as.character(data[[branch_col]])
+    branch_values[is.na(branch_values) | !nzchar(branch_values)] <- "all"
+    return(normalize_policy_equation_branch_filters(branch_values))
+  }
+  rep("all", nrow(data))
+}
+
+#' Standardize one policy-identity table
+#'
+#' @param data Data frame or tibble.
+#' @param policy_col Policy column name.
+#' @param branch_col Branch-filter column name.
+#'
+#' @return Tibble with normalized policy-identity columns.
+#' @keywords internal
+standardize_policies <- function(data,
+                                 policy_col = "policy",
+                                 branch_col = "equation_branch_filter") {
+  out <- if (is.data.frame(data)) data else tibble::as_tibble(data)
+  if (policy_col %in% names(out)) {
+    out[[policy_col]] <- as.character(out[[policy_col]])
+  }
+  out[[branch_col]] <- standardize_branches(out, branch_col = branch_col)
+  out
+}
+
+#' Resolve selected-policy branch filters from a table
+#'
+#' @param data Data frame or tibble.
+#'
+#' @return Character vector.
+#' @keywords internal
+selected_branches <- function(data) {
+  out <- tibble::as_tibble(data)
+
+  if ("selected_equation_branch_filter" %in% names(out)) {
+    return(standardize_branches(out, branch_col = "selected_equation_branch_filter"))
+  }
+  if ("equation_branch_filter" %in% names(out)) {
+    return(standardize_branches(out, branch_col = "equation_branch_filter"))
   }
 
-  rep(NA_character_, nrow(out))
+  rep("all", nrow(out))
 }
 
 #' Resolve displayed selected policy names from a table
@@ -182,6 +312,73 @@ resolve_selected_policy_values <- function(tbl) {
   rep(NA_character_, nrow(out))
 }
 
+#' Resolve displayed policy names from a table
+#'
+#' @param tbl Data frame or tibble.
+#'
+#' @return Character vector.
+#' @keywords internal
+resolve_policy_display_names <- function(tbl) {
+  out <- tibble::as_tibble(tbl)
+  if ("policy_display" %in% names(out)) {
+    display_vals <- as.character(out$policy_display)
+    if (all(!is.na(display_vals) & nzchar(display_vals))) {
+      return(display_vals)
+    }
+  }
+  branch_vals <- standardize_branches(out)
+
+  if (all(c("candidate_pool", "aggregation_method") %in% names(out))) {
+    branch_defs <- read_policy_registry()$policy_branches %||% list()
+    branch_tags <- stats::setNames(
+      vapply(branch_defs, function(x) as.character(x$display_tag %||% x$key %||% NA_character_), character(1)),
+      vapply(branch_defs, function(x) as.character(x$key %||% NA_character_), character(1))
+    )
+    pool_vals <- dplyr::recode(
+      as.character(out$candidate_pool),
+      all_admissible = "All-models",
+      closest_study_cell = "Study-cell",
+      generalized_models_only = "Generalized",
+      nearest_phylogenetic = "Phylogenetic",
+      phylogenetic_neighborhood = "Related-species",
+      same_derivation = "Derivation",
+      same_equation_form = "Equation-form",
+      same_family = "Family",
+      same_fao_area = "FAO-area",
+      same_genus = "Genus",
+      same_ocean_basin = "Ocean-basin",
+      same_order = "Order",
+      same_species = "Species",
+      .default = stringr::str_to_title(stringr::str_replace_all(as.character(out$candidate_pool), "_", " "))
+    )
+    agg_vals <- dplyr::recode(
+      as.character(out$aggregation_method),
+      arithmetic_mean = "averaged",
+      equal_weight_mean = "averaged",
+      nearest = "nearest",
+      nearest_by_combined_distance = "nearest",
+      nearest_by_trait_gower_distance = "trait-nearest",
+      nearest_study_then_model = "study-nearest",
+      .default = stringr::str_to_lower(stringr::str_replace_all(as.character(out$aggregation_method), "_", "-"))
+    )
+    branch_labs <- unname(branch_tags[branch_vals])
+    branch_labs[is.na(branch_labs) | !nzchar(branch_labs)] <- branch_vals[is.na(branch_labs) | !nzchar(branch_labs)]
+    alias_vals <- paste0(pool_vals, " ", agg_vals, " [", branch_labs, "]")
+    if (all(!is.na(alias_vals) & nzchar(alias_vals))) {
+      return(alias_vals)
+    }
+  }
+
+  if ("policy" %in% names(out)) {
+    return(policy_display_label(
+      canonical_policy_name(as.character(out$policy)),
+      branch_vals
+    ))
+  }
+
+  rep(NA_character_, nrow(out))
+}
+
 #' Resolve displayed selected policy names from a table
 #'
 #' @param tbl Data frame or tibble.
@@ -190,12 +387,65 @@ resolve_selected_policy_values <- function(tbl) {
 #' @keywords internal
 resolve_selected_policy_names <- function(tbl) {
   out <- tibble::as_tibble(tbl)
-
   if ("selected_policy_display" %in% names(out)) {
-    return(as.character(out$selected_policy_display))
+    display_vals <- as.character(out$selected_policy_display)
+    if (all(!is.na(display_vals) & nzchar(display_vals))) {
+      return(display_vals)
+    }
   }
+  if (all(c("candidate_pool", "aggregation_method") %in% names(out))) {
+    branch_vals <- if ("selected_equation_branch_filter" %in% names(out)) {
+      standardize_branches(out, branch_col = "selected_equation_branch_filter")
+    } else {
+      standardize_branches(out)
+    }
+    branch_defs <- read_policy_registry()$policy_branches %||% list()
+    branch_tags <- stats::setNames(
+      vapply(branch_defs, function(x) as.character(x$display_tag %||% x$key %||% NA_character_), character(1)),
+      vapply(branch_defs, function(x) as.character(x$key %||% NA_character_), character(1))
+    )
+    pool_vals <- dplyr::recode(
+      as.character(out$candidate_pool),
+      all_admissible = "All-models",
+      closest_study_cell = "Study-cell",
+      generalized_models_only = "Generalized",
+      nearest_phylogenetic = "Phylogenetic",
+      phylogenetic_neighborhood = "Related-species",
+      same_derivation = "Derivation",
+      same_equation_form = "Equation-form",
+      same_family = "Family",
+      same_fao_area = "FAO-area",
+      same_genus = "Genus",
+      same_ocean_basin = "Ocean-basin",
+      same_order = "Order",
+      same_species = "Species",
+      .default = stringr::str_to_title(stringr::str_replace_all(as.character(out$candidate_pool), "_", " "))
+    )
+    agg_vals <- dplyr::recode(
+      as.character(out$aggregation_method),
+      arithmetic_mean = "averaged",
+      equal_weight_mean = "averaged",
+      nearest = "nearest",
+      nearest_by_combined_distance = "nearest",
+      nearest_by_trait_gower_distance = "trait-nearest",
+      nearest_study_then_model = "study-nearest",
+      .default = stringr::str_to_lower(stringr::str_replace_all(as.character(out$aggregation_method), "_", "-"))
+    )
+    branch_labs <- unname(branch_tags[branch_vals])
+    branch_labs[is.na(branch_labs) | !nzchar(branch_labs)] <- branch_vals[is.na(branch_labs) | !nzchar(branch_labs)]
+    alias_vals <- paste0(pool_vals, " ", agg_vals, " [", branch_labs, "]")
+    if (all(!is.na(alias_vals) & nzchar(alias_vals))) {
+      return(alias_vals)
+    }
+  }
+
   if ("selected_policy" %in% names(out)) {
-    return(as.character(out$selected_policy))
+    branch_vals <- if ("selected_equation_branch_filter" %in% names(out)) {
+      standardize_branches(out, branch_col = "selected_equation_branch_filter")
+    } else {
+      standardize_branches(out)
+    }
+    return(policy_display_label(canonical_policy_name(as.character(out$selected_policy)), branch_vals))
   }
 
   rep(NA_character_, nrow(out))
@@ -238,7 +488,7 @@ initialize_parallel_cluster <- function(workers,
     stop("'workers' must be one finite number >= 1.", call. = FALSE)
   }
   if (!is.null(package_dir) &&
-      (!is.character(package_dir) || length(package_dir) != 1 || !nzchar(package_dir))) {
+    (!is.character(package_dir) || length(package_dir) != 1 || !nzchar(package_dir))) {
     stop("'package_dir' must be NULL or a single non-empty path.", call. = FALSE)
   }
   if (!is.character(package_name) || length(package_name) != 1 || !nzchar(package_name)) {
@@ -260,9 +510,9 @@ initialize_parallel_cluster <- function(workers,
       error = function(e) NULL
     )
     if (is.character(ns_path) &&
-        length(ns_path) == 1 &&
-        nzchar(ns_path) &&
-        file.exists(file.path(ns_path, "DESCRIPTION"))) {
+      length(ns_path) == 1 &&
+      nzchar(ns_path) &&
+      file.exists(file.path(ns_path, "DESCRIPTION"))) {
       package_dir <- ns_path
     }
   }
@@ -279,16 +529,10 @@ initialize_parallel_cluster <- function(workers,
       parallel::clusterEvalQ(
         cluster_obj,
         {
-          if (!is.null(package_dir) &&
-              file.exists(file.path(package_dir, "DESCRIPTION")) &&
-              requireNamespace("pkgload", quietly = TRUE)) {
-            pkgload::load_all(
-              package_dir,
-              export_all = TRUE,
-              helpers = FALSE,
-              quiet = TRUE
-            )
-          } else if (requireNamespace(package_name, quietly = TRUE)) {
+          suppressPackageStartupMessages(library(graphics))
+          suppressPackageStartupMessages(library(stats))
+          suppressPackageStartupMessages(library(methods))
+          if (requireNamespace(package_name, quietly = TRUE)) {
             suppressPackageStartupMessages(
               library(package_name, character.only = TRUE)
             )
@@ -311,3 +555,5 @@ initialize_parallel_cluster <- function(workers,
 
   cluster_obj
 }
+
+

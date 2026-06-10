@@ -15,8 +15,8 @@ parse_command_line <- function(arguments = commandArgs(trailingOnly = TRUE)) {
       action = "run",
       config_path = NULL,
       input_file = NULL,
-      out_root = NULL,
-      cache_dir = NULL,
+      output_root = NULL,
+      cache_folder = NULL,
       strict_length_pdf = NULL,
       run_multiplier_model = NULL
     ))
@@ -44,8 +44,8 @@ parse_command_line <- function(arguments = commandArgs(trailingOnly = TRUE)) {
     action = "run",
     config_path = NULL,
     input_file = arguments[[1]] %||% NULL,
-    out_root = arguments[[2]] %||% NULL,
-    cache_dir = arguments[[3]] %||% NULL,
+    output_root = arguments[[2]] %||% NULL,
+    cache_folder = arguments[[3]] %||% NULL,
     strict_length_pdf = arguments[[4]] %||% NULL,
     run_multiplier_model = arguments[[5]] %||% NULL
   )
@@ -77,10 +77,9 @@ resolve_command_line <- function(arguments = commandArgs(trailingOnly = TRUE),
   }
 
   if (!is.null(cli_values$config_path)) {
-    workflow_config <- read_workflow_config(cli_values$config_path)
     return(
-      normalize_workflow(
-        config = workflow_config,
+      read_workflow_config(
+        path = cli_values$config_path,
         base_dir = dirname(path_absolute(cli_values$config_path, base_dir = base_dir)),
         registry_path = registry_path,
         policy_path = policy_path
@@ -88,12 +87,12 @@ resolve_command_line <- function(arguments = commandArgs(trailingOnly = TRUE),
     )
   }
 
-  # Build the fallback positional config from the packaged defaults, then
-  # normalize it through the same validator and path resolver.
+  # Build the fallback positional config from the generic registry-derived
+  # baseline, then normalize it through the same validator and path resolver.
   workflow_config <- default_workflow_config(
-    input_file = cli_values$input_file %||% "fishery_survey_tsl.xlsx",
-    out_root = cli_values$out_root %||% "outputs_swfscfish",
-    cache_dir = cli_values$cache_dir %||% "cache"
+    input_file = cli_values$input_file %||% "input.xlsx",
+    output_root = cli_values$output_root %||% "outputs",
+    cache_folder = cli_values$cache_folder %||% "cache"
   )
   workflow_config$workflow$strict_length_pdf <- if (is.null(cli_values$strict_length_pdf)) {
     workflow_config$workflow$strict_length_pdf
@@ -114,20 +113,32 @@ resolve_command_line <- function(arguments = commandArgs(trailingOnly = TRUE),
   )
 }
 
-#' Write the workflow YAML template
+#' Write a workflow YAML template
 #'
-#' Copies the packaged SWFSC fish workflow template to a caller-specified path.
+#' Writes a generic workflow YAML template to a caller-specified path.
 #'
 #' @param path Output YAML path.
 #' @param overwrite Logical scalar. If `TRUE`, overwrite an existing file.
+#' @param input_file Input workbook path placeholder.
+#' @param output_root Output root directory placeholder.
+#' @param cache_folder Cache folder placeholder.
+#' @param registry_path Optional trait-registry path used to derive default
+#'   trait names.
+#' @param policy_path Optional policy-registry path used to derive one default
+#'   active policy.
 #'
 #' @return The written path, invisibly.
 #'
 #' @export
 write_workflow_yaml <- function(path,
-                                overwrite = FALSE) {
-  # Copy the packaged template directly so users can start from a validated
-  # file rather than reconstructing the workflow schema by hand.
+                                overwrite = FALSE,
+                                input_file = "input.xlsx",
+                                output_root = "outputs",
+                                cache_folder = "cache",
+                                registry_path = NULL,
+                                policy_path = NULL) {
+  # Materialize a generic config template instead of copying a workflow-
+  # specific packaged YAML file.
   if (!is.character(path) || length(path) != 1 || !nzchar(path)) {
     stop("'path' must be a single output YAML path.", call. = FALSE)
   }
@@ -139,10 +150,15 @@ write_workflow_yaml <- function(path,
   }
 
   ensure_parent_path(path)
-  file.copy(
-    from = installed_template_path("swfscfish_config.yaml"),
-    to = path,
-    overwrite = overwrite
+  yaml::write_yaml(
+    x = default_workflow_config(
+      input_file = input_file,
+      output_root = output_root,
+      cache_folder = cache_folder,
+      registry_path = registry_path,
+      policy_path = policy_path
+    ),
+    file = path
   )
 
   invisible(path)
@@ -170,12 +186,6 @@ workflow_script_call <- function(config_path,
   }
 
   workflow_config <- read_workflow_config(config_path)
-  normalize_workflow(
-    config = workflow_config,
-    base_dir = dirname(path_absolute(config_path)),
-    registry_path = NULL,
-    policy_path = NULL
-  )
 
   list(
     command = rscript_path,
@@ -234,5 +244,7 @@ tsb_message <- function(..., timestamp = TRUE, appendLF = TRUE) {
     base::message("[", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "] ", paste0(..., collapse = ""), appendLF = appendLF)
   } else {
     base::message(paste0(..., collapse = ""), appendLF = appendLF)
-  }  
+  }
 }
+
+

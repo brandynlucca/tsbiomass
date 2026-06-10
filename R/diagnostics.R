@@ -519,103 +519,306 @@ summarize_missing_mix <- function(admissible_df,
     )
 }
 
-#' Build one uncertainty context row
+#' Build anchor-level similarity ablation diagnostics
 #'
-#' @param anchor_row One-row anchor table.
-#' @param base_eval Baseline anchor evaluation object.
-#' @param miss_tbl Optional missingness table.
-#' @param species_ids Optional character vector of neighborhood model IDs.
-#' @param pivot_sum Optional pivot summary table.
-#' @param leverage_sum Optional leverage summary table.
-#' @param species_col Species label column.
-#' @param id_col Model identifier column.
+#' Recomputes each stored anchor admissibility screen after zeroing one active
+#' similarity component at a time, then stores the resulting spread, consensus,
+#' and admissible-support deltas for downstream `plot(candidates, ...)`
+#' diagnostics.
 #'
-#' @return A one-row tibble.
+#' @param candidates A [Candidates] object with stored similarity and
+#'   admissibility state.
+#' @param config Optional workflow or anchor-config overrides.
+#' @param registry_path Optional trait-registry path.
+#' @param progress Optional logical scalar.
+#'
+#' @return An updated [Candidates] object with
+#'   `@admissibility$uncertainty_diagnostics`.
+#'
+#' @keywords internal
+build_candidates_uncertainty_diagnostics <- function(candidates,
+                                                     config = NULL,
+                                                     registry_path = NULL,
+                                                     progress = NULL) {
+  if (!(inherits(candidates, "S7_object") &&
+    exists("Candidates", inherits = TRUE) &&
+    isTRUE(tryCatch(S7::S7_inherits(candidates, Candidates), error = function(e) FALSE)))) {
+    stop("'candidates' must be a `Candidates` object.", call. = FALSE)
+  }
+  if (length(candidates@similarity_matrix) == 0) {
+    stop(
+      "No prepared similarity state is stored on this `Candidates` object. Run `prepare_similarity_matrix()` first.",
+      call. = FALSE
+    )
+  }
+  if (length(candidates@admissibility) == 0 || length((candidates@admissibility)$anchors %||% list()) == 0) {
+    stop(
+      "No anchor admissibility results are stored on this `Candidates` object. Run `screen_admissibility()` first.",
+      call. = FALSE
+    )
+  }
+
+  progress <- progress %||% FALSE
+  sim_obj <- candidates@similarity_matrix
+  tuning_obj <- candidates@similarity_tuning %||% list()
+  cfg_base <- default_anchor_config(config %||% candidates)
+
+  # Start from the operational admissibility configuration. Only the distance
+  # hyperparameters fall back to the prepared similarity object because the
+  # ablation reruns still need a concrete similarity surface to evaluate the
+  # configured admissibility traits.
+  cfg_base$species_traits <- as.list(cfg_base$species_traits %||% list())
+  cfg_base$study_traits <- as.list(cfg_base$study_traits %||% list())
+  cfg_base$alpha <- cfg_base$alpha %||% sim_obj$alpha %||% NULL
+  cfg_base$k_species <- cfg_base$k_species %||% sim_obj$k_species %||% NULL
+  cfg_base$k_study <- cfg_base$k_study %||% sim_obj$k_study %||% NULL
+
+  component_tbl <- dplyr::bind_rows(
+    tibble::tibble(
+      component = names(cfg_base$species_traits),
+      component_type = "species_trait",
+      active_weight = suppressWarnings(as.numeric(unlist(cfg_base$species_traits)))
+    ),
+    tibble::tibble(
+      component = names(cfg_base$study_traits),
+      component_type = "study_trait",
+      active_weight = suppressWarnings(as.numeric(unlist(cfg_base$study_traits)))
+    ),
+    tibble::tibble(
+      component = c("length_coherence", "depth_coherence", "frequency_coherence"),
+      component_type = "coherence",
+      active_weight = c(
+        suppressWarnings(as.numeric(cfg_base$length_overlap_weight)),
+        suppressWarnings(as.numeric(cfg_base$depth_overlap_weight)),
+        suppressWarnings(as.numeric(cfg_base$frequency_coherence_weight))
+      )
+    )
+  ) |>
+    dplyr::filter(!is.na(component), nzchar(component), is.finite(active_weight), active_weight > 0)
+
+  if (nrow(component_tbl) == 0) {
+    stop("No active similarity components were available for anchor ablation.", call. = FALSE)
+  }
+
+  global_component_order <- tibble::as_tibble(tuning_obj$component_impact_summary %||% tibble::tibble()) |>
+    dplyr::filter(
+      component != "full_model",
+      !is.na(component),
+      nzchar(component)
+    ) |>
+    dplyr::arrange(dplyr::desc(delta_rmse), component) |>
+    dplyr::pull(component)
+  global_component_order <- unique(c(global_component_order, component_tbl$component))
+  component_rank <- stats::setNames(seq_along(global_component_order), global_component_order)
+
+  key_cols <- unique(c(names(cfg_base$species_traits), names(cfg_base$study_traits)))
+  candidate_models_scored <- screen_missing_metadata(
+    candidate_models = candidates@candidate_models,
+    key_cols = key_cols
+  )
+  excluded_model_ids <- if ("model_id_chr" %in% names(candidates@reference_anchors)) {
+    as.character(candidates@reference_anchors$model_id_chr)
+  } else if ("model_id" %in% names(candidates@reference_anchors)) {
+    as.character(candidates@reference_anchors$model_id)
+  } else {
+    character(0)
+  }
+  excluded_model_ids <- unique(excluded_model_ids[!is.na(excluded_model_ids) & nzchar(excluded_model_ids)])
+  points_missing_df <- tibble::as_tibble((candidates@ordination$model$points_missing %||% tibble::tibble()))
+  anchor_results <- (candidates@admissibility)$anchors %||% list()
+
+  workflow_progress(progress, "Building anchor-level similarity ablation diagnostics.")
+
+  context_rows <- list()
+  ablation_rows <- list()
+
+  for (anchor_id in names(anchor_results)) {
+    anchor_result <- anchor_results[[anchor_id]]
+    anchor_row <- tibble::as_tibble(anchor_result$anchor %||% tibble::tibble())
+    baseline_eval <- anchor_result$evaluation %||% NULL
+    if (nrow(anchor_row) == 0 || is.null(baseline_eval)) {
+      next
+    }
+
+    anchor_species <- as.character(anchor_row$species_name[[1]] %||% anchor_id)
+    workflow_progress(progress, "Ablating similarity components for anchor '", anchor_species, "'.")
+
+    baseline_summary <- summarize_evaluation(baseline_eval)
+    baseline_missing <- if (nrow(points_missing_df) > 0 && nrow(tibble::as_tibble(baseline_eval$admissible_df)) > 0) {
+      summarize_missing_mix(
+        admissible_df = baseline_eval$admissible_df,
+        miss_tbl = points_missing_df,
+        id_col = "model_id_chr",
+        miss_col = "missing_trait_fraction"
+      )
+    } else {
+      tibble::tibble(
+        weighted_missingness = NA_real_,
+        mean_missingness = NA_real_
+      )
+    }
+
+    context_rows[[length(context_rows) + 1L]] <- tibble::tibble(
+      anchor_model_id = as.character(anchor_id),
+      anchor_species = anchor_species,
+      weighted_missingness = baseline_missing$weighted_missingness[[1]],
+      mean_missingness = baseline_missing$mean_missingness[[1]],
+      n_admissible = baseline_summary$n_admissible[[1]],
+      consensus_multiplier = baseline_summary$consensus_multiplier[[1]],
+      multiplier_q05 = baseline_summary$multiplier_q05[[1]],
+      multiplier_q50 = baseline_summary$multiplier_q50[[1]],
+      multiplier_q95 = baseline_summary$multiplier_q95[[1]],
+      log_spread = baseline_summary$log_spread[[1]]
+    )
+
+    baseline_consensus <- suppressWarnings(as.numeric(baseline_summary$consensus_multiplier[[1]]))
+    baseline_n <- suppressWarnings(as.integer(baseline_summary$n_admissible[[1]]))
+    baseline_spread <- suppressWarnings(as.numeric(baseline_summary$log_spread[[1]]))
+
+    # Rebuild the anchor screen after dropping each active component so the
+    # stored deltas are tied to the operational admissibility workflow.
+    for (j in seq_len(nrow(component_tbl))) {
+      component_name <- as.character(component_tbl$component[[j]])
+      component_type <- as.character(component_tbl$component_type[[j]])
+      cfg_now <- cfg_base
+
+      if (identical(component_type, "species_trait")) {
+        cfg_now$species_traits[[component_name]] <- 0
+      } else if (identical(component_type, "study_trait")) {
+        cfg_now$study_traits[[component_name]] <- 0
+      } else if (identical(component_name, "length_coherence")) {
+        cfg_now$length_overlap_weight <- 0
+      } else if (identical(component_name, "depth_coherence")) {
+        cfg_now$depth_overlap_weight <- 0
+      } else if (identical(component_name, "frequency_coherence")) {
+        cfg_now$frequency_coherence_weight <- 0
+      }
+
+      eval_now <- tryCatch(
+        screen_one_anchor_admissibility(
+          anchor_row = anchor_row,
+          candidate_models = candidates@candidate_models,
+          config = cfg_now,
+          registry_path = registry_path,
+          sim_obj = candidates@similarity_matrix,
+          dist_obj = candidates@gower_distances,
+          candidate_models_scored = candidate_models_scored,
+          excluded_model_ids = excluded_model_ids
+        ),
+        error = function(e) NULL
+      )
+      summary_now <- summarize_evaluation(eval_now)
+      spread_now <- suppressWarnings(as.numeric(summary_now$log_spread[[1]]))
+      consensus_now <- suppressWarnings(as.numeric(summary_now$consensus_multiplier[[1]]))
+      n_now <- suppressWarnings(as.integer(summary_now$n_admissible[[1]]))
+
+      delta_log_consensus <- if (is.finite(consensus_now) &&
+        consensus_now > 0 &&
+        is.finite(baseline_consensus) &&
+        baseline_consensus > 0) {
+        log(consensus_now) - log(baseline_consensus)
+      } else {
+        NA_real_
+      }
+      delta_log_spread <- spread_now - baseline_spread
+      delta_n_admissible <- n_now - baseline_n
+
+      ablation_rows[[length(ablation_rows) + 1L]] <- tibble::tibble(
+        anchor_model_id = as.character(anchor_id),
+        anchor_species = anchor_species,
+        component = component_name,
+        component_type = component_type,
+        component_rank_global = component_rank[[component_name]] %||% length(component_rank) + 1L,
+        baseline_log_spread = baseline_spread,
+        baseline_consensus_multiplier = baseline_consensus,
+        baseline_n_admissible = baseline_n,
+        ablated_log_spread = spread_now,
+        ablated_consensus_multiplier = consensus_now,
+        ablated_n_admissible = n_now,
+        delta_log_spread = delta_log_spread,
+        delta_log_consensus = delta_log_consensus,
+        delta_n_admissible = delta_n_admissible,
+        importance_score = pmax(delta_log_spread, 0, na.rm = TRUE) +
+          0.5 * abs(delta_log_consensus) +
+          0.02 * pmax(-delta_n_admissible, 0, na.rm = TRUE)
+      )
+    }
+  }
+
+  anchor_ablation <- dplyr::bind_rows(ablation_rows) |>
+    dplyr::arrange(anchor_species, component_rank_global, dplyr::desc(importance_score), component)
+  overall_tbl <- anchor_ablation |>
+    dplyr::group_by(component, component_type, component_rank_global) |>
+    dplyr::summarise(
+      importance_score = mean(importance_score, na.rm = TRUE),
+      delta_log_spread = mean(delta_log_spread, na.rm = TRUE),
+      delta_log_consensus = mean(delta_log_consensus, na.rm = TRUE),
+      delta_n_admissible = mean(delta_n_admissible, na.rm = TRUE),
+      n_anchors = dplyr::n_distinct(anchor_model_id),
+      .groups = "drop"
+    ) |>
+    dplyr::arrange(component_rank_global, dplyr::desc(importance_score), component)
+
+  workflow_progress(progress, "Finished anchor-level similarity ablation diagnostics.")
+
+  updated_admissibility <- candidates@admissibility
+  updated_admissibility$uncertainty_diagnostics <- list(
+    context = dplyr::bind_rows(context_rows),
+    anchor_ablation = anchor_ablation,
+    overall = overall_tbl
+  )
+  candidates_with_admissibility(candidates, updated_admissibility)
+}
+
+#' Check empirical conformal coverage
+#'
+#' Computes the empirical fraction of calibration residuals that fall at or
+#' below the conformal quantile and compares it against the nominal 1-alpha
+#' target. The finite-sample guarantee is marginal coverage >=
+#' 1 - alpha - 1/(n+1), so the function also returns that lower bound.
+#'
+#' @param calibration_residuals Numeric vector of absolute log-backscatter
+#'   residuals from the calibration split (|log(sigma_pred / sigma_obs)|).
+#' @param q Conformal quantile radius (scalar or per-row numeric vector).
+#' @param alpha Miscoverage rate used to compute the nominal 1-alpha target.
+#'   Defaults to 0.1 (90 percent nominal coverage).
+#'
+#' @return A one-row tibble with empirical and nominal coverage, their
+#'   difference, and a logical `covered` flag.
 #'
 #' @export
-build_uncertainty_context <- function(anchor_row,
-                                      base_eval,
-                                      miss_tbl = NULL,
-                                      species_ids = NULL,
-                                      pivot_sum = NULL,
-                                      leverage_sum = NULL,
-                                      species_col = "species_name",
-                                      id_col = "model_id_chr") {
-  # Summarize the baseline evaluation first, then layer on missingness,
-  # neighborhood, pivot, and leverage context.
-  base_stats <- summarize_evaluation(base_eval)
-  anchor_species <- as.character(anchor_row[[species_col]][[1]])
+check_conformal_coverage <- function(calibration_residuals,
+                                     q,
+                                     alpha = 0.1) {
+  residuals <- as.numeric(calibration_residuals)
+  residuals <- residuals[is.finite(residuals)]
+  n <- length(residuals)
+  q_val <- suppressWarnings(as.numeric(q[[1]]))
+  nominal <- 1 - as.numeric(alpha)
+  finite_sample_floor <- max(0, nominal - 1 / (n + 1))
 
-  miss_sum <- if (is.null(miss_tbl)) {
-    tibble::tibble(weighted_missingness = NA_real_, mean_missingness = NA_real_)
-  } else {
-    summarize_missing_mix(base_eval$admissible_df, miss_tbl, id_col = id_col)
+  if (n == 0 || !is.finite(q_val)) {
+    return(tibble::tibble(
+      n_calibration = n,
+      q = q_val,
+      nominal_coverage = nominal,
+      finite_sample_floor = finite_sample_floor,
+      empirical_coverage = NA_real_,
+      coverage_gap = NA_real_,
+      covered = NA
+    ))
   }
 
-  nhood_df <- if (is.null(species_ids)) {
-    base_eval$admissible_df[0, , drop = FALSE]
-  } else {
-    tibble::as_tibble(base_eval$admissible_df) |>
-      dplyr::filter(.data[[id_col]] %in% species_ids)
-  }
-
+  emp_cov <- mean(residuals <= q_val)
   tibble::tibble(
-    anchor_species = anchor_species,
-    weighted_missingness = miss_sum$weighted_missingness[[1]],
-    mean_missingness = miss_sum$mean_missingness[[1]],
-    neighborhood_models = nrow(nhood_df),
-    neighborhood_species = if ("species_name" %in% names(nhood_df)) dplyr::n_distinct(nhood_df$species_name) else NA_integer_,
-    anchor_log_spread = base_stats$log_spread[[1]],
-    anchor_n_admissible = base_stats$n_admissible[[1]],
-    pivot_length_cm = if (!is.null(pivot_sum) && "pivot_length_cm" %in% names(pivot_sum)) pivot_sum$pivot_length_cm[[1]] else NA_real_,
-    pairwise_pivot_iqr_cm = if (!is.null(pivot_sum) && all(c("pairwise_pivot_q75_cm", "pairwise_pivot_q25_cm") %in% names(pivot_sum))) {
-      pivot_sum$pairwise_pivot_q75_cm[[1]] - pivot_sum$pairwise_pivot_q25_cm[[1]]
-    } else {
-      NA_real_
-    },
-    pivot_at_boundary = if (!is.null(pivot_sum) && "pivot_at_boundary" %in% names(pivot_sum)) pivot_sum$pivot_at_boundary[[1]] else NA,
-    leverage_peak_length_cm = if (!is.null(leverage_sum) && "peak_length_cm" %in% names(leverage_sum)) leverage_sum$peak_length_cm[[1]] else NA_real_,
-    leverage_pivot_offset_cm = if (!is.null(leverage_sum) && "pivot_offset_cm" %in% names(leverage_sum)) leverage_sum$pivot_offset_cm[[1]] else NA_real_
+    n_calibration = n,
+    q = q_val,
+    nominal_coverage = nominal,
+    finite_sample_floor = finite_sample_floor,
+    empirical_coverage = emp_cov,
+    coverage_gap = emp_cov - nominal,
+    covered = emp_cov >= finite_sample_floor
   )
 }
 
-#' Build uncertainty block summaries
-#'
-#' Compares a baseline evaluation to a named list of block-specific evaluation
-#' objects and returns block-level uncertainty deltas.
-#'
-#' @param anchor_row One-row anchor table.
-#' @param base_eval Baseline anchor evaluation object.
-#' @param block_evals Named list of evaluation objects by block.
-#' @param species_col Species label column.
-#'
-#' @return A tibble.
-#'
-#' @export
-build_uncertainty_drop <- function(anchor_row,
-                                   base_eval,
-                                   block_evals,
-                                   species_col = "species_name") {
-  # Summarize the baseline once, then compare each block-specific evaluation to
-  # that fixed baseline.
-  base_stats <- summarize_evaluation(base_eval)
-  anchor_species <- as.character(anchor_row[[species_col]][[1]])
 
-  purrr::imap_dfr(block_evals, function(eval_obj, block_nm) {
-    block_stats <- summarize_evaluation(eval_obj)
-
-    tibble::tibble(
-      anchor_species = anchor_species,
-      block = block_nm,
-      delta_log_spread = block_stats$log_spread[[1]] - base_stats$log_spread[[1]],
-      delta_log_consensus = log(block_stats$consensus_multiplier[[1]]) - log(base_stats$consensus_multiplier[[1]]),
-      delta_n_admissible = block_stats$n_admissible[[1]] - base_stats$n_admissible[[1]]
-    )
-  }) |>
-    dplyr::mutate(
-      importance_score = pmax(delta_log_spread, 0, na.rm = TRUE) +
-        0.5 * abs(delta_log_consensus) +
-        0.02 * pmax(-delta_n_admissible, 0, na.rm = TRUE)
-    ) |>
-    dplyr::arrange(dplyr::desc(importance_score), dplyr::desc(delta_log_spread))
-}

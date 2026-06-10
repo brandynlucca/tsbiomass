@@ -77,19 +77,24 @@ resolve_ordination_info <- function(anchor_row,
 pick_best_policy <- function(policy_tbl) {
   # Restrict the winner search to finite positive predictions so invalid
   # policies do not enter the benchmark ranking.
-  valid <- tibble::as_tibble(policy_tbl)
-  valid$policy <- resolve_policy_names(valid)
+  valid <- standardize_policies(policy_tbl)
   valid <- valid |>
     dplyr::filter(valid_prediction)
 
   if (nrow(valid) == 0) {
-    return(NA_character_)
+    return(tibble::tibble(
+      best_policy = NA_character_,
+      best_equation_branch_filter = NA_character_
+    ))
   }
 
   valid |>
-    dplyr::arrange(error_abs_log, policy) |>
+    dplyr::arrange(error_abs_log, policy, equation_branch_filter) |>
     dplyr::slice(1) |>
-    dplyr::pull(policy)
+    dplyr::transmute(
+      best_policy = policy,
+      best_equation_branch_filter = equation_branch_filter
+    )
 }
 
 #' Build one benchmark feature row
@@ -97,6 +102,7 @@ pick_best_policy <- function(policy_tbl) {
 #' @param eval_obj Anchor evaluation object.
 #' @param anchor_row One-row anchor table.
 #' @param best_policy_name Best policy label.
+#' @param best_equation_branch_filter Best branch-filter label.
 #' @param is_reference Logical scalar.
 #' @param config Benchmark config list.
 #'
@@ -106,6 +112,7 @@ pick_best_policy <- function(policy_tbl) {
 build_benchmark_row <- function(eval_obj,
                                 anchor_row,
                                 best_policy_name,
+                                best_equation_branch_filter,
                                 is_reference,
                                 config) {
   # Collapse the admissible set to one row of anchor-level features used for
@@ -146,7 +153,8 @@ build_benchmark_row <- function(eval_obj,
         dplyr::slice_head(n = 10)
       if (nrow(tmp) > 0) sum(tmp$w_adm[tmp$overlap_same_family], na.rm = TRUE) else NA_real_
     },
-    best_policy = best_policy_name
+    best_policy = best_policy_name,
+    best_equation_branch_filter = best_equation_branch_filter
   )
 }
 
@@ -160,8 +168,8 @@ build_benchmark_row <- function(eval_obj,
 #'
 #' @keywords internal
 ts_from_length <- function(slope,
-                        intercept,
-                        length_cm) {
+                           intercept,
+                           length_cm) {
   # Keep the TS-length transformation local to the benchmark layer so curve
   # error summaries do not depend on another source file being loaded.
   as.numeric(slope) * log10(length_cm) + as.numeric(intercept)
@@ -180,67 +188,107 @@ ts_from_length <- function(slope,
 #'
 #' @keywords internal
 build_ts_errors <- function(anchor_row,
-                            eval_obj,
                             policy_tbl,
-                            ordination_info,
-                            curve_fun,
                             config) {
-  # Skip the TS-length error summary entirely when no curve predictor was
-  # supplied or the anchor lacks a usable standardized length-form equation.
-  if (is.null(curve_fun)) {
-    return(tibble::tibble())
+  empty_ts_tbl <- function() {
+    tibble::tibble(
+      anchor_model_id = character(),
+      anchor_species = character(),
+      policy = character(),
+      equation_branch_filter = character(),
+      u = numeric(),
+      length_cm = numeric(),
+      ts_obs = numeric(),
+      ts_pred = numeric(),
+      ts_error = numeric(),
+      abs_ts_error = numeric(),
+      sigma_obs = numeric(),
+      sigma_pred = numeric(),
+      log_sigma_residual = numeric()
+    )
   }
 
+  # Skip the TS-length error summary entirely when no curve predictor was
+  # supplied or the anchor lacks a usable standardized length-form equation.
   slope_col <- benchmark_field(config, "slope")
   intercept_col <- benchmark_field(config, "intercept")
   id_col <- benchmark_field(config, "model_id")
   species_col <- benchmark_field(config, "species")
 
   if (!all(c(slope_col, intercept_col) %in% names(anchor_row))) {
-    return(tibble::tibble())
+    return(empty_ts_tbl())
   }
 
   slope_val <- suppressWarnings(as.numeric(anchor_row[[slope_col]][[1]]))
   intercept_val <- suppressWarnings(as.numeric(anchor_row[[intercept_col]][[1]]))
   if (!is.finite(slope_val) || !is.finite(intercept_val)) {
-    return(tibble::tibble())
+    return(empty_ts_tbl())
   }
 
-  # Use the anchor PDF span as the standardized evaluation domain, then score
-  # all policies on the same 0-1 relative-length grid.
-  length_pdf <- eval_obj$anchor_pdf
-  lmin <- min(length_pdf$length_cm, na.rm = TRUE)
-  lmax <- max(length_pdf$length_cm, na.rm = TRUE)
-  u_grid <- seq(0, 1, length.out = 41)
-  eval_lengths <- if (is.finite(lmin) && is.finite(lmax) && lmax > lmin) {
-    lmin + u_grid * (lmax - lmin)
-  } else {
-    rep(lmin, length(u_grid))
+  # Use the anchor study-length span as the standardized evaluation domain,
+  # then score all policies on the same 0-1 relative-length grid.
+  lmin <- suppressWarnings(as.numeric(anchor_row$study_length_min[[1]]))
+  lmax <- suppressWarnings(as.numeric(anchor_row$study_length_max[[1]]))
+  if (!is.finite(lmin) || !is.finite(lmax) || lmax <= lmin) {
+    return(empty_ts_tbl())
   }
+  u_grid <- seq(0, 1, length.out = 11)
+  eval_lengths <- lmin + u_grid * (lmax - lmin)
 
   ts_obs <- ts_from_length(slope_val, intercept_val, eval_lengths)
-
-  policy_tbl <- tibble::as_tibble(policy_tbl)
-  policy_tbl$policy <- resolve_policy_names(policy_tbl)
-
-  purrr::map_dfr(policy_tbl$policy, function(policy_name) {
-    ts_pred <- tryCatch(
-      curve_fun(
-        policy = policy_name,
-        eval_obj = eval_obj,
-        ordination_info = ordination_info,
-        lengths_cm = eval_lengths
+  if (!all(is.finite(ts_obs)) || any(ts_obs >= 0, na.rm = TRUE)) {
+    anchor_id_val <- if (length(id_col) > 0 && id_col %in% names(anchor_row)) {
+      as.character(anchor_row[[id_col]][[1]])
+    } else {
+      "unknown"
+    }
+    warning(
+      sprintf(
+        "Anchor '%s': TS values are non-negative or non-finite on the study length grid. ",
+        anchor_id_val
       ),
-      error = function(e) rep(NA_real_, length(eval_lengths))
+      "TS must always be negative for real acoustic scatterers. ",
+      "TS-error benchmarks for this anchor will be empty.",
+      call. = FALSE
     )
+    return(empty_ts_tbl())
+  }
 
-    sigma_obs <- 10^(ts_obs / 10)
+  policy_tbl <- policy_tbl |>
+    dplyr::distinct(policy, equation_branch_filter, .keep_all = TRUE) |>
+    dplyr::filter(
+      is.finite(policy_slope_len),
+      is.finite(policy_intercept_len)
+    )
+  if (nrow(policy_tbl) == 0) {
+    return(empty_ts_tbl())
+  }
+
+  slopes <- suppressWarnings(as.numeric(policy_tbl$policy_slope_len))
+  intercepts <- suppressWarnings(as.numeric(policy_tbl$policy_intercept_len))
+  log_lengths <- log10(eval_lengths)
+  ts_pred_mat <- outer(log_lengths, slopes, "*") +
+    matrix(intercepts, nrow = length(eval_lengths), ncol = length(intercepts), byrow = TRUE)
+  valid_policy <- apply(
+    ts_pred_mat,
+    2,
+    function(x) all(is.finite(x)) && !any(x >= 0, na.rm = TRUE)
+  )
+  if (!any(valid_policy)) {
+    return(empty_ts_tbl())
+  }
+
+  policy_tbl <- policy_tbl[valid_policy, , drop = FALSE]
+  ts_pred_mat <- ts_pred_mat[, valid_policy, drop = FALSE]
+  sigma_obs <- 10^(ts_obs / 10)
+  out <- purrr::map_dfr(seq_len(ncol(ts_pred_mat)), function(i) {
+    ts_pred <- ts_pred_mat[, i]
     sigma_pred <- 10^(ts_pred / 10)
-
     tibble::tibble(
       anchor_model_id = as.character(anchor_row[[id_col]][[1]]),
       anchor_species = as.character(anchor_row[[species_col]][[1]]),
-      policy = policy_name,
+      policy = as.character(policy_tbl$policy[[i]]),
+      equation_branch_filter = as.character(policy_tbl$equation_branch_filter[[i]]),
       u = u_grid,
       length_cm = eval_lengths,
       ts_obs = ts_obs,
@@ -251,12 +299,13 @@ build_ts_errors <- function(anchor_row,
       sigma_pred = sigma_pred,
       log_sigma_residual = log(sigma_obs / sigma_pred)
     )
-  }) |>
-    dplyr::filter(
-      is.finite(ts_error),
-      is.finite(abs_ts_error),
-      is.finite(log_sigma_residual)
-    )
+  })
+  dplyr::filter(
+    out,
+    is.finite(ts_error),
+    is.finite(abs_ts_error),
+    is.finite(log_sigma_residual)
+  )
 }
 
 #' Remove same-species support from one anchor evaluation
@@ -301,6 +350,42 @@ remove_species_support <- function(eval_obj,
   out
 }
 
+remove_group_support <- function(eval_obj,
+                                 anchor_row,
+                                 group_col) {
+  if (is.null(group_col) || !nzchar(group_col) ||
+    !group_col %in% names(anchor_row) ||
+    !group_col %in% names(eval_obj$model_eval)) {
+    return(eval_obj)
+  }
+  anchor_group <- as.character(anchor_row[[group_col]][[1]])
+  if (is.na(anchor_group) || !nzchar(anchor_group)) {
+    return(eval_obj)
+  }
+
+  out <- eval_obj
+  out$model_eval <- tibble::as_tibble(eval_obj$model_eval) |>
+    dplyr::filter(as.character(.data[[group_col]]) != anchor_group)
+  a_out <- tibble::as_tibble(eval_obj$admissible_df)
+  if (group_col %in% names(a_out)) {
+    a_out <- a_out |>
+      dplyr::filter(as.character(.data[[group_col]]) != anchor_group) |>
+      dplyr::arrange(dplyr::desc(w_adm))
+  }
+  if (nrow(a_out) > 0 && "w_adm" %in% names(a_out)) {
+    denom <- sum(a_out$w_adm, na.rm = TRUE)
+    if (is.finite(denom) && denom > 0) {
+      a_out <- a_out |>
+        dplyr::mutate(
+          w_adm = w_adm / denom,
+          cumulative_w_adm = cumsum(w_adm)
+        )
+    }
+  }
+  out$admissible_df <- a_out
+  out
+}
+
 #' Benchmark one anchor
 #'
 #' @param anchor_row One-row anchor table.
@@ -319,10 +404,15 @@ remove_species_support <- function(eval_obj,
 #'   scenario.
 #' @param candidate_models_scored Optional candidate-model table that already
 #'   contains `key_metadata_missing_fraction`.
+#' @param eval_obj Optional precomputed anchor-evaluation object. Supplying this
+#'   avoids rebuilding the same admissible donor pool for multiple validation
+#'   schemes.
 #' @param config Benchmark config list.
 #' @param registry_path Optional registry path.
 #' @param scheme Validation-scheme label.
 #' @param species_block Logical scalar. If `TRUE`, exclude same-species donors.
+#' @param ordination_info Optional precomputed ordination context for the
+#'   current anchor.
 #'
 #' @return A list with `perf`, `features`, and `ts_error`.
 #'
@@ -340,24 +430,29 @@ benchmark_one_anchor <- function(anchor_row,
                                  sim_obj,
                                  dist_obj,
                                  candidate_models_scored,
+                                 eval_obj = NULL,
                                  config,
                                  registry_path,
                                  scheme,
-                                 species_block = FALSE) {
+                                 species_block = FALSE,
+                                 group_block_col = NULL,
+                                 ordination_info = NULL) {
   # Evaluate one anchor first, optionally rebuild the donor pool without same-
   # species rows, then extract the policy benchmark tables.
-  eval_obj <- tryCatch(
-    evaluate_anchor_models(
-      anchor_row = anchor_row,
-      candidate_models = candidate_models,
-      config = config,
-      registry_path = registry_path,
-      sim_obj = sim_obj,
-      dist_obj = dist_obj,
-      candidate_models_scored = candidate_models_scored
-    ),
-    error = function(e) NULL
-  )
+  if (is.null(eval_obj)) {
+    eval_obj <- tryCatch(
+      screen_one_anchor_admissibility(
+        anchor_row = anchor_row,
+        candidate_models = candidate_models,
+        config = config,
+        registry_path = registry_path,
+        sim_obj = sim_obj,
+        dist_obj = dist_obj,
+        candidate_models_scored = candidate_models_scored
+      ),
+      error = function(e) NULL
+    )
+  }
   if (is.null(eval_obj)) {
     return(NULL)
   }
@@ -365,8 +460,11 @@ benchmark_one_anchor <- function(anchor_row,
   if (isTRUE(species_block)) {
     eval_obj <- remove_species_support(eval_obj, anchor_row, config)
   }
+  if (!is.null(group_block_col)) {
+    eval_obj <- remove_group_support(eval_obj, anchor_row, group_block_col)
+  }
 
-  ordination_info <- resolve_ordination_info(
+  ordination_info <- ordination_info %||% resolve_ordination_info(
     anchor_row = anchor_row,
     model_scores = model_scores,
     species_lookup = species_lookup,
@@ -376,15 +474,15 @@ benchmark_one_anchor <- function(anchor_row,
   # Pass the workflow-selected policy set straight into the package policy
   # layer so the workflow script does not need local wrapper functions.
   policy_args <- list(
-      eval_obj = eval_obj,
-      ordination_info = ordination_info,
-      policies = policies,
-      policy_params = policy_params,
-      policy_path = policy_path
-    )
+    eval_obj = eval_obj,
+    ordination_info = ordination_info,
+    policies = policies,
+    policy_params = policy_params,
+    policy_path = policy_path
+  )
   policy_args <- policy_args[names(policy_args) %in% names(formals(policy_fun))]
   policy_tbl <- do.call(policy_fun, policy_args)
-  policy_tbl <- tibble::as_tibble(policy_tbl)
+  policy_tbl <- standardize_policies(policy_tbl)
   policy_tbl$policy <- resolve_policy_names(policy_tbl)
 
   if (!all(c("policy", "multiplier_pred") %in% names(policy_tbl))) {
@@ -399,53 +497,52 @@ benchmark_one_anchor <- function(anchor_row,
 
   # Add the benchmark annotations once so the same policy table can feed the
   # best-policy summary and any later conformal evaluation.
-  policy_tbl <- policy_tbl |>
-    dplyr::mutate(
-      anchor_model_id = anchor_id,
-      anchor_species = as.character(anchor_row[[species_col]][[1]]),
-      anchor_family = as.character(anchor_row[[family_col]][[1]]),
-      is_reference = is_ref,
-      anchor_group = ifelse(is_ref, "reference", "candidate"),
-      validation_scheme = scheme,
-      error_abs_log = abs(log(multiplier_pred)),
-      valid_prediction = is.finite(multiplier_pred) & multiplier_pred > 0
-    )
+  policy_tbl$anchor_model_id    <- anchor_id
+  policy_tbl$anchor_species     <- as.character(anchor_row[[species_col]][[1]])
+  policy_tbl$anchor_family      <- as.character(anchor_row[[family_col]][[1]])
+  policy_tbl$anchor_group_block <- if (!is.null(group_block_col) && group_block_col %in% names(anchor_row)) {
+    as.character(anchor_row[[group_block_col]][[1]])
+  } else {
+    NA_character_
+  }
+  policy_tbl$is_reference       <- is_ref
+  policy_tbl$anchor_group       <- if (is_ref) "reference" else "candidate"
+  policy_tbl$validation_scheme  <- scheme
+  policy_tbl$error_abs_log      <- abs(log(policy_tbl$multiplier_pred))
+  policy_tbl$valid_prediction   <- is.finite(policy_tbl$multiplier_pred) & policy_tbl$multiplier_pred > 0
 
-  best_policy_name <- pick_best_policy(policy_tbl)
+  best_policy_row <- pick_best_policy(policy_tbl)
   feature_row <- build_benchmark_row(
     eval_obj = eval_obj,
     anchor_row = anchor_row,
-    best_policy_name = best_policy_name,
+    best_policy_name = best_policy_row$best_policy[[1]],
+    best_equation_branch_filter = best_policy_row$best_equation_branch_filter[[1]],
     is_reference = is_ref,
     config = config
   ) |>
-    dplyr::mutate(validation_scheme = scheme)
-
-    curve_runner <- NULL
-    if (is.function(curve_fun)) {
-      curve_runner <- function(policy, eval_obj, ordination_info, lengths_cm) {
-        curve_args <- list(
-          policy = policy,
-          eval_obj = eval_obj,
-          lengths_cm = lengths_cm,
-          ordination_info = ordination_info,
-          policy_params = policy_params,
-          policy_path = policy_path
-        )
-        curve_args <- curve_args[names(curve_args) %in% names(formals(curve_fun))]
-        do.call(curve_fun, curve_args)
+    dplyr::mutate(
+      validation_scheme = scheme,
+      anchor_group_block = if (!is.null(group_block_col) && group_block_col %in% names(anchor_row)) {
+        as.character(anchor_row[[group_block_col]][[1]])
+      } else {
+        NA_character_
       }
-    }
+    )
 
-    ts_error <- build_ts_errors(
+  ts_error <- if (is.function(curve_fun)) {
+    build_ts_errors(
       anchor_row = anchor_row,
-      eval_obj = eval_obj,
       policy_tbl = policy_tbl,
-      ordination_info = ordination_info,
-      curve_fun = curve_runner,
       config = config
     ) |>
-      dplyr::mutate(validation_scheme = scheme)
+      dplyr::mutate(validation_scheme = scheme) |>
+      dplyr::select(dplyr::any_of(c(
+        "anchor_model_id", "anchor_species", "policy", "equation_branch_filter",
+        "validation_scheme", "u", "ts_error", "log_sigma_residual"
+      )))
+  } else {
+    tibble::tibble()
+  }
 
   list(
     perf = policy_tbl,
@@ -464,33 +561,41 @@ benchmark_one_anchor <- function(anchor_row,
 bind_best_policy_rows <- function(perf_tbl) {
   # Pick the best valid policy per anchor and validation scheme using the
   # smallest absolute log-error, with policy name as the deterministic tiebreak.
-  out <- tibble::as_tibble(perf_tbl)
+  out <- standardize_policies(perf_tbl)
   if (nrow(out) == 0 || !"valid_prediction" %in% names(out)) {
     return(tibble::tibble())
+  }
+  if (!"anchor_group_block" %in% names(out)) {
+    out$anchor_group_block <- NA_character_
   }
 
   out$policy <- resolve_policy_names(out)
   out |>
     dplyr::filter(valid_prediction) |>
     dplyr::group_by(
-      anchor_model_id,
-      anchor_species,
-      anchor_family,
-      is_reference,
-      anchor_group,
-      validation_scheme
+      dplyr::across(dplyr::any_of(c(
+        "anchor_model_id",
+        "anchor_species",
+        "anchor_family",
+        "anchor_group_block",
+        "is_reference",
+        "anchor_group",
+        "validation_scheme"
+      )))
     ) |>
-    dplyr::arrange(error_abs_log, policy, .by_group = TRUE) |>
+    dplyr::arrange(error_abs_log, policy, equation_branch_filter, .by_group = TRUE) |>
     dplyr::slice(1) |>
     dplyr::ungroup() |>
     dplyr::transmute(
       anchor_model_id,
       anchor_species,
       anchor_family,
+      anchor_group_block,
       is_reference,
       anchor_group,
       validation_scheme,
       best_policy = policy,
+      best_equation_branch_filter = equation_branch_filter,
       best_multiplier_pred = multiplier_pred,
       best_error_abs_log = error_abs_log
     )
@@ -502,7 +607,8 @@ bind_best_policy_rows <- function(perf_tbl) {
 #' policy extractor, and returns in-memory benchmark tables for both the full
 #' donor pool and the leave-one-species-out donor pool.
 #'
-#' @param candidate_models Prepared candidate-model table.
+#' @param candidate_models Prepared candidate-model table or a [Candidates]
+#'   object.
 #' @param policy_fun Policy-extraction function. It must accept `eval_obj`
 #'   plus optional ordination context, and return at least `policy` and
 #'   `multiplier_pred`.
@@ -518,6 +624,8 @@ bind_best_policy_rows <- function(perf_tbl) {
 #'   settings.
 #' @param include_ts_error Logical scalar. If `TRUE`, compute the relative-length
 #'   TS error table used by the TS conformal summaries.
+#' @param benchmark_schemes Validation schemes to compute. Supported values are
+#'   `"pseudo_anchor"`, `"species_block"`, and `"group_block"`.
 #' @param workers Number of parallel workers. Use `1` for sequential execution.
 #' @param package_dir Optional package source directory used to load the
 #'   development package on parallel workers when running from source.
@@ -542,12 +650,41 @@ run_policy_benchmark <- function(candidate_models,
                                  policy_path = NULL,
                                  config = NULL,
                                  include_ts_error = TRUE,
+                                 benchmark_schemes = c("pseudo_anchor", "species_block"),
                                  workers = 1L,
                                  package_dir = NULL,
                                  cache_path = NULL,
                                  refresh = FALSE,
                                  progress = FALSE,
+                                 group_block_col = NULL,
+                                 group_block_label = "leave_one_group_out",
                                  registry_path = NULL) {
+  # Support the staged `Candidates` object directly so the benchmark layer can
+  # reuse prepared similarity, distance, ordination, and reference-anchor
+  # state when those objects already exist.
+  candidates_obj <- if ((inherits(candidate_models, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_models, Candidates), error = function(e) FALSE)))) candidate_models else NULL
+  if (!is.null(candidates_obj)) {
+    if (is.null(model_scores) &&
+      length(candidates_obj@ordination) > 0 &&
+      is.list((candidates_obj@ordination)$model) &&
+      is.data.frame(((candidates_obj@ordination)$model)$model_scores %||% NULL)) {
+      model_scores <- ((candidates_obj@ordination)$model)$model_scores
+    }
+    if (is.null(species_lookup) &&
+      length(candidates_obj@ordination) > 0 &&
+      is.list((candidates_obj@ordination)$species_lookup)) {
+      species_lookup <- (candidates_obj@ordination)$species_lookup
+    }
+    if (is.null(reference_ids) && nrow(candidates_obj@reference_anchors) > 0) {
+      if ("model_id_chr" %in% names(candidates_obj@reference_anchors)) {
+        reference_ids <- as.character(candidates_obj@reference_anchors$model_id_chr)
+      } else if ("model_id" %in% names(candidates_obj@reference_anchors)) {
+        reference_ids <- as.character(candidates_obj@reference_anchors$model_id)
+      }
+    }
+    candidate_models <- tibble::as_tibble(candidates_obj@candidate_models)
+  }
+
   # Validate the benchmark inputs once before any anchor loop or cache work.
   if (!is.data.frame(candidate_models)) {
     stop("'candidate_models' must be a data frame or tibble.", call. = FALSE)
@@ -559,7 +696,7 @@ run_policy_benchmark <- function(candidate_models,
     stop("'curve_fun' must be NULL or a function.", call. = FALSE)
   }
   if (!is.null(cache_path) &&
-      (!is.character(cache_path) || length(cache_path) != 1 || !nzchar(cache_path))) {
+    (!is.character(cache_path) || length(cache_path) != 1 || !nzchar(cache_path))) {
     stop("'cache_path' must be NULL or a single file path.", call. = FALSE)
   }
   if (!is.logical(refresh) || length(refresh) != 1 || is.na(refresh)) {
@@ -571,11 +708,30 @@ run_policy_benchmark <- function(candidate_models,
   if (!is.logical(include_ts_error) || length(include_ts_error) != 1 || is.na(include_ts_error)) {
     stop("'include_ts_error' must be TRUE or FALSE.", call. = FALSE)
   }
+  benchmark_schemes <- if (missing(benchmark_schemes) && !is.null(group_block_col)) {
+    c("pseudo_anchor", "species_block", "group_block")
+  } else {
+    benchmark_schemes %||% c("pseudo_anchor", "species_block")
+  }
+  benchmark_schemes <- unique(as.character(benchmark_schemes))
+  valid_schemes <- c("pseudo_anchor", "species_block", "group_block", group_block_label)
+  if (length(benchmark_schemes) == 0 ||
+    any(is.na(benchmark_schemes) | !nzchar(benchmark_schemes)) ||
+    any(!benchmark_schemes %in% valid_schemes)) {
+    stop(
+      "'benchmark_schemes' must contain only 'pseudo_anchor', 'species_block', or 'group_block'.",
+      call. = FALSE
+    )
+  }
+  run_pseudo_anchor <- "pseudo_anchor" %in% benchmark_schemes
+  run_species_block <- "species_block" %in% benchmark_schemes
+  run_group_block <- !is.null(group_block_col) &&
+    any(c("group_block", group_block_label) %in% benchmark_schemes)
   if (!is.numeric(workers) || length(workers) != 1 || !is.finite(workers) || workers < 1) {
     stop("'workers' must be one finite number >= 1.", call. = FALSE)
   }
   if (!is.null(package_dir) &&
-      (!is.character(package_dir) || length(package_dir) != 1 || !nzchar(package_dir))) {
+    (!is.character(package_dir) || length(package_dir) != 1 || !nzchar(package_dir))) {
     stop("'package_dir' must be NULL or a single non-empty path.", call. = FALSE)
   }
 
@@ -602,25 +758,58 @@ run_policy_benchmark <- function(candidate_models,
     ),
     read_similarity_config(config)
   )
+  config_branch_filters <- NULL
+  config_policy_params <- list()
+  if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
+    config_branch_filters <- (((config@data)$policies) %||% list())$equation_branch_filters %||% NULL
+    config_policy_params <- (((config@data)$policies) %||% list())$policy_params %||% list()
+  } else if (is.list(config)) {
+    config_branch_filters <- config$equation_branch_filters %||%
+      config$policies$equation_branch_filters %||%
+      NULL
+    config_policy_params <- config$policy_params %||%
+      config$policies$policy_params %||%
+      list()
+  }
+  policy_params <- merge_cfg(
+    config_policy_params,
+    merge_cfg(
+      list(equation_branch_filters = config_branch_filters),
+      policy_params
+    )
+  )
   ref_ids <- normalize_reference_ids(reference_ids)
 
   # Build the scenario-level similarity objects once so every anchor in the
   # benchmark loop can reuse the same prepared trait matrices and distance
   # matrices instead of rebuilding them repeatedly.
-  sim_obj <- prepare_similarity_matrix(
-    candidate_models = candidate_models,
-    species_traits = config_values$species_traits %||% NULL,
-    study_traits = config_values$study_traits %||% NULL,
-    alpha = config_values$alpha %||% NULL,
-    k_species = config_values$k_species %||% NULL,
-    k_study = config_values$k_study %||% NULL,
-    config = config_values,
-    registry_path = registry_path,
-    seed = config_values$seed %||% NULL
-  )
-  dist_obj <- build_gower_distances(sim_obj)
+  if (is.null(config) &&
+    !is.null(candidates_obj) &&
+    length(candidates_obj@similarity_matrix) > 0) {
+    sim_obj <- candidates_obj@similarity_matrix
+  } else {
+    sim_obj <- prepare_similarity_matrix(
+      candidate_models = candidate_models,
+      species_traits = config_values$species_traits %||% NULL,
+      study_traits = config_values$study_traits %||% NULL,
+      alpha = config_values$alpha %||% NULL,
+      k_species = config_values$k_species %||% NULL,
+      k_study = config_values$k_study %||% NULL,
+      config = config_values,
+      registry_path = registry_path,
+      seed = config_values$seed %||% NULL
+    )
+  }
+  if (is.null(config) &&
+    !is.null(candidates_obj) &&
+    length(candidates_obj@gower_distances) > 0) {
+    dist_obj <- candidates_obj@gower_distances
+  } else {
+    dist_obj <- build_gower_distances(sim_obj)
+  }
+  candidate_models_prepared <- tibble::as_tibble(sim_obj$candidate_models %||% candidate_models)
   candidate_models_scored <- screen_missing_metadata(
-    candidate_models = sim_obj$candidate_models,
+    candidate_models = candidate_models_prepared,
     key_cols = unique(c(sim_obj$species_traits, sim_obj$study_traits))
   )
 
@@ -629,39 +818,97 @@ run_policy_benchmark <- function(candidate_models,
   err_rows <- list()
   sb_perf_rows <- list()
   sb_feat_rows <- list()
+  gb_perf_rows <- list()
+  gb_feat_rows <- list()
   total_anchors <- nrow(candidate_models)
   progress_step <- max(1L, ceiling(total_anchors / 20))
-  workers <- as.integer(workers)
-  chunk_index <- split(
-    seq_len(total_anchors),
-    ceiling(seq_len(total_anchors) / progress_step)
+  n_branch_filters <- length(normalize_policy_equation_branch_filters(
+    policy_params$equation_branch_filters %||% NULL
+  ))
+  if (!is.finite(n_branch_filters) || n_branch_filters < 1L) {
+    n_branch_filters <- 1L
+  }
+  scheme_count <- sum(c(run_pseudo_anchor, run_species_block, run_group_block))
+  estimated_policy_rows <- total_anchors * max(1L, length(policies)) * n_branch_filters * max(1L, scheme_count)
+  workflow_progress(
+    progress,
+    "Policy benchmark workload: ",
+    total_anchors,
+    " anchor(s), ",
+    length(policies),
+    " policy/ies, ",
+    n_branch_filters,
+    " branch filter(s), ",
+    max(1L, scheme_count),
+    " validation scheme(s), ~",
+    estimated_policy_rows,
+    " anchor-policy evaluation row(s)."
   )
+  workers <- as.integer(workers)
 
   # Evaluate every candidate as an anchor under both the full donor pool and
   # the leave-one-species-out donor pool, optionally in parallel.
   if (workers <= 1L) {
     for (i in seq_len(total_anchors)) {
       anchor_row <- candidate_models[i, , drop = FALSE]
-
-      bench_obj <- benchmark_one_anchor(
+      base_eval_obj <- tryCatch(
+        screen_one_anchor_admissibility(
+          anchor_row = anchor_row,
+          candidate_models = candidate_models,
+          config = config_values,
+          registry_path = registry_path,
+          sim_obj = sim_obj,
+          dist_obj = dist_obj,
+          candidate_models_scored = candidate_models_scored
+        ),
+        error = function(e) {
+          if (isTRUE(progress)) {
+            tsb_message(
+              "Anchor ", i, " skipped (admissibility error): ",
+              conditionMessage(e)
+            )
+          }
+          NULL
+        }
+      )
+      if (is.null(base_eval_obj)) {
+        if (isTRUE(progress) && (i %% progress_step == 0L || i == total_anchors)) {
+          tsb_message("Policy benchmark progress: ", i, "/", total_anchors, " anchors processed.")
+        }
+        next
+      }
+      ordination_info_now <- resolve_ordination_info(
         anchor_row = anchor_row,
-        candidate_models = candidate_models,
-        policy_fun = policy_fun,
-        curve_fun = if (isTRUE(include_ts_error)) curve_fun else NULL,
         model_scores = model_scores,
         species_lookup = species_lookup,
-        reference_ids = ref_ids,
-        policies = policies,
-        policy_params = policy_params,
-        policy_path = policy_path,
-        sim_obj = sim_obj,
-        dist_obj = dist_obj,
-        candidate_models_scored = candidate_models_scored,
-        config = config_values,
-        registry_path = registry_path,
-        scheme = "pseudo_anchor",
-        species_block = FALSE
+        config = config_values
       )
+
+      bench_obj <- if (isTRUE(run_pseudo_anchor)) {
+        benchmark_one_anchor(
+          anchor_row = anchor_row,
+          candidate_models = candidate_models,
+          policy_fun = policy_fun,
+          curve_fun = if (isTRUE(include_ts_error)) curve_fun else NULL,
+          model_scores = model_scores,
+          species_lookup = species_lookup,
+          reference_ids = ref_ids,
+          policies = policies,
+          policy_params = policy_params,
+          policy_path = policy_path,
+          sim_obj = sim_obj,
+          dist_obj = dist_obj,
+          candidate_models_scored = candidate_models_scored,
+          eval_obj = base_eval_obj,
+          config = config_values,
+          registry_path = registry_path,
+          scheme = "pseudo_anchor",
+          species_block = FALSE,
+          ordination_info = ordination_info_now
+        )
+      } else {
+        NULL
+      }
 
       if (!is.null(bench_obj)) {
         perf_rows[[length(perf_rows) + 1]] <- bench_obj$perf
@@ -669,50 +916,84 @@ run_policy_benchmark <- function(candidate_models,
         err_rows[[length(err_rows) + 1]] <- bench_obj$ts_error
       }
 
-      sb_obj <- benchmark_one_anchor(
-        anchor_row = anchor_row,
-        candidate_models = candidate_models,
-        policy_fun = policy_fun,
-        curve_fun = NULL,
-        model_scores = model_scores,
-        species_lookup = species_lookup,
-        reference_ids = ref_ids,
-        policies = policies,
-        policy_params = policy_params,
-        policy_path = policy_path,
-        sim_obj = sim_obj,
-        dist_obj = dist_obj,
-        candidate_models_scored = candidate_models_scored,
-        config = config_values,
-        registry_path = registry_path,
-        scheme = config_values$species_block_label,
-        species_block = TRUE
-      )
+      sb_obj <- if (isTRUE(run_species_block)) {
+        benchmark_one_anchor(
+          anchor_row = anchor_row,
+          candidate_models = candidate_models,
+          policy_fun = policy_fun,
+          curve_fun = NULL,
+          model_scores = model_scores,
+          species_lookup = species_lookup,
+          reference_ids = ref_ids,
+          policies = policies,
+          policy_params = policy_params,
+          policy_path = policy_path,
+          sim_obj = sim_obj,
+          dist_obj = dist_obj,
+          candidate_models_scored = candidate_models_scored,
+          eval_obj = base_eval_obj,
+          config = config_values,
+          registry_path = registry_path,
+          scheme = config_values$species_block_label,
+          species_block = TRUE,
+          ordination_info = ordination_info_now
+        )
+      } else {
+        NULL
+      }
 
       if (!is.null(sb_obj)) {
         sb_perf_rows[[length(sb_perf_rows) + 1]] <- sb_obj$perf
         sb_feat_rows[[length(sb_feat_rows) + 1]] <- sb_obj$features
       }
 
-      if (isTRUE(progress) && (i %% progress_step == 0L || i == total_anchors)) {
-        base::message(
-          "[", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "] ",
-          "Policy benchmark progress: ", i, "/", total_anchors, " anchors processed."
+      if (isTRUE(run_group_block)) {
+        gb_obj <- benchmark_one_anchor(
+          anchor_row = anchor_row,
+          candidate_models = candidate_models,
+          policy_fun = policy_fun,
+          curve_fun = NULL,
+          model_scores = model_scores,
+          species_lookup = species_lookup,
+          reference_ids = ref_ids,
+          policies = policies,
+          policy_params = policy_params,
+          policy_path = policy_path,
+          sim_obj = sim_obj,
+          dist_obj = dist_obj,
+          candidate_models_scored = candidate_models_scored,
+          eval_obj = base_eval_obj,
+          config = config_values,
+          registry_path = registry_path,
+          scheme = group_block_label,
+          species_block = FALSE,
+          group_block_col = group_block_col,
+          ordination_info = ordination_info_now
         )
+
+        if (!is.null(gb_obj)) {
+          gb_perf_rows[[length(gb_perf_rows) + 1]] <- gb_obj$perf
+          gb_feat_rows[[length(gb_feat_rows) + 1]] <- gb_obj$features
+        }
+      }
+
+      if (isTRUE(progress) && (i %% progress_step == 0L || i == total_anchors)) {
+        tsb_message("Policy benchmark progress: ", i, "/", total_anchors, " anchors processed.")
       }
     }
   } else {
+    tsb_message("DEBUG: initializing cluster")
     cluster_obj <- initialize_parallel_cluster(
       workers = workers,
       package_dir = package_dir
     )
     on.exit(parallel::stopCluster(cluster_obj), add = TRUE)
 
+    tsb_message("DEBUG: cluster initialized, exporting variables")
     parallel::clusterExport(
       cluster_obj,
       c(
         "candidate_models",
-        "policy_fun",
         "curve_fun",
         "model_scores",
         "species_lookup",
@@ -725,67 +1006,141 @@ run_policy_benchmark <- function(candidate_models,
         "candidate_models_scored",
         "config_values",
         "registry_path",
-        "include_ts_error"
+        "include_ts_error",
+        "run_pseudo_anchor",
+        "run_species_block",
+        "run_group_block",
+        "group_block_col",
+        "group_block_label"
       ),
       envir = environment()
     )
+    tsb_message("DEBUG: export complete")
 
     if (isTRUE(progress)) {
-      base::message(
-        "[", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "] ",
-        "Policy benchmark running in parallel with ", workers, " workers."
-      )
+      tsb_message("Policy benchmark running in parallel with ", workers, " workers.")
     }
 
+    chunk_step <- max(as.integer(workers) * 4L, min(100L, total_anchors))
+    chunk_index <- split(
+      seq_len(total_anchors),
+      ceiling(seq_len(total_anchors) / chunk_step)
+    )
     processed <- 0L
     for (ids in chunk_index) {
+      tsb_message("DEBUG: dispatching chunk of ", length(ids), " anchors to parLapplyLB")
       chunk_results <- parallel::parLapplyLB(
         cluster_obj,
-        ids,
+        as.list(ids),
         function(i) {
-          anchor_row <- candidate_models[i, , drop = FALSE]
+          {
+            anchor_row <- candidate_models[i, , drop = FALSE]
+            adm_result <- tryCatch(
+              list(obj = tsbiomass:::screen_one_anchor_admissibility(
+                anchor_row = anchor_row,
+                candidate_models = candidate_models,
+                config = config_values,
+                registry_path = registry_path,
+                sim_obj = sim_obj,
+                dist_obj = dist_obj,
+                candidate_models_scored = candidate_models_scored
+              ), err = NULL),
+              error = function(e) list(obj = NULL, err = conditionMessage(e))
+            )
+            if (is.null(adm_result$obj)) {
+              return(list(
+                bench = NULL, species_block = NULL, group_block = NULL,
+                adm_error = adm_result$err, anchor_index = i
+              ))
+            }
+            base_eval_obj <- adm_result$obj
+            ordination_info_now <- tsbiomass:::resolve_ordination_info(
+              anchor_row = anchor_row,
+              model_scores = model_scores,
+              species_lookup = species_lookup,
+              config = config_values
+            )
 
-          bench_obj <- benchmark_one_anchor(
-            anchor_row = anchor_row,
-            candidate_models = candidate_models,
-            policy_fun = policy_fun,
-            curve_fun = if (isTRUE(include_ts_error)) curve_fun else NULL,
-            model_scores = model_scores,
-            species_lookup = species_lookup,
-            reference_ids = ref_ids,
-            policies = policies,
-            policy_params = policy_params,
-            policy_path = policy_path,
-            sim_obj = sim_obj,
-            dist_obj = dist_obj,
-            candidate_models_scored = candidate_models_scored,
-            config = config_values,
-            registry_path = registry_path,
-            scheme = "pseudo_anchor",
-            species_block = FALSE
-          )
+            bench_obj <- if (isTRUE(run_pseudo_anchor)) {
+              tsbiomass:::benchmark_one_anchor(
+                anchor_row = anchor_row,
+                candidate_models = candidate_models,
+                policy_fun = tsbiomass:::evaluate_policies,
+                curve_fun = if (isTRUE(include_ts_error)) curve_fun else NULL,
+                model_scores = model_scores,
+                species_lookup = species_lookup,
+                reference_ids = ref_ids,
+                policies = policies,
+                policy_params = policy_params,
+                policy_path = policy_path,
+                sim_obj = sim_obj,
+                dist_obj = dist_obj,
+                candidate_models_scored = candidate_models_scored,
+                eval_obj = base_eval_obj,
+                config = config_values,
+                registry_path = registry_path,
+                scheme = "pseudo_anchor",
+                species_block = FALSE,
+                ordination_info = ordination_info_now
+              )
+            } else {
+              NULL
+            }
 
-          sb_obj <- benchmark_one_anchor(
-            anchor_row = anchor_row,
-            candidate_models = candidate_models,
-            policy_fun = policy_fun,
-            curve_fun = NULL,
-            model_scores = model_scores,
-            species_lookup = species_lookup,
-            reference_ids = ref_ids,
-            policies = policies,
-            policy_params = policy_params,
-            policy_path = policy_path,
-            sim_obj = sim_obj,
-            dist_obj = dist_obj,
-            candidate_models_scored = candidate_models_scored,
-            config = config_values,
-            registry_path = registry_path,
-            scheme = config_values$species_block_label,
-            species_block = TRUE
-          )
+            sb_obj <- if (isTRUE(run_species_block)) {
+              tsbiomass:::benchmark_one_anchor(
+                anchor_row = anchor_row,
+                candidate_models = candidate_models,
+                policy_fun = tsbiomass:::evaluate_policies,
+                curve_fun = NULL,
+                model_scores = model_scores,
+                species_lookup = species_lookup,
+                reference_ids = ref_ids,
+                policies = policies,
+                policy_params = policy_params,
+                policy_path = policy_path,
+                sim_obj = sim_obj,
+                dist_obj = dist_obj,
+                candidate_models_scored = candidate_models_scored,
+                eval_obj = base_eval_obj,
+                config = config_values,
+                registry_path = registry_path,
+                scheme = config_values$species_block_label,
+                species_block = TRUE,
+                ordination_info = ordination_info_now
+              )
+            } else {
+              NULL
+            }
 
-          list(bench = bench_obj, species_block = sb_obj)
+            gb_obj <- NULL
+            if (isTRUE(run_group_block)) {
+              gb_obj <- tsbiomass:::benchmark_one_anchor(
+                anchor_row = anchor_row,
+                candidate_models = candidate_models,
+                policy_fun = tsbiomass:::evaluate_policies,
+                curve_fun = NULL,
+                model_scores = model_scores,
+                species_lookup = species_lookup,
+                reference_ids = ref_ids,
+                policies = policies,
+                policy_params = policy_params,
+                policy_path = policy_path,
+                sim_obj = sim_obj,
+                dist_obj = dist_obj,
+                candidate_models_scored = candidate_models_scored,
+                eval_obj = base_eval_obj,
+                config = config_values,
+                registry_path = registry_path,
+                scheme = group_block_label,
+                species_block = FALSE,
+                group_block_col = group_block_col,
+                ordination_info = ordination_info_now
+              )
+            }
+
+            list(bench = bench_obj, species_block = sb_obj, group_block = gb_obj)
+          }
         }
       )
 
@@ -794,19 +1149,25 @@ run_policy_benchmark <- function(candidate_models,
           perf_rows[[length(perf_rows) + 1]] <- one_result$bench$perf
           feat_rows[[length(feat_rows) + 1]] <- one_result$bench$features
           err_rows[[length(err_rows) + 1]] <- one_result$bench$ts_error
+        } else if (isTRUE(progress) && !is.null(one_result$adm_error)) {
+          tsb_message(
+            "Anchor ", one_result$anchor_index, " skipped (admissibility error): ",
+            one_result$adm_error
+          )
         }
         if (!is.null(one_result$species_block)) {
           sb_perf_rows[[length(sb_perf_rows) + 1]] <- one_result$species_block$perf
           sb_feat_rows[[length(sb_feat_rows) + 1]] <- one_result$species_block$features
         }
+        if (!is.null(one_result$group_block)) {
+          gb_perf_rows[[length(gb_perf_rows) + 1]] <- one_result$group_block$perf
+          gb_feat_rows[[length(gb_feat_rows) + 1]] <- one_result$group_block$features
+        }
       }
 
       processed <- processed + length(ids)
       if (isTRUE(progress)) {
-        base::message(
-          "[", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "] ",
-          "Policy benchmark progress: ", processed, "/", total_anchors, " anchors processed."
-        )
+        tsb_message("Policy benchmark progress: ", processed, "/", total_anchors, " anchors processed.")
       }
     }
   }
@@ -814,8 +1175,20 @@ run_policy_benchmark <- function(candidate_models,
   perf_tbl <- dplyr::bind_rows(perf_rows)
   feat_tbl <- dplyr::bind_rows(feat_rows)
   err_tbl <- dplyr::bind_rows(err_rows)
+  if (ncol(perf_tbl) == 0L) {
+    warning(
+      "Policy benchmark produced no rows. All ", total_anchors, " anchor(s) ",
+      "failed admissibility screening. Check that 'candidate_models' has valid ",
+      "study length data (study_length_min / study_length_max) and that the ",
+      "similarity traits in the config match the available columns. ",
+      "Set 'progress = TRUE' and inspect per-anchor diagnostic messages.",
+      call. = FALSE
+    )
+  }
   sb_perf_tbl <- dplyr::bind_rows(sb_perf_rows)
   sb_feat_tbl <- dplyr::bind_rows(sb_feat_rows)
+  gb_perf_tbl <- dplyr::bind_rows(gb_perf_rows)
+  gb_feat_tbl <- dplyr::bind_rows(gb_feat_rows)
 
   result <- list(
     policy_perf = perf_tbl,
@@ -824,7 +1197,12 @@ run_policy_benchmark <- function(candidate_models,
     policy_ts_error = err_tbl,
     species_block_perf = sb_perf_tbl,
     species_block_features = sb_feat_tbl,
-    species_block_best = bind_best_policy_rows(sb_perf_tbl)
+    species_block_best = bind_best_policy_rows(sb_perf_tbl),
+    group_block_perf = gb_perf_tbl,
+    group_block_features = gb_feat_tbl,
+    group_block_best = bind_best_policy_rows(gb_perf_tbl),
+    group_block_col = group_block_col,
+    group_block_label = group_block_label
   )
 
   # Persist the in-memory benchmark object only when the caller requested a
@@ -836,3 +1214,5 @@ run_policy_benchmark <- function(candidate_models,
 
   result
 }
+
+
