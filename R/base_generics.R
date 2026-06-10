@@ -82,4 +82,31 @@ crossfit <- S7::new_generic("crossfit", "object")
 #' @export
 fit <- S7::new_generic("fit", "object")
 
+#' Forge a learned distance matrix from an Alchemist
+#'
+#' Fits a Super Learner to pairwise acoustic distances and stores the resulting
+#' N x N learned distance matrix on the object.
+#'
+#' @param object An [Alchemist] object.
+#' @param ... Method-specific arguments.
+#'
+#' @return An updated [Alchemist] object with `@distance_matrix` and `@learner`
+#'   populated.
+#'
+#' @export
+forge_distances <- S7::new_generic("forge_distances", "object")
+
+#' Distill trait importances from a fitted Alchemist
+#'
+#' Computes permutation importance for each trait from the fitted Super Learner
+#' and derives the data-driven alpha-equivalent (species vs. survey balance).
+#'
+#' @param object An [Alchemist] object with `@learner` populated.
+#' @param ... Method-specific arguments.
+#'
+#' @return An updated [Alchemist] object with `@trait_importance` populated.
+#'
+#' @export
+distill_traits <- S7::new_generic("distill_traits", "object")
+
 

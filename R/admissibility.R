@@ -1363,6 +1363,18 @@ screen_admissibility <- function(reference_anchors = NULL,
                                  progress = NULL,
                                  registry_path = NULL) {
   if (missing(candidate_models)) {
+    if (inherits(reference_anchors, "S7_object") &&
+      exists("Alchemist", inherits = TRUE) &&
+      isTRUE(tryCatch(S7::S7_inherits(reference_anchors, Alchemist), error = function(e) FALSE))) {
+      return(.screen_admissibility_alchemist(
+        alchemist     = reference_anchors,
+        config        = config,
+        cache_path    = cache_path,
+        refresh       = refresh,
+        progress      = progress,
+        registry_path = registry_path
+      ))
+    }
     if ((inherits(reference_anchors, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(reference_anchors, Candidates), error = function(e) FALSE)))) {
       candidate_models <- reference_anchors
       reference_anchors <- NULL
@@ -1372,6 +1384,19 @@ screen_admissibility <- function(reference_anchors = NULL,
         call. = FALSE
       )
     }
+  }
+
+  if (inherits(candidate_models, "S7_object") &&
+    exists("Alchemist", inherits = TRUE) &&
+    isTRUE(tryCatch(S7::S7_inherits(candidate_models, Alchemist), error = function(e) FALSE))) {
+    return(.screen_admissibility_alchemist(
+      alchemist     = candidate_models,
+      config        = config,
+      cache_path    = cache_path,
+      refresh       = refresh,
+      progress      = progress,
+      registry_path = registry_path
+    ))
   }
 
   candidates_obj <- if ((inherits(candidate_models, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_models, Candidates), error = function(e) FALSE)))) candidate_models else NULL

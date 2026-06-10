@@ -69,6 +69,9 @@ tuning:
     edge_margin: 0.25
   progress: true
 
+alchemist:
+  progress: true
+
 similarity:
   alpha: 0.6
   kernel_scale: 4

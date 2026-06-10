@@ -94,6 +94,25 @@ run_ordination <- function(dist_mat,
                            species_refine_args = list(cluster_col = "species_cluster_id"),
                            model_id_col = "model_id",
                            progress = NULL) {
+  # Alchemist path: delegate to the dedicated internal handler so learned
+  # distances feed directly into NMDS without requiring a Gower bundle.
+  if (inherits(dist_mat, "S7_object") &&
+    exists("Alchemist", inherits = TRUE) &&
+    isTRUE(tryCatch(S7::S7_inherits(dist_mat, Alchemist), error = function(e) FALSE))) {
+    return(.run_ordination_alchemist(
+      alchemist         = dist_mat,
+      nmds_args         = nmds_args,
+      include_loadings  = include_loadings,
+      include_centroids = include_centroids,
+      envfit_args       = envfit_args,
+      reference_ids     = reference_ids,
+      join_cols         = join_cols,
+      cluster_args      = cluster_args,
+      model_id_col      = model_id_col,
+      progress          = progress
+    ))
+  }
+
   # Support the high-level `Candidates` workflow path first so model and
   # species ordination support objects can be built in one call and stored back
   # onto the staged candidate object.
