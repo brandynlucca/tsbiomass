@@ -1,80 +1,295 @@
 paths:
-  input_file: fishery_survey_tsl.xlsx
-  out_root: outputs_swfscfish
-  cache_dir: cache
-  supplemental_dir: supplemental
-  fao_polygon_csv: fao_areas.csv
-  log_file: outputs_swfscfish/tsbiomass_workflow.log
+  input: &study_file C:/Users/Brandyn/Downloads/fishery_survey_tsl.xlsx
+  output_root: outputs_swfscfish
+  cache_folder: cache
+  support_folder: &support_folder C:/Users/Brandyn/Downloads/
+  azores_file: &azores_file C:/Users/Brandyn/Downloads/Azores_FishTraits_2023.tab
+  mstraits_file: &mstraits_file C:/Users/Brandyn/Downloads/marineSpeciesTraits.RData
+  continental_file: &continental_file C:/Users/Brandyn/Downloads/TraitCollectionFishNAtlanticNEPacificContShelf.xlsx
+  log_path: outputs_swfscfish/tsbiomass_workflow.log
 
 workflow:
-  strict_length_pdf: false
-  run_multiplier_model: false
+  strict_pdf: false
+  run_multiplier: false
   write_log: false
 
-tuning:
-  max_models_per_species: 2
-  n_resamples: 8
+cache:
+  folder: cache
+  refresh: true
 
-policy:
-  alpha: 0.8
-  k_species: 4
-  k_study: 2
-  frequency_coherence_mode: numeric
-  require_same_frequency_label: false
-  max_frequency_gap_khz: 60
-  min_length_overlap_fraction: 0.25
-  min_depth_overlap_fraction: 0.25
-  missing_key_metadata_max_fraction: 0.25
-  length_overlap_weight: 2
-  depth_overlap_weight: 3
-  frequency_coherence_weight: 2
-  core_weight_cutoff: 0.8
+data:
+  - id: study_metadata
+    path: *study_file
+  - id: worms
+  - id: fishbase
+  - id: azorestraits
+    path: *azores_file
+  - id: mstraits
+    path: *mstraits_file
+  - id: continentaltraits
+    path: *continental_file
+  - id: pelagictraits
+    alias: pelagic
+    path: *support_folder
+  # Built-in sources can omit `type` and `engine`; they are back-filled from
+  # the recognized id or alias.
+  #
+  # A custom source can declare its own id plus an explicit type/engine/path.
+  # Validation normalizes ids and aliases to lowercase, and cache naming keys
+  # are derived from the normalized id.
+  #
+  # - id: custom_traits
+  #   type: single_file
+  #   engine: single_file
+  #   path: supplemental/custom_traits.csv
+
+candidates:
+  enrich:
+    precedence: [pelagic, mstraits, azorestraits, continentaltraits, fishbase, worms]
+    missing_tokens: ["-9999", "unknown", "UNKNOWN"]
+  prepare:
+    missing_tokens: ["-9999", "unknown", "UNKNOWN"]
+  anchors:
+    selector:
+      regional_body: SWFSC
+
+tuning:
+  species_model_limit: 2
+  resamples: 5
+  n_cores: 8
+  grid_refinement_levels: 2
+  response_surface_top_n: 25
+  rmse_tolerance: 0.01
+  regularization:
+    alpha: 0.25
+    kernel_scale: 0.25
+    coherence_scale: 0.25
+    stability: 0.10
+    edge: 0.25
+    edge_margin: 0.25
+  progress: true
+
+similarity:
+  alpha: 0.6
+  kernel_scale: 4
   conformal_alpha: 0.1
-  species_traits:
-    swimbladder_type: 5
-    body_shape: 3
-    order: 2
-    family: 2
-    genus: 2
-    species: 4
-    temperature_midpoint: 1
-    temperature_range: 1
-    ocean_basin: 1
-    trophic: 1
-  study_traits:
-    length_metric: 1
-    frequency: 1
-    fao_area: 1
+  progress: true
+  species_traits: [swimbladder_type, body_shape, family, genus, species, trophic, ocean_basin]
+  study_traits: [length_metric, fao_area, pressure_corrected, season, diel]
+  coherence:
+    length:
+      mode: overlap
+      range: { from: 0.1, to: 10 }
+    depth:
+      mode: overlap
+      range: { from: 0.1, to: 10 }
+    frequency:
+      mode: overlap
+      range: { from: 0.1, to: 10 }
+      gap: 60
+  alpha_range:
+    from: 0.05
+    to: 0.95
+  kernel_scale_range:
+    from: 0.1
+    to: 10
+
+ordination:
+  include_loadings: false
+  include_centroids: false
+  progress: true
+  nmds_args:
+    try: 6
+    trymax: 12
+    autotransform: false
+    trace: false
+  envfit_args:
+    permutations: 199
 
 policies:
-  active:
-    - all_models_weighted
-    - top_support_subset_weighted
-    - same_species_closest
-    - closest_related_species
-    - same_genus_weighted
-    - same_family_weighted
-    - same_swimbladder_weighted
-    - same_cluster_weighted
-    - same_ellipse_closest
-    - same_ellipse_weighted
-    - closest_generalized_model
-    - generalized_models_weighted
-    - generalized_models_scan
-    - all_models_unweighted
+  # Groups can be any arbitrary-length conjunction of supported nonnumeric
+  # traits. Public aliases use `fao`, `derivation`, and `swimbladder`.
+  # Use `joint` to add explicit conjunction variants beneath one root group.
+  # When `joint` is present, `include_base: true` keeps the plain root group too.
+  metric: [closest, unweighted_mean, weighted_mean, survey_distance, taxon_distance, species_distance]
+  group:
+    species:
+      include_base: true
+      metric: [closest, unweighted_mean, weighted_mean, survey_distance]
+      joint: 
+        - study_cell
+        - fao
+        - ocean_basin
+        - [ocean_basin, season]
+    genus:
+      include_base: true
+      joint: 
+        - study_cell
+        - fao
+        - ocean_basin
+        - [ocean_basin, season]
+    family:
+      include_base: true
+      joint: 
+        - study_cell
+        - fao
+        - ocean_basin
+        - [ocean_basin, season]
+    generalized:
+      include_base: true
+      joint: 
+        - ocean_basin
+        - [ocean_basin, season]
+    ocean_basin:
+    fao:
+    study_cell:
+    all:
+  branch: [all, fixed_slope, free_slope]
+
+benchmark:
+  workers: 8
+  include_ts_error: true
+  progress: true
+
+admissibility:
+  species_traits: [swimbladder_type]
+  study_traits: []
+  coherence:
+    length:
+      mode: overlap
+      min: 0.01
+    depth:
+      mode: overlap
+      min: 0.01
+    frequency:
+      mode: none
+      gap: 60
+  key_metadata_max: 0.75
+  progress: true
+
+uncertainty:
+  progress: true
+
+selection:
+  one_se_multiplier: 1
+  equivalence_tolerance: 0.05
+  n_boot: 1000
+  seed: 413131
+  uncertainty_relative_tolerance: 0.25
+  uncertainty_absolute_tolerance: 0.05
+  local_distance_tolerance: 1.0e-12
+  conformal_alpha: 0.1
+  bin_alpha: 0.1
+  min_bin_scores: 10
+  use_support_bin_intervals: false
+  progress: true
+
+simulation:
+  workers: 8
+  progress: true
+
+metalearner:
+  selection_method: super_learner
+  # Public learner names can be plain families (`glm`, `gam`, `rpart`,
+  # `ranger`, `xgboost`) or named family variants exposed below.
+  selection_super_methods:
+    - glm
+    - gam
+    - glmnet_ridge
+    - glmnet_lasso
+    - glmnet_elasticnet
+    - rpart_shallow
+    - rpart_deep
+    - ranger_shallow
+    - ranger_deep
+    - xgboost_conservative
+    - xgboost_flexible
+  n_folds: 10
+  inner_folds: 10
+  workers: 8
+  seed: 105401
+  outcome_col: error_abs_log
+  outcome_clip_quantile: 0.99
+  outcome_transform: log1p
+  lambda_rule: lambda.1se
+  metalearner_loss: squared_error
+  max_selection_tolerance: 1.0e-12
+  progress: true
+  method_settings:
+    glmnet:
+      standardize: true
+      type_measure: mae
+    gam:
+      fit_method: REML
+      select_terms: true
+    rpart:
+      cp: 0.01
+      minsplit: 20
+      minbucket: 7
+      maxdepth: 30
+      variants:
+        shallow:
+          cp: 0.02
+          minsplit: 30
+          minbucket: 10
+          maxdepth: 3
+        deep:
+          cp: 0.001
+          minsplit: 10
+          minbucket: 5
+          maxdepth: 10
+    ranger:
+      num_trees: 500
+      mtry: null
+      min_node_size: 5
+      sample_fraction: 1.0
+      replace: true
+      respect_unordered_factors: order
+      variants:
+        shallow:
+          min_node_size: 15
+          sample_fraction: 0.8
+        deep:
+          min_node_size: 3
+          sample_fraction: 0.8
+    xgboost:
+      nrounds: 100
+      eta: 0.3
+      max_depth: 6
+      min_child_weight: 1
+      subsample: 1.0
+      colsample_bytree: 1.0
+      lambda: 1.0
+      alpha: 0.0
+      variants:
+        conservative:
+          nrounds: 200
+          eta: 0.05
+          max_depth: 3
+          min_child_weight: 5
+          subsample: 0.8
+          colsample_bytree: 0.8
+          lambda: 2.0
+          alpha: 0.5
+        flexible:
+          nrounds: 400
+          eta: 0.05
+          max_depth: 6
+          min_child_weight: 1
+          subsample: 0.9
+          colsample_bytree: 0.9
+          lambda: 1.0
+          alpha: 0.0
 
 outputs:
   fao_distribution:
     studies: study_counts
     models: model_counts
-  ordination: 
+  ordination:
     species: species_ordination
     study: study_ordination
     combined: combined_ordination
-  slope_dependence: 
+  slope_dependence:
     distribution: slope_dependence_histogram
     boxplots: slope_dependence_boxplot
     support: slope_dependence_barchart
-  
-
-  
