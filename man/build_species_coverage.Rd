@@ -4,7 +4,7 @@
 \alias{build_species_coverage}
 \title{Build a species-block coverage table}
 \usage{
-build_species_coverage(pseudo_sum, species_sum, bench_label = "species_block")
+build_species_coverage(pseudo_sum, ...)
 }
 \arguments{
 \item{pseudo_sum}{Pseudo-anchor conformal summary list.}
@@ -18,4 +18,10 @@ A tibble.
 }
 \description{
 Build a species-block coverage table
+}
+\examples{
+\dontrun{
+build_species_coverage(selector)
+}
+
 }

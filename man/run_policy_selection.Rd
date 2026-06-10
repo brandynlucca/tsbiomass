@@ -15,7 +15,7 @@ run_policy_selection(
 \item{species_performance_table}{Species-block benchmark table.}
 
 \item{config}{Optional JSON path or list with \code{tolerance}, \code{n_boot}, and
-\code{seed}.}
+\code{seed}. A \link{WorkflowConfig} object is also accepted.}
 
 \item{cache_path}{Optional \code{.rds} cache path.}
 
@@ -28,4 +28,14 @@ equivalence-class table, and merged final selection table.
 \description{
 Builds the global policy-selection table, pairwise equivalence summary,
 and equivalence-class table from the species-block benchmark results.
+}
+\examples{
+\dontrun{
+selection_obj <- run_policy_selection(
+  species_block_perf,
+  config = list(tolerance = 0.01, n_boot = 100L, seed = 1L)
+)
+selection_obj$final_ref
+}
+
 }

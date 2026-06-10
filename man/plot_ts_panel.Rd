@@ -17,3 +17,9 @@ A ggplot object.
 \description{
 Plot TS panel ribbons
 }
+\examples{
+\dontrun{
+plot_ts_panel(panel_tbl)
+}
+
+}

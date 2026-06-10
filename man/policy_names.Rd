@@ -15,3 +15,7 @@ Character vector of policy names.
 \description{
 Returns the coded policy names defined in the policy registry.
 }
+\examples{
+policy_names()
+
+}

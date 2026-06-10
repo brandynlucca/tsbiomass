@@ -4,15 +4,27 @@
 \alias{read_workflow_config}
 \title{Read a workflow YAML file}
 \usage{
-read_workflow_config(path = NULL)
+read_workflow_config(
+  path,
+  base_dir = dirname(path_absolute(path)),
+  registry_path = NULL,
+  policy_path = NULL
+)
 }
 \arguments{
-\item{path}{Optional workflow YAML path.}
+\item{path}{Workflow YAML path.}
+
+\item{base_dir}{Base directory used to resolve relative paths. Defaults to
+the YAML file directory.}
+
+\item{registry_path}{Optional trait-registry path.}
+
+\item{policy_path}{Optional policy-registry path.}
 }
 \value{
-A workflow-config list.
+A validated normalized workflow-config list.
 }
 \description{
-Reads the packaged workflow YAML template or a caller-supplied workflow YAML
-file without yet resolving relative paths.
+Reads, validates, and normalizes a caller-supplied workflow YAML file at
+ingestion time.
 }

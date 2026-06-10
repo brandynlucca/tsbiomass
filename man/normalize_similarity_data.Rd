@@ -7,7 +7,8 @@
 normalize_similarity_data(candidate_models)
 }
 \arguments{
-\item{candidate_models}{Prepared candidate-model table.}
+\item{candidate_models}{Prepared candidate-model table or a \link{Candidates}
+object.}
 }
 \value{
 A tibble with the required identifier and coherence columns present.

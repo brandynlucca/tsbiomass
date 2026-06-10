@@ -4,15 +4,19 @@
 \alias{policy_prediction}
 \title{Compute one policy prediction}
 \usage{
-policy_prediction(rows, policy_def)
+policy_prediction(rows, policy_def, anchor_sigma, anchor_pdf)
 }
 \arguments{
 \item{rows}{Candidate-policy row table.}
 
 \item{policy_def}{One policy-definition list.}
+
+\item{anchor_sigma}{Anchor mean backscatter.}
+
+\item{anchor_pdf}{Anchor length-density table.}
 }
 \value{
-Numeric scalar.
+One-row tibble.
 }
 \description{
 Compute one policy prediction

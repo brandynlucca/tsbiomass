@@ -4,14 +4,7 @@
 \alias{build_anchor_audit}
 \title{Build the anchor support audit}
 \usage{
-build_anchor_audit(
-  sel_tbl,
-  select_ref,
-  cover_tbl,
-  sens_detail = NULL,
-  sens_tbl = NULL,
-  baseline_label = "baseline"
-)
+build_anchor_audit(sel_tbl, ...)
 }
 \arguments{
 \item{sel_tbl}{Selected-policy interval table.}
@@ -25,6 +18,9 @@ build_anchor_audit(
 \item{sens_tbl}{Optional full policy-sensitivity table.}
 
 \item{baseline_label}{Baseline scenario label.}
+
+\item{selector}{Optional \link{PolicySelector} object used when \code{sel_tbl} is a
+\link{PolicyPredictions} object.}
 }
 \value{
 A tibble.
@@ -32,4 +28,11 @@ A tibble.
 \description{
 Joins selected-policy intervals to global benchmark and conformal coverage
 summaries, and optionally appends sensitivity-drift diagnostics.
+}
+\examples{
+\dontrun{
+predictions <- predict(selector)
+build_anchor_audit(predictions, selector = selector)
+}
+
 }

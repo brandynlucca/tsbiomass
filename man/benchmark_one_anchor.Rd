@@ -18,10 +18,13 @@ benchmark_one_anchor(
   sim_obj,
   dist_obj,
   candidate_models_scored,
+  eval_obj = NULL,
   config,
   registry_path,
   scheme,
-  species_block = FALSE
+  species_block = FALSE,
+  group_block_col = NULL,
+  ordination_info = NULL
 )
 }
 \arguments{
@@ -54,6 +57,10 @@ scenario.}
 \item{candidate_models_scored}{Optional candidate-model table that already
 contains \code{key_metadata_missing_fraction}.}
 
+\item{eval_obj}{Optional precomputed anchor-evaluation object. Supplying this
+avoids rebuilding the same admissible donor pool for multiple validation
+schemes.}
+
 \item{config}{Benchmark config list.}
 
 \item{registry_path}{Optional registry path.}
@@ -61,6 +68,9 @@ contains \code{key_metadata_missing_fraction}.}
 \item{scheme}{Validation-scheme label.}
 
 \item{species_block}{Logical scalar. If \code{TRUE}, exclude same-species donors.}
+
+\item{ordination_info}{Optional precomputed ordination context for the
+current anchor.}
 }
 \value{
 A list with \code{perf}, \code{features}, and \code{ts_error}.

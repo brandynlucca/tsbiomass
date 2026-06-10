@@ -16,16 +16,20 @@ run_policy_benchmark(
   policy_path = NULL,
   config = NULL,
   include_ts_error = TRUE,
+  benchmark_schemes = c("pseudo_anchor", "species_block"),
   workers = 1L,
   package_dir = NULL,
   cache_path = NULL,
   refresh = FALSE,
   progress = FALSE,
+  group_block_col = NULL,
+  group_block_label = "leave_one_group_out",
   registry_path = NULL
 )
 }
 \arguments{
-\item{candidate_models}{Prepared candidate-model table.}
+\item{candidate_models}{Prepared candidate-model table or a \link{Candidates}
+object.}
 
 \item{policy_fun}{Policy-extraction function. It must accept \code{eval_obj}
 plus optional ordination context, and return at least \code{policy} and
@@ -48,6 +52,9 @@ settings.}
 
 \item{include_ts_error}{Logical scalar. If \code{TRUE}, compute the relative-length
 TS error table used by the TS conformal summaries.}
+
+\item{benchmark_schemes}{Validation schemes to compute. Supported values are
+\code{"pseudo_anchor"}, \code{"species_block"}, and \code{"group_block"}.}
 
 \item{workers}{Number of parallel workers. Use \code{1} for sequential execution.}
 

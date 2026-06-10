@@ -6,7 +6,8 @@
 \usage{
 build_selection_table(
   species_performance_table,
-  tolerance = 0.05,
+  one_se_multiplier = 1,
+  equivalence_tolerance = 0.05,
   n_boot = 500L,
   seed = 20260512L
 )
@@ -14,12 +15,12 @@ build_selection_table(
 \arguments{
 \item{species_performance_table}{Species-block benchmark table.}
 
-\item{tolerance}{Optional tolerance value retained in the output for
-reference.}
-
 \item{n_boot}{Number of bootstrap resamples across species.}
 
 \item{seed}{Integer bootstrap seed.}
+
+\item{tolerance}{Optional tolerance value retained in the output for
+reference.}
 }
 \value{
 A tibble.

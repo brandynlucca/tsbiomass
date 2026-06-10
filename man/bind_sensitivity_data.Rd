@@ -4,7 +4,7 @@
 \alias{bind_sensitivity_data}
 \title{Bind scenario benchmark tables}
 \usage{
-bind_sensitivity_data(sensitivity_map)
+bind_sensitivity_data(sensitivity_map, ...)
 }
 \arguments{
 \item{sensitivity_map}{Named scenario benchmark map.}
@@ -15,4 +15,12 @@ A list of bound tibbles.
 \description{
 Binds selection, pairwise equivalence, equivalence-class, and conformal
 tables across all scenario benchmark objects.
+}
+\examples{
+\dontrun{
+simulator <- as_policy_simulator(selector)
+simulator <- simulate(simulator)
+bind_sensitivity_data(simulator)
+}
+
 }

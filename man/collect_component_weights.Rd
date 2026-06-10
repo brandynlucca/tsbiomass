@@ -7,7 +7,7 @@
 collect_component_weights(tune_obj, resample_id)
 }
 \arguments{
-\item{tune_obj}{Result returned by \code{\link[=tune_similarity_empirical]{tune_similarity_empirical()}}.}
+\item{tune_obj}{Result returned by \code{\link[=tune_similarity_matrix]{tune_similarity_matrix()}}.}
 
 \item{resample_id}{Integer resample identifier.}
 }

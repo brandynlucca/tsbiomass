@@ -4,14 +4,7 @@
 \alias{summarize_key_missing}
 \title{Summarize key-field missingness}
 \usage{
-summarize_key_missing(
-  candidate_models,
-  key_cols,
-  threshold,
-  model_id_col = "model_id",
-  species_col = "species_name",
-  common_col = "common"
-)
+summarize_key_missing(candidate_models, ...)
 }
 \arguments{
 \item{candidate_models}{Candidate-model table.}
@@ -32,4 +25,10 @@ A list of tibbles.
 \description{
 Computes overall, field-level, and model-level key-field missingness from a
 candidate-model table that already contains \code{key_metadata_missing_fraction}.
+}
+\examples{
+\dontrun{
+summarize_key_missing(selector)
+}
+
 }

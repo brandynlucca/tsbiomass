@@ -7,7 +7,8 @@
 collect_anchor_scores(eval_obj, anchor_row, config = NULL)
 }
 \arguments{
-\item{eval_obj}{Anchor evaluation object from \code{\link[=evaluate_anchor_models]{evaluate_anchor_models()}}.}
+\item{eval_obj}{Anchor evaluation object from the internal single-anchor
+admissibility screen.}
 
 \item{anchor_row}{One-row anchor table.}
 

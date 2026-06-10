@@ -15,3 +15,10 @@ A parsed registry list.
 \description{
 Reads the packaged policy registry JSON or a caller-supplied registry file.
 }
+\examples{
+\dontrun{
+registry <- read_policy_registry()
+registry$policies[[1]]
+}
+
+}

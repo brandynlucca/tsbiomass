@@ -4,18 +4,35 @@
 \alias{build_gower_distances}
 \title{Build Gower distance matrices}
 \usage{
-build_gower_distances(sim_obj)
+build_gower_distances(sim_obj, progress = NULL)
 }
 \arguments{
 \item{sim_obj}{Prepared similarity object returned by
-\code{\link[=prepare_similarity_matrix]{prepare_similarity_matrix()}}.}
+\code{\link[=prepare_similarity_matrix]{prepare_similarity_matrix()}} or a \link{Candidates} object whose
+\verb{@similarity_matrix} slot has already been populated.}
+
+\item{progress}{Logical scalar controlling stage messages.}
 }
 \value{
-A list containing \code{species_dist}, \code{study_dist},
+When \code{sim_obj} is a \link{Candidates} object, returns that object with
+the Gower-distance bundle stored in \verb{@gower_distances}. Otherwise,
+returns a list containing \code{species_dist}, \code{study_dist},
 \code{species_dist_model}, \code{combined_dist}, and \code{trait_cols}.
 }
 \description{
 Builds the species-level and study-level Gower distance matrices from a
 prepared similarity object, expands the species matrix back to model rows,
 and combines the two blocks with the prepared alpha value.
+}
+\examples{
+\dontrun{
+candidates <- as_candidates(list(
+  study = list(path = "input.xlsx"),
+  anchors = list(selector = list(regional_body = "SWFSC"))
+))
+candidates <- prepare_similarity_matrix(candidate_models = candidates)
+candidates <- build_gower_distances(candidates)
+candidates@gower_distances
+}
+
 }

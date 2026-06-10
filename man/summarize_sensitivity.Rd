@@ -7,7 +7,8 @@
 summarize_sensitivity(sensitivity_table, baseline_label = "baseline")
 }
 \arguments{
-\item{sensitivity_table}{Policy-sensitivity table with one row per anchor-scenario.}
+\item{sensitivity_table}{Policy-sensitivity table with one row per
+anchor-scenario or one row per policy-scenario.}
 
 \item{baseline_label}{Baseline scenario label.}
 }
@@ -17,5 +18,10 @@ A list with \code{detail} and \code{summary}.
 \description{
 Compares policy-selection outputs against the baseline scenario and
 summarizes how often the selected policy, display label, and equivalent
-policy set change.
+policy set change. The input may be either:
+\enumerate{
+\item an anchor-level table with one selected row per anchor and scenario, or
+\item a scenario-level benchmark reference table with one row per policy and
+scenario.
+}
 }

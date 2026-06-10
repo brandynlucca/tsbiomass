@@ -15,7 +15,9 @@ build_anchor_density(anchor_row, config, n = 400)
 A tibble with \code{length_cm} and \code{f_len}.
 }
 \description{
-Builds a length-density grid from the anchor study length interval and
-falls back to the species maximum length when the study interval is absent.
+Builds a length-density grid from the anchor study length metadata. When a
+study length interval is available, the returned density is uniform over
+that interval. When only a midpoint is available, the returned density is a
+point mass at that midpoint. No species-maximum fallback is used.
 }
 \keyword{internal}

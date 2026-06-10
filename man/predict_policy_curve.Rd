@@ -8,6 +8,7 @@ predict_policy_curve(
   policy,
   eval_obj,
   lengths_cm,
+  equation_branch_filter = "all",
   ordination_info = NULL,
   policy_params = list(),
   policy_path = NULL
@@ -16,9 +17,13 @@ predict_policy_curve(
 \arguments{
 \item{policy}{Policy name.}
 
-\item{eval_obj}{Evaluation object returned by \code{\link[=evaluate_anchor_models]{evaluate_anchor_models()}}.}
+\item{eval_obj}{Evaluation object returned by the internal single-anchor
+admissibility screen.}
 
 \item{lengths_cm}{Numeric length vector in centimeters.}
+
+\item{equation_branch_filter}{Optional branch-filter label. When omitted,
+all donor equations are eligible.}
 
 \item{ordination_info}{Optional ordination-context list.}
 

@@ -13,11 +13,13 @@ prepare_similarity_matrix(
   k_study = NULL,
   config = NULL,
   registry_path = NULL,
-  seed = NULL
+  seed = NULL,
+  progress = NULL
 )
 }
 \arguments{
-\item{candidate_models}{Prepared candidate-model table.}
+\item{candidate_models}{Prepared candidate-model table or a \link{Candidates}
+object.}
 
 \item{species_traits}{Optional species-trait specification. Use \code{NULL} to
 use all eligible species traits at weight \code{1}; a character vector to use
@@ -49,15 +51,56 @@ entries are \code{species_traits}, \code{study_traits}, \code{alpha}, \code{k_sp
 \item{seed}{Optional integer seed. When \code{NULL}, a config-supplied value is
 used when present; otherwise one is generated and returned in the output
 object.}
+
+\item{progress}{Logical scalar controlling stage messages.}
 }
 \value{
-A list containing the normalized tuning configuration, selected
-traits, starting weights, expanded species/study matrices, and collapsed
-species profiles.
+When \code{candidate_models} is a \link{Candidates} object, returns that
+object with the prepared similarity state stored in \verb{@similarity_matrix}
+and the expanded candidate-model table written back to
+\verb{@candidate_models}. Otherwise, returns a list containing the normalized
+tuning configuration, selected traits, starting weights, expanded
+species/study matrices, and collapsed species profiles.
 }
 \description{
 Selects registry-defined species and study traits, applies starting weights,
 expands set-valued traits to binary membership columns, and returns the
 prepared species-level and study-level matrices needed for later similarity
 calculations.
+}
+\examples{
+\dontrun{
+candidates <- as_candidates(list(
+  study = list(path = "input.xlsx"),
+  anchors = list(selector = list(regional_body = "SWFSC"))
+))
+
+candidates <- prepare_similarity_matrix(
+  candidate_models = candidates,
+  config = as_configurer(list(
+    paths = list(
+      input_file = "input.xlsx",
+      out_root = "outputs",
+      cache_dir = "cache"
+    ),
+    workflow = list(),
+    tuning = list(),
+    policy = list(
+      alpha = 0.8,
+      k_species = 4,
+      k_study = 2,
+      frequency_coherence_mode = "overlap",
+      length_overlap_weight = 2,
+      depth_overlap_weight = 2,
+      frequency_coherence_weight = 1,
+      species_traits = list(genus = 1, family = 1),
+      study_traits = list(frequency = 1, fao_area = 1)
+    ),
+    policies = list(active = "all_models_weighted")
+  ))
+)
+
+candidates@similarity_matrix
+}
+
 }

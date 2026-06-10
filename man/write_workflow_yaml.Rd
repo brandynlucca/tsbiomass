@@ -2,18 +2,38 @@
 % Please edit documentation in R/cli.R
 \name{write_workflow_yaml}
 \alias{write_workflow_yaml}
-\title{Write the workflow YAML template}
+\title{Write a workflow YAML template}
 \usage{
-write_workflow_yaml(path, overwrite = FALSE)
+write_workflow_yaml(
+  path,
+  overwrite = FALSE,
+  input_file = "input.xlsx",
+  output_root = "outputs",
+  cache_folder = "cache",
+  registry_path = NULL,
+  policy_path = NULL
+)
 }
 \arguments{
 \item{path}{Output YAML path.}
 
 \item{overwrite}{Logical scalar. If \code{TRUE}, overwrite an existing file.}
+
+\item{input_file}{Input workbook path placeholder.}
+
+\item{output_root}{Output root directory placeholder.}
+
+\item{cache_folder}{Cache folder placeholder.}
+
+\item{registry_path}{Optional trait-registry path used to derive default
+trait names.}
+
+\item{policy_path}{Optional policy-registry path used to derive one default
+active policy.}
 }
 \value{
 The written path, invisibly.
 }
 \description{
-Copies the packaged SWFSC fish workflow template to a caller-specified path.
+Writes a generic workflow YAML template to a caller-specified path.
 }

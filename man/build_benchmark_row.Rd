@@ -8,6 +8,7 @@ build_benchmark_row(
   eval_obj,
   anchor_row,
   best_policy_name,
+  best_equation_branch_filter,
   is_reference,
   config
 )
@@ -18,6 +19,8 @@ build_benchmark_row(
 \item{anchor_row}{One-row anchor table.}
 
 \item{best_policy_name}{Best policy label.}
+
+\item{best_equation_branch_filter}{Best branch-filter label.}
 
 \item{is_reference}{Logical scalar.}
 

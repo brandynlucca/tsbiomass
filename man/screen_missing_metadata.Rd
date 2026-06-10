@@ -4,7 +4,7 @@
 \alias{screen_missing_metadata}
 \title{Add key-metadata missingness}
 \usage{
-screen_missing_metadata(candidate_models, key_cols)
+screen_missing_metadata(candidate_models, ...)
 }
 \arguments{
 \item{candidate_models}{Candidate-model table.}

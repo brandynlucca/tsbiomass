@@ -4,7 +4,7 @@
 \alias{summarize_missing_gate}
 \title{Summarize missingness gate outcomes}
 \usage{
-summarize_missing_gate(adm_tbl)
+summarize_missing_gate(adm_tbl, ...)
 }
 \arguments{
 \item{adm_tbl}{Admissibility summary table.}
@@ -14,4 +14,10 @@ A tibble.
 }
 \description{
 Summarize missingness gate outcomes
+}
+\examples{
+\dontrun{
+summarize_missing_gate(selector)
+}
+
 }

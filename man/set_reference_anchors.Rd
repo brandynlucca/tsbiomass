@@ -2,32 +2,81 @@
 % Please edit documentation in R/anchors.R
 \name{set_reference_anchors}
 \alias{set_reference_anchors}
-\title{Select reference-anchor models from a candidate table}
+\title{Set reference anchors on a candidate table or \code{Candidates} object}
 \usage{
-set_reference_anchors(candidate_models, model_ids, model_id_col = "model_id")
+set_reference_anchors(
+  object = NULL,
+  model_ids = NULL,
+  selector = NULL,
+  model_id_col = "model_id",
+  require_selection = TRUE,
+  candidate_models = NULL
+)
 }
 \arguments{
-\item{candidate_models}{Data frame or tibble containing candidate models.}
+\item{object}{A candidate-model data frame/tibble or a \link{Candidates} object.}
 
 \item{model_ids}{Character vector of model IDs to retain as reference
 anchors.}
 
-\item{model_id_col}{Name of the model-ID column in \code{candidate_models}.}
+\item{selector}{Optional named list of dynamic anchor-selection rules. A
+compact workflow-style selector such as \code{list(regional_body = "SWFSC")}
+performs exact membership matching. Structured rules may also be supplied,
+for example \code{list(regional_body = list(mode = "regex", pattern = "SWFSC"))}.}
+
+\item{model_id_col}{Name of the model-ID column.}
+
+\item{require_selection}{Whether zero selected anchors should raise an
+error.}
+
+\item{candidate_models}{Deprecated compatibility alias for \code{object}.}
 }
 \value{
-A tibble containing only the selected reference-anchor rows.
+If \code{object} is a data frame, a tibble containing only the selected
+reference-anchor rows. If \code{object} is a \link{Candidates} object, a rebuilt
+\code{Candidates} object with \verb{@reference_anchors} set.
 }
 \description{
 Filters a candidate-model table down to an explicit set of reference-anchor
-model IDs. This is the generalized replacement for hard-coded anchor-label
-filtering such as \code{grepl("SWFSC", regional_body)}.
+model IDs. When \code{object} is a \link{Candidates} instance, the selected anchor
+rows are stored in its \verb{@reference_anchors} slot and a rebuilt object is
+returned. When \code{object} is a data frame, the filtered anchor rows are
+returned directly.
 }
 \examples{
+anchor_tbl <- set_reference_anchors(
+  tibble::tibble(model_id = c("12", "18", "24"), x = 1:3),
+  model_ids = c("12", "24")
+)
+
+dynamic_anchor_tbl <- set_reference_anchors(
+  tibble::tibble(
+    model_id = c("12", "18", "24"),
+    regional_body = c("SWFSC", "AFSC", "SWFSC")
+  ),
+  selector = list(regional_body = "SWFSC")
+)
+
 \dontrun{
 set_reference_anchors(
   candidate_models,
   model_ids = c("12", "18", "24")
 )
+
+candidates <- as_candidates(cfg)
+candidates <- set_reference_anchors(
+  candidates,
+  selector = list(regional_body = "SWFSC")
+)
+candidates@reference_anchors
+
+configured_candidates <- as_candidates(list(
+  study = list(path = "input.xlsx"),
+  anchors = list(
+    selector = list(regional_body = "SWFSC")
+  )
+))
+configured_candidates <- set_reference_anchors(configured_candidates)
 }
 
 }

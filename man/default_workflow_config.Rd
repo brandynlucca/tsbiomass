@@ -5,22 +5,31 @@
 \title{Return the default workflow config}
 \usage{
 default_workflow_config(
-  input_file = "fishery_survey_tsl.xlsx",
-  out_root = "outputs_swfscfish",
-  cache_dir = "cache"
+  input_file = "input.xlsx",
+  output_root = "outputs",
+  cache_folder = "cache",
+  registry_path = NULL,
+  policy_path = NULL,
+  use_canonical_names = FALSE
 )
 }
 \arguments{
 \item{input_file}{Input workbook path.}
 
-\item{out_root}{Output-root directory.}
+\item{output_root}{Output root directory.}
 
-\item{cache_dir}{Cache directory.}
+\item{cache_folder}{Cache folder.}
+
+\item{registry_path}{Optional trait-registry path used to derive default
+trait names.}
+
+\item{policy_path}{Optional policy-registry path used to derive one default
+active policy.}
 }
 \value{
 A workflow-config list.
 }
 \description{
-Builds the default YAML-backed workflow configuration used by the packaged
-command-line interface.
+Builds a workflow-agnostic baseline configuration with neutral path
+placeholders and registry-derived default trait and policy selections.
 }

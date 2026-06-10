@@ -4,7 +4,7 @@
 \alias{build_sensitivity_table}
 \title{Build a scenario manifest}
 \usage{
-build_sensitivity_table(sensitivity_specs, sensitivity_map, config = NULL)
+build_sensitivity_table(sensitivity_specs, ...)
 }
 \arguments{
 \item{sensitivity_specs}{Named scenario-specification list.}
@@ -19,4 +19,12 @@ A tibble.
 \description{
 Summarizes the scenario specifications and the corresponding benchmark
 outputs into one scenario-level manifest table.
+}
+\examples{
+\dontrun{
+simulator <- as_policy_simulator(selector)
+simulator <- simulate(simulator)
+build_sensitivity_table(simulator)
+}
+
 }

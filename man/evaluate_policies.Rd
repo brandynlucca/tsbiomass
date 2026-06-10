@@ -13,7 +13,8 @@ evaluate_policies(
 )
 }
 \arguments{
-\item{eval_obj}{Evaluation object returned by \code{\link[=evaluate_anchor_models]{evaluate_anchor_models()}}.}
+\item{eval_obj}{Evaluation object returned by the internal single-anchor
+admissibility screen.}
 
 \item{ordination_info}{Optional ordination-context list.}
 

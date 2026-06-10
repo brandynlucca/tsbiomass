@@ -2,7 +2,7 @@
 % Please edit documentation in R/similarity.R
 \name{tune_similarity_resamples}
 \alias{tune_similarity_resamples}
-\title{Refit empirical tuning across resampled tuning subsets}
+\title{Refit similarity tuning across resampled tuning subsets}
 \usage{
 tune_similarity_resamples(
   candidate_models,
@@ -21,39 +21,27 @@ tune_similarity_resamples(
 )
 }
 \arguments{
-\item{candidate_models}{Prepared candidate-model table.}
-
-\item{species_traits}{Optional species-trait specification. See
-\code{\link[=prepare_similarity_matrix]{prepare_similarity_matrix()}} for the accepted forms. When \code{NULL}, a
-config-supplied value is used when present.}
-
-\item{study_traits}{Optional study-trait specification. See
-\code{\link[=prepare_similarity_matrix]{prepare_similarity_matrix()}} for the accepted forms. When \code{NULL}, a
-config-supplied value is used when present.}
-
-\item{alpha}{Optional starting species-versus-study mixing parameter. When
-\code{NULL}, a config-supplied value is used when present.}
-
-\item{k_species}{Optional starting species-distance kernel parameter. When
-\code{NULL}, a config-supplied value is used when present.}
-
-\item{k_study}{Optional starting study-distance kernel parameter. When
-\code{NULL}, a config-supplied value is used when present.}
-
-\item{n_resamples}{Number of resampled tuning subsets. When \code{NULL}, a
-config-supplied value is used when present.}
-
-\item{max_models_per_species}{Maximum number of retained models per species
-within each resampled tuning subset. When \code{NULL}, a config-supplied value
-is used when present.}
-
-\item{seed}{Optional integer seed. When \code{NULL}, a config-supplied value is
-used when present; otherwise one is generated and returned in the output
+\item{candidate_models}{Prepared candidate-model table or a \link{Candidates}
 object.}
 
-\item{config}{Optional JSON path or list with similarity options. Supported
-entries are the same as \code{\link[=tune_similarity_empirical]{tune_similarity_empirical()}}, plus
-\code{n_resamples}.}
+\item{species_traits}{Optional species-trait specification.}
+
+\item{study_traits}{Optional study-trait specification.}
+
+\item{alpha}{Optional starting species-versus-study mixing parameter.}
+
+\item{k_species}{Optional starting species-distance kernel parameter.}
+
+\item{k_study}{Optional starting study-distance kernel parameter.}
+
+\item{n_resamples}{Number of resampled tuning subsets.}
+
+\item{max_models_per_species}{Maximum number of retained models per species
+within each resampled tuning subset.}
+
+\item{seed}{Optional integer seed.}
+
+\item{config}{Optional JSON path or list with similarity options.}
 
 \item{cache_path}{Optional path to an \code{.rds} cache file.}
 
@@ -66,6 +54,7 @@ A list containing the resampled tuning subsets, resample summaries,
 and per-component tuned multipliers across resamples.
 }
 \description{
-Repeats empirical similarity tuning across multiple resampled per-species
-tuning subsets to assess how stable the tuned component multipliers are.
+Internal helper that reruns \code{\link[=tune_similarity_matrix]{tune_similarity_matrix()}} across multiple
+resampled per-species tuning subsets to summarize tuning stability.
 }
+\keyword{internal}

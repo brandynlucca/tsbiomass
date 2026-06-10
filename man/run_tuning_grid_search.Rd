@@ -4,7 +4,13 @@
 \alias{run_tuning_grid_search}
 \title{Run the local alpha-k tuning grid}
 \usage{
-run_tuning_grid_search(tune_models, base_sim, registry_path, n_cores = 1L)
+run_tuning_grid_search(
+  tune_models,
+  base_sim,
+  registry_path,
+  n_cores = 1L,
+  progress = FALSE
+)
 }
 \arguments{
 \item{tune_models}{Tuning subset returned by \code{\link[=build_tuning_subset]{build_tuning_subset()}}.}

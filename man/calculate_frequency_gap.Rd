@@ -8,7 +8,7 @@ calculate_frequency_gap(
   candidate_freq,
   anchor_freq,
   freq_span,
-  mode = "numeric"
+  mode = "overlap"
 )
 }
 \arguments{

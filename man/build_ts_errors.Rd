@@ -4,27 +4,20 @@
 \alias{build_ts_errors}
 \title{Build one policy TS-error table}
 \usage{
-build_ts_errors(
-  anchor_row,
-  eval_obj,
-  policy_tbl,
-  ordination_info,
-  curve_fun,
-  config
-)
+build_ts_errors(anchor_row, policy_tbl, config)
 }
 \arguments{
 \item{anchor_row}{One-row anchor table.}
 
-\item{eval_obj}{Anchor evaluation object.}
-
 \item{policy_tbl}{Policy table for the anchor.}
+
+\item{config}{Benchmark config list.}
+
+\item{eval_obj}{Anchor evaluation object.}
 
 \item{ordination_info}{Optional ordination-context list.}
 
 \item{curve_fun}{Policy-curve prediction function.}
-
-\item{config}{Benchmark config list.}
 }
 \value{
 A tibble.

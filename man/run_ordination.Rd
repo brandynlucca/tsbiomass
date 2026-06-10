@@ -7,14 +7,23 @@
 run_ordination(
   dist_mat,
   trait_table = NULL,
-  nmds_args = list(),
-  include_loadings = FALSE,
-  include_centroids = FALSE,
-  envfit_args = list()
+  nmds_args = NULL,
+  include_loadings = NULL,
+  include_centroids = NULL,
+  envfit_args = NULL,
+  reference_ids = NULL,
+  join_cols = c("species_name", "common", "swimbladder_type", "family", "regional_body",
+    "is_group_model"),
+  cluster_args = list(),
+  species_cluster_args = list(cluster_col = "species_cluster_id"),
+  species_refine_args = list(cluster_col = "species_cluster_id"),
+  model_id_col = "model_id",
+  progress = NULL
 )
 }
 \arguments{
-\item{dist_mat}{A distance matrix or \code{dist} object.}
+\item{dist_mat}{A distance matrix, \code{dist} object, or a \link{Candidates} object
+with populated \verb{@gower_distances}.}
 
 \item{trait_table}{Optional trait table aligned to \code{dist_mat}.}
 
@@ -29,11 +38,47 @@ for factor traits.}
 
 \item{envfit_args}{Optional named list of arguments passed to
 \code{vegan::envfit()}.}
+
+\item{reference_ids}{Optional vector of reference model IDs. When \code{dist_mat}
+is a \link{Candidates} object and \code{reference_ids} is \code{NULL}, the stored
+\verb{@reference_anchors} table is used automatically.}
+
+\item{join_cols}{Additional model metadata columns to join onto the stored
+model-level ordination points when \code{dist_mat} is a \link{Candidates} object.}
+
+\item{cluster_args}{Optional named list passed to
+\code{\link[=assign_ordination_groups]{assign_ordination_groups()}} for the model-level ordination.}
+
+\item{species_cluster_args}{Optional named list passed to
+\code{\link[=assign_ordination_groups]{assign_ordination_groups()}} for the species-level ordination.}
+
+\item{species_refine_args}{Optional named list passed to
+\code{\link[=refine_species_clusters]{refine_species_clusters()}} for the species-level ordination.}
+
+\item{model_id_col}{Model-ID column name used when \code{dist_mat} is a
+\link{Candidates} object.}
+
+\item{progress}{Logical scalar controlling stage messages.}
 }
 \value{
-A list with \code{ordination}, \code{points}, \code{loadings}, and \code{centroids}.
+When \code{dist_mat} is a \link{Candidates} object, returns that object with a
+downstream-ready ordination bundle stored in \verb{@ordination}. Otherwise,
+returns a list with \code{ordination}, \code{points}, \code{loadings}, and \code{centroids}.
 }
 \description{
 Runs a two-dimensional NMDS on a distance matrix and optionally fits trait
 vectors and factor centroids with \code{vegan::envfit()}.
+}
+\examples{
+\dontrun{
+candidates <- as_candidates(list(
+  study = list(path = "input.xlsx"),
+  anchors = list(selector = list(regional_body = "SWFSC"))
+))
+candidates <- prepare_similarity_matrix(candidate_models = candidates)
+candidates <- build_gower_distances(candidates)
+candidates <- run_ordination(candidates)
+candidates@ordination$model$model_scores
+}
+
 }
