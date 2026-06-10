@@ -2738,7 +2738,7 @@ score_tasks_parallel <- function(tasks,
   )
   on.exit(parallel::stopCluster(cluster_obj), add = TRUE)
 
-  parallel::clusterExport(
+  tsb_cluster_export(
     cluster_obj,
     c("tasks", "shared_data"),
     envir = environment()

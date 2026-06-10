@@ -644,7 +644,7 @@ run_nested_policy_validation <- function(candidate_models,
   if (workers > 1L && length(task_rows) > 1L) {
     cluster_obj <- initialize_parallel_cluster(workers = min(workers, length(task_rows)))
     on.exit(parallel::stopCluster(cluster_obj), add = TRUE)
-    parallel::clusterExport(
+    tsb_cluster_export(
       cluster_obj,
       c(
         "task_rows", "candidate_models", "species_all", "policies",

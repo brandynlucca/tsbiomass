@@ -1460,7 +1460,7 @@ crossfit_meta_policy_learner <- function(policy_perf,
       package_dir = package_dir
     )
     on.exit(parallel::stopCluster(cluster_obj), add = TRUE)
-    parallel::clusterExport(
+    tsb_cluster_export(
       cluster_obj,
       c(
         "data_all",
