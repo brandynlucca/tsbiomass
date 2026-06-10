@@ -1,0 +1,16 @@
+{
+  "worms": "worms_species_traits.rds",
+  "fishbase": "fishbase_species_traits.rds",
+  "pelagic": "pelagic_species_traits.rds",
+  "azores": "azores_species_traits.rds",
+  "continental": "continental_species_traits.rds",
+  "mstraits": "mstraits_species_traits.rds",
+  "species_enriched": "species_traits_enriched.rds",
+  "candidate_models": "candidate_models_prepared.rds",
+  "similarity_tuning": "similarity_tuning.rds",
+  "anchor_admissibility": "anchor_admissibility.rds",
+  "policy_benchmark": "policy_benchmark.rds",
+  "policy_conformal": "policy_conformal.rds",
+  "policy_selection": "policy_selection.rds",
+  "policy_sensitivity": "policy_sensitivity.rds"
+}

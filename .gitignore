@@ -1,5 +1,5 @@
-.Rproj.user
-.Rproj
+*.Rproj.user
+*.Rproj
 *.dbf
 *.doc*
 *.gddoc
@@ -11,6 +11,7 @@
 *.shx
 *.xls*
 *_files
+.tmp
 dev/
 scratch/
 .vscode/

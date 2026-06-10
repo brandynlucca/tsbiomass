@@ -12,5 +12,6 @@
 ^tsbiomass\.Rcheck/.*$
 ^tsbiomass_.*\.tar\.gz$
 ^.Rhistory$
+^.tmp$
 ^outputs_swfscfish/.*$
 ^cache/.*$

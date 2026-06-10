@@ -12,22 +12,37 @@ License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
     license
 Encoding: UTF-8
 Imports:
+    S7,
+    ape,
     cluster,
     dplyr,
     fs,
     ggplot2,
+    glmnet,
     ggrepel,
     janitor,
     jsonlite,
+    mgcv,
+    nnls,
     purrr,
     readr,
     readxl,
+    ranger,
+    rpart,
+    rotl,
     scico,
     stringr,
     tibble,
     tidyr,
     vegan,
     wk,
+    xgboost,
     yaml
+Suggests:
+    knitr,
+    rmarkdown,
+    testthat (>= 3.0.0)
+VignetteBuilder: knitr
+Config/testthat/edition: 3
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3

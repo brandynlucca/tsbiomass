@@ -20,6 +20,7 @@
       "unit": null,
       "multi_valued": false,
       "expandable": false,
+      "retain_when_trimming": true,
       "allowed_values": null
     },
     {
@@ -30,6 +31,7 @@
       "unit": null,
       "multi_valued": false,
       "expandable": false,
+      "retain_when_trimming": true,
       "allowed_values": null
     },
     {
@@ -40,6 +42,7 @@
       "unit": null,
       "multi_valued": false,
       "expandable": false,
+      "retain_when_trimming": true,
       "allowed_values": null
     },
     {
@@ -50,6 +53,7 @@
       "unit": null,
       "multi_valued": false,
       "expandable": false,
+      "retain_when_trimming": true,
       "allowed_values": null
     },
     {
@@ -60,6 +64,7 @@
       "unit": null,
       "multi_valued": false,
       "expandable": false,
+      "retain_when_trimming": true,
       "allowed_values": [
         "physoclist",
         "physostome",
@@ -131,6 +136,7 @@
       "unit": "m",
       "multi_valued": false,
       "expandable": false,
+      "retain_when_trimming": true,
       "allowed_values": null
     },
     {
@@ -141,6 +147,7 @@
       "unit": "m",
       "multi_valued": false,
       "expandable": false,
+      "retain_when_trimming": true,
       "allowed_values": null
     },
     {
@@ -151,6 +158,7 @@
       "unit": "m",
       "multi_valued": false,
       "expandable": false,
+      "retain_when_trimming": true,
       "allowed_values": null
     },
     {
@@ -161,6 +169,7 @@
       "unit": "m",
       "multi_valued": false,
       "expandable": false,
+      "retain_when_trimming": true,
       "allowed_values": null
     },
     {
@@ -247,6 +256,7 @@
       "unit": "cm",
       "multi_valued": false,
       "expandable": false,
+      "retain_when_trimming": true,
       "allowed_values": null
     },
     {
@@ -257,6 +267,7 @@
       "unit": "cm",
       "multi_valued": false,
       "expandable": false,
+      "retain_when_trimming": true,
       "allowed_values": null
     },
     {
@@ -267,6 +278,7 @@
       "unit": "cm",
       "multi_valued": false,
       "expandable": false,
+      "retain_when_trimming": true,
       "allowed_values": null
     },
     {
@@ -568,6 +580,7 @@
       "unit": null,
       "multi_valued": false,
       "expandable": false,
+      "retain_when_trimming": true,
       "allowed_values": [
         "fork",
         "standard",
@@ -593,6 +606,7 @@
       "unit": "kHz",
       "multi_valued": false,
       "expandable": false,
+      "retain_when_trimming": true,
       "allowed_values": null
     },
     {
@@ -603,6 +617,7 @@
       "unit": null,
       "multi_valued": false,
       "expandable": false,
+      "retain_when_trimming": true,
       "allowed_values": [
         "20log10_ind",
         "mlog10_ind",
@@ -622,17 +637,31 @@
     {
       "coded_name": "season",
       "display_name": "Season",
-      "description": "Study season.",
+      "description": "Season or seasons represented by the study.",
+      "data_type": "set",
+      "unit": null,
+      "multi_valued": true,
+      "expandable": true,
+      "allowed_values": [
+        "winter",
+        "spring",
+        "summer",
+        "fall",
+        "unknown"
+      ]
+    },
+    {
+      "coded_name": "diel",
+      "display_name": "Diel period",
+      "description": "Diel period represented by the study; full indicates both day and night sampling.",
       "data_type": "categorical",
       "unit": null,
       "multi_valued": false,
       "expandable": false,
       "allowed_values": [
-        "spring",
-        "summer",
-        "autumn",
-        "winter",
-        "annual",
+        "day",
+        "night",
+        "full",
         "unknown"
       ]
     }
