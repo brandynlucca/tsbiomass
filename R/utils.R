@@ -517,7 +517,24 @@ initialize_parallel_cluster <- function(workers,
     }
   }
 
+  # Fork-based clusters on Unix share the parent process memory via
+  # copy-on-write — no serialization, no package loading, near-zero startup.
+  # PSOCK is used on Windows where fork is unavailable.
+  # Wrap in tryCatch to fall back gracefully in environments that disable
+  # forking (e.g. some RStudio configurations on macOS).
+  if (.Platform$OS.type == "unix") {
+    cluster_obj <- tryCatch(
+      parallel::makeForkCluster(workers),
+      error = function(e) NULL
+    )
+    if (!is.null(cluster_obj)) {
+      attr(cluster_obj, "cluster_type") <- "fork"
+      return(cluster_obj)
+    }
+  }
+
   cluster_obj <- parallel::makePSOCKcluster(workers)
+  attr(cluster_obj, "cluster_type") <- "psock"
   parallel::clusterExport(
     cluster_obj,
     c("package_dir", "package_name"),
@@ -554,6 +571,13 @@ initialize_parallel_cluster <- function(workers,
   )
 
   cluster_obj
+}
+
+
+#' @keywords internal
+tsb_cluster_export <- function(cl, varlist, envir = parent.frame()) {
+  if (is.null(cl) || identical(attr(cl, "cluster_type"), "fork")) return(invisible(NULL))
+  parallel::clusterExport(cl, varlist, envir = envir)
 }
 
 
