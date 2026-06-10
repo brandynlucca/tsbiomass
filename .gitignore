@@ -19,3 +19,6 @@ scratch/
 outputs_swfscfish/
 cache/
 .Rproj.user
+*.csv
+inst/docs
+inst/slides
