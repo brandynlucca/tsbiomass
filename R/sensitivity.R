@@ -131,7 +131,7 @@ run_sensitivity_tests <- function(sensitivity_specs,
     )
     on.exit(parallel::stopCluster(cluster_obj), add = TRUE)
 
-    parallel::clusterExport(
+    tsb_cluster_export(
       cluster_obj,
       c(
         "sensitivity_specs",

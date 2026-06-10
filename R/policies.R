@@ -2036,6 +2036,7 @@ policy_support_summary <- function(rows,
     local_max_weight = if (length(weights) == 0) NA_real_ else max(weights, na.rm = TRUE)
   )
   overlap_cols <- grep("^overlap_", names(keep_rows), value = TRUE)
+  overlap_cols <- overlap_cols[!endsWith(overlap_cols, "_type")]
   if (length(overlap_cols) > 0) {
     overlap_counts <- lapply(overlap_cols, function(col) {
       as.integer(sum(keep_rows[[col]], na.rm = TRUE))
