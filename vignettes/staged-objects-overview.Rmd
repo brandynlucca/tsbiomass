@@ -1,8 +1,8 @@
 ---
-title: "Generalized TS Transferability Workflow"
+title: "Generalized TS Transferability Pipeline"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Generalized TS Transferability Workflow}
+  %\VignetteIndexEntry{Generalized TS Transferability Pipeline}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -16,17 +16,17 @@ knitr::opts_chunk$set(
 
 ## Purpose
 
-`tsbiomass` now centers the workflow around a small set of S7 objects instead of a long chain of loosely related lists. The core path is:
+`tsbiomass` now centers the analysis pipeline around a small set of S7 objects instead of a long chain of loosely related lists. The core path is:
 
-1. `WorkflowConfig`: validate and normalize one complete workflow configuration.
+1. `Configurer`: validate and normalize one complete configuration.
 2. `Candidates`: ingest, enrich, and prepare the candidate model table.
 3. `PolicySelector`: benchmark policies, calibrate uncertainty, select globally acceptable policies, and generate anchor-facing predictions.
 4. `PolicyLearner` (optional): fit a meta-policy or super-learner that ranks policy choices by predicted transfer risk.
 5. `PolicySimulator` (optional): rerun the policy stack across standard sensitivity scenarios.
 
-The point of this interface is not just cleaner code. It also makes the workflow state explicit. Each object carries the staged results needed by the next step.
+The point of this interface is not just cleaner code. It also makes the analysis state explicit. Each object carries the staged results needed by the next step.
 
-## Typical Workflow
+## Typical Usage
 
 The package supports both explicit R configuration and external YAML configuration.
 
@@ -35,7 +35,7 @@ The package supports both explicit R configuration and external YAML configurati
 ```{r, eval = FALSE}
 library(tsbiomass)
 
-cfg <- workflow_config_from_yaml("path/to/workflow.yaml")
+cfg <- configurer_from_yaml("path/to/config.yaml")
 
 candidates <- as_candidates(cfg)
 candidates <- set_reference_anchors(candidates)
@@ -57,13 +57,13 @@ predictions@selections
 ### From an explicit R list
 
 ```{r, eval = FALSE}
-cfg <- as_workflow_config(list(
+cfg <- as_configurer(list(
   paths = list(
     input_file = "input.xlsx",
     out_root = "outputs",
     cache_dir = "cache"
   ),
-  workflow = list(
+  execution = list(
     strict_length_pdf = FALSE,
     run_multiplier_model = FALSE,
     write_log = FALSE
@@ -98,9 +98,9 @@ cfg <- as_workflow_config(list(
 
 ## What Each Object Does
 
-### `WorkflowConfig`
+### `Configurer`
 
-`WorkflowConfig` is the configuration boundary. It validates:
+`Configurer` is the configuration boundary. It validates:
 
 - required sections
 - policy trait weights against the trait registry
@@ -108,7 +108,7 @@ cfg <- as_workflow_config(list(
 - scalar tuning and admissibility settings
 - path fields and top-level structural consistency
 
-The constructor does not inject a workflow-specific template. The caller must supply the workflow explicitly, either as YAML or as a nested R list.
+The constructor does not inject an analysis-specific template. The caller must supply the configuration explicitly, either as YAML or as a nested R list.
 
 ### `Candidates`
 
@@ -121,7 +121,7 @@ The constructor does not inject a workflow-specific template. The caller must su
 - the selected reference anchors
 - any prepared similarity, distance, ordination, admissibility, and tuning results
 
-In practice, that means downstream functions do not need to rebuild the entire ingest or enrichment context just to continue the workflow.
+In practice, that means downstream functions do not need to rebuild the entire ingest or enrichment context just to continue the analysis.
 
 ### `PolicySelector`
 
@@ -167,13 +167,13 @@ build_sensitivity_table(simulator)
 bind_sensitivity_data(simulator)
 ```
 
-This keeps the baseline workflow and the scenario reruns in one consistent object layer.
+This keeps the baseline analysis and the scenario reruns in one consistent object layer.
 
 ## Similarity Mathematics
 
 ### Trait Preparation
 
-The workflow begins by separating **species-level traits** from **study-level traits**.
+The pipeline begins by separating **species-level traits** from **study-level traits**.
 
 - Species-level traits describe biological similarity, such as taxonomic position or swimbladder type.
 - Study-level traits describe survey or equation context, such as frequency or FAO area.
@@ -212,7 +212,7 @@ d_{ij}^{(\mathrm{combined})}
 }
 \]
 
-where each indicator \(I_{ij}\) is one when that component is available for the pair and zero otherwise. This renormalization matters: if one block is missing for a pair, the workflow does not let the missing block silently force the full combined distance to `NA`.
+where each indicator \(I_{ij}\) is one when that component is available for the pair and zero otherwise. This renormalization matters: if one block is missing for a pair, the pipeline does not let the missing block silently force the full combined distance to `NA`.
 
 ### Tuning
 
@@ -239,7 +239,7 @@ This stage produces both the filtered donor pool and the detailed gate diagnosti
 
 ## Policy Benchmark and Selection
 
-Policies are benchmarked on held-out anchors. For each anchor-policy combination, the workflow computes a predicted multiplier and compares it with the anchor truth on the log scale:
+Policies are benchmarked on held-out anchors. For each anchor-policy combination, the pipeline computes a predicted multiplier and compares it with the anchor truth on the log scale:
 
 \[
 e = \log(\widehat{m}) - \log(m)
@@ -297,7 +297,7 @@ The main outputs are:
 
 This makes it possible to audit whether the displayed recommendation is stable or changes materially under reasonable perturbations.
 
-## Practical Reading of the Workflow
+## Practical Reading of the Pipeline
 
 In plain terms, the package answers four questions in order:
 
@@ -306,4 +306,4 @@ In plain terms, the package answers four questions in order:
 3. How uncertain are the resulting multiplier recommendations?
 4. Does the answer stay stable under sensible perturbations?
 
-The S7 refactor keeps each of those stages explicit and inspectable instead of burying them inside one large workflow script.
+The S7 refactor keeps each of those stages explicit and inspectable instead of burying them inside one large packaged script.
