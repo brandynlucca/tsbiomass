@@ -1,6 +1,6 @@
 {
   "schema_version": "2.0.0",
-  "description": "Constructor-based policy registry for TS model transferability workflows. Canonical benchmark policies are generated from grouping, metric, and branch definitions.",
+  "description": "Constructor-based policy registry for TS model transferability pipelines. Canonical benchmark policies are generated from grouping, metric, and branch definitions.",
   "policy_branches": [
     {
       "key": "all",
@@ -109,6 +109,15 @@
       "aggregation_method": "nearest_by_species_distance",
       "display_template": "Species-distance nearest {group_phrase} model",
       "aggregation_definition": "Select the single eligible donor equation with the smallest species-distance term after excluding same-species donors, using combined distance as a deterministic tie-break. The biomass multiplier is computed afterward from the selected equation relative to the reference anchor."
+    },
+    {
+      "key": "random",
+      "coded_prefix": "random_",
+      "policy_family": "random_baseline",
+      "aggregation_method": "random_draw",
+      "n_random_draws": 100,
+      "display_template": "Random {group_phrase} model (bootstrap average)",
+      "aggregation_definition": "Bootstrap-averaged random single-model selection: draw n_random_draws models uniformly at random with replacement from the eligible candidate pool and return the mean slope and intercept. Provides a null-model baseline for benchmarking other policies."
     }
   ],
   "policy_constructors": [
@@ -124,6 +133,10 @@
       "groups": ["__all_groups__"],
       "exclude_groups": ["species"],
       "metrics": ["species_distance"]
+    },
+    {
+      "groups": ["__all_groups__"],
+      "metrics": ["random"]
     }
   ]
 }

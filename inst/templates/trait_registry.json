@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "description": "Portable trait registry for TS model transferability workflows. This file defines the accepted species-level and study-level trait universe for validation only.",
+  "description": "Portable trait registry for TS model transferability pipelines. This file defines the accepted species-level and study-level trait universe for validation only.",
   "species_traits": [
     {
       "coded_name": "class",

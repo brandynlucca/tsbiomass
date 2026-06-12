@@ -6,9 +6,9 @@ paths:
   azores_file: &azores_file C:/Users/Brandyn/Downloads/Azores_FishTraits_2023.tab
   mstraits_file: &mstraits_file C:/Users/Brandyn/Downloads/marineSpeciesTraits.RData
   continental_file: &continental_file C:/Users/Brandyn/Downloads/TraitCollectionFishNAtlanticNEPacificContShelf.xlsx
-  log_path: outputs_swfscfish/tsbiomass_workflow.log
+  log_path: outputs_swfscfish/tsbiomass_run.log
 
-workflow:
+execution:
   strict_pdf: false
   run_multiplier: false
   write_log: false
@@ -71,6 +71,28 @@ tuning:
 
 alchemist:
   progress: true
+  # Set taxonomic_distance: true to replace individual family/genus/species
+  # Gower features with one continuous phylogenetic distance (rotl Tree of Life,
+  # with rank-based fallback). Coherence terms are inherited from similarity:.
+  taxonomic_distance: true
+  # feature_type controls what pairwise features are fed to the Super Learner.
+  # "gower"      — unsigned Gower distances in [0, 1] (original behavior)
+  # "difference" — signed standardized differences (t_i - t_j) / sd(t);
+  #                categorical traits still use Gower agreement. Preserves
+  #                directionality and absolute scale.
+  feature_type: difference
+  # distill_workers controls parallelism for sigma dropout sensitivity.
+  # Workers receive one base learner model at a time (not the full ensemble),
+  # so RAM scales with one model + zeroed feature data per worker rather than
+  # the full ensemble per worker. Safe to match your core count.
+  distill_workers: 8
+  learner:
+    workers: 8
+    # Reduce num_trees relative to the main metalearner: dropout sensitivity
+    # rankings stabilize with fewer trees and smaller forests cut RAM substantially.
+    method_settings:
+      ranger:
+        num_trees: 100
 
 similarity:
   alpha: 0.6
@@ -78,13 +100,23 @@ similarity:
   conformal_alpha: 0.1
   progress: true
   species_traits: [swimbladder_type, body_shape, family, genus, species, trophic, ocean_basin]
-  study_traits: [length_metric, fao_area, pressure_corrected, season, diel]
+  study_traits: [fao_area, season, diel, pressure_corrected, length_metric]
   coherence:
     length:
       mode: overlap
+      # source controls which length columns back this dimension.
+      # "best"    — study_length_min/max if present, length_minimum/maximum as fallback (default)
+      # "study"   — study-level sampling range only
+      # "species" — species-level biological range only
+      # "both"    — compute independently for each; adds length_coherence_study +
+      #             length_coherence_species as separate features
+      source: both
       range: { from: 0.1, to: 10 }
     depth:
       mode: overlap
+      # Same source options as length, applied to depth_minimum/maximum vs.
+      # study_depth_min/max.
+      source: both
       range: { from: 0.1, to: 10 }
     frequency:
       mode: overlap
@@ -114,7 +146,7 @@ policies:
   # traits. Public aliases use `fao`, `derivation`, and `swimbladder`.
   # Use `joint` to add explicit conjunction variants beneath one root group.
   # When `joint` is present, `include_base: true` keeps the plain root group too.
-  metric: [closest, unweighted_mean, weighted_mean, survey_distance, taxon_distance, species_distance]
+  metric: [closest, unweighted_mean, weighted_mean, survey_distance, taxon_distance, species_distance, random]
   group:
     species:
       include_base: true
@@ -177,7 +209,6 @@ selection:
   one_se_multiplier: 1
   equivalence_tolerance: 0.05
   n_boot: 1000
-  seed: 413131
   uncertainty_relative_tolerance: 0.25
   uncertainty_absolute_tolerance: 0.05
   local_distance_tolerance: 1.0e-12
@@ -197,7 +228,6 @@ metalearner:
   # `ranger`, `xgboost`) or named family variants exposed below.
   selection_super_methods:
     - glm
-    - gam
     - glmnet_ridge
     - glmnet_lasso
     - glmnet_elasticnet
@@ -206,11 +236,9 @@ metalearner:
     - ranger_shallow
     - ranger_deep
     - xgboost_conservative
-    - xgboost_flexible
-  n_folds: 10
-  inner_folds: 10
+  n_folds: 5
+  inner_folds: 3
   workers: 8
-  seed: 105401
   outcome_col: error_abs_log
   outcome_clip_quantile: 0.99
   outcome_transform: log1p
@@ -242,7 +270,7 @@ metalearner:
           minbucket: 5
           maxdepth: 10
     ranger:
-      num_trees: 500
+      num_trees: 100
       mtry: null
       min_node_size: 5
       sample_fraction: 1.0
@@ -266,7 +294,7 @@ metalearner:
       alpha: 0.0
       variants:
         conservative:
-          nrounds: 200
+          nrounds: 100
           eta: 0.05
           max_depth: 3
           min_child_weight: 5
@@ -275,7 +303,7 @@ metalearner:
           lambda: 2.0
           alpha: 0.5
         flexible:
-          nrounds: 400
+          nrounds: 200
           eta: 0.05
           max_depth: 6
           min_child_weight: 1
