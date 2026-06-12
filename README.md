@@ -1,6 +1,6 @@
 # tsbiomass
 
-`tsbiomass` is an R package of reusable functions for TS model transferability analyses. The actual workflow application lives in the CLI/orchestration scripts under `inst/scripts/`, while the package source keeps the domain logic, config parsing, and helper functions.
+`tsbiomass` is an R package of reusable functions for TS model transferability analyses. The actual CLI/orchestration layer lives in the scripts under `inst/scripts/`, while the package source keeps the domain logic, config parsing, and helper functions.
 
 ## What lives where
 
@@ -15,9 +15,9 @@
 - `R/sensitivity.R`
   Tuning, resampling, scenario sweeps, and uncertainty-driver evaluation.
 - `R/graphics.R`
-  Workflow figure/table helpers that are used directly by the orchestration script.
+  Figure/table helpers that are used directly by the orchestration scripts.
 - `R/config.R`
-  YAML/JSON workflow configuration defaults, allow-lists, parsing, and validation.
+  YAML/JSON configuration defaults, allow-lists, parsing, and validation.
 - `inst/scripts/run_paper_policy_workflow.R`
   CLI application entrypoint.
 - `inst/scripts/run_paper_policy_workflow_body.R`
@@ -25,9 +25,9 @@
 
 ## Config-driven usage
 
-Create a YAML or JSON workflow config. A starter YAML template is provided at:
+Create a YAML or JSON config. A starter YAML template is provided at:
 
-- `inst/templates/swfscfish_config.yml`
+- `inst/templates/swfscfish_config.yaml`
 
 
 - `inst/templates/trait_registry.json`
@@ -35,12 +35,12 @@ Create a YAML or JSON workflow config. A starter YAML template is provided at:
 From the command line:
 
 ```powershell
-Rscript inst/scripts/swfscfish.R --config inst/templates/workflow_config.yml
+Rscript inst/scripts/swfscfish.R --config inst/templates/swfscfish_config.yaml
 ```
 
 ## Configuration notes
 
-The workflow config is designed to centralize:
+The config is designed to centralize:
 
 - input, output, cache, logging, and ancillary file paths
 - tuning parameters
