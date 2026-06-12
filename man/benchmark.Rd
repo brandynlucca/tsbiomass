@@ -2,19 +2,19 @@
 % Please edit documentation in R/base_generics.R
 \name{benchmark}
 \alias{benchmark}
-\title{Benchmark a staged workflow object}
+\title{Benchmark a staged staged object}
 \usage{
 benchmark(object, ...)
 }
 \arguments{
-\item{object}{A staged workflow object such as a \link{PolicySelector}.}
+\item{object}{A staged staged object such as a \link{PolicySelector}.}
 
 \item{...}{Method-specific arguments.}
 }
 \value{
-An updated staged workflow object.
+An updated staged staged object.
 }
 \description{
 Dispatches to the appropriate benchmark method for the supplied staged
-workflow object.
+staged object.
 }

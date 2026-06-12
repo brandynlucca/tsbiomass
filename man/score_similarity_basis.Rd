@@ -4,7 +4,16 @@
 \alias{score_similarity_basis}
 \title{Score one prepared similarity basis}
 \usage{
-score_similarity_basis(score_basis, alpha_now, k_species_now, k_study_now)
+score_similarity_basis(
+  score_basis,
+  alpha_now,
+  k_species_now,
+  k_study_now,
+  length_weight_now = NULL,
+  depth_weight_now = NULL,
+  frequency_weight_now = NULL,
+  return_anchor_rows = FALSE
+)
 }
 \arguments{
 \item{score_basis}{Prepared scoring basis returned by

@@ -7,7 +7,7 @@
 validate_metalearner_section(metalearner_section)
 }
 \arguments{
-\item{metalearner_section}{Workflow \code{metalearner} section.}
+\item{metalearner_section}{Config \code{metalearner} section.}
 }
 \value{
 Invisibly returns \code{NULL}.

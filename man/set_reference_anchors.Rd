@@ -20,7 +20,7 @@ set_reference_anchors(
 anchors.}
 
 \item{selector}{Optional named list of dynamic anchor-selection rules. A
-compact workflow-style selector such as \code{list(regional_body = "SWFSC")}
+compact pipeline-style selector such as \code{list(regional_body = "SWFSC")}
 performs exact membership matching. Structured rules may also be supplied,
 for example \code{list(regional_body = list(mode = "regex", pattern = "SWFSC"))}.}
 

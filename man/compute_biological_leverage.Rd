@@ -40,6 +40,6 @@ A list containing leverage \code{profile} and \code{summary} tables.
 }
 \description{
 Combines the anchor length distribution with the ensemble-mean
-backscattering cross-section per unit mass so the workflow can identify the
+backscattering cross-section per unit mass so the package can identify the
 length range where TS mismatch has the largest biomass consequence.
 }

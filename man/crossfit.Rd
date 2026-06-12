@@ -2,20 +2,20 @@
 % Please edit documentation in R/base_generics.R
 \name{crossfit}
 \alias{crossfit}
-\title{Cross-fit a staged workflow object}
+\title{Cross-fit a staged staged object}
 \usage{
 crossfit(object, ...)
 }
 \arguments{
-\item{object}{A staged workflow object such as a \link{PolicyLearner}.}
+\item{object}{A staged staged object such as a \link{PolicyLearner}.}
 
 \item{...}{Method-specific arguments.}
 }
 \value{
-An updated staged workflow object.
+An updated staged staged object.
 }
 \description{
-Cross-fits the supplied staged workflow object using the method associated
+Cross-fits the supplied staged staged object using the method associated
 with its class.
 }
 \examples{

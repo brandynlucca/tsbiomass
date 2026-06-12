@@ -9,7 +9,7 @@ build_equivalence_table(
   select_ref,
   tolerance = 0.05,
   n_boot = 500L,
-  seed = 20260515L
+  seed = NULL
 )
 }
 \arguments{

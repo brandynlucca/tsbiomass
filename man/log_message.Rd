@@ -2,12 +2,12 @@
 % Please edit documentation in R/logging.R
 \name{log_message}
 \alias{log_message}
-\title{Write one workflow log message}
+\title{Write one run log message}
 \usage{
 log_message(logger, ..., timestamp = TRUE)
 }
 \arguments{
-\item{logger}{Logger object from \code{\link[=build_workflow_logger]{build_workflow_logger()}}.}
+\item{logger}{Logger object from \code{\link[=build_run_logger]{build_run_logger()}}.}
 
 \item{...}{Message fragments.}
 
@@ -19,5 +19,5 @@ Invisibly returns \code{NULL}.
 }
 \description{
 Emits a message to the console and, when enabled, appends the same message
-to the workflow log file.
+to the run log file.
 }

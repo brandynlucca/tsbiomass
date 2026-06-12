@@ -2,7 +2,7 @@
 % Please edit documentation in R/cli.R
 \name{resolve_command_line}
 \alias{resolve_command_line}
-\title{Resolve one command-line workflow config}
+\title{Resolve one command-line config}
 \usage{
 resolve_command_line(
   arguments = commandArgs(trailingOnly = TRUE),
@@ -21,9 +21,9 @@ resolve_command_line(
 \item{policy_path}{Optional policy-registry path.}
 }
 \value{
-A normalized workflow config, or the written template path.
+A normalized config, or the written template path.
 }
 \description{
-Converts parsed command-line inputs to a validated normalized workflow config
-or writes a new workflow template when requested.
+Converts parsed command-line inputs to a validated normalized config
+or writes a new template when requested.
 }

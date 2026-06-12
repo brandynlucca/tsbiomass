@@ -4,12 +4,12 @@
 \alias{recommendation_aggregate_equation}
 \title{Aggregate donor equations into one recommendation equation}
 \usage{
-recommendation_aggregate_equation(rows, aggregation)
+recommendation_aggregate_equation(rows, policy_def)
 }
 \arguments{
 \item{rows}{Donor rows with finite standardized coefficients.}
 
-\item{aggregation}{Aggregation rule from the recommendation policy.}
+\item{policy_def}{One-row recommendation policy definition.}
 }
 \value{
 One-row policy equation tibble.

@@ -53,7 +53,7 @@ entries are \code{species_traits}, \code{study_traits}, \code{alpha}, \code{k_sp
 \code{k_study}, \code{max_models_per_species}, \code{seed}, \code{length_coherence},
 \code{depth_coherence}, \code{frequency_coherence}, \code{alpha_grid},
 \code{k_species_grid}, \code{k_study_grid}, and \code{grid_refinement_levels}. A
-\link{WorkflowConfig} object is also accepted.}
+\link{Configurer} object is also accepted.}
 
 \item{cache_path}{Optional path to an \code{.rds} cache file.}
 
@@ -83,13 +83,13 @@ candidates <- as_candidates(list(
   anchors = list(selector = list(regional_body = "SWFSC"))
 ))
 
-workflow_cfg <- as_configurer(list(
+cfg_data <- as_configurer(list(
   paths = list(
     input_file = "input.xlsx",
     out_root = "outputs",
     cache_dir = "cache"
   ),
-  workflow = list(),
+  execution = list(),
   tuning = list(
     max_models_per_species = 2L,
     n_resamples = 8L,
@@ -111,7 +111,7 @@ workflow_cfg <- as_configurer(list(
 
 tune_obj <- tune_similarity_matrix(
   candidate_models = candidates,
-  config = workflow_cfg
+  config = cfg_data
 )
 tune_obj@similarity_tuning
 }

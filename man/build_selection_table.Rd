@@ -9,7 +9,7 @@ build_selection_table(
   one_se_multiplier = 1,
   equivalence_tolerance = 0.05,
   n_boot = 500L,
-  seed = 20260512L
+  seed = NULL
 )
 }
 \arguments{

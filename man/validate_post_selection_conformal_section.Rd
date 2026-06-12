@@ -7,7 +7,7 @@
 validate_post_selection_conformal_section(conformal_section)
 }
 \arguments{
-\item{conformal_section}{Workflow \code{post_selection_conformal} section.}
+\item{conformal_section}{Config \code{post_selection_conformal} section.}
 }
 \value{
 Invisibly returns \code{NULL}.

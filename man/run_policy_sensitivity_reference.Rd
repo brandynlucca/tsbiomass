@@ -11,6 +11,8 @@ run_policy_sensitivity_reference(
   reference_ids = NULL,
   tolerance = 0.05,
   n_boot = 500L,
+  candidate_template = NULL,
+  reference_anchors = NULL,
   registry_path = NULL,
   include_ts_error = FALSE,
   progress = FALSE
@@ -29,6 +31,12 @@ run_policy_sensitivity_reference(
 
 \item{n_boot}{Number of bootstrap resamples used in policy selection.}
 
+\item{candidate_template}{Optional staged \link{Candidates} object used to rebuild
+anchor-level predictions for each scenario.}
+
+\item{reference_anchors}{Optional reference-anchor table override used for
+scenario prediction.}
+
 \item{registry_path}{Optional trait-registry path.}
 
 \item{include_ts_error}{Logical scalar. If \code{TRUE}, retain the TS-error
@@ -38,7 +46,8 @@ benchmark table for the scenario rerun.}
 }
 \value{
 A list containing ordination context, benchmark tables, conformal
-calibration, and policy-selection summaries.
+calibration, global policy-selection summaries, and anchor-level selected
+policy rows for the scenario.
 }
 \description{
 Rebuilds ordination support objects, reruns the benchmark layer, recalibrates

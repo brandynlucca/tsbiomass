@@ -11,6 +11,6 @@ Named list of method-specific settings.
 }
 \description{
 Returns the shared method-specific settings used by both the selection and
-conditional-uncertainty learners unless the workflow YAML overrides them.
+conditional-uncertainty learners unless the config YAML overrides them.
 }
 \keyword{internal}

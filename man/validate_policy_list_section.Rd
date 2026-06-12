@@ -7,7 +7,7 @@
 validate_policy_list_section(policies_section, policy_path = NULL)
 }
 \arguments{
-\item{policies_section}{Workflow \code{policies} section.}
+\item{policies_section}{Config \code{policies} section.}
 
 \item{policy_path}{Optional policy-registry path.}
 }

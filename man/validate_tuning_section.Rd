@@ -7,7 +7,7 @@
 validate_tuning_section(tuning_section)
 }
 \arguments{
-\item{tuning_section}{Workflow \code{tuning} section.}
+\item{tuning_section}{Config \code{tuning} section.}
 }
 \value{
 Invisibly returns \code{NULL}.

@@ -15,7 +15,7 @@ Referee(
 }
 \description{
 \code{Referee} is the post-prediction recommendation layer for the main
-policy-transfer workflow. It consumes a \link{PolicySelector}, an optional
+policy-transfer pipeline. It consumes a \link{PolicySelector}, an optional
 \link{PolicyLearner}, and the resulting \link{PolicyPredictions} bundle from
 \code{\link[=predict]{predict()}} on the selector. It does not rerun a parallel recommendation
 policy engine. Instead, it turns the already selected anchor-policy results
@@ -30,7 +30,7 @@ rows when partial output is allowed.
 
 Typical use is:
 \itemize{
-\item run the staged selector workflow
+\item run the staged selector pipeline
 \item optionally attach a \link{PolicyLearner}
 \item call \code{\link[=predict]{predict()}} on the selector
 \item pass that prediction bundle into \code{Referee}

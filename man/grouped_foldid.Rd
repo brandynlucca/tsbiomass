@@ -4,7 +4,7 @@
 \alias{grouped_foldid}
 \title{Build grouped fold assignments}
 \usage{
-grouped_foldid(groups, n_folds = 5L, seed = 20260524L)
+grouped_foldid(groups, n_folds = 5L, seed = NULL)
 }
 \arguments{
 \item{groups}{Exchangeable grouping labels.}

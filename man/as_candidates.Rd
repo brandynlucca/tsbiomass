@@ -2,7 +2,7 @@
 % Please edit documentation in R/candidates_s7.R
 \name{as_candidates}
 \alias{as_candidates}
-\title{Build a \code{Candidates} object}
+\title{Coerce candidate-ingest input to \code{Candidates}}
 \usage{
 as_candidates(
   config,
@@ -12,7 +12,7 @@ as_candidates(
 )
 }
 \arguments{
-\item{config}{Candidate-ingest config list, YAML path, or \link{WorkflowConfig}
+\item{config}{Candidate-ingest config list, YAML path, or \link{Configurer}
 object.}
 
 \item{base_dir}{Base directory used to resolve relative paths.}
@@ -20,31 +20,11 @@ object.}
 \item{registry_path}{Optional trait-registry path.}
 
 \item{policy_path}{Optional policy-registry path, used only when \code{config} is
-a \link{WorkflowConfig} YAML/list and must first be validated as such.}
+a \link{Configurer} YAML/list and must first be validated as such.}
 }
 \value{
 A fully materialized \code{Candidates} object.
 }
 \description{
-Build a \code{Candidates} object
-}
-\examples{
-cfg <- list(
-  study = list(path = "input.xlsx"),
-  sources = list(
-    list(id = "worms", type = "remote", engine = "r_package"),
-    list(id = "fishbase", type = "remote", engine = "r_package")
-  ),
-  enrich = list(precedence = c("remote_fishbase", "remote_worms")),
-  prepare = list(),
-  anchors = list(
-    selector = list(regional_body = "SWFSC")
-  )
-)
-
-\dontrun{
-candidates <- as_candidates(cfg)
-candidates@species_db
-}
-
+Coerce candidate-ingest input to \code{Candidates}
 }

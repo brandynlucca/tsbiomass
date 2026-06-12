@@ -2,7 +2,7 @@
 % Please edit documentation in R/cli.R
 \name{tsb_message}
 \alias{tsb_message}
-\title{Emit a timestamped workflow message}
+\title{Emit a timestamped message}
 \usage{
 tsb_message(..., timestamp = TRUE, appendLF = TRUE)
 }
@@ -17,6 +17,6 @@ tsb_message(..., timestamp = TRUE, appendLF = TRUE)
 Invisibly returns \code{NULL}.
 }
 \description{
-Emit a timestamped workflow message
+Emit a timestamped message
 }
 \keyword{internal}

@@ -14,7 +14,7 @@ The updated table.
 }
 \description{
 Standardizes compatible TS equations into \code{slope_len} and \code{intercept_len}
-using the legacy workflow's conversion rules. Inverse-form equations flagged
+using the legacy script conversion rules. Inverse-form equations flagged
 in \code{misc_factors} are excluded from direct conversion.
 }
 \keyword{internal}

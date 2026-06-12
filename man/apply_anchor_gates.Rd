@@ -4,7 +4,7 @@
 \alias{apply_anchor_gates}
 \title{Apply anchor admissibility gates}
 \usage{
-apply_anchor_gates(candidate_models, anchor_row, config)
+apply_anchor_gates(candidate_models, anchor_row, config, registry_path = NULL)
 }
 \arguments{
 \item{candidate_models}{Candidate-model table with overlap columns.}
@@ -17,7 +17,7 @@ apply_anchor_gates(candidate_models, anchor_row, config)
 A tibble.
 }
 \description{
-Applies self, swimbladder, overlap, and key-metadata gates to the
-anchor-relative candidate table.
+Applies self, configured trait, domain-overlap, optional frequency, and
+key-metadata gates to the anchor-relative candidate table.
 }
 \keyword{internal}

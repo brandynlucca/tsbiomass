@@ -7,13 +7,13 @@
 replace_explicit_trait_maps(merged_cfg, input_cfg)
 }
 \arguments{
-\item{merged_cfg}{Merged workflow-config list.}
+\item{merged_cfg}{Merged config list.}
 
-\item{input_cfg}{Caller-supplied workflow-config list after alias and shape
+\item{input_cfg}{Caller-supplied config list after alias and shape
 normalization.}
 }
 \value{
-Workflow-config list with explicit trait maps replaced rather than
+Config list with explicit trait maps replaced rather than
 recursively merged with defaults.
 }
 \description{

@@ -11,7 +11,8 @@ screen_one_anchor_admissibility(
   registry_path = NULL,
   sim_obj = NULL,
   dist_obj = NULL,
-  candidate_models_scored = NULL
+  candidate_models_scored = NULL,
+  excluded_model_ids = NULL
 )
 }
 \arguments{
@@ -31,6 +32,10 @@ screen_one_anchor_admissibility(
 
 \item{candidate_models_scored}{Optional candidate-model table that already
 contains \code{key_metadata_missing_fraction}.}
+
+\item{excluded_model_ids}{Optional character vector of model IDs that should
+be excluded from the donor pool after the anchor's own calibration terms
+are derived from the full scored table.}
 }
 \value{
 A list with \code{anchor_pdf}, \code{anchor_sigma}, \code{model_eval},

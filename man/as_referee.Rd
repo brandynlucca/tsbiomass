@@ -2,32 +2,22 @@
 % Please edit documentation in R/referee_s7.R
 \name{as_referee}
 \alias{as_referee}
-\title{Build a \code{Referee}}
+\title{Coerce selector state to \code{Referee}}
 \usage{
 as_referee(selector, learner = NULL, predictions = NULL, config = NULL)
 }
 \arguments{
 \item{selector}{A \link{PolicySelector} object.}
 
-\item{learner}{Optional \link{PolicyLearner} object used for selector prediction.}
+\item{learner}{Optional \link{PolicyLearner} object.}
 
-\item{predictions}{Optional \link{PolicyPredictions} bundle. When omitted, the
-\code{Referee} can still be advanced later with \code{\link[=predict]{predict()}} to compute it from
-the stored selector and learner.}
+\item{predictions}{Optional \link{PolicyPredictions} object.}
 
-\item{config}{Optional config list or \link{WorkflowConfig} object.}
+\item{config}{Optional config list or \link{Configurer} object.}
 }
 \value{
 A \code{Referee} object.
 }
 \description{
-Build a \code{Referee}
-}
-\examples{
-\dontrun{
-predictions <- predict(selector, learner = learner)
-referee <- as_referee(selector, learner = learner, predictions = predictions)
-referee
-}
-
+Coerce selector state to \code{Referee}
 }

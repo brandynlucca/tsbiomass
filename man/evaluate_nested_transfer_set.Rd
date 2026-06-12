@@ -23,7 +23,7 @@ evaluate_nested_transfer_set(
 
 \item{similarity_config}{Tuned similarity configuration.}
 
-\item{base_config}{Workflow policy config.}
+\item{base_config}{Policy config.}
 
 \item{policy_path}{Optional policy registry path.}
 

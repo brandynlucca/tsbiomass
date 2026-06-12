@@ -9,7 +9,7 @@ conjurer_impute_trait_draw(
   trait_name,
   dist_mat = NULL,
   donor_pool_size = 10L,
-  seed_now = 1L
+  seed_now = NULL
 )
 }
 \arguments{

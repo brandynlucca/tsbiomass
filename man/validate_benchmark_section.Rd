@@ -7,7 +7,7 @@
 validate_benchmark_section(benchmark_section)
 }
 \arguments{
-\item{benchmark_section}{Workflow \code{benchmark} section.}
+\item{benchmark_section}{Config \code{benchmark} section.}
 }
 \value{
 Invisibly returns \code{NULL}.

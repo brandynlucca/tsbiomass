@@ -9,8 +9,7 @@ plot_ordination_cluster_hulls(
   hull_tbl,
   cluster_col = "policy_cluster_id",
   reference_col = "is_reference",
-  label_col = "species_name",
-  title = "NMDS Clusters with Hulls"
+  label_col = "species_name"
 )
 }
 \arguments{

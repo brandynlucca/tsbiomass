@@ -7,7 +7,7 @@
 validate_selection_section(selection_section)
 }
 \arguments{
-\item{selection_section}{Workflow \code{selection} section.}
+\item{selection_section}{Config \code{selection} section.}
 }
 \value{
 Invisibly returns \code{NULL}.

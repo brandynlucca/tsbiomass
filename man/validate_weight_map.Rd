@@ -2,7 +2,7 @@
 % Please edit documentation in R/config.R
 \name{validate_weight_map}
 \alias{validate_weight_map}
-\title{Validate one workflow weight map}
+\title{Validate one config weight map}
 \usage{
 validate_weight_map(weight_map, scope, registry_path = NULL)
 }
@@ -17,6 +17,6 @@ validate_weight_map(weight_map, scope, registry_path = NULL)
 Invisibly returns \code{NULL}.
 }
 \description{
-Validate one workflow weight map
+Validate one config weight map
 }
 \keyword{internal}

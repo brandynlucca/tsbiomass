@@ -2,7 +2,7 @@
 % Please edit documentation in R/recommendation.R
 \name{recommendation_policy_set}
 \alias{recommendation_policy_set}
-\title{Default transparent recommendation policies}
+\title{Default constructor-driven recommendation policies}
 \usage{
 recommendation_policy_set(policy_path = NULL)
 }
@@ -10,8 +10,8 @@ recommendation_policy_set(policy_path = NULL)
 \item{policy_path}{Optional path to the JSON policy registry.}
 }
 \value{
-A tibble defining the small decision-support policy set.
+A tibble defining the canonical constructor-generated policy set.
 }
 \description{
-Default transparent recommendation policies
+Default constructor-driven recommendation policies
 }

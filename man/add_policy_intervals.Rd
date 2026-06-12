@@ -14,22 +14,29 @@ add_policy_intervals(
 \arguments{
 \item{policy_tbl}{Anchor-policy prediction table.}
 
-\item{structural_uncertainty_weight}{Nonnegative multiplier applied to
-\code{local_structural_q_abs_log}.}
+\item{structural_uncertainty_weight}{Ignored. Retained for backward
+compatibility only; structural spread is no longer combined into the
+operational interval.}
 
 \item{q_col}{Name of the conformal log-radius column.}
 
 \item{prediction_col}{Name of the predicted biomass multiplier column.}
 }
 \value{
-\code{policy_tbl} with \code{q_abs_log_conformal}, \code{q_abs_log_structural},
-\code{q_abs_log_total}, \code{multiplier_lo}, \code{multiplier_hi}, \code{interval_log_width},
-and \code{uncertainty_cost_log_width}.
+\code{policy_tbl} with \code{q_abs_log_conformal}, \code{q_abs_log_structural}
+(diagnostic only), \code{q_abs_log_total}, \code{multiplier_lo}, \code{multiplier_hi},
+\code{interval_log_width}, and \code{uncertainty_cost_log_width}.
 }
 \description{
-Combines policy-level conformal calibration with optional local structural
-spread so workflows and package callers do not have to hand-roll interval
-logic in separate scripts.
+Attaches the conformal prediction interval to each policy row. The
+operational interval is derived from the conformal log-radius alone
+(\code{q_col}), which is calibrated from held-out transfer errors and already
+reflects the quality of the donor pool for species like the anchor. Donor
+structural spread (\code{local_structural_q_abs_log}) is retained as a
+diagnostic column but is not combined into the interval: doing so would
+require assuming independence between the two sources, an assumption that
+is violated because both increase together when the donor pool is
+heterogeneous.
 }
 \examples{
 interval_tbl <- add_policy_intervals(

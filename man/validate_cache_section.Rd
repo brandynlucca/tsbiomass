@@ -7,7 +7,7 @@
 validate_cache_section(cache_section)
 }
 \arguments{
-\item{cache_section}{Workflow \code{cache} section.}
+\item{cache_section}{Config \code{cache} section.}
 }
 \value{
 Invisibly returns \code{NULL}.

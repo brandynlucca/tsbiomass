@@ -4,7 +4,7 @@
 \alias{row_foldid}
 \title{Build row-wise fold assignments}
 \usage{
-row_foldid(n, n_folds = 5L, seed = 20260524L)
+row_foldid(n, n_folds = 5L, seed = NULL)
 }
 \arguments{
 \item{n}{Number of rows.}

@@ -12,14 +12,14 @@ normalize_candidates_config(
 )
 }
 \arguments{
-\item{config}{Candidate-ingest list, YAML path, or \link{WorkflowConfig} object.}
+\item{config}{Candidate-ingest list, YAML path, or \link{Configurer} object.}
 
 \item{base_dir}{Base directory used to resolve relative paths.}
 
 \item{registry_path}{Optional trait-registry path.}
 
 \item{policy_path}{Optional policy-registry path used only when a full
-workflow config must first be validated.}
+config must first be validated.}
 }
 \value{
 A normalized candidate-ingest specification list.

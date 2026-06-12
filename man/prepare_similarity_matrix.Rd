@@ -83,7 +83,7 @@ candidates <- prepare_similarity_matrix(
       out_root = "outputs",
       cache_dir = "cache"
     ),
-    workflow = list(),
+    execution = list(),
     tuning = list(),
     policy = list(
       alpha = 0.8,

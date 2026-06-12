@@ -4,10 +4,12 @@
 \alias{available_meta_policy_super_methods}
 \title{Resolve the available super-learner base methods}
 \usage{
-available_meta_policy_super_methods(methods = NULL)
+available_meta_policy_super_methods(methods = NULL, method_settings = NULL)
 }
 \arguments{
 \item{methods}{Optional requested method names.}
+
+\item{method_settings}{Optional learner method-settings list.}
 }
 \value{
 Character vector of valid installed method names.

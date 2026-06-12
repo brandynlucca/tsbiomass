@@ -21,6 +21,10 @@
 \item{anchor_species}{Optional anchor species used when \code{anchor_model_id} is
 not supplied.}
 
+\item{show_top_candidate}{Logical scalar indicating whether the TS-length
+plots should overlay the top-ranked admissible candidate curve when it is
+available.}
+
 \item{reference_label}{Reference label used for
 \code{type = "selected_intervals"}.}
 

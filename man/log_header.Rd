@@ -2,12 +2,12 @@
 % Please edit documentation in R/logging.R
 \name{log_header}
 \alias{log_header}
-\title{Log a workflow header}
+\title{Log a run header}
 \usage{
-log_header(logger, title = "TS Biomass Model Transferability Workflow")
+log_header(logger, title = "TS Biomass Model Transferability Run")
 }
 \arguments{
-\item{logger}{Logger object from \code{\link[=build_workflow_logger]{build_workflow_logger()}}.}
+\item{logger}{Logger object from \code{\link[=build_run_logger]{build_run_logger()}}.}
 
 \item{title}{Header title text.}
 }
@@ -15,5 +15,5 @@ log_header(logger, title = "TS Biomass Model Transferability Workflow")
 Invisibly returns \code{NULL}.
 }
 \description{
-Writes a standard workflow header block through a workflow logger.
+Writes a standard run header block through a run logger.
 }

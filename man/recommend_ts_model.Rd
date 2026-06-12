@@ -11,7 +11,7 @@ recommend_ts_model(
   config = NULL,
   context = NULL,
   policies = recommendation_policy_set(),
-  equation_branches = c("mixed", "fixed20_only", "free_slope_only"),
+  equation_branches = NULL,
   support_fraction = 0.8,
   validation_summary = NULL,
   local_conformal_calibration = NULL,

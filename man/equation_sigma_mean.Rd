@@ -4,7 +4,7 @@
 \alias{equation_sigma_mean}
 \title{Compute mean backscatter for an equation}
 \usage{
-equation_sigma_mean(slope, intercept, anchor_pdf)
+equation_sigma_mean(slope, intercept, anchor_pdf, anchor_pdf_precomp = NULL)
 }
 \arguments{
 \item{slope}{Numeric slope.}

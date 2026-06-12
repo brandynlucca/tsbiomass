@@ -9,10 +9,10 @@ policy_display_label(policy_name, equation_branch_filter = "all")
 \arguments{
 \item{policy_name}{Base policy name.}
 
-\item{equation_branch_filter}{One normalized branch-filter label.}
+\item{equation_branch_filter}{One or more normalized branch-filter labels.}
 }
 \value{
-Character scalar.
+Character vector.
 }
 \description{
 Build one display label for a policy-branch combination

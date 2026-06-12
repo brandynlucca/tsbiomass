@@ -7,7 +7,7 @@
 validate_similarity_section(similarity_section, registry_path = NULL)
 }
 \arguments{
-\item{similarity_section}{Workflow \code{similarity} section.}
+\item{similarity_section}{Config \code{similarity} section.}
 
 \item{registry_path}{Optional trait-registry path.}
 }

@@ -20,7 +20,7 @@ PolicyLearner(
 )
 }
 \description{
-\code{PolicyLearner} wraps the meta-policy and super-learner workflow around a
+\code{PolicyLearner} wraps the meta-policy and super-learner pipeline around a
 staged \link{PolicySelector}. It owns the cross-fitted meta-policy benchmark,
 final learner fit, and post-selection calibration state used to rank
 anchor-policy predictions by predicted transferability score.

@@ -4,7 +4,13 @@
 \alias{plot_ts_bands}
 \title{Plot TS conformal ribbons}
 \usage{
-plot_ts_bands(band_tbl, curve_tbl, anchor_label, policy_label)
+plot_ts_bands(
+  band_tbl,
+  curve_tbl,
+  anchor_label,
+  policy_label,
+  show_top_candidate = FALSE
+)
 }
 \arguments{
 \item{band_tbl}{TS ribbon-band table.}

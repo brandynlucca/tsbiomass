@@ -4,7 +4,7 @@
 \alias{normalize_policy_equation_branch_filters}
 \title{Normalize policy equation-branch filters}
 \usage{
-normalize_policy_equation_branch_filters(filters = NULL)
+normalize_policy_equation_branch_filters(filters = NULL, policy_path = NULL)
 }
 \arguments{
 \item{filters}{Optional character vector of branch filters.}

@@ -4,7 +4,13 @@
 \alias{policy_prediction}
 \title{Compute one policy prediction}
 \usage{
-policy_prediction(rows, policy_def, anchor_sigma, anchor_pdf)
+policy_prediction(
+  rows,
+  policy_def,
+  anchor_sigma,
+  anchor_pdf,
+  anchor_pdf_precomp = NULL
+)
 }
 \arguments{
 \item{rows}{Candidate-policy row table.}

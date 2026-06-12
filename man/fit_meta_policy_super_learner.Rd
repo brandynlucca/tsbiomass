@@ -13,7 +13,8 @@ fit_meta_policy_super_learner(
   seed,
   super_methods = NULL,
   metalearner_loss = c("squared_error", "absolute_error"),
-  method_settings = NULL
+  method_settings = NULL,
+  progress = FALSE
 )
 }
 \arguments{

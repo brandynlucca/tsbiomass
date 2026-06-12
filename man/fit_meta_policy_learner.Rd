@@ -6,17 +6,17 @@
 \usage{
 fit_meta_policy_learner(
   training_data,
-  method = c("super_learner", "glmnet_elasticnet", "glmnet_ridge", "glmnet_lasso", "glm",
-    "gam", "rpart", "ranger", "xgboost"),
+  method = "super_learner",
   feature_cols = NULL,
   outcome_transform = c("log1p", "identity"),
   alpha = NULL,
   lambda_rule = c("lambda.1se", "lambda.min"),
   inner_folds = 5L,
-  seed = 20260524L,
+  seed = NULL,
   super_methods = NULL,
   metalearner_loss = c("squared_error", "absolute_error"),
   method_settings = NULL,
+  progress = FALSE,
   ...
 )
 }
@@ -46,6 +46,9 @@ over the supported base methods.}
 \item{metalearner_loss}{Loss used to combine super-learner base predictions.}
 
 \item{method_settings}{Optional shared method-specific tuning settings.}
+
+\item{progress}{Logical. Emit \code{\link[=tsb_message]{tsb_message()}} progress lines when \code{TRUE}.
+Only active for \code{method = "super_learner"}.}
 
 \item{...}{Additional method-specific arguments.}
 }

@@ -4,7 +4,13 @@
 \alias{equation_multiplier}
 \title{Compute biomass multiplier for an equation}
 \usage{
-equation_multiplier(slope, intercept, anchor_sigma, anchor_pdf)
+equation_multiplier(
+  slope,
+  intercept,
+  anchor_sigma,
+  anchor_pdf,
+  anchor_pdf_precomp = NULL
+)
 }
 \arguments{
 \item{slope}{Numeric slope.}

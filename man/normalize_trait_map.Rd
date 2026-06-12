@@ -2,7 +2,7 @@
 % Please edit documentation in R/config.R
 \name{normalize_trait_map}
 \alias{normalize_trait_map}
-\title{Normalize one workflow trait map}
+\title{Normalize one config trait map}
 \usage{
 normalize_trait_map(trait_map, trait_cols, trait_weights)
 }
@@ -17,6 +17,6 @@ normalize_trait_map(trait_map, trait_cols, trait_weights)
 Named numeric vector.
 }
 \description{
-Normalize one workflow trait map
+Normalize one config trait map
 }
 \keyword{internal}

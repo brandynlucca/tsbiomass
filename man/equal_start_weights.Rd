@@ -2,17 +2,17 @@
 % Please edit documentation in R/similarity.R
 \name{equal_start_weights}
 \alias{equal_start_weights}
-\title{Replace starting trait weights with equal weights}
+\title{Replace one trait-weight map with equal starts}
 \usage{
-equal_start_weights(trait_spec)
+equal_start_weights(trait_map)
 }
 \arguments{
-\item{trait_spec}{Trait specification.}
+\item{trait_map}{Named numeric vector or list.}
 }
 \value{
-Named numeric vector or original value.
+Named numeric vector with all weights set to \code{1}.
 }
 \description{
-Replace starting trait weights with equal weights
+Replace one trait-weight map with equal starts
 }
 \keyword{internal}

@@ -14,6 +14,6 @@ Character vector.
 }
 \description{
 Selects a generalized set of candidate feature columns from the supplied
-policy table without relying on a workflow-specific hard-coded policy roster.
+policy table without relying on a analysis-specific hard-coded policy roster.
 }
 \keyword{internal}

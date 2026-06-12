@@ -7,7 +7,7 @@
 validate_policy_section(policy_section, registry_path = NULL)
 }
 \arguments{
-\item{policy_section}{Workflow \code{policy} section.}
+\item{policy_section}{Config \code{policy} section.}
 
 \item{registry_path}{Optional trait-registry path.}
 }

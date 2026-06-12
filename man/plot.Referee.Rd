@@ -11,7 +11,7 @@
 \item{type}{Figure family to draw.}
 
 \item{view}{Secondary plot selector used for
-\code{type = "anchor_multiplier_summary"}.}
+\code{type = "anchor_multiplier_summary"} and \code{type = "length_density"}.}
 
 \item{anchor_model_id}{Optional anchor model ID used for anchor-specific
 diagnostics.}

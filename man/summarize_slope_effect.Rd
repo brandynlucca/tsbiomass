@@ -54,7 +54,7 @@ summarize_slope_effect(
 A list of slope-summary tibbles.
 }
 \description{
-Builds the slope-dependence tables used in the paper workflow without
+Builds the slope-dependence tables used in the paper script without
 writing any files. The summaries are based on non-group equations and are
 collapsed to the study-cell level before group-level comparisons are made.
 }

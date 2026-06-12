@@ -16,8 +16,8 @@
 
 \item{view}{Secondary plot selector used for \code{type = "ordination"},
 \code{type = "admissibility"}, \code{type = "candidate_review"},
-\code{type = "uncertainty_importance"}, \code{type = "similarity_tuning"}, and
-\code{type = "slope_support"}.}
+\code{type = "uncertainty_importance"}, \code{type = "component_importance"},
+\code{type = "similarity_tuning"}, and \code{type = "slope_support"}.}
 
 \item{anchor_model_id}{Optional anchor model ID for anchor-specific candidate
 plots. When omitted, the first stored anchor is used.}
@@ -39,7 +39,7 @@ can be plotted directly with \code{plot(candidates, ...)}.
 }
 \examples{
 \dontrun{
-candidates <- as_candidates(workflow_config_s7)
+candidates <- as_candidates(config_data_s7)
 plot(candidates)
 plot(candidates, type = "ordination", dissimilarity = "species", view = "vectors")
 plot(candidates, type = "admissibility", view = "overlap_profile")

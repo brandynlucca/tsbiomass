@@ -15,7 +15,7 @@ run_nested_policy_validation(
   min_selection_n = 10L,
   min_calibration_n = 10L,
   alpha = 0.1,
-  seed = 20260523L,
+  seed = NULL,
   workers = 1L,
   cache_path = NULL,
   refresh = FALSE,
@@ -28,7 +28,7 @@ run_nested_policy_validation(
 
 \item{policies}{Policy names to evaluate.}
 
-\item{config}{Workflow policy/tuning configuration list.}
+\item{config}{Policy/tuning configuration list.}
 
 \item{n_outer_folds}{Number of outer species to evaluate. \code{NULL} uses all species.}
 

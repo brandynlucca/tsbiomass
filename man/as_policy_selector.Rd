@@ -2,25 +2,18 @@
 % Please edit documentation in R/policy_selector_s7.R
 \name{as_policy_selector}
 \alias{as_policy_selector}
-\title{Build a \code{PolicySelector}}
+\title{Coerce staged candidates to \code{PolicySelector}}
 \usage{
 as_policy_selector(candidates, config = NULL)
 }
 \arguments{
 \item{candidates}{A \link{Candidates} object.}
 
-\item{config}{Optional selector config list or \link{WorkflowConfig} object.}
+\item{config}{Optional selector config list or \link{Configurer} object.}
 }
 \value{
 A \code{PolicySelector} object.
 }
 \description{
-Build a \code{PolicySelector}
-}
-\examples{
-\dontrun{
-selector <- as_policy_selector(candidates)
-selector
-}
-
+Coerce staged candidates to \code{PolicySelector}
 }

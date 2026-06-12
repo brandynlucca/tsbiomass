@@ -4,10 +4,7 @@
 \alias{recommendation_branch_filter}
 \title{Restrict recommendation donors by equation branch}
 \usage{
-recommendation_branch_filter(
-  rows,
-  equation_branch = c("mixed", "fixed20_only", "free_slope_only")
-)
+recommendation_branch_filter(rows, equation_branch = NULL)
 }
 \arguments{
 \item{rows}{Candidate donor rows.}

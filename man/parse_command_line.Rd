@@ -2,7 +2,7 @@
 % Please edit documentation in R/cli.R
 \name{parse_command_line}
 \alias{parse_command_line}
-\title{Parse command-line workflow arguments}
+\title{Parse command-line arguments}
 \usage{
 parse_command_line(arguments = commandArgs(trailingOnly = TRUE))
 }
@@ -13,5 +13,5 @@ parse_command_line(arguments = commandArgs(trailingOnly = TRUE))
 A list describing the requested command-line action.
 }
 \description{
-Parses the command-line interface used by the packaged workflow wrapper.
+Parses the command-line interface used by the packaged script wrapper.
 }

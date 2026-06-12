@@ -44,14 +44,14 @@ Candidates(
 \code{Candidates} is the main staged data object for downstream transferability
 analysis. It reads the study table, ingests any configured species metadata
 sources, enriches the species table, and prepares the final row-level
-candidate-model table used by later workflow steps.
+candidate-model table used by later later stages.
 }
 \details{
 Construction is explicit. Callers must provide either:
 \itemize{
 \item a complete candidate-ingest config list,
 \item a YAML path containing that config, or
-\item a \link{WorkflowConfig} object whose \verb{@data} contains the required candidate
+\item a \link{Configurer} object whose \verb{@data} contains the required candidate
 ingest sections.
 }
 }

@@ -20,7 +20,7 @@ PolicySimulator(
 )
 }
 \description{
-\code{PolicySimulator} wraps the policy-sensitivity workflow around a staged
+\code{PolicySimulator} wraps the policy-sensitivity pipeline around a staged
 \link{PolicySelector}. It owns the scenario specifications, the rerun benchmark
 map, and the bound scenario manifest/tables used for downstream sensitivity
 summaries.

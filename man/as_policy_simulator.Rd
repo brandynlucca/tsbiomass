@@ -2,25 +2,18 @@
 % Please edit documentation in R/policy_simulator_s7.R
 \name{as_policy_simulator}
 \alias{as_policy_simulator}
-\title{Build a \code{PolicySimulator}}
+\title{Coerce a selector to \code{PolicySimulator}}
 \usage{
 as_policy_simulator(selector, config = NULL)
 }
 \arguments{
 \item{selector}{A \link{PolicySelector} object.}
 
-\item{config}{Optional simulator config list or \link{WorkflowConfig} object.}
+\item{config}{Optional simulator config list or \link{Configurer} object.}
 }
 \value{
 A \code{PolicySimulator} object.
 }
 \description{
-Build a \code{PolicySimulator}
-}
-\examples{
-\dontrun{
-simulator <- as_policy_simulator(selector)
-simulator
-}
-
+Coerce a selector to \code{PolicySimulator}
 }

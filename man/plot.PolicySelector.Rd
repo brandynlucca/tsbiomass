@@ -16,7 +16,7 @@
 A ggplot object.
 }
 \description{
-Uses the package's S7 method on \code{\link[base:plot]{base::plot()}} so selector-stage workflow
+Uses the package's S7 method on \code{\link[base:plot]{base::plot()}} so selector-stage
 summaries can be drawn directly from the staged object.
 }
 \examples{

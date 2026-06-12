@@ -2,27 +2,20 @@
 % Please edit documentation in R/conjurer_s7.R
 \name{as_conjurer}
 \alias{as_conjurer}
-\title{Build a \code{Conjurer}}
+\title{Coerce selector state to \code{Conjurer}}
 \usage{
 as_conjurer(selector, learner = NULL, config = NULL)
 }
 \arguments{
 \item{selector}{A \link{PolicySelector} object.}
 
-\item{learner}{Optional fitted \link{PolicyLearner}.}
+\item{learner}{Optional \link{PolicyLearner} object.}
 
-\item{config}{Optional conjurer config list or \link{WorkflowConfig} object.}
+\item{config}{Optional conjurer config list or \link{Configurer} object.}
 }
 \value{
 A \code{Conjurer} object.
 }
 \description{
-Build a \code{Conjurer}
-}
-\examples{
-\dontrun{
-conjurer <- as_conjurer(selector)
-conjurer
-}
-
+Coerce selector state to \code{Conjurer}
 }

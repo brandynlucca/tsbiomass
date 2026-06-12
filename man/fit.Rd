@@ -2,20 +2,20 @@
 % Please edit documentation in R/base_generics.R
 \name{fit}
 \alias{fit}
-\title{Fit a staged workflow object}
+\title{Fit a staged staged object}
 \usage{
 fit(object, ...)
 }
 \arguments{
-\item{object}{A staged workflow object such as a \link{PolicyLearner}.}
+\item{object}{A staged staged object such as a \link{PolicyLearner}.}
 
 \item{...}{Method-specific arguments.}
 }
 \value{
-An updated staged workflow object.
+An updated staged staged object.
 }
 \description{
-Fits the supplied staged workflow object using the method associated with its
+Fits the supplied staged staged object using the method associated with its
 class.
 }
 \examples{

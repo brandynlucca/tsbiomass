@@ -7,7 +7,7 @@
 validate_stage_section(stage_section, section_name, worker_field = NULL)
 }
 \arguments{
-\item{stage_section}{Workflow stage section.}
+\item{stage_section}{Config stage section.}
 
 \item{section_name}{Section name for error messages.}
 

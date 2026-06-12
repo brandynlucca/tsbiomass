@@ -2,19 +2,19 @@
 % Please edit documentation in R/base_generics.R
 \name{select_policies}
 \alias{select_policies}
-\title{Select policies from a staged workflow object}
+\title{Select policies from a staged staged object}
 \usage{
 select_policies(object, ...)
 }
 \arguments{
-\item{object}{A staged workflow object such as a \link{PolicySelector}.}
+\item{object}{A staged staged object such as a \link{PolicySelector}.}
 
 \item{...}{Method-specific arguments.}
 }
 \value{
-An updated staged workflow object.
+An updated staged staged object.
 }
 \description{
 Dispatches to the appropriate policy-selection method for the supplied
-staged workflow object.
+staged staged object.
 }

@@ -9,7 +9,7 @@ conjurer_trait_draw_results(
   trait_name,
   n_draws,
   config = NULL,
-  seed = 1L,
+  seed = NULL,
   progress = FALSE,
   registry_path = NULL,
   policy_path = NULL

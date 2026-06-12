@@ -9,7 +9,7 @@ nested_anchor_config(similarity_config, base_config)
 \arguments{
 \item{similarity_config}{Tuned similarity configuration.}
 
-\item{base_config}{User/workflow config list.}
+\item{base_config}{User/config list.}
 }
 \value{
 A list accepted by the internal single-anchor admissibility screen.

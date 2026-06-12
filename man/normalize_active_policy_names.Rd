@@ -2,17 +2,20 @@
 % Please edit documentation in R/config.R
 \name{normalize_active_policy_names}
 \alias{normalize_active_policy_names}
-\title{Normalize active policy names}
+\title{Normalize constructor-driven config policy selections}
 \usage{
-normalize_active_policy_names(config)
+normalize_active_policy_names(config, policy_path = NULL)
 }
 \arguments{
-\item{config}{Workflow-config list.}
+\item{config}{Config list.}
+
+\item{policy_path}{Optional policy-registry path.}
 }
 \value{
-Workflow-config list with canonical active policy names.
+Config list with canonical active policy names plus any
+per-policy branch overrides derived from constructor specifications.
 }
 \description{
-Normalize active policy names
+Normalize constructor-driven config policy selections
 }
 \keyword{internal}

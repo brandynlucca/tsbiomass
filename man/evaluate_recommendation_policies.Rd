@@ -15,12 +15,14 @@ evaluate_recommendation_policies(
 \arguments{
 \item{eval_obj}{Output from the internal single-anchor admissibility screen.}
 
-\item{ordination_info}{Ignored; accepted for benchmark compatibility.}
+\item{ordination_info}{Optional ordination context passed through to
+constructor-defined candidate pools.}
 
 \item{policies}{Optional policy names from \code{\link[=recommendation_policy_set]{recommendation_policy_set()}}.}
 
 \item{policy_params}{Optional list. Supported entries are
-\code{equation_branches} and \code{support_fraction}.}
+\code{equation_branches} plus any per-policy parameter overrides accepted by
+the canonical constructor-defined policies.}
 
 \item{policy_path}{Ignored; accepted for benchmark compatibility.}
 }

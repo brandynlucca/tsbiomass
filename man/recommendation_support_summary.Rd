@@ -8,7 +8,7 @@ recommendation_support_summary(
   rows,
   policy_def,
   equation_branch,
-  eq,
+  pred,
   anchor_pdf,
   config = NULL
 )
@@ -20,13 +20,13 @@ recommendation_support_summary(
 
 \item{equation_branch}{Standardized equation branch label.}
 
-\item{eq}{One-row aggregated policy equation from
-\code{\link[=recommendation_aggregate_equation]{recommendation_aggregate_equation()}}.}
-
 \item{anchor_pdf}{Anchor length-density support from the admissibility step.}
 
 \item{config}{Optional similarity/policy config used to define which overlap
 traits are active for the candidate set.}
+
+\item{eq}{One-row aggregated policy equation from
+\code{\link[=recommendation_aggregate_equation]{recommendation_aggregate_equation()}}.}
 }
 \value{
 One-row tibble with donor-count, overlap, distance, and structural

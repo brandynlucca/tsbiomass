@@ -4,7 +4,11 @@
 \alias{plot_ts_panel}
 \title{Plot TS panel ribbons}
 \usage{
-plot_ts_panel(curve_tbl, reference_col = "anchor_species")
+plot_ts_panel(
+  curve_tbl,
+  reference_col = "anchor_species",
+  show_top_candidate = FALSE
+)
 }
 \arguments{
 \item{curve_tbl}{Combined per-reference TS ribbon table.}

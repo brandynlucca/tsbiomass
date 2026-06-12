@@ -9,7 +9,7 @@ crossfit_meta_policy_learner(
   group_col = NULL,
   n_folds = 5L,
   method = "glm",
-  seed = 20260524L,
+  seed = NULL,
   feature_cols = NULL,
   outcome_col = "error_abs_log",
   outcome_clip_quantile = NULL,
@@ -21,7 +21,8 @@ crossfit_meta_policy_learner(
   metalearner_loss = "squared_error",
   method_settings = NULL,
   workers = 1L,
-  package_dir = NULL
+  package_dir = NULL,
+  progress = FALSE
 )
 }
 \arguments{
@@ -58,6 +59,8 @@ infers the first available non-ID anchor-context column.}
 
 \item{package_dir}{Optional package source directory used to initialize
 worker processes.}
+
+\item{progress}{Logical. Emit \code{\link[=tsb_message]{tsb_message()}} progress lines when \code{TRUE}.}
 }
 \value{
 A list with cross-fitted predictions and fold assignments.

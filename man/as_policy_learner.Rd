@@ -2,25 +2,18 @@
 % Please edit documentation in R/policy_learner_s7.R
 \name{as_policy_learner}
 \alias{as_policy_learner}
-\title{Build a \code{PolicyLearner}}
+\title{Coerce a selector to \code{PolicyLearner}}
 \usage{
 as_policy_learner(selector, config = NULL)
 }
 \arguments{
 \item{selector}{A \link{PolicySelector} object.}
 
-\item{config}{Optional learner config list or \link{WorkflowConfig} object.}
+\item{config}{Optional learner config list or \link{Configurer} object.}
 }
 \value{
 A \code{PolicyLearner} object.
 }
 \description{
-Build a \code{PolicyLearner}
-}
-\examples{
-\dontrun{
-learner <- as_policy_learner(selector)
-learner
-}
-
+Coerce a selector to \code{PolicyLearner}
 }

@@ -33,7 +33,7 @@ Conjurer(
 \description{
 \code{Conjurer} runs a targeted missing-study-metadata uncertainty analysis on a
 staged \link{PolicySelector} and an optional fitted \link{PolicyLearner}. It keeps the
-fitted workflow fixed, disables only the missingness admissibility gate for
+fitted selector state fixed, disables only the missingness admissibility gate for
 the auxiliary analysis, imputes one selected study trait at a time, and
 reruns the downstream recommendation path across repeated stochastic draws.
 }

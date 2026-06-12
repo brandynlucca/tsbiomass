@@ -25,5 +25,6 @@ scenario summaries can be drawn directly from the simulator object.
 \dontrun{
 simulator <- simulate(as_policy_simulator(selector))
 plot(simulator)
+plot(simulator, type = "multiplier_drift")
 }
 }
