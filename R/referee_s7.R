@@ -1214,17 +1214,24 @@ build_referee_scorecard <- function(object,
 #' @name predict.Referee
 S7::method(predict_generic, Referee) <- function(object,
                                                  predictions = NULL,
-                                                 allow_partial = FALSE) {
+                                                 allow_partial = FALSE,
+                                                 progress = NULL) {
+  cfg      <- merge_cfg(object@selector@config, list())
+  progress <- progress %||%
+    policy_selector_config_value(cfg, "progress", sections = c("selection", "benchmark")) %||%
+    FALSE
+
   prediction_bundle <- predictions %||% object@predictions
   if (is.null(prediction_bundle)) {
     prediction_bundle <- if ((inherits(object@learner, "S7_object") && exists("PolicyLearner", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(object@learner, PolicyLearner), error = function(e) FALSE)))) {
-      stats::predict(object@selector, learner = object@learner)
+      stats::predict(object@selector, learner = object@learner, progress = progress)
     } else {
-      stats::predict(object@selector)
+      stats::predict(object@selector, progress = progress)
     }
   }
 
-  build_referee_scorecard(
+  report_progress(progress, "[Referee] Building scorecard...")
+  sc <- build_referee_scorecard(
     object = referee_rebuild(
       object,
       predictions = prediction_bundle
@@ -1232,6 +1239,8 @@ S7::method(predict_generic, Referee) <- function(object,
     predictions = prediction_bundle,
     allow_partial = allow_partial
   )
+  report_progress(progress, "[Referee] Scorecard complete.")
+  sc
 }
 
 #' Collapse one `Scorecard` to a console summary

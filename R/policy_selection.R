@@ -405,7 +405,8 @@ build_selection_table <- function(species_performance_table,
                                   one_se_multiplier = 1,
                                   equivalence_tolerance = 0.05,
                                   n_boot = 500L,
-                                  seed = NULL) {
+                                  seed = NULL,
+                                  progress = FALSE) {
   # Summarize the benchmark at the species level first so the selection rule
   # aligns with the species-block validation design.
   species_level <- species_performance(species_performance_table)
@@ -460,6 +461,14 @@ build_selection_table <- function(species_performance_table,
     seed <- sample.int(.Machine$integer.max, 1)
   }
   set.seed(as.integer(seed))
+
+  n_policies_sel <- nrow(dplyr::distinct(species_level, policy, equation_branch_filter))
+  n_species_sel  <- nrow(dplyr::distinct(species_level, anchor_species))
+  report_progress(
+    progress,
+    "[Selection] Bootstrapping ", as.integer(n_boot),
+    " resamples across ", n_policies_sel, " policies and ", n_species_sel, " species..."
+  )
 
   # Pivot species_level to a wide matrix (species rows x policy columns) once
   # so all bootstrap resamples are vectorized across policies simultaneously.
@@ -570,7 +579,8 @@ build_equivalence_table <- function(species_performance_table,
                                     select_ref,
                                     tolerance = 0.05,
                                     n_boot = 500L,
-                                    seed = NULL) {
+                                    seed = NULL,
+                                    progress = FALSE) {
   # Reuse the species-level benchmark summary so equivalence is assessed on the
   # same validation scale as the global selection table.
   species_level <- species_performance(species_performance_table) |>
@@ -644,6 +654,13 @@ build_equivalence_table <- function(species_performance_table,
     as.character(best_policy$policy[[1]]),
     normalize_policy_equation_branch_filters(best_policy$equation_branch_filter[[1]]),
     sep = "|"
+  )
+
+  n_pairs <- choose(length(policy_keys), 2L)
+  report_progress(
+    progress,
+    "[Selection] Computing pairwise equivalence across ", n_pairs, " policy pairs (",
+    length(policy_keys), " policies, ", as.integer(n_boot), " bootstrap resamples each)..."
   )
 
   pair_tbl <- utils::combn(policy_keys, 2, simplify = FALSE) |>
@@ -948,7 +965,8 @@ build_equivalence_sets <- function(select_ref,
 run_policy_selection <- function(species_performance_table,
                                  config = NULL,
                                  cache_path = NULL,
-                                 refresh = FALSE) {
+                                 refresh = FALSE,
+                                 progress = FALSE) {
   # Validate cache control and the benchmark input before any bootstrap work
   # begins.
   if (!is.data.frame(species_performance_table)) {
@@ -989,14 +1007,16 @@ run_policy_selection <- function(species_performance_table,
     one_se_multiplier = config_values$one_se_multiplier,
     equivalence_tolerance = config_values$equivalence_tolerance,
     n_boot = config_values$n_boot,
-    seed = config_values$seed
+    seed = config_values$seed,
+    progress = progress
   )
   equiv_ref <- build_equivalence_table(
     species_performance_table = species_performance_table,
     select_ref = select_ref,
     tolerance = config_values$equivalence_tolerance,
     n_boot = config_values$n_boot,
-    seed = if (!is.null(config_values$seed)) config_values$seed + 3L else NULL
+    seed = if (!is.null(config_values$seed)) config_values$seed + 3L else NULL,
+    progress = progress
   )
   equiv_sets <- build_equivalence_sets(
     select_ref = select_ref,

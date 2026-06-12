@@ -279,7 +279,10 @@ S7::method(summarize_key_missing, S7::class_any) <- function(candidate_models,
     n_models_exceeding_threshold = sum(models_tbl$key_metadata_missing_fraction > threshold, na.rm = TRUE),
     prop_models_exceeding_threshold = mean(models_tbl$key_metadata_missing_fraction > threshold, na.rm = TRUE),
     median_key_metadata_missing_fraction = stats::median(models_tbl$key_metadata_missing_fraction, na.rm = TRUE),
-    max_key_metadata_missing_fraction = max(models_tbl$key_metadata_missing_fraction, na.rm = TRUE)
+    max_key_metadata_missing_fraction = {
+      v <- models_tbl$key_metadata_missing_fraction
+      if (any(!is.na(v))) max(v, na.rm = TRUE) else NA_real_
+    }
   )
 
   by_field <- tibble::tibble(

@@ -730,7 +730,8 @@ S7::method(select_policies, PolicySelector) <- function(object,
     species_performance_table = species_performance_table %||% benchmark_obj$species_block_perf %||% tibble::tibble(),
     config = selection_cfg,
     cache_path = cache_path,
-    refresh = refresh
+    refresh = refresh,
+    progress = progress
   )
   report_progress(progress, "Completed policy selection.")
 
@@ -799,8 +800,12 @@ S7::method(predict_generic, PolicySelector) <- function(object,
                                                         learner = NULL,
                                                         use_support_bin_intervals = NULL,
                                                         max_selection_tolerance = NULL,
-                                                        reuse_admissibility = TRUE) {
+                                                        reuse_admissibility = TRUE,
+                                                        progress = NULL) {
   cfg <- merge_cfg(object@config, policy_selector_config_data(config))
+  progress <- progress %||%
+    policy_selector_config_value(cfg, "progress", sections = c("selection", "benchmark")) %||%
+    FALSE
   policy_params <- merge_cfg(
     (((cfg$policies) %||% list())$policy_params %||% list()),
     merge_cfg(
@@ -941,10 +946,17 @@ S7::method(predict_generic, PolicySelector) <- function(object,
   selected_policy_rows <- list()
   consensus_multiplier_rows <- list()
 
+  n_anchors <- nrow(anchors_tbl)
+  report_progress(
+    progress,
+    "[Predict] Scoring ", n_anchors, " anchor",
+    if (n_anchors != 1L) "s" else "", " across ", length(active_policies), " policies..."
+  )
+
   # Re-evaluate or reuse each anchor-specific admissibility object, then apply
   # the active policy set and join the stored uncertainty and selection
   # summaries onto those anchor-policy predictions.
-  for (i in seq_len(nrow(anchors_tbl))) {
+  for (i in seq_len(n_anchors)) {
     anchor_row <- anchors_tbl[i, , drop = FALSE]
     anchor_id <- if ("model_id_chr" %in% names(anchor_row)) {
       as.character(anchor_row$model_id_chr[[1]])
@@ -952,6 +964,10 @@ S7::method(predict_generic, PolicySelector) <- function(object,
       as.character(anchor_row$model_id[[1]])
     }
     anchor_species <- as.character(anchor_row$species_name[[1]])
+    report_progress(
+      progress,
+      "[Predict]   [", i, "/", n_anchors, "] ", anchor_species, " (", anchor_id, ")"
+    )
 
     eval_obj <- if (isTRUE(reuse_admissibility)) {
       policy_selector_cached_anchor_evaluation(
@@ -1069,6 +1085,8 @@ S7::method(predict_generic, PolicySelector) <- function(object,
     selected_policy_rows[[length(selected_policy_rows) + 1]] <- selected_row
     consensus_multiplier_rows[[length(consensus_multiplier_rows) + 1]] <- consensus_row
   }
+
+  report_progress(progress, "[Predict] Completed predictions for ", n_anchors, " anchor", if (n_anchors != 1L) "s" else "", ".")
 
   PolicyPredictions(
     intervals = dplyr::bind_rows(all_policy_intervals),
