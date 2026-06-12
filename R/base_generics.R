@@ -1,12 +1,12 @@
-#' Benchmark a staged workflow object
+#' Benchmark a staged staged object
 #'
 #' Dispatches to the appropriate benchmark method for the supplied staged
-#' workflow object.
+#' staged object.
 #'
-#' @param object A staged workflow object such as a [PolicySelector].
+#' @param object A staged staged object such as a [PolicySelector].
 #' @param ... Method-specific arguments.
 #'
-#' @return An updated staged workflow object.
+#' @return An updated staged staged object.
 #'
 #' @export
 benchmark <- S7::new_generic("benchmark", "object")
@@ -17,42 +17,42 @@ plot_generic <- S7::new_external_generic("base", "plot", "x")
 print_generic <- S7::new_external_generic("base", "print", "x")
 show_generic <- S7::new_external_generic("methods", "show", "object")
 
-#' Calibrate uncertainty on a staged workflow object
+#' Calibrate uncertainty on a staged staged object
 #'
 #' Dispatches to the appropriate uncertainty-calibration method for the
-#' supplied staged workflow object.
+#' supplied staged staged object.
 #'
-#' @param object A staged workflow object such as a [PolicySelector] or
+#' @param object A staged staged object such as a [PolicySelector] or
 #'   [PolicyLearner].
 #' @param ... Method-specific arguments.
 #'
-#' @return An updated staged workflow object.
+#' @return An updated staged staged object.
 #'
 #' @export
 calibrate_uncertainty <- S7::new_generic("calibrate_uncertainty", "object")
 
-#' Select policies from a staged workflow object
+#' Select policies from a staged staged object
 #'
 #' Dispatches to the appropriate policy-selection method for the supplied
-#' staged workflow object.
+#' staged staged object.
 #'
-#' @param object A staged workflow object such as a [PolicySelector].
+#' @param object A staged staged object such as a [PolicySelector].
 #' @param ... Method-specific arguments.
 #'
-#' @return An updated staged workflow object.
+#' @return An updated staged staged object.
 #'
 #' @export
 select_policies <- S7::new_generic("select_policies", "object")
 
-#' Cross-fit a staged workflow object
+#' Cross-fit a staged staged object
 #'
-#' Cross-fits the supplied staged workflow object using the method associated
+#' Cross-fits the supplied staged staged object using the method associated
 #' with its class.
 #'
-#' @param object A staged workflow object such as a [PolicyLearner].
+#' @param object A staged staged object such as a [PolicyLearner].
 #' @param ... Method-specific arguments.
 #'
-#' @return An updated staged workflow object.
+#' @return An updated staged staged object.
 #'
 #' @examples
 #' \dontrun{
@@ -63,15 +63,15 @@ select_policies <- S7::new_generic("select_policies", "object")
 #' @export
 crossfit <- S7::new_generic("crossfit", "object")
 
-#' Fit a staged workflow object
+#' Fit a staged staged object
 #'
-#' Fits the supplied staged workflow object using the method associated with its
+#' Fits the supplied staged staged object using the method associated with its
 #' class.
 #'
-#' @param object A staged workflow object such as a [PolicyLearner].
+#' @param object A staged staged object such as a [PolicyLearner].
 #' @param ... Method-specific arguments.
 #'
-#' @return An updated staged workflow object.
+#' @return An updated staged staged object.
 #'
 #' @examples
 #' \dontrun{
@@ -98,10 +98,14 @@ forge_distances <- S7::new_generic("forge_distances", "object")
 
 #' Distill trait importances from a fitted Alchemist
 #'
-#' Computes permutation importance for each trait from the fitted Super Learner
-#' and derives the data-driven alpha-equivalent (species vs. survey balance).
+#' Computes sigma dropout sensitivity for each trait from the fitted distance
+#' learner. Dropout sensitivity zeros one feature at a time, re-predicts
+#' pairwise distances, and measures the change in kernel-weighted sigma RMSE —
+#' the same objective minimised by the empirical similarity tuning step.
 #'
 #' @param object An [Alchemist] object with `@learner` populated.
+#' @param kernel_scale Numeric. Bandwidth multiplier: `w = exp(-d / (median(d) * kernel_scale))`.
+#'   Default `1` gives weight `exp(-1) ≈ 0.37` at the median distance.
 #' @param ... Method-specific arguments.
 #'
 #' @return An updated [Alchemist] object with `@trait_importance` populated.

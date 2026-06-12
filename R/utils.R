@@ -10,18 +10,18 @@
   if (is.null(x) || length(x) == 0) y else x
 }
 
-#' Resolve workflow-config data
+#' Resolve config data
 #'
-#' @param config Workflow-config input.
+#' @param config Config input.
 #'
-#' @return A workflow-config list.
+#' @return A config list.
 #' @keywords internal
-workflow_data <- function(config) {
+config_data <- function(config) {
   if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
     return(config@data)
   }
   if ((inherits(config, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Candidates), error = function(e) FALSE)))) {
-    return(candidates_workflow_config(config) %||% list())
+    return(candidates_config_data(config) %||% list())
   }
   if ((inherits(config, "S7_object") && exists("PolicySelector", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, PolicySelector), error = function(e) FALSE)))) {
     return(config@config %||% list())
@@ -42,18 +42,18 @@ workflow_data <- function(config) {
   list()
 }
 
-#' Resolve one workflow setting
+#' Resolve one config setting
 #'
-#' @param config Workflow-config input.
+#' @param config Config input.
 #' @param key Setting name.
 #' @param sections Optional nested sections searched after the top level.
 #'
 #' @return The resolved value or `NULL`.
 #' @keywords internal
-workflow_value <- function(config,
+config_value <- function(config,
                            key,
                            sections = character()) {
-  cfg <- workflow_data(config)
+  cfg <- config_data(config)
   if (!is.list(cfg)) {
     return(NULL)
   }
@@ -71,14 +71,14 @@ workflow_value <- function(config,
   NULL
 }
 
-#' Emit one workflow progress message
+#' Emit one progress message
 #'
 #' @param progress Logical scalar.
 #' @param ... Message fragments.
 #'
 #' @return Invisibly returns `NULL`.
 #' @keywords internal
-workflow_progress <- function(progress,
+report_progress <- function(progress,
                               ...) {
   if (!isTRUE(progress)) {
     return(invisible(NULL))
@@ -141,7 +141,7 @@ path_absolute <- function(path,
   }
 
   # Resolve relative paths against the supplied base directory and normalize
-  # separators so downstream workflow code sees one stable path form.
+  # separators so downstream code sees one stable path form.
   if (!fs::is_absolute_path(path)) {
     path <- file.path(base_dir, path)
   }
@@ -177,7 +177,7 @@ ensure_parent_path <- function(path) {
 #' @return Logical scalar.
 #' @keywords internal
 command_line_true <- function(value) {
-  # Accept the common command-line truthy spellings so the workflow wrapper can
+  # Accept the common command-line truthy spellings so the script wrapper can
   # keep its positional interface simple.
   if (is.logical(value) && length(value) == 1 && !is.na(value)) {
     return(value)

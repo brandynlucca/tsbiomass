@@ -72,7 +72,7 @@ filter_reference_anchor_rows <- function(candidate_models,
 #' @keywords internal
 normalize_anchor_selector_rule <- function(rule,
                                            field_name) {
-  # Support both the compact workflow-style form `list(field = value)` and a
+  # Support both the compact pipeline-style form `list(field = value)` and a
   # richer structured rule form with explicit matching options.
   if (!is.list(rule) || is.null(names(rule))) {
     return(list(
@@ -272,7 +272,7 @@ filter_reference_anchor_rows_by_selector <- function(candidate_models,
 #' @param model_ids Character vector of model IDs to retain as reference
 #'   anchors.
 #' @param selector Optional named list of dynamic anchor-selection rules. A
-#'   compact workflow-style selector such as `list(regional_body = "SWFSC")`
+#'   compact pipeline-style selector such as `list(regional_body = "SWFSC")`
 #'   performs exact membership matching. Structured rules may also be supplied,
 #'   for example `list(regional_body = list(mode = "regex", pattern = "SWFSC"))`.
 #' @param model_id_col Name of the model-ID column.
@@ -339,7 +339,7 @@ set_reference_anchors <- function(object = NULL,
 
   # Support both direct table filtering and object-level anchor assignment so
   # the same public function can be used during ad hoc analysis or inside the
-  # staged `Candidates` workflow object.
+  # staged `Candidates` staged object.
   if ((inherits(object, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(object, Candidates), error = function(e) FALSE)))) {
     # When no selector is passed explicitly, fall back to the anchor-selection
     # spec stored on the `Candidates` object itself.
@@ -1110,25 +1110,40 @@ strategy_uncertainty_context <- function(row_now,
   ts_hi_95 <- 10 * log10(sigma_pred * exp(q95_shift$upper))
   ts_lo_99 <- 10 * log10(sigma_pred * exp(-q99_shift$lower))
   ts_hi_99 <- 10 * log10(sigma_pred * exp(q99_shift$upper))
-  top_row <- anchor_scores |>
-    dplyr::filter(as.character(anchor_model_id) == anchor_id_chr) |>
-    (\(df) {
-      donor_id_col <- if ("model_id_chr" %in% names(df)) {
-        "model_id_chr"
-      } else if ("model_id" %in% names(df)) {
-        "model_id"
-      } else {
-        NA_character_
-      }
-      if (is.na(donor_id_col)) {
-        df
-      } else {
-        dplyr::filter(df, as.character(.data[[donor_id_col]]) != anchor_id_chr)
-      }
-    })() |>
-    dplyr::filter(is.finite(slope_len), is.finite(intercept_len)) |>
-    dplyr::arrange(combined_distance, dplyr::desc(w_adm)) |>
-    dplyr::slice(1)
+  top_candidate_fields <- c(
+    "anchor_model_id",
+    "slope_len",
+    "intercept_len",
+    "combined_distance",
+    "w_adm"
+  )
+  top_row <- if (all(top_candidate_fields %in% names(anchor_scores))) {
+    anchor_scores |>
+      dplyr::filter(as.character(anchor_model_id) == anchor_id_chr) |>
+      (\(df) {
+        donor_id_col <- if ("model_id_chr" %in% names(df)) {
+          "model_id_chr"
+        } else if ("model_id" %in% names(df)) {
+          "model_id"
+        } else {
+          NA_character_
+        }
+        if (is.na(donor_id_col)) {
+          df
+        } else {
+          dplyr::filter(df, as.character(.data[[donor_id_col]]) != anchor_id_chr)
+        }
+      })() |>
+      dplyr::mutate(
+        combined_distance = suppressWarnings(as.numeric(combined_distance)),
+        w_adm = suppressWarnings(as.numeric(w_adm))
+      ) |>
+      dplyr::filter(is.finite(slope_len), is.finite(intercept_len)) |>
+      dplyr::arrange(combined_distance, dplyr::desc(w_adm)) |>
+      dplyr::slice(1)
+  } else {
+    tibble::tibble()
+  }
   ts_top_candidate <- if (nrow(top_row) == 1) {
     as.numeric(top_row$slope_len[[1]]) * log10(length_grid) + as.numeric(top_row$intercept_len[[1]])
   } else {

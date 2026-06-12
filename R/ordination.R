@@ -1,3 +1,26 @@
+# Expand semicolon-delimited multi-valued character columns into binary
+# {col}__{level} indicator columns before passing to vegan::envfit.
+# Without this, "Atlantic Ocean; Pacific Ocean" is treated as a single factor
+# level instead of two separate binary indicators.
+expand_envfit_multival_traits <- function(tbl) {
+  char_cols <- names(tbl)[vapply(tbl, is.character, logical(1))]
+  for (col in char_cols) {
+    x <- tbl[[col]]
+    if (!any(grepl(";", x, fixed = TRUE), na.rm = TRUE)) next
+    vals_list  <- strsplit(trimws(as.character(x)), "\\s*;\\s*")
+    all_levels <- sort(unique(trimws(unlist(vals_list, use.names = FALSE))))
+    all_levels <- all_levels[nzchar(all_levels) & !is.na(all_levels)]
+    for (lv in all_levels) {
+      safe_nm <- gsub("[^A-Za-z0-9]", "_", lv)
+      tbl[[paste0(col, "__", safe_nm)]] <- as.integer(
+        vapply(vals_list, function(v) lv %in% v, logical(1))
+      )
+    }
+    tbl[[col]] <- NULL
+  }
+  tbl
+}
+
 # Synthetic interval-overlap columns are pairwise distance components, not
 # row-level ordination envfit labels.
 ordination_synthetic_overlap_traits <- function() {
@@ -113,15 +136,15 @@ run_ordination <- function(dist_mat,
     ))
   }
 
-  # Support the high-level `Candidates` workflow path first so model and
+  # Support the high-level `Candidates` path first so model and
   # species ordination support objects can be built in one call and stored back
   # onto the staged candidate object.
   if ((inherits(dist_mat, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(dist_mat, Candidates), error = function(e) FALSE)))) {
     candidates_obj <- dist_mat
-    workflow_cfg <- candidates_workflow_config(candidates_obj)
-    ordination_cfg <- workflow_cfg$ordination %||% list()
+    cfg_data <- candidates_config_data(candidates_obj)
+    ordination_cfg <- cfg_data$ordination %||% list()
     progress <- progress %||% ordination_cfg$progress %||% FALSE
-    workflow_progress(progress, "Running ordination.")
+    report_progress(progress, "Running ordination.")
     nmds_args <- nmds_args %||% ordination_cfg$nmds_args %||% list()
     envfit_args <- envfit_args %||% ordination_cfg$envfit_args %||% list()
     include_loadings <- include_loadings %||% ordination_cfg$include_loadings %||% FALSE
@@ -343,7 +366,7 @@ run_ordination <- function(dist_mat,
       reference_ids = as.character(reference_ids %||% character(0)),
       trait_cols = trait_cols
     )
-    workflow_progress(progress, "Completed ordination.")
+    report_progress(progress, "Completed ordination.")
 
     return(candidates_with_ordination(candidates_obj, ordination_bundle))
   }
@@ -378,7 +401,7 @@ run_ordination <- function(dist_mat,
 
   # Start from the standard package defaults, then let the caller override only
   # the metaMDS arguments they actually care about.
-  # Keep the default restart budget modest because the object workflow may run
+  # Keep the default restart budget modest because the staged object may run
   # both model-level and species-level ordinations in one pass, and callers can
   # always raise these values explicitly when they want a more exhaustive NMDS
   # search.
@@ -445,6 +468,7 @@ run_ordination <- function(dist_mat,
   # only carry {0, 1, NA} values to factors so envfit places them in $factors
   # (centroids) rather than $vectors (loadings).
   fit_input <- drop_ordination_synthetic_overlap_traits(trait_table) |>
+    expand_envfit_multival_traits() |>
     dplyr::mutate(dplyr::across(where(is.character), as.factor)) |>
     dplyr::mutate(dplyr::across(
       dplyr::matches("__"),
@@ -572,6 +596,26 @@ run_ordination <- function(dist_mat,
       dplyr::select(trait, level, MDS1, MDS2) |>
       dplyr::left_join(pvals, by = "trait") |>
       dplyr::left_join(r2, by = "trait")
+
+    # Remap expanded binary centroids back to interpretable labels.
+    # expand_envfit_multival_traits() produces columns named {trait}__{level};
+    # vegan appends the factor level ("0" or "1") to produce centroids like
+    # "ocean_basin__atlantic1". Here we:
+    #   1. Drop absence centroids (level == "0") — only "presence" is meaningful
+    #   2. Set trait  = parent name  (e.g., "ocean_basin")
+    #   3. Set level  = child value  (e.g., "atlantic ocean")
+    if (nrow(centroids) > 0L) {
+      is_expanded <- grepl("__", centroids$trait, fixed = TRUE)
+      if (any(is_expanded)) {
+        centroids   <- centroids[!is_expanded | centroids$level == "1", , drop = FALSE]
+        is_expanded <- grepl("__", centroids$trait, fixed = TRUE)
+        centroids$level[is_expanded] <- gsub(
+          "_", " ",
+          sub("^[^_]*__", "", centroids$trait[is_expanded])
+        )
+        centroids$trait[is_expanded] <- sub("__.*$", "", centroids$trait[is_expanded])
+      }
+    }
   }
 
   list(

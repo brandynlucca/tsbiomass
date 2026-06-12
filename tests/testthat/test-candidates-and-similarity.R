@@ -54,14 +54,14 @@ test_that("prepare_similarity_matrix stores prepared state on Candidates", {
   expect_true(S7::S7_inherits(prepared, Candidates))
   expect_true(length(prepared@similarity_matrix) > 0)
   expect_true(all(c("species_weights", "study_weights", "candidate_models") %in% names(prepared@similarity_matrix)))
-  expect_true(any(grepl("^fao_area__", names(prepared@similarity_matrix$candidate_models))))
+  expect_true(any(grepl("^fao_area__", names(prepared@similarity_matrix[["candidate_models"]]))))
   expect_false(any(grepl("^fao_area__", names(prepared@candidate_models))))
 })
 
 test_that("prepare_similarity_matrix preserves tuning state and trims stored candidate table", {
   candidates <- make_candidates(seed_similarity_tuning = TRUE)
-  candidates@spec$workflow_config <- tsbiomass:::merge_cfg(
-    minimal_workflow_config(),
+  candidates@spec$config_data <- tsbiomass:::merge_cfg(
+    minimal_config_data(),
     list(
       similarity = list(
         species_traits = c("genus", "family"),
@@ -97,11 +97,11 @@ test_that("build_gower_distances stores distance matrices on Candidates", {
   expect_true(S7::S7_inherits(distance_candidates, Candidates))
   expect_true(length(distance_candidates@gower_distances) > 0)
   expect_equal(
-    dim(distance_candidates@gower_distances$combined_dist),
+    dim(distance_candidates@gower_distances[["combined_dist"]]),
     c(nrow(distance_candidates@candidate_models), nrow(distance_candidates@candidate_models))
   )
   expect_equal(
-    unname(diag(distance_candidates@gower_distances$combined_dist)),
+    unname(diag(distance_candidates@gower_distances[["combined_dist"]])),
     rep(0, nrow(distance_candidates@candidate_models))
   )
 })
@@ -137,22 +137,40 @@ test_that("tune_similarity_matrix writes tuning results back to Candidates", {
         tibble::as_tibble(candidate_models)
       }
 
-      sim_obj <- list(
-        candidate_models = candidate_tbl,
-        species_weights = unlist(species_traits %||% list(genus = 1, family = 0.5)),
-        study_weights = unlist(study_traits %||% list(frequency = 1, fao_area = 1)),
-        alpha = alpha %||% 0.65,
-        kernel_scale = k_species %||% k_study %||% 2,
-        k_species = k_species %||% 2,
-        k_study = k_study %||% 2,
-        seed = 42L,
-        config = list(
-          alpha_grid = c(0.45, 0.65, 0.85),
-          kernel_scale_grid = c(1, 2, 3),
-          length_coherence = list(method = "overlap", weight = 1),
-          depth_coherence = list(method = "overlap", weight = 1),
-          frequency_coherence = list(method = "numeric", weight = 1)
-        )
+      species_weights_now <- unlist(species_traits %||% list(genus = 1, family = 0.5))
+      study_weights_now <- unlist(study_traits %||% list(frequency = 1, fao_area = 1))
+      sim_obj <- minimal_similarity_matrix(candidate_tbl)
+      sim_obj$species_traits <- names(species_weights_now)
+      sim_obj$study_traits <- names(study_weights_now)
+      sim_obj$species_weights <- species_weights_now
+      sim_obj$study_weights <- study_weights_now
+      sim_obj$species_matrix_weights <- species_weights_now
+      sim_obj$study_matrix_weights <- study_weights_now
+      sim_obj$species_profiles <- candidate_tbl |>
+        dplyr::select(dplyr::all_of(unique(c("species_name", names(species_weights_now))))) |>
+        dplyr::distinct()
+      sim_obj$study_data <- candidate_tbl |>
+        dplyr::select(dplyr::all_of(names(study_weights_now)))
+      sim_obj$species_component_lookup <- stats::setNames(
+        names(species_weights_now),
+        names(species_weights_now)
+      )
+      sim_obj$study_component_lookup <- stats::setNames(
+        names(study_weights_now),
+        names(study_weights_now)
+      )
+      sim_obj$alpha <- alpha %||% 0.65
+      sim_obj$kernel_scale <- k_species %||% k_study %||% 2
+      sim_obj$k_species <- k_species %||% 2
+      sim_obj$k_study <- k_study %||% 2
+      sim_obj$seed <- 42L
+      sim_obj$frequency_span <- 1
+      sim_obj$config <- list(
+        alpha_grid = c(0.45, 0.65, 0.85),
+        kernel_scale_grid = c(1, 2, 3),
+        length_coherence = list(method = "overlap", weight = 1),
+        depth_coherence = list(method = "overlap", weight = 1),
+        frequency_coherence = list(method = "overlap", weight = 1)
       )
 
       if (inherits(candidate_models, "S7_object")) {
@@ -202,9 +220,9 @@ test_that("tune_similarity_matrix writes tuning results back to Candidates", {
   expect_equal(tuned@similarity_tuning$config_tuned$alpha, 0.75)
   expect_equal(tuned@similarity_tuning$config_tuned$kernel_scale, 3)
   expect_equal(tuned@similarity_tuning$config_tuned$species_weights[["genus"]], 2)
-  expect_equal(tuned@similarity_matrix$alpha, 0.75)
-  expect_equal(tuned@similarity_matrix$kernel_scale, 3)
-  expect_equal(tuned@similarity_matrix$species_weights[["genus"]], 2)
+  expect_equal(tuned@similarity_matrix[["alpha"]], 0.75)
+  expect_equal(tuned@similarity_matrix[["kernel_scale"]], 3)
+  expect_equal(tuned@similarity_matrix[["species_weights"]][["genus"]], 2)
   expect_true("stability_summary" %in% names(tuned@similarity_tuning))
   expect_true(all(c("component", "component_type", "median_value") %in% names(tuned@similarity_tuning$stability_summary)))
 })
@@ -328,8 +346,8 @@ test_that("anchor density uses study interval or midpoint without Lmax fallback"
 
 test_that("candidate trimming removes unused configured traits", {
   candidate_specification <- list(
-    workflow_config = tsbiomass:::merge_cfg(
-      minimal_workflow_config(),
+    config_data = tsbiomass:::merge_cfg(
+      minimal_config_data(),
       list(
         similarity = list(
           species_traits = list(
@@ -430,8 +448,8 @@ test_that("class printing is compact and informative", {
   expect_output(print(learner), "^PolicyLearner")
 })
 
-test_that("equal-weight starts and range bounds are read from workflow config", {
-  cfg <- minimal_workflow_config()
+test_that("equal-weight starts and range bounds are read from config", {
+  cfg <- minimal_config_data()
   parsed <- tsbiomass:::read_similarity_config(cfg)
   normalized <- tsbiomass:::resolve_similarity_setup(
     cfg_user = parsed,
@@ -454,9 +472,9 @@ test_that("equal-weight starts preserve trait names from named numeric maps", {
   expect_equal(out, c(swimbladder_type = 1, body_shape = 1, family = 1))
 })
 
-test_that("tune_similarity_matrix accepts WorkflowConfig trait maps under equal starts", {
+test_that("tune_similarity_matrix accepts Configurer trait maps under equal starts", {
   candidates <- make_candidates(seed_similarity_tuning = FALSE)
-  cfg <- as_configurer(minimal_workflow_config(), base_dir = tempdir())
+  cfg <- as_configurer(minimal_config_data(), base_dir = tempdir())
 
   testthat::local_mocked_bindings(
     build_tuning_subset = function(candidate_models, ...) {

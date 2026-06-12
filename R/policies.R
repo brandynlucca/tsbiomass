@@ -693,6 +693,70 @@ construct_policy_definition_for_group_metric <- function(group_key,
   )
 }
 
+legacy_policy_definition_from_name <- function(policy_name,
+                                               registry) {
+  policy_name <- stringr::str_squish(as.character(policy_name %||% ""))[[1]]
+  if (is.na(policy_name) || !nzchar(policy_name) || !is.list(registry)) {
+    return(NULL)
+  }
+
+  normalize_group_key <- function(group_key) {
+    group_key <- stringr::str_squish(as.character(group_key %||% ""))[[1]]
+    group_aliases <- c(
+      fao_area = "fao",
+      swimbladder_type = "swimbladder",
+      derivation_type = "derivation"
+    )
+    if (group_key %in% names(group_aliases)) {
+      unname(group_aliases[group_key])
+    } else {
+      group_key
+    }
+  }
+
+  try_legacy_group_metric <- function(group_key,
+                                      metric_key) {
+    tryCatch(
+      construct_policy_definition_for_group_metric(
+        group_key = normalize_group_key(group_key),
+        metric_key = metric_key,
+        registry = registry
+      ),
+      error = function(e) NULL
+    )
+  }
+
+  legacy_patterns <- list(
+    list(pattern = "^same_(.+)_closest$", metric_key = "closest"),
+    list(pattern = "^same_(.+)_weighted$", metric_key = "weighted_mean"),
+    list(pattern = "^same_(.+)_unweighted$", metric_key = "unweighted_mean"),
+    list(pattern = "^(.+)_closest$", metric_key = "closest"),
+    list(pattern = "^(.+)_weighted$", metric_key = "weighted_mean"),
+    list(pattern = "^(.+)_unweighted$", metric_key = "unweighted_mean")
+  )
+
+  for (pattern_now in legacy_patterns) {
+    match_now <- stringr::str_match(policy_name, pattern_now$pattern)
+    group_key <- if (is.matrix(match_now) && nrow(match_now) >= 1L && ncol(match_now) >= 2L) {
+      stringr::str_squish(as.character(match_now[1, 2] %||% ""))[[1]]
+    } else {
+      ""
+    }
+    if (!nzchar(group_key)) {
+      next
+    }
+    policy_def <- try_legacy_group_metric(
+      group_key = group_key,
+      metric_key = pattern_now$metric_key
+    )
+    if (is.list(policy_def)) {
+      return(policy_def)
+    }
+  }
+
+  NULL
+}
+
 #' Build one policy definition from its canonical name
 #'
 #' @param policy_name Canonical policy name.
@@ -705,11 +769,18 @@ construct_policy_definition_from_name <- function(policy_name,
                                                   policy_path = NULL,
                                                   registry = NULL) {
   policy_name <- stringr::str_squish(as.character(policy_name %||% ""))[[1]]
-  if (!nzchar(policy_name)) {
+  if (is.na(policy_name) || !nzchar(policy_name)) {
     return(NULL)
   }
   if (!is.list(registry)) {
     registry <- read_policy_registry(policy_path = policy_path)
+  }
+  legacy_def <- legacy_policy_definition_from_name(
+    policy_name = policy_name,
+    registry = registry
+  )
+  if (is.list(legacy_def)) {
+    return(legacy_def)
   }
   metric_defs <- registry$policy_metrics %||% list()
   prefixes <- vapply(metric_defs, function(x) as.character(x$coded_prefix %||% NA_character_), character(1))
@@ -1004,7 +1075,7 @@ policy_lookup_table <- local({
       invisible(NULL)
     }
 
-    # Main benchmark policies define the canonical workflow behavior.
+    # Main benchmark policies define the canonical package behavior.
     add_defs(registry$policies)
 
     assign(cache_key, lookup, envir = cache_env)
@@ -2071,6 +2142,16 @@ policy_structural_summary <- function(rows,
   keep_rows <- policy_structural_rows(rows, policy_def)
   method_name <- as.character(policy_def$aggregation_method)[[1]]
   n_valid <- nrow(keep_rows)
+  pred_scalar <- function(name) {
+    if (!name %in% names(pred)) {
+      return(NA_real_)
+    }
+    value <- suppressWarnings(as.numeric(pred[[name]][[1]]))
+    if (length(value) == 0) {
+      return(NA_real_)
+    }
+    value[[1]]
+  }
 
   empty <- tibble::tibble(
     policy_is_constructed_ensemble = !method_name %in% c(
@@ -2093,9 +2174,11 @@ policy_structural_summary <- function(rows,
     donor_curve_rmse_q90 = NA_real_,
     local_structural_q_abs_log = NA_real_
   )
+  policy_slope <- pred_scalar("policy_slope_len")
+  policy_intercept <- pred_scalar("policy_intercept_len")
   if (n_valid == 0 ||
-    !is.finite(pred$policy_slope_len[[1]]) ||
-    !is.finite(pred$policy_intercept_len[[1]])) {
+    !is.finite(policy_slope) ||
+    !is.finite(policy_intercept)) {
     return(empty)
   }
   weights <- if (".structural_weight" %in% names(keep_rows)) {
@@ -2131,14 +2214,14 @@ policy_structural_summary <- function(rows,
     function(j) equation_sigma_mean(keep_rows$slope_len[[j]], keep_rows$intercept_len[[j]], anchor_pdf),
     numeric(1)
   )
-  policy_sigma <- pred$policy_sigma_bs_mean[[1]]
+  policy_sigma <- pred_scalar("policy_sigma_bs_mean")
   log_sigma_abs_dev <- if (is.finite(policy_sigma) && policy_sigma > 0) {
     abs(log(donor_sigma) - log(policy_sigma))
   } else {
     rep(NA_real_, n_valid)
   }
   donor_multiplier <- suppressWarnings(as.numeric(keep_rows$biomass_multiplier_if_replace %||% rep(NA_real_, n_valid)))
-  policy_multiplier <- suppressWarnings(as.numeric(pred$multiplier_pred[[1]]))
+  policy_multiplier <- pred_scalar("multiplier_pred")
   log_multiplier_abs_dev <- if (is.finite(policy_multiplier) && policy_multiplier > 0) {
     abs(log(donor_multiplier) - log(policy_multiplier))
   } else {
@@ -2160,8 +2243,7 @@ policy_structural_summary <- function(rows,
       ok <- is.finite(len) & len > 0 & is.finite(pdf_w) & pdf_w >= 0
       if (!any(ok) || sum(pdf_w[ok]) <= 0) return(NA_real_)
       donor_ts <- s * log10(len[ok]) + b
-      policy_ts <- as.numeric(pred$policy_slope_len[[1]]) * log10(len[ok]) +
-                   as.numeric(pred$policy_intercept_len[[1]])
+      policy_ts <- policy_slope * log10(len[ok]) + policy_intercept
       w <- pdf_w[ok] / sum(pdf_w[ok])
       sqrt(sum(w * (donor_ts - policy_ts)^2))
     },
@@ -2209,6 +2291,32 @@ equal_equation <- function(rows) {
   # Equal-weight mean is distinct in the registry even when its equation
   # summary matches the arithmetic mean.
   arithmetic_equation(rows)
+}
+
+#' Compute a bootstrap-averaged random single-model selection
+#'
+#' Draws `n_draws` models uniformly at random (with replacement) from the
+#' valid candidate pool and returns the mean slope/intercept across draws.
+#' This provides a Monte Carlo estimate of what a purely random policy would
+#' achieve, averaged over the bootstrap distribution.
+#'
+#' @param rows Candidate-policy row table.
+#' @param n_draws Integer. Number of bootstrap draws (default 100).
+#' @param seed Integer seed for reproducibility.
+#'
+#' @return One-row tibble.
+#'
+#' @keywords internal
+random_draw_equation <- function(rows, n_draws = 100L, seed = NULL) {
+  keep_rows <- valid_equation_rows(rows)
+  if (nrow(keep_rows) == 0L) return(policy_equation_row(NA_real_, NA_real_))
+  n_draws <- as.integer(n_draws)
+  if (!is.null(seed)) set.seed(seed)
+  idx <- sample.int(nrow(keep_rows), size = n_draws, replace = TRUE)
+  policy_equation_row(
+    mean(keep_rows$slope_len[idx],     na.rm = TRUE),
+    mean(keep_rows$intercept_len[idx], na.rm = TRUE)
+  )
 }
 
 #' Compute TS at length
@@ -2339,6 +2447,10 @@ policy_equation <- function(rows,
   }
   if (identical(method_name, "source_cell_mean")) {
     return(equal_equation(rows))
+  }
+  if (identical(method_name, "random_draw")) {
+    n_draws <- as.integer(policy_def$n_random_draws %||% 100L)
+    return(random_draw_equation(rows, n_draws = n_draws))
   }
 
   stop(sprintf("Unsupported aggregation method: %s", method_name), call. = FALSE)

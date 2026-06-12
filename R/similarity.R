@@ -315,7 +315,7 @@ seed_registry_traits <- function(models_tbl, registry_obj) {
 #'
 #' @keywords internal
 read_similarity_config <- function(config) {
-  workflow_similarity_config <- function(cfg) {
+  config_similarity_view <- function(cfg) {
     similarity_cfg <- cfg$similarity %||% list()
     tuning_cfg <- similarity_cfg$tuning %||% cfg$tuning %||% list()
     policy_cfg <- similarity_cfg$policy %||% cfg$policy %||% list()
@@ -341,8 +341,8 @@ read_similarity_config <- function(config) {
     frequency_mode <- normalize_similarity_frequency_method(frequency_mode)
 
     list(
-      species_traits = policy_cfg$species_traits %||% NULL,
-      study_traits = policy_cfg$study_traits %||% NULL,
+      species_traits = similarity_cfg$species_traits %||% policy_cfg$species_traits %||% NULL,
+      study_traits = similarity_cfg$study_traits %||% policy_cfg$study_traits %||% NULL,
       alpha = similarity_cfg$alpha %||% policy_cfg$alpha %||% NULL,
       kernel_scale = similarity_cfg$kernel_scale %||% NULL,
       k_species = similarity_cfg$kernel_scale %||% similarity_cfg$k_species %||% policy_cfg$k_species %||% NULL,
@@ -372,19 +372,19 @@ read_similarity_config <- function(config) {
       frequency_gap = similarity_cfg$frequency_gap %||% policy_cfg$max_frequency_gap_khz %||% NULL,
       length_coherence = list(
         method = length_mode,
-        weight = similarity_cfg$length_weight %||% policy_cfg$length_overlap_weight %||% NULL,
+        weight = similarity_cfg$length_weight %||% similarity_cfg$coherence$length$weight %||% policy_cfg$length_overlap_weight %||% NULL,
         range = similarity_cfg$coherence$length$range %||% similarity_cfg$coherence$length$weight_range %||% NULL,
         grid = similarity_cfg$coherence$length$grid %||% similarity_cfg$coherence$length$weight_grid %||% NULL
       ),
       depth_coherence = list(
         method = depth_mode,
-        weight = similarity_cfg$depth_weight %||% policy_cfg$depth_overlap_weight %||% NULL,
+        weight = similarity_cfg$depth_weight %||% similarity_cfg$coherence$depth$weight %||% policy_cfg$depth_overlap_weight %||% NULL,
         range = similarity_cfg$coherence$depth$range %||% similarity_cfg$coherence$depth$weight_range %||% NULL,
         grid = similarity_cfg$coherence$depth$grid %||% similarity_cfg$coherence$depth$weight_grid %||% NULL
       ),
       frequency_coherence = list(
         method = frequency_mode,
-        weight = similarity_cfg$frequency_weight %||% policy_cfg$frequency_coherence_weight %||% NULL,
+        weight = similarity_cfg$frequency_weight %||% similarity_cfg$coherence$frequency$weight %||% policy_cfg$frequency_coherence_weight %||% NULL,
         range = similarity_cfg$coherence$frequency$range %||% similarity_cfg$coherence$frequency$weight_range %||% NULL,
         grid = similarity_cfg$coherence$frequency$grid %||% similarity_cfg$coherence$frequency$weight_grid %||% NULL
       )
@@ -396,7 +396,7 @@ read_similarity_config <- function(config) {
   }
 
   if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
-    return(workflow_similarity_config(config@data))
+    return(config_similarity_view(config@data))
   }
 
   if (is.character(config) && length(config) == 1) {
@@ -404,9 +404,9 @@ read_similarity_config <- function(config) {
   }
 
   if (is.list(config)) {
-    if (all(c("paths", "workflow", "tuning", "policies") %in% names(config)) &&
+    if (all(c("paths", "execution", "tuning", "policies") %in% names(config)) &&
       any(c("similarity", "policy") %in% names(config))) {
-      return(workflow_similarity_config(config))
+      return(config_similarity_view(config))
     }
     if (is.list(config$frequency_coherence)) {
       config$frequency_coherence$method <- normalize_similarity_frequency_method(
@@ -435,7 +435,7 @@ resolve_similarity_config_source <- function(candidate_models,
   }
 
   if ((inherits(candidate_models, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_models, Candidates), error = function(e) FALSE)))) {
-    return(candidates_workflow_config(candidate_models))
+    return(candidates_config_data(candidate_models))
   }
 
   NULL
@@ -659,6 +659,21 @@ resolve_similarity_setup <- function(cfg_user,
   cfg
 }
 
+#' Replace one trait-weight map with equal starts
+#'
+#' @param trait_map Named numeric vector or list.
+#'
+#' @return Named numeric vector with all weights set to `1`.
+#'
+#' @keywords internal
+equal_start_weights <- function(trait_map) {
+  trait_names <- names(trait_map)
+  if (is.null(trait_names) || any(!nzchar(trait_names))) {
+    stop("'trait_map' must be named.", call. = FALSE)
+  }
+  stats::setNames(rep(1, length(trait_names)), trait_names)
+}
+
 #' Normalize one trait-selection specification
 #'
 #' @param models_tbl Candidate-model table.
@@ -827,7 +842,7 @@ normalize_trait_weights <- function(models_tbl,
 #'       out_root = "outputs",
 #'       cache_dir = "cache"
 #'     ),
-#'     workflow = list(),
+#'     execution = list(),
 #'     tuning = list(),
 #'     policy = list(
 #'       alpha = 0.8,
@@ -879,7 +894,7 @@ prepare_similarity_matrix <- function(candidate_models,
   # selection begins so the full preparation state is explicit.
   cfg_user <- read_similarity_config(config)
   progress <- progress %||% cfg_user$progress %||% FALSE
-  workflow_progress(progress, "Preparing similarity inputs.")
+  report_progress(progress, "Preparing similarity inputs.")
   scalar_obj <- resolve_similarity_inputs(
     alpha = alpha,
     k_species = k_species,
@@ -1114,7 +1129,7 @@ prepare_similarity_matrix <- function(candidate_models,
     seed = scalar_obj$seed,
     frequency_span = freq_span
   )
-  workflow_progress(
+  report_progress(
     progress,
     "Prepared similarity inputs for ",
     nrow(models_tbl),
@@ -1126,6 +1141,93 @@ prepare_similarity_matrix <- function(candidate_models,
   }
 
   result
+}
+
+#' Build a phylogenetic distance matrix from a species name vector
+#'
+#' Uses the Open Tree of Life API (`rotl`) to compute cophenetic phylogenetic
+#' distances for a vector of species names, returning a normalised [0, 1]
+#' n × n matrix where `n = length(species_vec)`. Rows with missing or
+#' unmatched species names default to distance 1 (maximum dissimilarity).
+#' Returns `NULL` when fewer than two species can be matched, so the caller
+#' can apply a rank-based fallback.
+#'
+#' @param species_vec Character vector of species names, one entry per model
+#'   row. Binomials ("Gadus morhua") are preferred; single epithets
+#'   ("morhua") are combined with `genus_vec` when provided.
+#' @param genus_vec Optional character vector of genus names, same length as
+#'   `species_vec`.
+#'
+#' @return Numeric n × n matrix in [0, 1], or `NULL` on failure.
+#'
+#' @keywords internal
+build_phylo_dist_from_species <- function(species_vec, genus_vec = NULL) {
+  sp_raw <- stringr::str_squish(as.character(species_vec))
+  sp_raw[!nzchar(sp_raw)] <- NA_character_
+
+  sp <- rep(NA_character_, length(sp_raw))
+  has_binomial <- !is.na(sp_raw) & grepl("\\s+", sp_raw)
+  sp[has_binomial] <- sp_raw[has_binomial]
+
+  if (!is.null(genus_vec)) {
+    genus_now     <- stringr::str_squish(as.character(genus_vec))
+    genus_now[!nzchar(genus_now)] <- NA_character_
+    sp_epithet    <- sp_raw
+    sp_epithet[grepl("\\s+", sp_epithet)] <- NA_character_
+    can_build     <- !is.na(genus_now) & !is.na(sp_epithet)
+    sp[can_build] <- stringr::str_squish(paste(genus_now[can_build], sp_epithet[can_build]))
+  }
+
+  sp <- stringr::str_to_sentence(sp)
+  sp[is.na(sp) | !nzchar(sp)] <- NA_character_
+  if (sum(!is.na(sp)) < 2) return(NULL)
+
+  n   <- length(sp)
+  out <- matrix(1, nrow = n, ncol = n)
+  diag(out) <- 0
+
+  uniq <- unique(sp[!is.na(sp)])
+  if (length(uniq) < 2) return(out)
+
+  phylo_mat <- tryCatch({
+    tnrs <- suppressWarnings(rotl::tnrs_match_names(uniq, do_approximate_matching = FALSE))
+    matched <- tibble::as_tibble(tnrs) |>
+      dplyr::mutate(search_string = as.character(search_string)) |>
+      dplyr::filter(!is.na(ott_id)) |>
+      dplyr::distinct(search_string, .keep_all = TRUE)
+
+    if (!is.finite(nrow(matched) / length(uniq)) || nrow(matched) / length(uniq) < 0.7) return(NULL)
+    if (nrow(matched) < 2) return(NULL)
+
+    subtree   <- suppressWarnings(rotl::tol_induced_subtree(ott_ids = matched$ott_id))
+    cophen    <- suppressWarnings(ape::cophenetic.phylo(subtree))
+    cophen_mx <- max(cophen, na.rm = TRUE)
+    if (!is.finite(cophen_mx) || cophen_mx <= 0) cophen_mx <- 1
+
+    labels <- suppressWarnings(rotl::strip_ott_ids(colnames(cophen)))
+    labels <- stringr::str_squish(tolower(gsub("_", " ", labels, fixed = TRUE)))
+
+    phy <- matrix(1, nrow = length(uniq), ncol = length(uniq), dimnames = list(uniq, uniq))
+    diag(phy) <- 0
+    keep <- labels %in% uniq
+    if (sum(keep) >= 1) {
+      lk <- labels[keep]; ck <- cophen[keep, keep, drop = FALSE]
+      lu <- !duplicated(lk); lk <- lk[lu]; ck <- ck[lu, lu, drop = FALSE]
+      dimnames(ck) <- list(lk, lk)
+      phy[lk, lk] <- ck / cophen_mx
+    }
+    phy
+  }, error = function(e) NULL)
+
+  if (is.null(phylo_mat)) return(NULL)
+
+  out_idx  <- match(tolower(sp), rownames(phylo_mat))
+  keep_idx <- which(!is.na(out_idx))
+  if (length(keep_idx) > 0) {
+    out[keep_idx, keep_idx] <- phylo_mat[out_idx[keep_idx], out_idx[keep_idx], drop = FALSE]
+  }
+  diag(out) <- 0
+  out
 }
 
 #' Compute a weighted Gower distance matrix
@@ -1353,121 +1455,13 @@ compute_gower_matrix <- function(df_traits,
           x
         })
 
-        phylo_from_species <- function(species_vec,
-                                       genus_vec = NULL) {
-          sp_raw <- stringr::str_squish(as.character(species_vec))
-          sp_raw[!nzchar(sp_raw)] <- NA_character_
-
-          # Build a binomial vector for phylogeny matching. Prefer explicit
-          # binomials when already present; otherwise combine genus + species
-          # when both are available and valid.
-          sp <- rep(NA_character_, length(sp_raw))
-          has_binomial <- !is.na(sp_raw) & grepl("\\s+", sp_raw)
-          sp[has_binomial] <- sp_raw[has_binomial]
-
-          if (!is.null(genus_vec)) {
-            genus_now <- stringr::str_squish(as.character(genus_vec))
-            genus_now[!nzchar(genus_now)] <- NA_character_
-            species_epithet <- sp_raw
-            species_epithet[grepl("\\s+", species_epithet)] <- NA_character_
-
-            can_build <- !is.na(genus_now) & !is.na(species_epithet)
-            sp[can_build] <- stringr::str_squish(paste(genus_now[can_build], species_epithet[can_build]))
-          }
-
-          # If we cannot build any trustworthy binomials, skip phylogeny and
-          # let the caller use the deterministic taxonomy-rank fallback.
-          sp <- stringr::str_to_sentence(sp)
-          sp[is.na(sp) | !nzchar(sp)] <- NA_character_
-          if (sum(!is.na(sp)) < 2) {
-            return(NULL)
-          }
-
-          n <- length(sp)
-          out <- matrix(1, nrow = n, ncol = n)
-          diag(out) <- 0
-
-          uniq <- unique(sp[!is.na(sp)])
-          if (length(uniq) < 2) {
-            return(out)
-          }
-
-          phylo_mat <- tryCatch(
-            {
-              tnrs <- suppressWarnings(
-                rotl::tnrs_match_names(uniq, do_approximate_matching = FALSE)
-              )
-              tnrs_tbl <- tibble::as_tibble(tnrs)
-              matched <- tnrs_tbl |>
-                dplyr::mutate(search_string = as.character(search_string)) |>
-                dplyr::filter(!is.na(ott_id)) |>
-                dplyr::distinct(search_string, .keep_all = TRUE)
-
-              # Require adequate match coverage. Sparse matches can produce a
-              # highly distorted phylogeny component.
-              match_frac <- nrow(matched) / length(uniq)
-              if (!is.finite(match_frac) || match_frac < 0.7) {
-                return(NULL)
-              }
-
-              if (nrow(matched) < 2) {
-                return(NULL)
-              }
-
-              subtree <- suppressWarnings(
-                rotl::tol_induced_subtree(ott_ids = matched$ott_id)
-              )
-              cophen <- suppressWarnings(ape::cophenetic.phylo(subtree))
-              cophen_max <- max(cophen, na.rm = TRUE)
-              if (!is.finite(cophen_max) || cophen_max <= 0) {
-                cophen_max <- 1
-              }
-
-              labels <- suppressWarnings(rotl::strip_ott_ids(colnames(cophen)))
-              labels <- gsub("_", " ", labels, fixed = TRUE)
-              labels <- stringr::str_squish(tolower(labels))
-
-              phy <- matrix(1, nrow = length(uniq), ncol = length(uniq), dimnames = list(uniq, uniq))
-              diag(phy) <- 0
-
-              keep <- labels %in% uniq
-              if (sum(keep) >= 1) {
-                labels_keep <- labels[keep]
-                cophen_keep <- cophen[keep, keep, drop = FALSE]
-                labels_unique <- !duplicated(labels_keep)
-                labels_keep <- labels_keep[labels_unique]
-                cophen_keep <- cophen_keep[labels_unique, labels_unique, drop = FALSE]
-                if (length(labels_keep) >= 1) {
-                  dimnames(cophen_keep) <- list(labels_keep, labels_keep)
-                  phy[labels_keep, labels_keep] <- cophen_keep / cophen_max
-                }
-              }
-
-              phy
-            },
-            error = function(e) NULL
-          )
-
-          if (is.null(phylo_mat)) {
-            return(NULL)
-          }
-
-          out_idx <- match(tolower(sp), rownames(phylo_mat))
-          keep_idx <- which(!is.na(out_idx))
-          if (length(keep_idx) > 0) {
-            out[keep_idx, keep_idx] <- phylo_mat[out_idx[keep_idx], out_idx[keep_idx], drop = FALSE]
-          }
-          diag(out) <- 0
-          out
-        }
-
         n <- nrow(mat)
         tax_dist <- NULL
         species_rank_idx <- which(names(rank_values) == "species")
         genus_rank_idx <- which(names(rank_values) == "genus")
         if (length(species_rank_idx) == 1) {
           genus_vec <- if (length(genus_rank_idx) == 1) rank_values[[genus_rank_idx]] else NULL
-          tax_dist <- phylo_from_species(rank_values[[species_rank_idx]], genus_vec = genus_vec)
+          tax_dist <- build_phylo_dist_from_species(rank_values[[species_rank_idx]], genus_vec = genus_vec)
         }
 
         if (is.null(tax_dist)) {
@@ -1597,7 +1591,7 @@ build_gower_distances <- function(sim_obj,
   # detached list.
   candidates_obj <- if ((inherits(sim_obj, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(sim_obj, Candidates), error = function(e) FALSE)))) sim_obj else NULL
   if (!is.null(candidates_obj)) {
-    progress <- progress %||% workflow_value(candidates_obj, "progress", sections = c("similarity", "ordination")) %||% FALSE
+    progress <- progress %||% config_value(candidates_obj, "progress", sections = c("similarity", "ordination")) %||% FALSE
     if (length(candidates_obj@similarity_matrix) == 0) {
       stop(
         "Candidates object has no prepared similarity state. Run `prepare_similarity_matrix()` first.",
@@ -1626,7 +1620,7 @@ build_gower_distances <- function(sim_obj,
     }
   }
   progress <- progress %||% FALSE
-  workflow_progress(progress, "Building Gower distance matrices.")
+  report_progress(progress, "Building Gower distance matrices.")
 
   # Validate the prepared object shape once so downstream matrix construction
   # can assume the required pieces are present.
@@ -1760,7 +1754,7 @@ build_gower_distances <- function(sim_obj,
     species_dist_scale = species_dist_scale,
     study_dist_scale = study_dist_scale
   )
-  workflow_progress(progress, "Built Gower distance matrices.")
+  report_progress(progress, "Built Gower distance matrices.")
 
   if (!is.null(candidates_obj)) {
     return(candidates_with_gower_distances(candidates_obj, result))
@@ -3190,7 +3184,7 @@ run_tuning_grid_search <- function(tune_models,
         seed_now = seed_base + stage_id
       )
 
-      workflow_progress(
+      report_progress(
         progress,
         "Similarity tuning stage ",
         stage_id,
@@ -3224,7 +3218,7 @@ run_tuning_grid_search <- function(tune_models,
 
       if (!identical(stage_spec$stage, "search_full")) {
         survivors_now <- max(3L, ceiling(nrow(stage_scores) / 2))
-        workflow_progress(
+        report_progress(
           progress,
           "Similarity tuning stage ",
           stage_id,
@@ -3242,7 +3236,7 @@ run_tuning_grid_search <- function(tune_models,
           dplyr::select(alpha, kernel_scale, coherence_scale, k_species, k_study, length_weight, depth_weight, frequency_weight) |>
           dplyr::distinct()
       } else {
-        workflow_progress(
+        report_progress(
           progress,
           "Similarity tuning final screening stage completed. Best RMSE = ",
           signif(min(stage_scores$rmse[is.finite(stage_scores$rmse)], na.rm = TRUE), 4),
@@ -3374,7 +3368,7 @@ run_tuning_grid_search <- function(tune_models,
   )
 
   if (nrow(refined_grid) > 0) {
-    workflow_progress(
+    report_progress(
       progress,
       "Similarity tuning local refinement: evaluating ",
       nrow(refined_grid),
@@ -3539,13 +3533,13 @@ run_tuning_grid_search <- function(tune_models,
       abs((best_cfg$coherence_scale[[1]] %||% 1) - coherence_block$bounds[[2]]) < 1e-8
   }
   if (hit_any_boundary) {
-    workflow_progress(
+    report_progress(
       progress,
       "Similarity tuning optimum landed on a configured boundary. Widen that parameter range explicitly if the edge value is scientifically defensible."
     )
   }
 
-  workflow_progress(
+  report_progress(
     progress,
     "Similarity tuning search complete. Best alpha = ",
     signif(best_cfg$alpha[[1]], 4),
@@ -4114,13 +4108,13 @@ summarize_similarity_tuning_strata <- function(anchor_rows,
 #'   anchors = list(selector = list(regional_body = "SWFSC"))
 #' ))
 #'
-#' workflow_cfg <- as_configurer(list(
+#' cfg_data <- as_configurer(list(
 #'   paths = list(
 #'     input_file = "input.xlsx",
 #'     out_root = "outputs",
 #'     cache_dir = "cache"
 #'   ),
-#'   workflow = list(),
+#'   execution = list(),
 #'   tuning = list(
 #'     max_models_per_species = 2L,
 #'     n_resamples = 8L,
@@ -4142,7 +4136,7 @@ summarize_similarity_tuning_strata <- function(anchor_rows,
 #'
 #' tune_obj <- tune_similarity_matrix(
 #'   candidate_models = candidates,
-#'   config = workflow_cfg
+#'   config = cfg_data
 #' )
 #' tune_obj@similarity_tuning
 #' }
@@ -4242,10 +4236,10 @@ tune_similarity_matrix <- function(candidate_models,
   # Return the cached tuning object immediately when available unless the
   # caller explicitly requested a refresh.
   if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
-    workflow_progress(progress, "Loading cached similarity tuning from ", cache_path, ".")
+    report_progress(progress, "Loading cached similarity tuning from ", cache_path, ".")
     cached_result <- readRDS(cache_path)
     if (!isTRUE(similarity_tuning_cache_current(cached_result))) {
-      workflow_progress(progress, "Cached similarity tuning is stale and will be rebuilt.")
+      report_progress(progress, "Cached similarity tuning is stale and will be rebuilt.")
     } else {
       if (!is.null(candidates_obj)) {
         return(apply_tuned_similarity_state(candidates_obj, cached_result))
@@ -4259,7 +4253,7 @@ tune_similarity_matrix <- function(candidate_models,
   # subset selection begins. Unspecified traits already default to weight `1`
   # inside `prepare_similarity_matrix()`, so there is no separate equalization
   # pass here that would overwrite explicit starting weights.
-  workflow_progress(progress, "Tuning similarity settings.")
+  report_progress(progress, "Tuning similarity settings.")
 
   base_sim <- prepare_similarity_matrix(
     candidate_models = candidate_models,
@@ -4273,6 +4267,14 @@ tune_similarity_matrix <- function(candidate_models,
     seed = seed,
     progress = FALSE
   )
+  if (isTRUE(cfg_user$equal_start_weights)) {
+    if (length(base_sim$species_weights %||% numeric(0)) > 0) {
+      base_sim$species_weights <- equal_start_weights(base_sim$species_weights)
+    }
+    if (length(base_sim$study_weights %||% numeric(0)) > 0) {
+      base_sim$study_weights <- equal_start_weights(base_sim$study_weights)
+    }
+  }
 
   # Harden caller-supplied grids so invalid values do not fail deep inside the
   # scoring loop, and keep a deterministic fallback around the starting point.
@@ -4306,7 +4308,7 @@ tune_similarity_matrix <- function(candidate_models,
     max_models_per_species = max_models_per_species,
     seed = base_sim$seed
   )
-  workflow_progress(
+  report_progress(
     progress,
     "Similarity tuning subset: ",
     nrow(tune_models),
@@ -4330,7 +4332,7 @@ tune_similarity_matrix <- function(candidate_models,
 
   # Quantify component importance by dropping each selected trait and enabled
   # coherence term one at a time under the best alpha/kernel setting.
-  workflow_progress(progress, "Running similarity component drop-out scan.")
+  report_progress(progress, "Running similarity component drop-out scan.")
   component_impact_summary <- run_component_dropout(
     tune_models = tune_models,
     base_sim = grid_tuned_sim,
@@ -4347,7 +4349,7 @@ tune_similarity_matrix <- function(candidate_models,
   resample_summary <- tibble::tibble()
   component_weights_tbl <- tibble::tibble()
   if (isTRUE(use_resample_tuning) && n_resamples > 1L) {
-    workflow_progress(
+    report_progress(
       progress,
       "Running ",
       n_resamples,
@@ -4359,7 +4361,7 @@ tune_similarity_matrix <- function(candidate_models,
     summary_rows <- vector("list", n_resamples)
 
     for (i in seq_len(n_resamples)) {
-      workflow_progress(progress, "Similarity tuning resample ", i, "/", n_resamples, ".")
+      report_progress(progress, "Similarity tuning resample ", i, "/", n_resamples, ".")
       sampled_subset <- build_resample_subset(
         candidate_models = base_sim$candidate_models,
         species_weights = base_sim$species_weights,
@@ -4603,7 +4605,7 @@ tune_similarity_matrix <- function(candidate_models,
     anchor_rows = final_anchor_rows,
     n_support_bins = base_sim$config$support_strata_bins %||% 4L
   )
-  workflow_progress(
+  report_progress(
     progress,
     "Finished similarity tuning. alpha=",
     signif(grid_obj$alpha_best, 4),

@@ -1,6 +1,6 @@
-#' Parse command-line workflow arguments
+#' Parse command-line arguments
 #'
-#' Parses the command-line interface used by the packaged workflow wrapper.
+#' Parses the command-line interface used by the packaged script wrapper.
 #'
 #' @param arguments Character vector, usually `commandArgs(trailingOnly = TRUE)`.
 #'
@@ -9,7 +9,7 @@
 #' @export
 parse_command_line <- function(arguments = commandArgs(trailingOnly = TRUE)) {
   # Accept either a config-driven invocation or the older positional-argument
-  # form so the packaged workflow wrapper can remain backward compatible.
+  # form so the packaged script wrapper can remain backward compatible.
   if (length(arguments) == 0) {
     return(list(
       action = "run",
@@ -24,7 +24,7 @@ parse_command_line <- function(arguments = commandArgs(trailingOnly = TRUE)) {
 
   if (identical(arguments[[1]], "--write-template")) {
     if (length(arguments) < 2 || !nzchar(arguments[[2]])) {
-      stop("Use '--write-template <path>' to scaffold a workflow YAML file.", call. = FALSE)
+      stop("Use '--write-template <path>' to scaffold a config YAML file.", call. = FALSE)
     }
 
     return(list(action = "write_template", path = arguments[[2]]))
@@ -32,14 +32,14 @@ parse_command_line <- function(arguments = commandArgs(trailingOnly = TRUE)) {
 
   if (identical(arguments[[1]], "--config")) {
     if (length(arguments) < 2 || !nzchar(arguments[[2]])) {
-      stop("Use '--config <path>' to supply a workflow YAML file.", call. = FALSE)
+      stop("Use '--config <path>' to supply a config YAML file.", call. = FALSE)
     }
 
     return(list(action = "run", config_path = arguments[[2]]))
   }
 
   # Parse the positional fallback exactly once so older command lines still map
-  # onto the current workflow config structure.
+  # onto the current config structure.
   list(
     action = "run",
     config_path = NULL,
@@ -51,17 +51,17 @@ parse_command_line <- function(arguments = commandArgs(trailingOnly = TRUE)) {
   )
 }
 
-#' Resolve one command-line workflow config
+#' Resolve one command-line config
 #'
-#' Converts parsed command-line inputs to a validated normalized workflow config
-#' or writes a new workflow template when requested.
+#' Converts parsed command-line inputs to a validated normalized config
+#' or writes a new template when requested.
 #'
 #' @param arguments Character vector, usually `commandArgs(trailingOnly = TRUE)`.
 #' @param base_dir Base directory for relative paths.
 #' @param registry_path Optional trait-registry path.
 #' @param policy_path Optional policy-registry path.
 #'
-#' @return A normalized workflow config, or the written template path.
+#' @return A normalized config, or the written template path.
 #'
 #' @export
 resolve_command_line <- function(arguments = commandArgs(trailingOnly = TRUE),
@@ -69,16 +69,16 @@ resolve_command_line <- function(arguments = commandArgs(trailingOnly = TRUE),
                                  registry_path = NULL,
                                  policy_path = NULL) {
   # Dispatch from the parsed command-line action so template generation and
-  # workflow execution share one argument parser.
+  # script execution share one argument parser.
   cli_values <- parse_command_line(arguments = arguments)
 
   if (identical(cli_values$action, "write_template")) {
-    return(write_workflow_yaml(cli_values$path))
+    return(write_config_yaml(cli_values$path))
   }
 
   if (!is.null(cli_values$config_path)) {
     return(
-      read_workflow_config(
+      read_config(
         path = cli_values$config_path,
         base_dir = dirname(path_absolute(cli_values$config_path, base_dir = base_dir)),
         registry_path = registry_path,
@@ -89,33 +89,33 @@ resolve_command_line <- function(arguments = commandArgs(trailingOnly = TRUE),
 
   # Build the fallback positional config from the generic registry-derived
   # baseline, then normalize it through the same validator and path resolver.
-  workflow_config <- default_workflow_config(
+  config_data <- default_config(
     input_file = cli_values$input_file %||% "input.xlsx",
     output_root = cli_values$output_root %||% "outputs",
     cache_folder = cli_values$cache_folder %||% "cache"
   )
-  workflow_config$workflow$strict_length_pdf <- if (is.null(cli_values$strict_length_pdf)) {
-    workflow_config$workflow$strict_length_pdf
+  config_data$execution$strict_length_pdf <- if (is.null(cli_values$strict_length_pdf)) {
+    config_data$execution$strict_length_pdf
   } else {
     command_line_true(cli_values$strict_length_pdf)
   }
-  workflow_config$workflow$run_multiplier_model <- if (is.null(cli_values$run_multiplier_model)) {
-    workflow_config$workflow$run_multiplier_model
+  config_data$execution$run_multiplier_model <- if (is.null(cli_values$run_multiplier_model)) {
+    config_data$execution$run_multiplier_model
   } else {
     command_line_true(cli_values$run_multiplier_model)
   }
 
-  normalize_workflow(
-    config = workflow_config,
+  normalize_config(
+    config = config_data,
     base_dir = base_dir,
     registry_path = registry_path,
     policy_path = policy_path
   )
 }
 
-#' Write a workflow YAML template
+#' Write a config YAML template
 #'
-#' Writes a generic workflow YAML template to a caller-specified path.
+#' Writes a generic config YAML template to a caller-specified path.
 #'
 #' @param path Output YAML path.
 #' @param overwrite Logical scalar. If `TRUE`, overwrite an existing file.
@@ -130,14 +130,14 @@ resolve_command_line <- function(arguments = commandArgs(trailingOnly = TRUE),
 #' @return The written path, invisibly.
 #'
 #' @export
-write_workflow_yaml <- function(path,
+write_config_yaml <- function(path,
                                 overwrite = FALSE,
                                 input_file = "input.xlsx",
                                 output_root = "outputs",
                                 cache_folder = "cache",
                                 registry_path = NULL,
                                 policy_path = NULL) {
-  # Materialize a generic config template instead of copying a workflow-
+  # Materialize a generic config template instead of copying an analysis-
   # specific packaged YAML file.
   if (!is.character(path) || length(path) != 1 || !nzchar(path)) {
     stop("'path' must be a single output YAML path.", call. = FALSE)
@@ -146,12 +146,12 @@ write_workflow_yaml <- function(path,
     stop("'overwrite' must be TRUE or FALSE.", call. = FALSE)
   }
   if (file.exists(path) && !isTRUE(overwrite)) {
-    stop("Workflow YAML already exists. Set 'overwrite = TRUE' to replace it.", call. = FALSE)
+    stop("Config YAML already exists. Set 'overwrite = TRUE' to replace it.", call. = FALSE)
   }
 
   ensure_parent_path(path)
   yaml::write_yaml(
-    x = default_workflow_config(
+    x = default_config(
       input_file = input_file,
       output_root = output_root,
       cache_folder = cache_folder,
@@ -164,28 +164,28 @@ write_workflow_yaml <- function(path,
   invisible(path)
 }
 
-#' Build one workflow script call
+#' Build one packaged script call
 #'
 #' Builds the `Rscript` command and arguments needed to run the packaged
-#' workflow wrapper with a validated YAML config.
+#' script wrapper with a validated YAML config.
 #'
-#' @param config_path Workflow YAML path.
-#' @param script_name Packaged workflow-wrapper script name.
+#' @param config_path Config YAML path.
+#' @param script_name Packaged script name.
 #' @param rscript_path Optional `Rscript` executable path.
 #'
 #' @return A list with `command` and `args`.
 #'
 #' @export
-workflow_script_call <- function(config_path,
+script_call_from_config <- function(config_path,
                                  script_name = "swfscfish.R",
                                  rscript_path = NULL) {
-  # Validate the workflow YAML before constructing the external call so the
+  # Validate the config YAML before constructing the external call so the
   # shell runner fails early on malformed config files.
   if (is.null(rscript_path)) {
     rscript_path <- file.path(R.home("bin"), "Rscript")
   }
 
-  workflow_config <- read_workflow_config(config_path)
+  config_data <- read_config(config_path)
 
   list(
     command = rscript_path,
@@ -197,19 +197,19 @@ workflow_script_call <- function(config_path,
   )
 }
 
-#' Run the packaged workflow script
+#' Run the packaged script
 #'
-#' Launches the packaged workflow wrapper with a validated workflow YAML file.
+#' Launches the packaged script wrapper with a validated config YAML file.
 #'
-#' @param config_path Workflow YAML path.
-#' @param script_name Packaged workflow-wrapper script name.
+#' @param config_path Config YAML path.
+#' @param script_name Packaged script name.
 #' @param rscript_path Optional `Rscript` executable path.
 #' @param wait Logical scalar. If `TRUE`, wait for the script to finish.
 #'
 #' @return The `system2()` exit status.
 #'
 #' @export
-run_workflow_script <- function(config_path,
+run_script_from_config <- function(config_path,
                                 script_name = "swfscfish.R",
                                 rscript_path = NULL,
                                 wait = TRUE) {
@@ -219,20 +219,20 @@ run_workflow_script <- function(config_path,
     stop("'wait' must be TRUE or FALSE.", call. = FALSE)
   }
 
-  workflow_call <- workflow_script_call(
+  script_call <- script_call_from_config(
     config_path = config_path,
     script_name = script_name,
     rscript_path = rscript_path
   )
 
   system2(
-    command = workflow_call$command,
-    args = workflow_call$args,
+    command = script_call$command,
+    args = script_call$args,
     wait = wait
   )
 }
 
-#' Emit a timestamped workflow message
+#' Emit a timestamped message
 #'
 #' @param ... Message components.
 #' @param timestamp Boolean that dictates whether to prepend with timestamp.

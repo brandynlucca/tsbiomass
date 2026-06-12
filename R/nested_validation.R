@@ -70,7 +70,7 @@ split_nested_species <- function(species,
 #' Build a nested-validation anchor evaluation config
 #'
 #' @param similarity_config Tuned similarity configuration.
-#' @param base_config User/workflow config list.
+#' @param base_config User/config list.
 #'
 #' @return A list accepted by the internal single-anchor admissibility screen.
 #' @keywords internal
@@ -99,7 +99,7 @@ nested_anchor_config <- function(similarity_config,
 #' @param donor_models Donor/training rows.
 #' @param policies Policy names.
 #' @param similarity_config Tuned similarity configuration.
-#' @param base_config Workflow policy config.
+#' @param base_config Policy config.
 #' @param policy_path Optional policy registry path.
 #' @param registry_path Optional trait registry path.
 #'
@@ -486,7 +486,7 @@ run_nested_policy_fold <- function(task,
 #'
 #' @param candidate_models Prepared candidate-model table.
 #' @param policies Policy names to evaluate.
-#' @param config Workflow policy/tuning configuration list.
+#' @param config Policy/tuning configuration list.
 #' @param n_outer_folds Number of outer species to evaluate. `NULL` uses all species.
 #' @param n_repeats Number of repeated outer-species shuffles.
 #' @param selection_fraction Fraction of non-test species used for policy selection.

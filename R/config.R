@@ -296,7 +296,7 @@ read_json_file <- function(path) {
 #' @keywords internal
 read_similarity_config <- function(config) {
   # Accept either an in-memory list or a JSON path so the tuner can be used
-  # from interactive R code or from a serialized workflow config.
+  # from interactive R code or from a serialized config object.
   if (is.null(config)) {
     return(list())
   }
@@ -343,14 +343,14 @@ read_similarity_registry <- function(registry_path) {
   )
 }
 
-#' Return workflow config aliases
+#' Return config aliases
 #'
 #' Defines the descriptive shorter config keys accepted at ingestion and the
-#' canonical field names they map onto inside the current workflow engine.
+#' canonical field names they map onto inside the current execution surface.
 #'
-#' @return Named list of alias maps by workflow section.
+#' @return Named list of alias maps by config section.
 #' @keywords internal
-workflow_config_aliases <- function() {
+config_aliases <- function() {
   list(
     paths = c(
       input = "input_file",
@@ -360,7 +360,7 @@ workflow_config_aliases <- function() {
       area_file = "fao_polygon_csv",
       log_path = "log_file"
     ),
-    workflow = c(
+    execution = c(
       strict_pdf = "strict_length_pdf",
       run_multiplier = "run_multiplier_model"
     ),
@@ -385,11 +385,11 @@ workflow_config_aliases <- function() {
   )
 }
 
-#' Return disallowed legacy workflow names
+#' Return disallowed legacy config names
 #'
 #' @return Named list of legacy-to-current field-name mappings by section.
 #' @keywords internal
-workflow_legacy_names <- function() {
+legacy_config_names <- function() {
   list(
     paths = c(
       input_file = "input",
@@ -401,7 +401,7 @@ workflow_legacy_names <- function() {
       fao_polygon_csv = "area_file",
       log_file = "log_path"
     ),
-    workflow = c(
+    execution = c(
       strict_length_pdf = "strict_pdf",
       run_multiplier_model = "run_multiplier"
     ),
@@ -426,25 +426,25 @@ workflow_legacy_names <- function() {
   )
 }
 
-#' Reject legacy workflow names
+#' Reject legacy config names
 #'
-#' @param config Raw workflow-config list.
+#' @param config Raw config list.
 #'
 #' @return Invisibly returns `NULL`.
 #' @keywords internal
-reject_legacy_workflow_names <- function(config) {
+reject_legacy_config_names <- function(config) {
   if (!is.list(config)) {
     return(invisible(NULL))
   }
 
   if ("meta_policy" %in% names(config)) {
     stop(
-      "Workflow section 'meta_policy' is no longer supported. Use 'metalearner' instead.",
+      "Config section 'meta_policy' is no longer supported. Use 'metalearner' instead.",
       call. = FALSE
     )
   }
 
-  legacy_map <- workflow_legacy_names()
+  legacy_map <- legacy_config_names()
   for (section_name in names(legacy_map)) {
     section <- config[[section_name]]
     if (is.null(section) || !is.list(section)) {
@@ -456,7 +456,7 @@ reject_legacy_workflow_names <- function(config) {
       }
       stop(
         sprintf(
-          "Workflow section '%s' uses legacy field '%s'. Use '%s' instead.",
+          "Config section '%s' uses legacy field '%s'. Use '%s' instead.",
           section_name,
           legacy_name,
           legacy_map[[section_name]][[legacy_name]]
@@ -478,7 +478,7 @@ reject_legacy_workflow_names <- function(config) {
       if (legacy_name %in% names(metalearner_section)) {
         stop(
           sprintf(
-            "Workflow section 'metalearner' uses legacy field '%s'. Use '%s' instead.",
+            "Config section 'metalearner' uses legacy field '%s'. Use '%s' instead.",
             legacy_name,
             field_map[[legacy_name]]
           ),
@@ -491,7 +491,7 @@ reject_legacy_workflow_names <- function(config) {
   invisible(NULL)
 }
 
-#' Apply workflow aliases to one section
+#' Apply config aliases to one section
 #'
 #' @param section Named config subsection.
 #' @param aliases Named character vector of `short_name = canonical_name`.
@@ -499,9 +499,9 @@ reject_legacy_workflow_names <- function(config) {
 #'
 #' @return Normalized subsection.
 #' @keywords internal
-apply_workflow_aliases <- function(section,
-                                   aliases,
-                                   section_name) {
+apply_config_aliases <- function(section,
+                                 aliases,
+                                 section_name) {
   if (is.null(section) || !is.list(section)) {
     return(section)
   }
@@ -514,7 +514,7 @@ apply_workflow_aliases <- function(section,
     if (canonical_name %in% names(section)) {
       stop(
         sprintf(
-          "Workflow section '%s' cannot contain both '%s' and '%s'.",
+          "Config section '%s' cannot contain both '%s' and '%s'.",
           section_name,
           short_name,
           canonical_name
@@ -529,24 +529,24 @@ apply_workflow_aliases <- function(section,
   section
 }
 
-#' Normalize workflow config aliases
+#' Normalize config aliases
 #'
 #' Rewrites accepted descriptive short keys onto the current canonical field
 #' names before validation and downstream use.
 #'
-#' @param config Workflow-config list.
+#' @param config Config list.
 #'
-#' @return Workflow-config list with canonical section keys.
+#' @return Config list with canonical section keys.
 #' @keywords internal
-normalize_workflow_aliases <- function(config) {
+normalize_config_aliases <- function(config) {
   if (!is.list(config)) {
     return(config)
   }
 
-  alias_map <- workflow_config_aliases()
+  alias_map <- config_aliases()
   for (section_name in names(alias_map)) {
     if (section_name %in% names(config)) {
-      config[[section_name]] <- apply_workflow_aliases(
+      config[[section_name]] <- apply_config_aliases(
         section = config[[section_name]],
         aliases = alias_map[[section_name]],
         section_name = section_name
@@ -559,13 +559,13 @@ normalize_workflow_aliases <- function(config) {
 
 #' Normalize the external similarity config surface
 #'
-#' @param config Workflow-config list.
+#' @param config Config list.
 #'
-#' @return Workflow-config list with both `similarity` and internal `policy`
+#' @return Config list with both `similarity` and internal `policy`
 #'   representations populated.
 #'
 #' @keywords internal
-normalize_similarity_workflow_shape <- function(config) {
+normalize_similarity_config_shape <- function(config) {
   if (!is.list(config)) {
     return(config)
   }
@@ -719,31 +719,31 @@ normalize_similarity_workflow_shape <- function(config) {
   config
 }
 
-#' Read packaged workflow cache defaults
+#' Read packaged cache defaults
 #'
 #' @param defaults_path Optional JSON override path.
 #'
 #' @return Named list of cache filenames.
 #'
 #' @keywords internal
-read_workflow_cache_defaults <- function(defaults_path = NULL) {
+read_cache_defaults <- function(defaults_path = NULL) {
   if (is.null(defaults_path)) {
     defaults_path <- system.file("templates", "cache_defaults.json", package = "tsbiomass")
   }
   if (!nzchar(defaults_path) || !file.exists(defaults_path)) {
-    stop("Workflow cache-defaults JSON could not be found.", call. = FALSE)
+    stop("Cache-defaults JSON could not be found.", call. = FALSE)
   }
   read_json_file(defaults_path)
 }
 
-#' Apply workflow cache defaults
+#' Apply cache defaults
 #'
-#' @param config Workflow-config list.
+#' @param config Config list.
 #'
-#' @return Workflow-config list with cache defaults populated.
+#' @return Config list with cache defaults populated.
 #'
 #' @keywords internal
-apply_workflow_cache_defaults <- function(config) {
+apply_cache_defaults <- function(config) {
   if (!is.list(config)) {
     return(config)
   }
@@ -752,7 +752,7 @@ apply_workflow_cache_defaults <- function(config) {
   if (!is.list(cache_cfg)) {
     cache_cfg <- list()
   }
-  defaults <- read_workflow_cache_defaults(cache_cfg$defaults_path %||% NULL)
+  defaults <- read_cache_defaults(cache_cfg$defaults_path %||% NULL)
   cache_names <- merge_cfg(defaults, cache_cfg$names %||% cache_cfg$files %||% list())
   cache_folder <- cache_cfg$folder %||% config$paths$cache_folder %||% "cache"
   cache_refresh <- cache_cfg$refresh %||% FALSE
@@ -838,12 +838,12 @@ apply_workflow_cache_defaults <- function(config) {
   config
 }
 
-#' Normalize constructor-driven workflow policy selections
+#' Normalize constructor-driven config policy selections
 #'
-#' @param config Workflow-config list.
+#' @param config Config list.
 #' @param policy_path Optional policy-registry path.
 #'
-#' @return Workflow-config list with canonical active policy names plus any
+#' @return Config list with canonical active policy names plus any
 #'   per-policy branch overrides derived from constructor specifications.
 #'
 #' @keywords internal
@@ -912,7 +912,7 @@ normalize_active_policy_names <- function(config,
   )
 
   # Preserve the flat active-policy syntax for backward compatibility when no
-  # constructor-style group declarations were provided in the workflow YAML.
+  # constructor-style group declarations were provided in the config YAML.
   if (is.null(group_field)) {
     active_values <- stringr::str_squish(as.character(unlist(policies_section$active %||% character(0), use.names = FALSE)))
     active_values <- active_values[!is.na(active_values) & nzchar(active_values)]
@@ -1013,7 +1013,7 @@ normalize_active_policy_names <- function(config,
         if (length(joint_traits) == 0) {
           stop(
             sprintf(
-              "Workflow policy group '%s' declared an empty 'joint' variant after canonicalization.",
+              "Policy group '%s' declared an empty 'joint' variant after canonicalization.",
               group_name
             ),
             call. = FALSE
@@ -1072,7 +1072,7 @@ normalize_active_policy_names <- function(config,
 
   declared_groups <- names(group_specs)
   if (length(declared_groups) == 0) {
-    stop("Workflow policies must declare at least one group when using constructor-style policy selection.", call. = FALSE)
+    stop("Policies must declare at least one group when using constructor-style policy selection.", call. = FALSE)
   }
 
   available_groups <- unique(policy_tbl$grouping_key)
@@ -1114,7 +1114,7 @@ normalize_active_policy_names <- function(config,
   unknown_groups <- setdiff(declared_groups, available_groups)
   if (length(unknown_groups) > 0) {
     stop(
-      sprintf("Unknown workflow policy group name(s): %s", paste(unknown_groups, collapse = ", ")),
+      sprintf("Unknown config policy group name(s): %s", paste(unknown_groups, collapse = ", ")),
       call. = FALSE
     )
   }
@@ -1124,7 +1124,7 @@ normalize_active_policy_names <- function(config,
   unknown_metrics <- setdiff(all_requested_metrics, available_metrics)
   if (length(unknown_metrics) > 0) {
     stop(
-      sprintf("Unknown workflow policy metric name(s): %s", paste(unknown_metrics, collapse = ", ")),
+      sprintf("Unknown config policy metric name(s): %s", paste(unknown_metrics, collapse = ", ")),
       call. = FALSE
     )
   }
@@ -1158,7 +1158,7 @@ normalize_active_policy_names <- function(config,
 
   selected_policies <- unique(selected_policies)
   if (length(selected_policies) == 0) {
-    stop("Workflow constructor policy selection did not resolve to any active policies.", call. = FALSE)
+    stop("Constructor policy selection did not resolve to any active policies.", call. = FALSE)
   }
 
   policies_section$active <- selected_policies
@@ -1176,13 +1176,13 @@ normalize_active_policy_names <- function(config,
 
 #' Normalize selection-owned conformal settings
 #'
-#' @param config Workflow-config list.
+#' @param config Config list.
 #'
-#' @return Workflow-config list with post-selection conformal settings merged
+#' @return Config list with post-selection conformal settings merged
 #'   into `selection`.
 #'
 #' @keywords internal
-normalize_selection_workflow_shape <- function(config) {
+normalize_selection_config_shape <- function(config) {
   if (!is.list(config)) {
     return(config)
   }
@@ -1218,11 +1218,11 @@ normalize_selection_workflow_shape <- function(config) {
 
 #' Replace fully specified trait maps after recursive merge
 #'
-#' @param merged_cfg Merged workflow-config list.
-#' @param input_cfg Caller-supplied workflow-config list after alias and shape
+#' @param merged_cfg Merged config list.
+#' @param input_cfg Caller-supplied config list after alias and shape
 #'   normalization.
 #'
-#' @return Workflow-config list with explicit trait maps replaced rather than
+#' @return Config list with explicit trait maps replaced rather than
 #'   recursively merged with defaults.
 #' @keywords internal
 replace_explicit_trait_maps <- function(merged_cfg,
@@ -1280,15 +1280,21 @@ replace_explicit_trait_maps <- function(merged_cfg,
     merged_cfg$policies$equation_branch_filters <- input_policies$equation_branch_filters
   }
   if ("active" %in% names(input_policies)) {
+    if (!any(c("group", "metric", "branch", "branches") %in% names(input_policies))) {
+      merged_cfg$policies$group <- NULL
+      merged_cfg$policies$metric <- NULL
+      merged_cfg$policies$branch <- NULL
+      merged_cfg$policies$branches <- NULL
+    }
     merged_cfg$policies$active <- input_policies$active
   }
 
   merged_cfg
 }
 
-#' Return the default workflow config
+#' Return the default config
 #'
-#' Builds a workflow-agnostic baseline configuration with neutral path
+#' Builds a pipeline-agnostic baseline configuration with neutral path
 #' placeholders and registry-derived default trait and policy selections.
 #'
 #' @param input_file Input workbook path.
@@ -1299,17 +1305,17 @@ replace_explicit_trait_maps <- function(merged_cfg,
 #' @param policy_path Optional policy-registry path used to derive one default
 #'   active policy.
 #'
-#' @return A workflow-config list.
+#' @return A config list.
 #'
 #' @export
-default_workflow_config <- function(input_file = "input.xlsx",
-                                    output_root = "outputs",
-                                    cache_folder = "cache",
-                                    registry_path = NULL,
-                                    policy_path = NULL,
-                                    use_canonical_names = FALSE) {
+default_config <- function(input_file = "input.xlsx",
+                           output_root = "outputs",
+                           cache_folder = "cache",
+                           registry_path = NULL,
+                           policy_path = NULL,
+                           use_canonical_names = FALSE) {
   # Derive the minimal required trait and policy defaults from the registries
-  # so the fallback config stays workflow-agnostic.
+  # so the fallback config stays pipeline-agnostic.
   species_traits <- trait_names(scope = "species", registry_path = registry_path)
   study_traits <- trait_names(scope = "study", registry_path = registry_path)
   if (length(species_traits) == 0) {
@@ -1326,9 +1332,9 @@ default_workflow_config <- function(input_file = "input.xlsx",
       cache_folder = cache_folder,
       support_folder = "supplemental",
       area_file = "fao_areas.csv",
-      log_path = file.path(output_root, "tsbiomass_workflow.log")
+      log_path = file.path(output_root, "tsbiomass_run.log")
     ),
-    workflow = list(
+    execution = list(
       strict_pdf = FALSE,
       run_multiplier = FALSE,
       write_log = FALSE
@@ -1379,7 +1385,7 @@ default_workflow_config <- function(input_file = "input.xlsx",
     cache = list(
       folder = cache_folder,
       refresh = FALSE,
-      names = read_workflow_cache_defaults()
+      names = read_cache_defaults()
     ),
     benchmark = list(
       workers = 1L,
@@ -1436,46 +1442,46 @@ default_workflow_config <- function(input_file = "input.xlsx",
       progress = FALSE
     )
   ) |>
-    (\(workflow_config) {
+    (\(cfg_data) {
       if (isTRUE(use_canonical_names)) {
-        normalize_workflow_aliases(workflow_config)
+        normalize_config_aliases(cfg_data)
       } else {
-        workflow_config
+        cfg_data
       }
     })()
 }
 
-#' Read a workflow YAML file
+#' Read a config YAML file
 #'
-#' Reads, validates, and normalizes a caller-supplied workflow YAML file at
+#' Reads, validates, and normalizes a caller-supplied config YAML file at
 #' ingestion time.
 #'
-#' @param path Workflow YAML path.
+#' @param path Config YAML path.
 #' @param base_dir Base directory used to resolve relative paths. Defaults to
 #'   the YAML file directory.
 #' @param registry_path Optional trait-registry path.
 #' @param policy_path Optional policy-registry path.
 #'
-#' @return A validated normalized workflow-config list.
+#' @return A validated normalized config list.
 #'
 #' @export
-read_workflow_config <- function(path,
-                                 base_dir = dirname(path_absolute(path)),
-                                 registry_path = NULL,
-                                 policy_path = NULL) {
+read_config <- function(path,
+                        base_dir = dirname(path_absolute(path)),
+                        registry_path = NULL,
+                        policy_path = NULL) {
   # Require an explicit YAML path so the generic config reader never falls back
-  # to a workflow-specific packaged file.
+  # to a packaged analysis-specific file.
   if (!is.character(path) || length(path) != 1 || !nzchar(path)) {
     stop("'path' must be a single YAML file path.", call. = FALSE)
   }
   if (!file.exists(path)) {
-    stop(sprintf("Workflow config does not exist: %s", path), call. = FALSE)
+    stop(sprintf("Config file does not exist: %s", path), call. = FALSE)
   }
 
   raw_config <- yaml::read_yaml(path)
-  reject_legacy_workflow_names(raw_config)
+  reject_legacy_config_names(raw_config)
 
-  normalize_workflow(
+  normalize_config(
     config = raw_config,
     base_dir = base_dir,
     registry_path = registry_path,
@@ -1483,26 +1489,26 @@ read_workflow_config <- function(path,
   )
 }
 
-#' Normalize a workflow config
+#' Normalize a config
 #'
-#' Merges user config onto the workflow defaults, converts legacy trait-weight
+#' Merges user config onto the package defaults, converts legacy trait-weight
 #' fields, resolves relative paths, and adds compatibility fields used by the
-#' current workflow scripts.
+#' packaged scripts.
 #'
-#' @param config Workflow-config list.
+#' @param config Config list.
 #' @param base_dir Base directory for relative paths.
 #' @param registry_path Optional trait-registry path.
 #' @param policy_path Optional policy-registry path.
 #'
-#' @return A normalized workflow-config list.
+#' @return A normalized config list.
 #'
 #' @export
-normalize_workflow <- function(config,
-                               base_dir = getwd(),
-                               registry_path = NULL,
-                               policy_path = NULL) {
+normalize_config <- function(config,
+                             base_dir = getwd(),
+                             registry_path = NULL,
+                             policy_path = NULL) {
   # Start from the package defaults so missing sections or fields do not force
-  # every workflow YAML to restate the full config surface.
+  # every config YAML to restate the full config surface.
   if (!is.list(config)) {
     stop("'config' must be a list.", call. = FALSE)
   }
@@ -1518,104 +1524,104 @@ normalize_workflow <- function(config,
     "paths" %in% names(config) &&
     is.list(config$paths) &&
     all(c("input_file", "out_root", "cache_dir") %in% names(config$paths)))) {
-    reject_legacy_workflow_names(config)
+    reject_legacy_config_names(config)
   }
-  config <- normalize_workflow_aliases(config)
-  config <- normalize_similarity_workflow_shape(config)
-  config <- normalize_selection_workflow_shape(config)
+  config <- normalize_config_aliases(config)
+  config <- normalize_similarity_config_shape(config)
+  config <- normalize_selection_config_shape(config)
 
-  workflow_config <- merge_cfg(
-    default_workflow_config(
+  normalized_config <- merge_cfg(
+    default_config(
       registry_path = registry_path,
       policy_path = policy_path,
       use_canonical_names = TRUE
     ),
     config
   )
-  workflow_config <- replace_explicit_trait_maps(workflow_config, config)
-  workflow_config <- normalize_workflow_aliases(workflow_config)
-  workflow_config <- normalize_similarity_workflow_shape(workflow_config)
-  workflow_config <- normalize_selection_workflow_shape(workflow_config)
-  workflow_config <- apply_workflow_cache_defaults(workflow_config)
-  workflow_config <- normalize_active_policy_names(workflow_config, policy_path = policy_path)
-  workflow_config$metalearner <- normalize_metalearner_section(
-    workflow_config$metalearner %||% list()
+  normalized_config <- replace_explicit_trait_maps(normalized_config, config)
+  normalized_config <- normalize_config_aliases(normalized_config)
+  normalized_config <- normalize_similarity_config_shape(normalized_config)
+  normalized_config <- normalize_selection_config_shape(normalized_config)
+  normalized_config <- apply_cache_defaults(normalized_config)
+  normalized_config <- normalize_active_policy_names(normalized_config, policy_path = policy_path)
+  normalized_config$metalearner <- normalize_metalearner_section(
+    normalized_config$metalearner %||% list()
   )
-  workflow_config <- normalize_workflow_trait_sections(workflow_config)
+  normalized_config <- normalize_trait_sections(normalized_config)
 
   # Validate the fully merged config before resolving paths so structural
   # errors are reported against the config contents themselves.
-  validate_workflow_config(
-    config = workflow_config,
+  validate_config(
+    config = normalized_config,
     registry_path = registry_path,
     policy_path = policy_path
   )
 
-  # Resolve only the path fields once so downstream workflow code can use
+  # Resolve only the path fields once so downstream code can use
   # absolute normalized paths consistently.
-  workflow_config$paths$input_file <- path_absolute(workflow_config$paths$input_file, base_dir = base_dir)
-  workflow_config$paths$out_root <- path_absolute(workflow_config$paths$out_root, base_dir = base_dir)
-  workflow_config$paths$cache_dir <- path_absolute(workflow_config$paths$cache_dir, base_dir = base_dir)
-  if (!is.null(workflow_config$paths$log_file) && nzchar(workflow_config$paths$log_file)) {
-    workflow_config$paths$log_file <- path_absolute(workflow_config$paths$log_file, base_dir = base_dir)
+  normalized_config$paths$input_file <- path_absolute(normalized_config$paths$input_file, base_dir = base_dir)
+  normalized_config$paths$out_root <- path_absolute(normalized_config$paths$out_root, base_dir = base_dir)
+  normalized_config$paths$cache_dir <- path_absolute(normalized_config$paths$cache_dir, base_dir = base_dir)
+  if (!is.null(normalized_config$paths$log_file) && nzchar(normalized_config$paths$log_file)) {
+    normalized_config$paths$log_file <- path_absolute(normalized_config$paths$log_file, base_dir = base_dir)
   } else {
-    workflow_config$paths$log_file <- NULL
+    normalized_config$paths$log_file <- NULL
   }
 
-  if (!is.null(workflow_config$paths$supplemental_dir)) {
-    workflow_config$paths$supplemental_dir <- path_absolute(
-      workflow_config$paths$supplemental_dir,
+  if (!is.null(normalized_config$paths$supplemental_dir)) {
+    normalized_config$paths$supplemental_dir <- path_absolute(
+      normalized_config$paths$supplemental_dir,
       base_dir = base_dir
     )
   }
-  if (!is.null(workflow_config$paths$fao_polygon_csv)) {
-    workflow_config$paths$fao_polygon_csv <- path_absolute(
-      workflow_config$paths$fao_polygon_csv,
+  if (!is.null(normalized_config$paths$fao_polygon_csv)) {
+    normalized_config$paths$fao_polygon_csv <- path_absolute(
+      normalized_config$paths$fao_polygon_csv,
       base_dir = base_dir
     )
   }
 
-  # Add the flattened compatibility fields still used by the preserved workflow
+  # Add the flattened compatibility fields still used by the preserved script
   # scripts so the YAML can drive both old and refactored code paths.
-  workflow_config$alpha <- workflow_config$policy$alpha
-  workflow_config$k_species <- workflow_config$policy$k_species
-  workflow_config$k_study <- workflow_config$policy$k_study
-  workflow_config$frequency_coherence_mode <-
+  normalized_config$alpha <- normalized_config$policy$alpha
+  normalized_config$k_species <- normalized_config$policy$k_species
+  normalized_config$k_study <- normalized_config$policy$k_study
+  normalized_config$frequency_coherence_mode <-
     stringr::str_to_lower(
-      stringr::str_squish(as.character(workflow_config$policy$frequency_coherence_mode %||% "overlap"))
+      stringr::str_squish(as.character(normalized_config$policy$frequency_coherence_mode %||% "overlap"))
     )[[1]]
-  workflow_config$require_same_frequency_label <- workflow_config$policy$require_same_frequency_label
-  workflow_config$max_frequency_gap_khz <- workflow_config$policy$max_frequency_gap_khz
-  workflow_config$min_length_overlap_fraction <- workflow_config$policy$min_length_overlap_fraction
-  workflow_config$min_depth_overlap_fraction <- workflow_config$policy$min_depth_overlap_fraction
-  workflow_config$missing_key_metadata_max_fraction <- workflow_config$policy$missing_key_metadata_max_fraction
-  workflow_config$length_overlap_weight <- workflow_config$policy$length_overlap_weight
-  workflow_config$depth_overlap_weight <- workflow_config$policy$depth_overlap_weight
-  workflow_config$frequency_coherence_weight <- workflow_config$policy$frequency_coherence_weight
-  workflow_config$core_weight_cutoff <- workflow_config$policy$core_weight_cutoff
-  workflow_config$conformal_alpha <- workflow_config$selection$conformal_alpha %||% workflow_config$policy$conformal_alpha
-  workflow_config$species_trait_cols <- names(workflow_config$policy$species_traits)
-  workflow_config$study_trait_cols <- names(workflow_config$policy$study_traits)
-  workflow_config$species_trait_weights <- workflow_config$policy$species_traits
-  workflow_config$study_trait_weights <- workflow_config$policy$study_traits
-  workflow_config
+  normalized_config$require_same_frequency_label <- normalized_config$policy$require_same_frequency_label
+  normalized_config$max_frequency_gap_khz <- normalized_config$policy$max_frequency_gap_khz
+  normalized_config$min_length_overlap_fraction <- normalized_config$policy$min_length_overlap_fraction
+  normalized_config$min_depth_overlap_fraction <- normalized_config$policy$min_depth_overlap_fraction
+  normalized_config$missing_key_metadata_max_fraction <- normalized_config$policy$missing_key_metadata_max_fraction
+  normalized_config$length_overlap_weight <- normalized_config$policy$length_overlap_weight
+  normalized_config$depth_overlap_weight <- normalized_config$policy$depth_overlap_weight
+  normalized_config$frequency_coherence_weight <- normalized_config$policy$frequency_coherence_weight
+  normalized_config$core_weight_cutoff <- normalized_config$policy$core_weight_cutoff
+  normalized_config$conformal_alpha <- normalized_config$selection$conformal_alpha %||% normalized_config$policy$conformal_alpha
+  normalized_config$species_trait_cols <- names(normalized_config$policy$species_traits)
+  normalized_config$study_trait_cols <- names(normalized_config$policy$study_traits)
+  normalized_config$species_trait_weights <- normalized_config$policy$species_traits
+  normalized_config$study_trait_weights <- normalized_config$policy$study_traits
+  normalized_config
 }
 
-#' Validate a workflow config
+#' Validate a config
 #'
-#' Validates the structure and registry-linked content of a workflow YAML
+#' Validates the structure and registry-linked content of a config YAML
 #' configuration.
 #'
-#' @param config Workflow-config list.
+#' @param config Config list.
 #' @param registry_path Optional trait-registry path.
 #' @param policy_path Optional policy-registry path.
 #'
-#' @return The validated workflow config.
+#' @return The validated config.
 #'
 #' @export
-validate_workflow_config <- function(config,
-                                     registry_path = NULL,
-                                     policy_path = NULL) {
+validate_config <- function(config,
+                            registry_path = NULL,
+                            policy_path = NULL) {
   if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
     config <- config@data
   }
@@ -1629,29 +1635,29 @@ validate_workflow_config <- function(config,
   if (is.null(config$policies) && !is.null(config$strategies)) {
     config$policies <- config$strategies
   }
-  config <- normalize_workflow_aliases(config)
+  config <- normalize_config_aliases(config)
 
-  config <- normalize_similarity_workflow_shape(config)
-  config <- normalize_selection_workflow_shape(config)
-  config <- apply_workflow_cache_defaults(config)
+  config <- normalize_similarity_config_shape(config)
+  config <- normalize_selection_config_shape(config)
+  config <- apply_cache_defaults(config)
   config <- normalize_active_policy_names(config, policy_path = policy_path)
   config$metalearner <- normalize_metalearner_section(config$metalearner %||% list())
-  config <- normalize_workflow_trait_sections(config)
+  config <- normalize_trait_sections(config)
 
-  required_sections <- c("paths", "workflow", "tuning", "similarity", "policy", "policies", "metalearner")
+  required_sections <- c("paths", "execution", "tuning", "similarity", "policy", "policies", "metalearner")
   missing_sections <- setdiff(required_sections, names(config))
   if (length(missing_sections) > 0) {
     stop(
       sprintf(
-        "Workflow config is missing required section(s): %s",
+        "Config is missing required section(s): %s",
         paste(missing_sections, collapse = ", ")
       ),
       call. = FALSE
     )
   }
 
-  validate_workflow_paths(config$paths)
-  validate_workflow_flags(config$workflow, config$paths)
+  validate_config_paths(config$paths)
+  validate_execution_flags(config$execution, config$paths)
   validate_tuning_section(config$tuning)
   validate_cache_section(config$cache %||% NULL)
   validate_similarity_section(config$similarity %||% NULL, registry_path = registry_path)
@@ -1671,7 +1677,7 @@ validate_workflow_config <- function(config,
 
 #' Normalize the metalearner section
 #'
-#' @param metalearner_section Workflow `metalearner` section.
+#' @param metalearner_section Config `metalearner` section.
 #'
 #' @return Normalized `metalearner` section.
 #' @keywords internal
@@ -1681,36 +1687,36 @@ normalize_metalearner_section <- function(metalearner_section) {
   }
 
   selection_method <- metalearner_section$selection_method %||% "glm"
+  metalearner_section$method_settings <- normalize_meta_policy_method_settings(
+    metalearner_section$method_settings %||% NULL
+  )
   if (is.null(metalearner_section$uncertainty_method) ||
     (is.character(metalearner_section$uncertainty_method) &&
       length(metalearner_section$uncertainty_method) == 1 &&
       !nzchar(stringr::str_squish(metalearner_section$uncertainty_method)))) {
     metalearner_section$uncertainty_method <- selection_method
   }
-  metalearner_section$method_settings <- normalize_meta_policy_method_settings(
-    metalearner_section$method_settings %||% NULL
-  )
 
   metalearner_section
 }
 
-#' Build workflow option values
+#' Build config option values
 #'
-#' Returns a named list of workflow options suitable for `options(...)`.
+#' Returns a named list of options suitable for `options(...)`.
 #'
-#' @param config Normalized workflow-config list.
+#' @param config Normalized config list.
 #'
 #' @return Named list of option values.
 #'
 #' @export
-workflow_option_values <- function(config) {
+config_option_values <- function(config) {
   if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
     config <- config@data
   }
 
-  # Expose the most commonly reused workflow scalars and paths through a small
+  # Expose the most commonly reused config scalars and paths through a small
   # options list so sourced scripts can read them consistently.
-  validate_workflow_config(config)
+  validate_config(config)
 
   list(
     tsbiomass_input_file = config$paths$input_file,
@@ -1724,7 +1730,7 @@ workflow_option_values <- function(config) {
   )
 }
 
-#' Normalize one workflow trait map
+#' Normalize one config trait map
 #'
 #' @param trait_map Optional named trait-weight map.
 #' @param trait_cols Optional character vector of trait names.
@@ -1778,14 +1784,14 @@ normalize_trait_map <- function(trait_map,
   weights
 }
 
-#' Normalize workflow trait sections
+#' Normalize config trait sections
 #'
-#' @param config Workflow-config list.
+#' @param config Config list.
 #'
-#' @return Workflow-config list with normalized similarity weight maps and
+#' @return Config list with normalized similarity weight maps and
 #'   normalized admissibility gate-trait selections.
 #' @keywords internal
-normalize_workflow_trait_sections <- function(config) {
+normalize_trait_sections <- function(config) {
   if (!is.list(config)) {
     return(config)
   }
@@ -1830,20 +1836,20 @@ normalize_workflow_trait_sections <- function(config) {
   config
 }
 
-#' Validate workflow paths
+#' Validate config paths
 #'
-#' @param paths_section Workflow `paths` section.
+#' @param paths_section Config `paths` section.
 #'
 #' @return Invisibly returns `NULL`.
 #' @keywords internal
-validate_workflow_paths <- function(paths_section) {
+validate_config_paths <- function(paths_section) {
   # Check only type and presence here so template paths can remain placeholders
-  # until the workflow is actually run.
+  # until the analysis is actually run.
   required_fields <- c("input_file", "out_root", "cache_dir")
   missing_fields <- setdiff(required_fields, names(paths_section))
   if (length(missing_fields) > 0) {
     stop(
-      sprintf("Workflow paths are missing field(s): %s", paste(missing_fields, collapse = ", ")),
+      sprintf("Config paths are missing field(s): %s", paste(missing_fields, collapse = ", ")),
       call. = FALSE
     )
   }
@@ -1851,7 +1857,7 @@ validate_workflow_paths <- function(paths_section) {
   for (field_name in required_fields) {
     field_value <- paths_section[[field_name]]
     if (!is.character(field_value) || length(field_value) != 1 || !nzchar(field_value)) {
-      stop(sprintf("Workflow path '%s' must be a single non-empty string.", field_name), call. = FALSE)
+      stop(sprintf("Config path '%s' must be a single non-empty string.", field_name), call. = FALSE)
     }
   }
 
@@ -1859,38 +1865,38 @@ validate_workflow_paths <- function(paths_section) {
   # available during command-line runs.
   if (!is.null(paths_section$log_file) &&
     (!is.character(paths_section$log_file) || length(paths_section$log_file) != 1 || !nzchar(paths_section$log_file))) {
-    stop("Workflow path 'log_file' must be NULL or a single non-empty string.", call. = FALSE)
+    stop("Config path 'log_file' must be NULL or a single non-empty string.", call. = FALSE)
   }
 }
 
-#' Validate workflow flags
+#' Validate execution flags
 #'
-#' @param workflow_section Workflow `workflow` section.
+#' @param execution_section Config `execution` section.
 #'
 #' @return Invisibly returns `NULL`.
 #' @keywords internal
-validate_workflow_flags <- function(workflow_section,
-                                    paths_section) {
-  # Require the known workflow booleans explicitly so any misshapen YAML values
-  # fail before the workflow wrapper interprets them.
+validate_execution_flags <- function(execution_section,
+                                     paths_section) {
+  # Require the known execution booleans explicitly so any misshapen YAML values
+  # fail before the script wrapper interprets them.
   flag_fields <- c("strict_length_pdf", "run_multiplier_model", "write_log")
   for (field_name in flag_fields) {
-    field_value <- workflow_section[[field_name]]
+    field_value <- execution_section[[field_name]]
     if (!is.logical(field_value) || length(field_value) != 1 || is.na(field_value)) {
-      stop(sprintf("Workflow flag '%s' must be TRUE or FALSE.", field_name), call. = FALSE)
+      stop(sprintf("Execution flag '%s' must be TRUE or FALSE.", field_name), call. = FALSE)
     }
   }
 
   # Require a log-file path only when file logging is explicitly enabled.
-  if (isTRUE(workflow_section$write_log) &&
+  if (isTRUE(execution_section$write_log) &&
     (is.null(paths_section$log_file) || !nzchar(paths_section$log_file))) {
-    stop("A 'paths.log_file' value is required when 'workflow.write_log = TRUE'.", call. = FALSE)
+    stop("A 'paths.log_file' value is required when 'execution.write_log = TRUE'.", call. = FALSE)
   }
 }
 
 #' Validate the tuning section
 #'
-#' @param tuning_section Workflow `tuning` section.
+#' @param tuning_section Config `tuning` section.
 #'
 #' @return Invisibly returns `NULL`.
 #' @keywords internal
@@ -1965,7 +1971,7 @@ validate_tuning_section <- function(tuning_section) {
 
 #' Validate the cache section
 #'
-#' @param cache_section Workflow `cache` section.
+#' @param cache_section Config `cache` section.
 #'
 #' @return Invisibly returns `NULL`.
 #' @keywords internal
@@ -1986,7 +1992,7 @@ validate_cache_section <- function(cache_section) {
 
 #' Validate the similarity section
 #'
-#' @param similarity_section Workflow `similarity` section.
+#' @param similarity_section Config `similarity` section.
 #' @param registry_path Optional trait-registry path.
 #'
 #' @return Invisibly returns `NULL`.
@@ -2109,7 +2115,7 @@ validate_similarity_section <- function(similarity_section,
 
 #' Validate the benchmark section
 #'
-#' @param benchmark_section Workflow `benchmark` section.
+#' @param benchmark_section Config `benchmark` section.
 #'
 #' @return Invisibly returns `NULL`.
 #' @keywords internal
@@ -2139,7 +2145,7 @@ validate_benchmark_section <- function(benchmark_section) {
 
 #' Validate a simple stage section
 #'
-#' @param stage_section Workflow stage section.
+#' @param stage_section Config stage section.
 #' @param section_name Section name for error messages.
 #' @param worker_field Optional worker-field name.
 #'
@@ -2172,7 +2178,7 @@ validate_stage_section <- function(stage_section,
 
 #' Validate the admissibility section
 #'
-#' @param admissibility_section Workflow `admissibility` section.
+#' @param admissibility_section Config `admissibility` section.
 #' @param registry_path Optional trait-registry path.
 #'
 #' @return Invisibly returns `NULL`.
@@ -2194,7 +2200,7 @@ validate_admissibility_section <- function(admissibility_section,
   if (length(unknown_species) > 0) {
     stop(
       sprintf(
-        "Unknown workflow species trait name(s): %s",
+        "Unknown config species trait name(s): %s",
         paste(unknown_species, collapse = ", ")
       ),
       call. = FALSE
@@ -2211,7 +2217,7 @@ validate_admissibility_section <- function(admissibility_section,
   if (length(unknown_study) > 0) {
     stop(
       sprintf(
-        "Unknown workflow study trait name(s): %s",
+        "Unknown config study trait name(s): %s",
         paste(unknown_study, collapse = ", ")
       ),
       call. = FALSE
@@ -2294,7 +2300,7 @@ validate_admissibility_section <- function(admissibility_section,
 
 #' Validate the selection section
 #'
-#' @param selection_section Workflow `selection` section.
+#' @param selection_section Config `selection` section.
 #'
 #' @return Invisibly returns `NULL`.
 #' @keywords internal
@@ -2360,7 +2366,7 @@ validate_selection_section <- function(selection_section) {
 
 #' Validate the metalearner section
 #'
-#' @param metalearner_section Workflow `metalearner` section.
+#' @param metalearner_section Config `metalearner` section.
 #'
 #' @return Invisibly returns `NULL`.
 #' @keywords internal
@@ -2392,9 +2398,12 @@ validate_metalearner_section <- function(metalearner_section) {
   normalized_method_settings <- normalize_meta_policy_method_settings(
     metalearner_section$method_settings %||% NULL
   )
+  method_catalog <- meta_policy_method_catalog(
+    method_settings = normalized_method_settings
+  )
   allowed_methods <- c(
     "super_learner",
-    available_meta_policy_super_methods(method_settings = normalized_method_settings)
+    method_catalog$methods
   )
 
   for (field_name in c("selection_method", "uncertainty_method")) {
@@ -2454,9 +2463,7 @@ validate_metalearner_section <- function(metalearner_section) {
       metalearner_section$selection_super_methods,
       use.names = FALSE
     )))
-    allowed_super_methods <- available_meta_policy_super_methods(
-      method_settings = normalized_method_settings
-    )
+    allowed_super_methods <- method_catalog$methods
     bad_methods <- setdiff(methods_now, allowed_super_methods)
     if (length(bad_methods) > 0) {
       stop(
@@ -2694,7 +2701,7 @@ validate_metalearner_method_settings <- function(method_settings) {
 
 #' Validate the post-selection conformal section
 #'
-#' @param conformal_section Workflow `post_selection_conformal` section.
+#' @param conformal_section Config `post_selection_conformal` section.
 #'
 #' @return Invisibly returns `NULL`.
 #' @keywords internal
@@ -2746,7 +2753,7 @@ validate_post_selection_conformal_section <- function(conformal_section) {
 
 #' Validate the policy section
 #'
-#' @param policy_section Workflow `policy` section.
+#' @param policy_section Config `policy` section.
 #' @param registry_path Optional trait-registry path.
 #'
 #' @return Invisibly returns `NULL`.
@@ -2806,7 +2813,7 @@ validate_policy_section <- function(policy_section,
 
 #' Validate the policy-list section
 #'
-#' @param policies_section Workflow `policies` section.
+#' @param policies_section Config `policies` section.
 #' @param policy_path Optional policy-registry path.
 #'
 #' @return Invisibly returns `NULL`.
@@ -2820,7 +2827,7 @@ validate_policy_list_section <- function(policies_section,
   policies_section$active <- active_values
 
   if (length(active_values) == 0) {
-    stop("Workflow policies must include at least one active policy.", call. = FALSE)
+    stop("Policies must include at least one active policy.", call. = FALSE)
   }
 
   known_values <- policy_names(policy_path = policy_path)
@@ -2833,13 +2840,13 @@ validate_policy_list_section <- function(policies_section,
   )
   if (length(unknown_values) > 0) {
     stop(
-      sprintf("Unknown workflow policy name(s): %s", paste(unknown_values, collapse = ", ")),
+      sprintf("Unknown config policy name(s): %s", paste(unknown_values, collapse = ", ")),
       call. = FALSE
     )
   }
 }
 
-#' Validate one workflow weight map
+#' Validate one config weight map
 #'
 #' @param weight_map Named numeric weight map.
 #' @param scope Trait scope passed to [trait_names()].
@@ -2853,24 +2860,24 @@ validate_weight_map <- function(weight_map,
   # Require named finite nonnegative weights and check the names directly
   # against the relevant trait registry scope.
   if (length(weight_map) == 0) {
-    stop(sprintf("Workflow %s trait weights must include at least one trait.", scope), call. = FALSE)
+    stop(sprintf("%s trait weights must include at least one trait.", scope), call. = FALSE)
   }
 
   weight_names <- names(weight_map)
   if (is.null(weight_names) || any(!nzchar(weight_names))) {
-    stop(sprintf("Workflow %s trait weights must be named by trait.", scope), call. = FALSE)
+    stop(sprintf("%s trait weights must be named by trait.", scope), call. = FALSE)
   }
 
   weight_values <- suppressWarnings(as.numeric(unlist(weight_map, use.names = FALSE)))
   if (any(!is.finite(weight_values) | weight_values < 0)) {
-    stop(sprintf("Workflow %s trait weights must be finite and >= 0.", scope), call. = FALSE)
+    stop(sprintf("%s trait weights must be finite and >= 0.", scope), call. = FALSE)
   }
 
   unknown_values <- setdiff(weight_names, trait_names(scope = scope, registry_path = registry_path))
   if (length(unknown_values) > 0) {
     stop(
       sprintf(
-        "Unknown workflow %s trait name(s): %s",
+        "Unknown config %s trait name(s): %s",
         scope,
         paste(unknown_values, collapse = ", ")
       ),

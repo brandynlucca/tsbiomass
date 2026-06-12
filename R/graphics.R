@@ -97,7 +97,7 @@ save_plot_if_possible <- function(filename,
         plot.title = ggplot2::element_blank(),
         plot.subtitle = ggplot2::element_blank()
       )
-    # Freeze ggplot objects to grobs before saving so repeated workflow
+    # Freeze ggplot objects to grobs before saving so repeated scripted
     # renders cannot accidentally reuse later plot state across files.
     plot <- ggplot2::ggplotGrob(plot)
   }
@@ -522,9 +522,10 @@ plot_ordination_clusters <- function(points_tbl,
   cluster_name <- cluster_col
   if (!(cluster_name %in% names(plot_df))) {
     cluster_candidates <- c("nmds_cluster_id", "nmds_cluster", "species_cluster_id", "policy_cluster_id")
-    cluster_name <- cluster_candidates[cluster_candidates %in% names(plot_df)][[1]]
+    matched <- cluster_candidates[cluster_candidates %in% names(plot_df)]
+    cluster_name <- if (length(matched) > 0L) matched[[1L]] else NA_character_
   }
-  if (is.null(cluster_name) || length(cluster_name) == 0 || !(cluster_name %in% names(plot_df))) {
+  if (is.null(cluster_name) || length(cluster_name) == 0 || is.na(cluster_name) || !(cluster_name %in% names(plot_df))) {
     cluster_name <- "ordination_cluster"
     plot_df[[cluster_name]] <- "All models"
   }
@@ -3397,7 +3398,7 @@ plot_field_missing <- function(field_tbl) {
   # missingness audit bar chart.
   plot_df <- tibble::as_tibble(field_tbl)
   if (nrow(plot_df) == 0 || !all(c("field", "missing_fraction") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Missingness Across Key Workflow Metadata Fields", subtitle = "Required plotting fields were not available.", x = "Missing fraction", y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() + ggplot2::labs(title = "Missingness Across Key Metadata Fields", subtitle = "Required plotting fields were not available.", x = "Missing fraction", y = NULL) + ggplot2::theme_minimal(base_size = 11))
   }
   ggplot2::ggplot(
     plot_df |>
@@ -3407,7 +3408,7 @@ plot_field_missing <- function(field_tbl) {
     ggplot2::geom_col(fill = "#756bb1", width = 0.7) +
     ggplot2::scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
     ggplot2::labs(
-      title = "Missingness Across Key Workflow Metadata Fields",
+      title = "Missingness Across Key Metadata Fields",
       x = "Missing fraction",
       y = NULL
     ) +
@@ -3459,8 +3460,7 @@ plot_ordination_cluster_hulls <- function(points_tbl,
                                           hull_tbl,
                                           cluster_col = "policy_cluster_id",
                                           reference_col = "is_reference",
-                                          label_col = "species_name",
-                                          title = "NMDS Clusters with Hulls") {
+                                          label_col = "species_name") {
   # Normalize the point and hull tables once before layering the hull polygons,
   # ordination cloud, and highlighted reference labels.
   point_df <- tibble::as_tibble(points_tbl)
@@ -3471,9 +3471,10 @@ plot_ordination_cluster_hulls <- function(points_tbl,
   cluster_name <- cluster_col
   if (!(cluster_name %in% names(point_df))) {
     cluster_candidates <- c("nmds_cluster_id", "nmds_cluster", "species_cluster_id", "policy_cluster_id")
-    cluster_name <- cluster_candidates[cluster_candidates %in% names(point_df)][[1]]
+    matched2 <- cluster_candidates[cluster_candidates %in% names(point_df)]
+    cluster_name <- if (length(matched2) > 0L) matched2[[1L]] else NA_character_
   }
-  if (is.null(cluster_name) || length(cluster_name) == 0 || !(cluster_name %in% names(point_df))) {
+  if (is.null(cluster_name) || length(cluster_name) == 0 || is.na(cluster_name) || !(cluster_name %in% names(point_df))) {
     cluster_name <- "ordination_cluster"
     point_df[[cluster_name]] <- "All models"
   }

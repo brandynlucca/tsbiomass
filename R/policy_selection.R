@@ -54,7 +54,7 @@ add_policy_intervals <- function(policy_tbl,
                                  structural_uncertainty_weight = 1,
                                  q_col = "q_abs_log",
                                  prediction_col = "multiplier_pred") {
-  # Normalize the incoming table once so all downstream workflows compute the
+  # Normalize the incoming table once so all downstream pipelines compute the
   # same interval columns from the same conformal-plus-structural formula.
   out <- tibble::as_tibble(policy_tbl)
 
@@ -990,7 +990,7 @@ run_policy_selection <- function(species_performance_table,
     select_ref = select_ref,
     tolerance = config_values$equivalence_tolerance,
     n_boot = config_values$n_boot,
-    seed = config_values$seed + 3L
+    seed = if (!is.null(config_values$seed)) config_values$seed + 3L else NULL
   )
   equiv_sets <- build_equivalence_sets(
     select_ref = select_ref,

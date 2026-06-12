@@ -471,8 +471,8 @@ benchmark_one_anchor <- function(anchor_row,
     config = config
   )
 
-  # Pass the workflow-selected policy set straight into the package policy
-  # layer so the workflow script does not need local wrapper functions.
+  # Pass the selected policy set straight into the package policy
+  # layer so the packaged script does not need local wrapper functions.
   policy_args <- list(
     eval_obj = eval_obj,
     ordination_info = ordination_info,
@@ -844,7 +844,7 @@ run_policy_benchmark <- function(candidate_models,
   }
   scheme_count <- sum(c(run_pseudo_anchor, run_species_block, run_group_block))
   estimated_policy_rows <- total_anchors * max(1L, length(policies)) * n_branch_filters * max(1L, scheme_count)
-  workflow_progress(
+  report_progress(
     progress,
     "Policy benchmark workload: ",
     total_anchors,

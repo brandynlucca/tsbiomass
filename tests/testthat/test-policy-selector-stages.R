@@ -320,19 +320,19 @@ test_that("recommendation overlap support summary respects configured traits", {
   expect_equal(out$n_same_swimbladder_donors[[1]], 1L)
 })
 
-test_that("Scorecard and WorkflowConfig show compact console summaries", {
+test_that("Scorecard and Configurer show compact console summaries", {
   scorecard_output <- capture.output(show(empty_scorecard()))
   expect_true(any(grepl("^Scorecard$", scorecard_output)))
   expect_true(any(grepl("selected_rows:", scorecard_output, fixed = TRUE)))
   expect_false(any(grepl("@selected", scorecard_output, fixed = TRUE)))
 
   cfg_path <- file.path(pkgload::pkg_path(), "inst", "templates", "swfscfish_config.yaml")
-  cfg <- as_configurer(read_workflow_config(
+  cfg <- as_configurer(read_config(
     cfg_path,
     base_dir = dirname(cfg_path)
   ))
   cfg_output <- capture.output(show(cfg))
-  expect_true(any(grepl("^WorkflowConfig$", cfg_output)))
+  expect_true(any(grepl("^Configurer$", cfg_output)))
   expect_true(any(grepl("species_traits:", cfg_output, fixed = TRUE)))
   expect_false(any(grepl("@data", cfg_output, fixed = TRUE)))
 })

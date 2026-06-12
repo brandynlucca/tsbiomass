@@ -1,7 +1,7 @@
 #' Referee and Scorecard S7 Classes
 #'
 #' `Referee` is the post-prediction recommendation layer for the main
-#' policy-transfer workflow. It consumes a [PolicySelector], an optional
+#' policy-transfer pipeline. It consumes a [PolicySelector], an optional
 #' [PolicyLearner], and the resulting [PolicyPredictions] bundle from
 #' [predict()] on the selector. It does not rerun a parallel recommendation
 #' policy engine. Instead, it turns the already selected anchor-policy results
@@ -14,7 +14,7 @@
 #' rows when partial output is allowed.
 #'
 #' Typical use is:
-#' - run the staged selector workflow
+#' - run the staged selector pipeline
 #' - optionally attach a [PolicyLearner]
 #' - call [predict()] on the selector
 #' - pass that prediction bundle into `Referee`

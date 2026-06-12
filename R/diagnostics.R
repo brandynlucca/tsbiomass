@@ -311,7 +311,7 @@ compute_pivot_profile <- function(models_df,
 #' Compute the biological leverage profile
 #'
 #' Combines the anchor length distribution with the ensemble-mean
-#' backscattering cross-section per unit mass so the workflow can identify the
+#' backscattering cross-section per unit mass so the package can identify the
 #' length range where TS mismatch has the largest biomass consequence.
 #'
 #' @param models_df Model table containing standardized slopes and intercepts.
@@ -528,7 +528,7 @@ summarize_missing_mix <- function(admissible_df,
 #'
 #' @param candidates A [Candidates] object with stored similarity and
 #'   admissibility state.
-#' @param config Optional workflow or anchor-config overrides.
+#' @param config Optional config or anchor-config overrides.
 #' @param registry_path Optional trait-registry path.
 #' @param progress Optional logical scalar.
 #'
@@ -627,7 +627,7 @@ build_candidates_uncertainty_diagnostics <- function(candidates,
   points_missing_df <- tibble::as_tibble((candidates@ordination$model$points_missing %||% tibble::tibble()))
   anchor_results <- (candidates@admissibility)$anchors %||% list()
 
-  workflow_progress(progress, "Building anchor-level similarity ablation diagnostics.")
+  report_progress(progress, "Building anchor-level similarity ablation diagnostics.")
 
   context_rows <- list()
   ablation_rows <- list()
@@ -641,7 +641,7 @@ build_candidates_uncertainty_diagnostics <- function(candidates,
     }
 
     anchor_species <- as.character(anchor_row$species_name[[1]] %||% anchor_id)
-    workflow_progress(progress, "Ablating similarity components for anchor '", anchor_species, "'.")
+    report_progress(progress, "Ablating similarity components for anchor '", anchor_species, "'.")
 
     baseline_summary <- summarize_evaluation(baseline_eval)
     baseline_missing <- if (nrow(points_missing_df) > 0 && nrow(tibble::as_tibble(baseline_eval$admissible_df)) > 0) {
@@ -676,7 +676,7 @@ build_candidates_uncertainty_diagnostics <- function(candidates,
     baseline_spread <- suppressWarnings(as.numeric(baseline_summary$log_spread[[1]]))
 
     # Rebuild the anchor screen after dropping each active component so the
-    # stored deltas are tied to the operational admissibility workflow.
+    # stored deltas are tied to the operational admissibility pipeline.
     for (j in seq_len(nrow(component_tbl))) {
       component_name <- as.character(component_tbl$component[[j]])
       component_type <- as.character(component_tbl$component_type[[j]])
@@ -759,7 +759,7 @@ build_candidates_uncertainty_diagnostics <- function(candidates,
     ) |>
     dplyr::arrange(component_rank_global, dplyr::desc(importance_score), component)
 
-  workflow_progress(progress, "Finished anchor-level similarity ablation diagnostics.")
+  report_progress(progress, "Finished anchor-level similarity ablation diagnostics.")
 
   updated_admissibility <- candidates@admissibility
   updated_admissibility$uncertainty_diagnostics <- list(

@@ -967,7 +967,7 @@ run_policy_sensitivity_reference <- function(candidate_models,
   anchor_selected <- tibble::tibble()
 
   # Rebuild one selector from the scenario-specific benchmark state so the
-  # sensitivity workflow retains per-anchor selected policies and multipliers,
+  # sensitivity pipeline retains per-anchor selected policies and multipliers,
   # not just the global cross-species policy ranking.
   template_data <- if ((inherits(candidate_template, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_template, Candidates), error = function(e) FALSE)))) {
     list(

@@ -1,6 +1,6 @@
 #' Policy Simulator S7 Class
 #'
-#' `PolicySimulator` wraps the policy-sensitivity workflow around a staged
+#' `PolicySimulator` wraps the policy-sensitivity pipeline around a staged
 #' [PolicySelector]. It owns the scenario specifications, the rerun benchmark
 #' map, and the bound scenario manifest/tables used for downstream sensitivity
 #' summaries.
@@ -252,7 +252,7 @@ S7::method(simulate_generic, PolicySimulator) <- function(object,
   progress <- progress %||%
     policy_selector_config_value(cfg, "progress", sections = "simulation") %||%
     FALSE
-  workflow_progress(progress, "Running policy sensitivity scenarios.")
+  report_progress(progress, "Running policy sensitivity scenarios.")
 
   # Build the scenario set from the selector's current candidate-model table
   # unless the caller supplied an explicit scenario list.
@@ -344,7 +344,7 @@ S7::method(simulate_generic, PolicySimulator) <- function(object,
     config = cfg
   )
   bound_tables <- bind_sensitivity_data(sensitivity_map)
-  workflow_progress(progress, "Completed policy sensitivity scenarios.")
+  report_progress(progress, "Completed policy sensitivity scenarios.")
 
   policy_simulator_rebuild(
     object,

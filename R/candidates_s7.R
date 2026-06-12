@@ -3,7 +3,7 @@
 #' `Candidates` is the main staged data object for downstream transferability
 #' analysis. It reads the study table, ingests any configured species metadata
 #' sources, enriches the species table, and prepares the final row-level
-#' candidate-model table used by later workflow steps.
+#' candidate-model table used by later later stages.
 #'
 #' Construction is explicit. Callers must provide either:
 #' - a complete candidate-ingest config list,
@@ -312,7 +312,7 @@ candidate_optional_path <- function(path,
 #'   `Candidates`.
 #'
 #' @keywords internal
-workflow_to_candidates_config <- function(config) {
+candidates_config_from_config <- function(config) {
   cfg <- config@data
 
   candidate_cfg <- cfg$candidates %||% list()
@@ -328,7 +328,7 @@ workflow_to_candidates_config <- function(config) {
     prepare = candidate_cfg$prepare %||% cfg$prepare %||% list(),
     anchors = candidate_cfg$anchors %||% cfg$anchors %||% list(),
     registry_path = candidate_cfg$registry_path %||% cfg$registry_path %||% NULL,
-    workflow_config = cfg
+    config_data = cfg
   )
 }
 
@@ -338,7 +338,7 @@ workflow_to_candidates_config <- function(config) {
 #' @param base_dir Base directory used to resolve relative paths.
 #' @param registry_path Optional trait-registry path.
 #' @param policy_path Optional policy-registry path used only when a full
-#'   workflow config must first be validated.
+#'   config must first be validated.
 #'
 #' @return A normalized candidate-ingest specification list.
 #'
@@ -347,10 +347,10 @@ normalize_candidates_config <- function(config,
                                         base_dir = getwd(),
                                         registry_path = NULL,
                                         policy_path = NULL) {
-  # Accept either a full workflow config object, a YAML file, or a direct
+  # Accept either a full config object, a YAML file, or a direct
   # candidate-ingest list and reduce everything to one common schema.
   if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
-    config <- workflow_to_candidates_config(config)
+    config <- candidates_config_from_config(config)
   } else if (is.character(config) &&
     length(config) == 1 &&
     file.exists(config) &&
@@ -358,15 +358,15 @@ normalize_candidates_config <- function(config,
     config_path <- path_absolute(config, base_dir = base_dir)
     raw_cfg <- yaml::read_yaml(config_path)
     if (is.list(raw_cfg) &&
-      all(c("paths", "workflow", "tuning", "policies") %in% names(raw_cfg)) &&
+      all(c("paths", "execution", "tuning", "policies") %in% names(raw_cfg)) &&
       any(c("similarity", "policy") %in% names(raw_cfg))) {
-      workflow_cfg <- as_configurer(
+      cfg_data <- as_configurer(
         raw_cfg,
         base_dir = dirname(config_path),
         registry_path = registry_path,
         policy_path = policy_path
       )
-      config <- workflow_to_candidates_config(workflow_cfg)
+      config <- candidates_config_from_config(cfg_data)
     } else {
       config <- raw_cfg
       base_dir <- dirname(config_path)
@@ -374,7 +374,7 @@ normalize_candidates_config <- function(config,
         config <- merge_cfg(
           config$candidates,
           list(
-            workflow_config = config
+            config_data = config
           )
         )
       }
@@ -453,7 +453,7 @@ normalize_candidates_config <- function(config,
       require_selection = candidate_refresh_value(config$anchors$require_selection %||% TRUE, "anchors.require_selection")
     ),
     base_dir = normalizePath(base_dir, winslash = "/", mustWork = FALSE),
-    workflow_config = config$workflow_config %||% NULL,
+    config_data = config$config_data %||% NULL,
     registry_path = if (is.null(registry_path) && !is.null(config$registry_path)) {
       path_absolute(config$registry_path, base_dir = base_dir)
     } else if (!is.null(registry_path)) {
@@ -631,14 +631,14 @@ candidates_configuration <- function(candidates) {
   if (!(inherits(candidates, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidates, Candidates), error = function(e) FALSE)))) {
     return(NULL)
   }
-  cfg <- (candidates@spec)$workflow_config %||% NULL
+  cfg <- (candidates@spec)$config_data %||% NULL
   if (is.list(cfg)) {
     return(cfg)
   }
   NULL
 }
 
-candidates_workflow_config <- function(candidates) {
+candidates_config_data <- function(candidates) {
   candidates_configuration(candidates)
 }
 
@@ -653,13 +653,13 @@ candidates_workflow_config <- function(candidates) {
 configured_traits <- function(candidate_specification,
                               scope = c("all", "species", "study")) {
   scope <- match.arg(scope)
-  workflow_config <- candidate_specification$workflow_config %||% list()
-  if (!is.list(workflow_config) || length(workflow_config) == 0) {
+  config_data <- candidate_specification$config_data %||% list()
+  if (!is.list(config_data) || length(config_data) == 0) {
     return(character(0))
   }
 
-  similarity_section <- workflow_config$similarity %||% list()
-  policy_section <- workflow_config$policy %||% list()
+  similarity_section <- config_data$similarity %||% list()
+  policy_section <- config_data$policy %||% list()
 
   resolve_trait_names <- function(x) {
     if (is.null(x)) {
@@ -886,7 +886,7 @@ build_candidates_payload <- function(spec) {
   # Merge the staged source tables into one enriched species table using the
   # caller-specified precedence order and optional registry overrides. When no
   # species sources are configured, keep going with an empty registry-shaped
-  # species table so study-only workflows remain valid.
+  # species table so study-only pipelines remain valid.
   species_db <- if (length(source_dbs) == 0) {
     candidate_empty_species_db(registry_path = spec$registry_path)
   } else {
@@ -1010,16 +1010,6 @@ candidates_with_similarity_matrix <- function(candidates,
     data_table = tibble::as_tibble(similarity_matrix$candidate_models),
     candidate_specification = candidates@spec
   )
-  stored_similarity <- similarity_matrix
-
-  # Avoid persisting second full copies of the row-level model table and the
-  # expanded intermediate matrices on the `Candidates` object. They can be
-  # rebuilt from the trimmed `@candidate_models` plus the retained trait
-  # specifications when a later step truly needs them.
-  stored_similarity$candidate_models <- NULL
-  stored_similarity$species_data <- NULL
-  stored_similarity$study_data <- NULL
-
   Candidates(
     spec = candidates@spec,
     study_db = candidates@study_db,
@@ -1028,7 +1018,7 @@ candidates_with_similarity_matrix <- function(candidates,
     species_db = candidates@species_db,
     candidate_models = candidate_models_now,
     reference_anchors = candidates@reference_anchors,
-    similarity_matrix = stored_similarity,
+    similarity_matrix = similarity_matrix,
     gower_distances = list(),
     ordination = list(),
     admissibility = list(),
@@ -1050,18 +1040,6 @@ candidates_with_gower_distances <- function(candidates,
   # Rebuild the object explicitly so the distance-building step stores its
   # matrix bundle on the staged candidate object while preserving every other
   # prepared layer.
-  stored_distances <- gower_distances
-
-  # Persist symmetric distance payloads in compact `dist` form on the object.
-  # The anchor-screening code still keeps the asymmetric access paths it needs
-  # (`study_dist` and `species_dist_model`) as matrices.
-  if (is.matrix(stored_distances$combined_dist %||% NULL)) {
-    stored_distances$combined_dist <- stats::as.dist(stored_distances$combined_dist)
-  }
-  if (is.matrix(stored_distances$species_dist %||% NULL)) {
-    stored_distances$species_dist <- stats::as.dist(stored_distances$species_dist)
-  }
-
   Candidates(
     spec = candidates@spec,
     study_db = candidates@study_db,
@@ -1071,7 +1049,7 @@ candidates_with_gower_distances <- function(candidates,
     candidate_models = candidates@candidate_models,
     reference_anchors = candidates@reference_anchors,
     similarity_matrix = candidates@similarity_matrix,
-    gower_distances = stored_distances,
+    gower_distances = gower_distances,
     ordination = list(),
     admissibility = list(),
     similarity_tuning = candidates@similarity_tuning
@@ -1367,7 +1345,7 @@ S7::method(show_generic, Candidates) <- function(object) {
 #'
 #' @examples
 #' \dontrun{
-#' candidates <- as_candidates(workflow_config_s7)
+#' candidates <- as_candidates(config_data_s7)
 #' plot(candidates)
 #' plot(candidates, type = "ordination", dissimilarity = "species", view = "vectors")
 #' plot(candidates, type = "admissibility", view = "overlap_profile")

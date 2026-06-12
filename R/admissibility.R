@@ -27,13 +27,13 @@ anchor_field <- function(config,
 #' @keywords internal
 default_anchor_config <- function(config = NULL) {
   if ((inherits(config, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Candidates), error = function(e) FALSE)))) {
-    config <- candidates_workflow_config(config)
+    config <- candidates_config_data(config)
   }
-  workflow_cfg <- if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
+  cfg_data <- if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
     config@data
   } else if (
     is.list(config) &&
-      all(c("paths", "workflow", "tuning", "policies") %in% names(config)) &&
+      all(c("paths", "execution", "tuning", "policies") %in% names(config)) &&
       any(c("similarity", "policy", "admissibility") %in% names(config))
   ) {
     config
@@ -41,16 +41,16 @@ default_anchor_config <- function(config = NULL) {
     list()
   }
 
-  similarity_cfg <- workflow_cfg$similarity %||% list()
-  admissibility_cfg <- workflow_cfg$admissibility %||% list()
-  policy_cfg <- similarity_cfg$policy %||% workflow_cfg$policy %||% list()
+  similarity_cfg <- cfg_data$similarity %||% list()
+  admissibility_cfg <- cfg_data$admissibility %||% list()
+  policy_cfg <- similarity_cfg$policy %||% cfg_data$policy %||% list()
   direct_cfg <- if (is.null(config) || is.list(config) || (is.character(config) && length(config) == 1)) {
     read_similarity_config(config)
   } else {
     list()
   }
   direct_overrides <- if (is.list(direct_cfg) &&
-    !any(c("paths", "workflow", "tuning", "policies", "similarity", "policy", "admissibility") %in% names(direct_cfg))) {
+    !any(c("paths", "execution", "tuning", "policies", "similarity", "policy", "admissibility") %in% names(direct_cfg))) {
     direct_cfg
   } else {
     list()
@@ -136,7 +136,7 @@ default_anchor_config <- function(config = NULL) {
         similarity_cfg$exact_frequency %||%
         policy_cfg$require_same_frequency_label %||%
         NULL,
-      seed = workflow_cfg$tuning$seed %||% workflow_cfg$benchmark$seed %||% NULL
+      seed = cfg_data$tuning$seed %||% cfg_data$benchmark$seed %||% NULL
     ),
     safe_overrides
   )
@@ -243,6 +243,10 @@ calculate_range_overlap <- function(a_min, a_max, b_min, b_max) {
 #'
 #' @keywords internal
 calculate_range_overlap_vec <- function(a_min, a_max, b_min, b_max) {
+  a_min <- suppressWarnings(as.numeric(a_min))
+  a_max <- suppressWarnings(as.numeric(a_max))
+  a_min <- if (length(a_min) == 0) NA_real_ else a_min[[1]]
+  a_max <- if (length(a_max) == 0) NA_real_ else a_max[[1]]
   b_min <- suppressWarnings(as.numeric(b_min))
   b_max <- suppressWarnings(as.numeric(b_max))
   out <- rep(NA_real_, length(b_min))
@@ -345,6 +349,36 @@ add_anchor_overlap <- function(candidate_models,
                                config) {
   # Pull the anchor scalars once so the row-wise overlap calculations below can
   # work against simple local values.
+  anchor_numeric_scalar <- function(df,
+                                    col_nm) {
+    if (!is.character(col_nm) ||
+      length(col_nm) != 1 ||
+      is.na(col_nm) ||
+      !nzchar(col_nm) ||
+      !col_nm %in% names(df)) {
+      return(NA_real_)
+    }
+    value <- suppressWarnings(as.numeric(df[[col_nm]][[1]]))
+    if (length(value) == 0) {
+      return(NA_real_)
+    }
+    value[[1]]
+  }
+  candidate_numeric_col <- function(df,
+                                    col_nm) {
+    if (!is.character(col_nm) ||
+      length(col_nm) != 1 ||
+      is.na(col_nm) ||
+      !nzchar(col_nm) ||
+      !col_nm %in% names(df)) {
+      return(rep(NA_real_, nrow(df)))
+    }
+    value <- suppressWarnings(as.numeric(df[[col_nm]]))
+    if (length(value) == 0) {
+      return(rep(NA_real_, nrow(df)))
+    }
+    value
+  }
   species_col <- anchor_field(config, "species_name")
   genus_col <- anchor_field(config, "genus")
   family_col <- anchor_field(config, "family")
@@ -392,10 +426,10 @@ add_anchor_overlap <- function(candidate_models,
   } else {
     NA_character_
   }
-  anchor_len_min <- suppressWarnings(as.numeric(anchor_row[[len_min_col]][[1]]))
-  anchor_len_max <- suppressWarnings(as.numeric(anchor_row[[len_max_col]][[1]]))
-  anchor_dep_min <- suppressWarnings(as.numeric(anchor_row[[dep_min_col]][[1]]))
-  anchor_dep_max <- suppressWarnings(as.numeric(anchor_row[[dep_max_col]][[1]]))
+  anchor_len_min <- anchor_numeric_scalar(anchor_row, len_min_col)
+  anchor_len_max <- anchor_numeric_scalar(anchor_row, len_max_col)
+  anchor_dep_min <- anchor_numeric_scalar(anchor_row, dep_min_col)
+  anchor_dep_max <- anchor_numeric_scalar(anchor_row, dep_max_col)
 
   out <- tibble::as_tibble(candidate_models)
   out$overlap_same_species <- !is.na(out[[species_col]]) & out[[species_col]] == anchor_species
@@ -507,14 +541,14 @@ add_anchor_overlap <- function(candidate_models,
   out$length_overlap_fraction <- calculate_range_overlap_vec(
     a_min = anchor_len_min,
     a_max = anchor_len_max,
-    b_min = out[[len_min_col]],
-    b_max = out[[len_max_col]]
+    b_min = candidate_numeric_col(out, len_min_col),
+    b_max = candidate_numeric_col(out, len_max_col)
   )
   out$depth_overlap_fraction <- calculate_range_overlap_vec(
     a_min = anchor_dep_min,
     a_max = anchor_dep_max,
-    b_min = out[[dep_min_col]],
-    b_max = out[[dep_max_col]]
+    b_min = candidate_numeric_col(out, dep_min_col),
+    b_max = candidate_numeric_col(out, dep_max_col)
   )
 
   out
@@ -935,7 +969,7 @@ build_anchor_table <- function(candidate_models,
                                anchor_pdf,
                                config) {
   # Apply each standardized length-form model to the anchor length PDF so the
-  # screening workflow works from one comparable sigma_bs quantity.
+  # screening pipeline works from one comparable sigma_bs quantity.
   slope_col <- anchor_field(config, "slope")
   intercept_col <- anchor_field(config, "intercept")
 
@@ -1124,8 +1158,16 @@ build_admissible_pool <- function(model_eval,
   # the study-cell level before final admissible weights are normalized.
   study_cell_col <- anchor_field(config, "study_cell")
   id_chr_col <- anchor_field(config, "model_id_chr")
+  model_eval <- tibble::as_tibble(model_eval)
+  if (!study_cell_col %in% names(model_eval)) {
+    model_eval[[study_cell_col]] <- if (id_chr_col %in% names(model_eval)) {
+      as.character(model_eval[[id_chr_col]])
+    } else {
+      rep(NA_character_, nrow(model_eval))
+    }
+  }
 
-  admissible_df <- tibble::as_tibble(model_eval) |>
+  admissible_df <- model_eval |>
     dplyr::filter(admissible, is.finite(w_combined), w_combined > 0, is.finite(biomass_multiplier_if_replace)) |>
     dplyr::mutate(!!study_cell_col := dplyr::coalesce(.data[[study_cell_col]], .data[[id_chr_col]])) |>
     dplyr::arrange(dplyr::desc(w_combined))
@@ -1196,7 +1238,7 @@ screen_one_anchor_admissibility <- function(anchor_row,
   if (!is.null(candidates_obj)) {
     # Reuse object-stored similarity state whenever it is already present and
     # the caller did not explicitly override it with `sim_obj`. This keeps the
-    # staged workflow from rebuilding the same matrices inside anchor loops.
+    # staged pipeline from rebuilding the same matrices inside anchor loops.
     if (is.null(sim_obj) && length(candidates_obj@similarity_matrix) > 0) {
       sim_obj <- candidates_obj@similarity_matrix
     }
@@ -1402,17 +1444,17 @@ screen_admissibility <- function(reference_anchors = NULL,
   candidates_obj <- if ((inherits(candidate_models, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_models, Candidates), error = function(e) FALSE)))) candidate_models else NULL
   if (!is.null(candidates_obj)) {
     if (is.null(config)) {
-      config <- candidates_workflow_config(candidates_obj)
+      config <- candidates_config_data(candidates_obj)
     }
     if (is.null(reference_anchors)) {
       reference_anchors <- candidates_obj@reference_anchors
     }
     candidate_models <- tibble::as_tibble(candidates_obj@candidate_models)
   }
-  cfg_data <- workflow_data(config)
-  cache_path <- cache_path %||% workflow_value(cfg_data, "cache_path", sections = "admissibility") %||% NULL
-  refresh <- refresh %||% workflow_value(cfg_data, "refresh", sections = "admissibility") %||% FALSE
-  progress <- progress %||% workflow_value(cfg_data, "progress", sections = "admissibility") %||% FALSE
+  cfg_data <- config_data(config)
+  cache_path <- cache_path %||% config_value(cfg_data, "cache_path", sections = "admissibility") %||% NULL
+  refresh <- refresh %||% config_value(cfg_data, "refresh", sections = "admissibility") %||% FALSE
+  progress <- progress %||% config_value(cfg_data, "progress", sections = "admissibility") %||% FALSE
   if (!is.null(cache_path) &&
     (!is.character(cache_path) || length(cache_path) != 1 || !nzchar(cache_path))) {
     stop("'cache_path' must be NULL or a single file path.", call. = FALSE)
@@ -1428,7 +1470,7 @@ screen_admissibility <- function(reference_anchors = NULL,
   }
 
   if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
-    workflow_progress(progress, "Loading cached anchor admissibility from ", cache_path, ".")
+    report_progress(progress, "Loading cached anchor admissibility from ", cache_path, ".")
     cached_result <- readRDS(cache_path)
     if (!is.null(candidates_obj)) {
       return(candidates_with_admissibility(candidates_obj, cached_result))
@@ -1437,7 +1479,7 @@ screen_admissibility <- function(reference_anchors = NULL,
   }
 
   cfg <- default_anchor_config(config)
-  workflow_progress(
+  report_progress(
     progress,
     "Screening admissibility for ",
     nrow(reference_anchors),
@@ -1561,7 +1603,7 @@ screen_admissibility <- function(reference_anchors = NULL,
     all_gates = dplyr::bind_rows(all_gates),
     anchor_summary = dplyr::bind_rows(all_summary)
   )
-  workflow_progress(progress, "Completed anchor admissibility screening.")
+  report_progress(progress, "Completed anchor admissibility screening.")
 
   # Cache the full in-memory result so diagnostics can be reused without
   # re-running the full anchor-by-anchor screen.

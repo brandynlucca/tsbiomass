@@ -202,14 +202,14 @@ prepare_recommendation_context <- function(candidate_models,
   raw_config <- config
   if (!is.null(selector_obj)) {
     if (config_missing) {
-      raw_config <- candidates_workflow_config(selector_obj@candidates)
+      raw_config <- candidates_config_data(selector_obj@candidates)
       config <- policy_selector_anchor_config(selector_obj)
     }
     candidates_obj <- selector_obj@candidates
     candidate_models <- candidates_obj@candidate_models
   } else if (!is.null(candidates_obj)) {
     if (config_missing) {
-      raw_config <- candidates_workflow_config(candidates_obj)
+      raw_config <- candidates_config_data(candidates_obj)
       config <- merge_cfg(
         default_anchor_config(list()),
         policy_selector_similarity_defaults(candidates_obj)

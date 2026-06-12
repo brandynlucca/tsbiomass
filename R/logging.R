@@ -1,4 +1,4 @@
-#' Build a workflow logger
+#' Build a run logger
 #'
 #' Creates a simple logger object that always writes to the console and can
 #' optionally mirror messages to a log file.
@@ -10,11 +10,11 @@
 #' @return A logger list.
 #'
 #' @export
-build_workflow_logger <- function(log_file = NULL,
+build_run_logger <- function(log_file = NULL,
                                   write_log = FALSE,
                                   append = FALSE) {
   # Keep file logging optional because the console stream is already the
-  # primary workflow output during command-line execution.
+  # primary console output during command-line execution.
   if (!is.logical(write_log) || length(write_log) != 1 || is.na(write_log)) {
     stop("'write_log' must be TRUE or FALSE.", call. = FALSE)
   }
@@ -47,12 +47,12 @@ build_workflow_logger <- function(log_file = NULL,
   )
 }
 
-#' Write one workflow log message
+#' Write one run log message
 #'
 #' Emits a message to the console and, when enabled, appends the same message
-#' to the workflow log file.
+#' to the run log file.
 #'
-#' @param logger Logger object from [build_workflow_logger()].
+#' @param logger Logger object from [build_run_logger()].
 #' @param ... Message fragments.
 #' @param timestamp Logical scalar. If `TRUE`, prefix the file log entry with a
 #'   timestamp.
@@ -66,7 +66,7 @@ log_message <- function(logger,
   # Build the message text once so the console and optional file log stay in
   # sync.
   if (!is.list(logger) || is.null(logger$write_log)) {
-    stop("'logger' must be a logger object returned by 'build_workflow_logger()'.", call. = FALSE)
+    stop("'logger' must be a logger object returned by 'build_run_logger()'.", call. = FALSE)
   }
   if (!is.logical(timestamp) || length(timestamp) != 1 || is.na(timestamp)) {
     stop("'timestamp' must be TRUE or FALSE.", call. = FALSE)
@@ -93,18 +93,18 @@ log_message <- function(logger,
   invisible(NULL)
 }
 
-#' Log a workflow header
+#' Log a run header
 #'
-#' Writes a standard workflow header block through a workflow logger.
+#' Writes a standard run header block through a run logger.
 #'
-#' @param logger Logger object from [build_workflow_logger()].
+#' @param logger Logger object from [build_run_logger()].
 #' @param title Header title text.
 #'
 #' @return Invisibly returns `NULL`.
 #'
 #' @export
 log_header <- function(logger,
-                       title = "TS Biomass Model Transferability Workflow") {
+                       title = "TS Biomass Model Transferability Run") {
   # Emit a small standard header so command-line runs have a recognizable
   # start marker in both console and optional file logs.
   log_message(logger, "", timestamp = FALSE)

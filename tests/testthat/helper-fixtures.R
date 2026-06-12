@@ -20,7 +20,7 @@ policy_registry_path <- function() {
   tsbiomass_test_file("templates", "policy_registry.json")
 }
 
-minimal_workflow_config <- function() {
+minimal_config_data <- function() {
   list(
     paths = list(
       input = "input.xlsx",
@@ -28,9 +28,9 @@ minimal_workflow_config <- function() {
       cache_folder = "cache",
       support_folder = "supplemental",
       area_file = "fao.csv",
-      log_path = "logs/workflow.log"
+      log_path = "logs/run.log"
     ),
-    workflow = list(
+    execution = list(
       strict_pdf = FALSE,
       run_multiplier = FALSE,
       write_log = FALSE
@@ -45,15 +45,42 @@ minimal_workflow_config <- function() {
       kernel_scale = 4,
       alpha_range = list(from = 0.1, to = 0.9),
       kernel_scale_range = list(from = 1, to = 8),
-      key_metadata_max = 0.25,
       core_weight_cutoff = 0.8,
       conformal_alpha = 0.10,
       species_traits = list(genus = 1, family = 0.5),
       study_traits = list(frequency = 1, fao_area = 1),
       coherence = list(
-        length = list(mode = "overlap", weight = 2, min = 0.25),
-        depth = list(mode = "overlap", weight = 1, min = 0.25),
+        length = list(mode = "overlap", weight = 2),
+        depth = list(mode = "overlap", weight = 1),
         frequency = list(mode = "overlap", weight = 1, gap = 60)
+      )
+    ),
+    policy = list(
+      alpha = 0.8,
+      k_species = 4,
+      k_study = 4,
+      frequency_mode = "overlap",
+      exact_frequency = FALSE,
+      frequency_gap = 60,
+      length_overlap_min = 0.25,
+      depth_overlap_min = 0.25,
+      key_metadata_max = 0.25,
+      length_weight = 2,
+      depth_weight = 1,
+      frequency_weight = 1,
+      core_weight_cutoff = 0.8,
+      conformal_alpha = 0.10,
+      species_traits = list(genus = 1, family = 0.5),
+      study_traits = list(frequency = 1, fao_area = 1)
+    ),
+    admissibility = list(
+      key_metadata_max = 0.25,
+      species_traits = character(0),
+      study_traits = character(0),
+      coherence = list(
+        length = list(mode = "overlap", min = 0.25),
+        depth = list(mode = "overlap", min = 0.25),
+        frequency = list(mode = "none", gap = 60)
       )
     ),
     policies = list(

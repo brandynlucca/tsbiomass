@@ -1,6 +1,6 @@
 #' Policy Learner S7 Class
 #'
-#' `PolicyLearner` wraps the meta-policy and super-learner workflow around a
+#' `PolicyLearner` wraps the meta-policy and super-learner pipeline around a
 #' staged [PolicySelector]. It owns the cross-fitted meta-policy benchmark,
 #' final learner fit, and post-selection calibration state used to rank
 #' anchor-policy predictions by predicted transferability score.
@@ -156,7 +156,7 @@ as_policy_learner <- function(selector,
 policy_learner_config <- function(object,
                                   config = NULL) {
   cfg <- merge_cfg(
-    default_workflow_config(use_canonical_names = TRUE),
+    default_config(use_canonical_names = TRUE),
     merge_cfg(
       object@selector@config,
       merge_cfg(object@config, policy_selector_config_data(config))
@@ -357,7 +357,16 @@ S7::method(crossfit, PolicyLearner) <- function(object,
     policy_selector_config_value(cfg, "workers", sections = c("metalearner", "policy_learner"))
   progress <- progress %||%
     policy_selector_config_value(cfg, "progress", sections = c("metalearner", "policy_learner"))
-  workflow_progress(progress, "Cross-fitting policy learner.")
+  report_progress(
+    progress,
+    sprintf(
+      "Cross-fitting policy learner: method=%s, %d folds, %d workers, %d benchmark rows.",
+      selection_method %||% "super_learner",
+      n_folds %||% 10L,
+      workers %||% 1L,
+      nrow(policy_perf)
+    )
+  )
   group_col <- resolve_meta_policy_group_col(policy_perf, group_col = group_col)
 
   # Materialize the derived training frame before fitting so the prepared data
@@ -386,9 +395,10 @@ S7::method(crossfit, PolicyLearner) <- function(object,
     metalearner_loss = metalearner_loss,
     method_settings = method_settings,
     workers = workers,
-    package_dir = package_dir
+    package_dir = package_dir,
+    progress = progress
   )
-  workflow_progress(progress, "Completed policy-learner cross-fit.")
+  report_progress(progress, "Completed policy-learner cross-fit.")
 
   # Persist both the cross-fit bundle and the resolved controls so later fit
   # and calibration stages can reuse the exact same settings.
@@ -491,7 +501,7 @@ S7::method(fit, PolicyLearner) <- function(object,
     )
   progress <- progress %||%
     policy_selector_config_value(cfg, "progress", sections = c("metalearner", "policy_learner"))
-  workflow_progress(progress, "Fitting final policy learner.")
+  report_progress(progress, "Fitting final policy learner.")
   group_col <- resolve_meta_policy_group_col(policy_perf, group_col = group_col)
 
   # Reuse the stored prepared frame when available; otherwise rebuild it from
@@ -521,6 +531,10 @@ S7::method(fit, PolicyLearner) <- function(object,
 
   # Fit the final learner on the full prepared table after any required group
   # metadata have been joined back in.
+  report_progress(
+    progress,
+    sprintf("Fitting final policy learner on %d rows (method=%s) ...", nrow(training_data), selection_method)
+  )
   final_model <- fit_meta_policy_learner(
     training_data = training_data,
     method = selection_method,
@@ -532,9 +546,10 @@ S7::method(fit, PolicyLearner) <- function(object,
     seed = seed,
     super_methods = selection_super_methods,
     metalearner_loss = metalearner_loss,
-    method_settings = method_settings
+    method_settings = method_settings,
+    progress = isTRUE(progress)
   )
-  workflow_progress(progress, "Completed final policy-learner fit.")
+  report_progress(progress, "Completed final policy-learner fit.")
 
   # Store the final learner and the controls needed by downstream prediction
   # and uncertainty-calibration stages.
@@ -596,7 +611,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   # conformal calibration.
   progress <- progress %||%
     policy_selector_config_value(cfg, "progress", sections = c("metalearner", "selection", "post_selection_conformal", "policy_learner"))
-  workflow_progress(progress, "Calibrating learner uncertainty.")
+  report_progress(progress, "Calibrating learner uncertainty.")
   predictions <- tibble::as_tibble(predictions %||% crossfit_obj$result$predictions %||% tibble::tibble())
   outcome_col <- outcome_col %||% crossfit_obj$outcome_col %||%
     policy_selector_config_value(cfg, "outcome_col", sections = c("metalearner", "policy_learner"))
@@ -801,7 +816,8 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
         super_methods = crossfit_obj$selection_super_methods,
         metalearner_loss = crossfit_obj$metalearner_loss %||% policy_selector_config_value(cfg, "metalearner_loss", sections = c("metalearner", "policy_learner")),
         method_settings = method_settings,
-        workers = policy_selector_config_value(cfg, "workers", sections = c("metalearner", "policy_learner"))
+        workers = policy_selector_config_value(cfg, "workers", sections = c("metalearner", "policy_learner")),
+        progress = progress
       )
 
       width_training <- prepare_meta_policy_data(
@@ -862,6 +878,13 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     width_methods_to_try <- width_methods_to_try[
       !is.na(width_methods_to_try) & nzchar(width_methods_to_try)
     ]
+    report_progress(
+      progress,
+      sprintf(
+        "Fitting conditional uncertainty width model: %d selected rows, %d features.",
+        nrow(meta_selected), length(width_feature_cols)
+      )
+    )
     width_attempt <- NULL
     width_errors <- character(0)
     for (method_now in width_methods_to_try) {
@@ -988,7 +1011,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       median_interval_log_width = stats::median(2 * learned_q_abs_log, na.rm = TRUE),
       .groups = "drop"
     )
-  workflow_progress(progress, "Completed learner uncertainty calibration.")
+  report_progress(progress, "Completed learner uncertainty calibration.")
 
   policy_learner_rebuild(
     object,

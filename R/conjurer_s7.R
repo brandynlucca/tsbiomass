@@ -2,7 +2,7 @@
 #'
 #' `Conjurer` runs a targeted missing-study-metadata uncertainty analysis on a
 #' staged [PolicySelector] and an optional fitted [PolicyLearner]. It keeps the
-#' fitted workflow fixed, disables only the missingness admissibility gate for
+#' fitted selector state fixed, disables only the missingness admissibility gate for
 #' the auxiliary analysis, imputes one selected study trait at a time, and
 #' reruns the downstream recommendation path across repeated stochastic draws.
 #'
@@ -211,7 +211,7 @@ conjurer_analysis_config <- function(object,
   )
   defaults <- policy_selector_similarity_defaults(object@selector@candidates)
 
-  # Pull the selector defaults first so the analysis uses the fitted workflow.
+  # Pull the selector defaults first so the analysis uses the fitted selector state.
   anchor_cfg <- policy_selector_anchor_config(object@selector, config = cfg)
   anchor_cfg$study_traits <- anchor_cfg$study_traits %||% defaults$study_traits %||% list()
   anchor_cfg$species_traits <- anchor_cfg$species_traits %||% defaults$species_traits %||% list()
@@ -618,7 +618,7 @@ conjurer_trait_draw_results <- function(object,
   }
 
   # Build the donor-distance map once because it does not change across draws.
-  workflow_progress(progress, "Conjurer: building donor map for trait '", trait_name, "'.")
+  report_progress(progress, "Conjurer: building donor map for trait '", trait_name, "'.")
   dist_mat <- conjurer_trait_distance_matrix(
     object = object,
     models_tbl = models_tbl,
@@ -900,7 +900,7 @@ S7::method(simulate_generic, Conjurer) <- function(object,
   }
 
   # Build the operational baseline prediction once for later switch-rate totals.
-  workflow_progress(progress, "Conjurer: building baseline predictions.")
+  report_progress(progress, "Conjurer: building baseline predictions.")
   baseline_predictions <- stats::predict(object@selector, learner = object@learner)
 
   trait_results <- list()
@@ -910,7 +910,7 @@ S7::method(simulate_generic, Conjurer) <- function(object,
 
   for (trait_idx in seq_along(traits)) {
     trait_name <- traits[[trait_idx]]
-    workflow_progress(
+    report_progress(
       progress,
       "Conjurer: running trait ", trait_idx, "/", length(traits),
       " (", trait_name, ")."
@@ -946,7 +946,7 @@ S7::method(simulate_generic, Conjurer) <- function(object,
     tibble::tibble()
   }
 
-  workflow_progress(progress, "Conjurer: completed missingness uncertainty analysis.")
+  report_progress(progress, "Conjurer: completed missingness uncertainty analysis.")
 
   conjurer_rebuild(
     object,

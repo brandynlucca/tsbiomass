@@ -482,7 +482,7 @@ bind_uncertainty_rows <- function(ctx_rows,
 
 #' Summarize slope dependence
 #'
-#' Builds the slope-dependence tables used in the paper workflow without
+#' Builds the slope-dependence tables used in the paper script without
 #' writing any files. The summaries are based on non-group equations and are
 #' collapsed to the study-cell level before group-level comparisons are made.
 #'
@@ -538,7 +538,7 @@ summarize_slope_effect <- function(candidate_models,
 
   # Derive the generalized-model flag when the prepared model table does not
   # already carry one. This uses the current package table shape rather than
-  # the old workflow's `common` column.
+  # the old script's `common` column.
   if (!group_col %in% names(models_tbl)) {
     generic_labels <- c(
       "physoclists", "physostomes", "clupeoids", "clupeids",

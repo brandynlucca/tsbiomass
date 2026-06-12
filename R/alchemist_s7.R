@@ -8,7 +8,7 @@
 #' admissibility kernel weighting, and policy selection strategies.
 #'
 #' Construction requires a fully ingested [Candidates] object. Configuration
-#' is either inherited from the `Candidates` workflow config (alchemist or
+#' is either inherited from the `Candidates` config (alchemist or
 #' similarity section) or supplied directly as a list or YAML path.
 #'
 #' @examples
@@ -41,7 +41,7 @@ NULL
 
 # ── Config normalization ───────────────────────────────────────────────────────
 
-workflow_to_alchemist_config <- function(source) {
+alchemist_config_from_config <- function(source) {
   cfg <- if (.is_candidates_obj(source)) {
     candidates_configuration(source) %||% list()
   } else if (inherits(source, "S7_object") &&
@@ -59,8 +59,11 @@ workflow_to_alchemist_config <- function(source) {
   ml   <- cfg$metalearner %||% list()
 
   list(
-    species_traits   = alch$species_traits %||% sim$species_traits %||% list(),
-    study_traits     = alch$study_traits   %||% sim$study_traits   %||% list(),
+    species_traits      = alch$species_traits      %||% sim$species_traits %||% list(),
+    study_traits        = alch$study_traits        %||% sim$study_traits   %||% list(),
+    coherence           = alch$coherence           %||% sim$coherence      %||% list(),
+    taxonomic_distance  = alch$taxonomic_distance  %||% FALSE,
+    feature_type        = alch$feature_type        %||% "gower",
     learner = list(
       methods           = alch$learner$methods           %||% ml$selection_super_methods %||% NULL,
       inner_folds       = as.integer(alch$learner$inner_folds %||% ml$inner_folds %||% 5L),
@@ -70,16 +73,17 @@ workflow_to_alchemist_config <- function(source) {
       method_settings   = alch$learner$method_settings   %||% ml$method_settings  %||% NULL,
       workers           = as.integer(alch$learner$workers %||% ml$workers %||% 1L)
     ),
-    registry_path  = alch$registry_path %||% cfg$registry_path %||% NULL,
-    progress       = alch$progress %||% FALSE,
-    workflow_config = cfg
+    distill_workers = as.integer(alch$distill_workers %||% 1L),
+    registry_path   = alch$registry_path %||% cfg$registry_path %||% NULL,
+    progress        = alch$progress %||% FALSE,
+    config_data = cfg
   )
 }
 
 normalize_alchemist_config <- function(config, candidates = NULL) {
   if (is.null(config)) {
     config <- if (!is.null(candidates)) {
-      workflow_to_alchemist_config(candidates)
+      alchemist_config_from_config(candidates)
     } else {
       list()
     }
@@ -87,11 +91,11 @@ normalize_alchemist_config <- function(config, candidates = NULL) {
     (inherits(config, "S7_object") &&
       exists("Configurer", inherits = TRUE) &&
       isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
-    config <- workflow_to_alchemist_config(config)
+    config <- alchemist_config_from_config(config)
   } else if (is.character(config) && length(config) == 1 && file.exists(config)) {
     raw <- yaml::read_yaml(config)
     cfg_obj <- tryCatch(as_configurer(raw), error = function(e) NULL)
-    config <- if (!is.null(cfg_obj)) workflow_to_alchemist_config(cfg_obj) else raw
+    config <- if (!is.null(cfg_obj)) alchemist_config_from_config(cfg_obj) else raw
   } else if (!is.list(config)) {
     stop(
       "'config' must be NULL, a list, a YAML path, a `Candidates`, or a `Configurer`.",
@@ -105,6 +109,8 @@ normalize_alchemist_config <- function(config, candidates = NULL) {
   config$learner$outcome_transform <- config$learner$outcome_transform %||% "identity"
   config$learner$lambda_rule       <- config$learner$lambda_rule       %||% "min"
   config$learner$workers           <- as.integer(config$learner$workers %||% 1L)
+  config$distill_workers           <- as.integer(config$distill_workers %||% 1L)
+  config$feature_type              <- config$feature_type              %||% "gower"
 
   config
 }
@@ -208,12 +214,72 @@ as_alchemist <- function(candidates, config = NULL, ...) {
   )
 }
 
+# ── Trait normalization and set-expansion helpers ─────────────────────────────
+
+# Map raw ocean_basin strings to canonical lowercase basin codes.
+# "North Atlantic Ocean", "Atlantic Ocean", "atlantic" all → "atlantic".
+# Values containing no recognized basin keyword become NA.
+# Multiple basins are preserved as ";"-joined codes ("atlantic;pacific").
+normalize_alchemist_ocean_basin <- function(x) {
+  keywords <- c("atlantic", "pacific", "mediterranean", "indian", "southern", "arctic")
+  x_lower  <- stringr::str_to_lower(stringr::str_squish(as.character(x)))
+  vapply(x_lower, function(raw) {
+    if (is.na(raw) || !nzchar(raw)) return(NA_character_)
+    parts   <- stringr::str_trim(strsplit(raw, "[;,]")[[1L]])
+    matched <- character(0)
+    for (kw in keywords) {
+      if (any(grepl(paste0("\\b", kw, "\\b"), parts))) matched <- c(matched, kw)
+    }
+    if (length(matched) > 0L) paste(sort(unique(matched)), collapse = ";")
+    else NA_character_
+  }, character(1), USE.NAMES = FALSE)
+}
+
+# Validate fao_area strings and keep only recognised FAO major fishing area
+# codes, dropping garbage values like "0", "37.4", or "hatchery".
+normalize_alchemist_fao_area <- function(x) {
+  allowed <- c("1","2","3","4","5","6","7","8","18","21","27","31",
+               "34","37","41","47","48","51","57","58","61","67","71",
+               "77","81","87","88")
+  x_sq <- stringr::str_squish(as.character(x))
+  vapply(x_sq, function(raw) {
+    if (is.na(raw) || !nzchar(raw)) return(NA_character_)
+    parts <- stringr::str_trim(strsplit(raw, ";")[[1L]])
+    nums  <- suppressWarnings(as.integer(parts))
+    valid <- as.character(nums[!is.na(nums) & as.character(nums) %in% allowed])
+    if (length(valid) > 0L) paste(sort(unique(valid)), collapse = ";")
+    else NA_character_
+  }, character(1), USE.NAMES = FALSE)
+}
+
+# Compute pairwise distance matrices for one trait column.
+# Numeric and single-value categoricals return one named matrix.
+# Set-type columns (any value contains ";") are split and each unique value
+# becomes its own binary 0/1 indicator matrix, using the double-underscore
+# naming convention shared with expand_trait_block() in similarity.R.
+expand_multival_col <- function(x, col_fn, tr) {
+  x_chr <- as.character(x)
+  if (!any(grepl(";", x_chr, fixed = TRUE), na.rm = TRUE)) {
+    return(stats::setNames(list(col_fn(x)), paste0(".dist_", tr)))
+  }
+  vals_list <- strsplit(trimws(x_chr), "\\s*;\\s*")
+  all_vals  <- sort(unique(trimws(unlist(vals_list, use.names = FALSE))))
+  all_vals  <- all_vals[!is.na(all_vals) & nzchar(all_vals)]
+  mats <- lapply(all_vals, function(v) {
+    binary <- as.integer(
+      vapply(vals_list, function(rv) v %in% trimws(rv), logical(1))
+    )
+    col_fn(binary)
+  })
+  stats::setNames(mats, paste0(".dist_", tr, "__", gsub("[^A-Za-z0-9]", "_", all_vals)))
+}
+
 # ── Pair-level training data ───────────────────────────────────────────────────
 
 #' Normalized Gower distance for one trait column
 #'
 #' @keywords internal
-alchemist_gower_col <- function(x) {
+gower_col <- function(x) {
   if (is.numeric(x)) {
     finite_x <- x[is.finite(x)]
     r <- if (length(finite_x) >= 2L) diff(range(finite_x)) else 1
@@ -230,10 +296,40 @@ alchemist_gower_col <- function(x) {
   }
 }
 
+# Signed standardized difference matrix for one trait column.
+# Numeric traits: (a - b) / sd(x), with 0 imputed for non-finite pairs.
+# Categorical traits: delegates to gower_col (0 = match, 1 = mismatch).
+diff_col <- function(x) {
+  if (is.numeric(x)) {
+    s <- sd(x[is.finite(x)], na.rm = TRUE)
+    if (!is.finite(s) || s <= 0) s <- 1
+    mat <- outer(x, x, function(a, b) (a - b) / s)
+    mat[!is.finite(mat)] <- 0
+    mat
+  } else {
+    gower_col(x)
+  }
+}
+
+# Squared standardized difference matrix for one trait column (Mahalanobis).
+# Numeric traits: ((a - b) / sd(x))^2, with 0 imputed for non-finite pairs.
+# Categorical traits: Gower agreement squared (0^2=0, 1^2=1, 0.5^2=0.25).
+squared_col <- function(x) {
+  if (is.numeric(x)) {
+    s <- sd(x[is.finite(x)], na.rm = TRUE)
+    if (!is.finite(s) || s <= 0) s <- 1
+    mat <- outer(x, x, function(a, b) ((a - b) / s)^2)
+    mat[!is.finite(mat)] <- 0
+    mat
+  } else {
+    gower_col(x)^2
+  }
+}
+
 #' Build length PDF for one model row (uniform approximation)
 #'
 #' @keywords internal
-alchemist_anchor_pdf <- function(lo, hi, n = 400L) {
+anchor_pdf <- function(lo, hi, n = 400L) {
   lo <- suppressWarnings(as.numeric(lo))
   hi <- suppressWarnings(as.numeric(hi))
   if (!is.finite(lo) || !is.finite(hi) || lo <= 0 || hi <= 0) return(NULL)
@@ -258,22 +354,231 @@ alchemist_trait_names <- function(traits, models_df) {
   unique(nms)
 }
 
+# Taxonomic rank levels ordered from broad to specific.
+.ALCH_TAX_RANKS <- c("kingdom", "phylum", "class", "order", "family", "genus", "species")
+
+#' Compute a taxonomic/phylogenetic distance matrix for Alchemist pair features
+#'
+#' Attempts to build a continuous phylogenetic distance matrix using the Open
+#' Tree of Life API (`rotl`), exactly as [build_phylo_dist_from_species()] does
+#' in the similarity module. Falls back to a deterministic rank-based distance
+#' (`1 - deepest_shared_rank / n_ranks`) when rotl is unavailable or fails to
+#' match enough species.
+#'
+#' @param models_df Data frame of candidate models. Must contain at least one
+#'   of `species_name`, `species`, `genus`. Recognised taxonomic rank columns
+#'   (family, genus, species, etc.) are used for the rank-based fallback.
+#' @param tax_col_map Named character vector mapping canonical rank names to
+#'   actual column names in `models_df` (e.g. `c(family="family",
+#'   genus="genus", species="species_name")`). Ordered broadest-to-specific.
+#'
+#' @return Numeric n × n matrix, values in [0, 1], or `NULL` on total failure.
+#'
+#' @keywords internal
+tax_dist_mat <- function(models_df, tax_col_map) {
+  n <- nrow(models_df)
+
+  # ── Primary: Tree-of-Life phylogenetic distances ─────────────────────────────
+  species_col <- tax_col_map[["species"]] %||% tax_col_map[["species_name"]] %||% NULL
+  genus_col   <- tax_col_map[["genus"]]   %||% NULL
+
+  if (!is.null(species_col) && species_col %in% names(models_df)) {
+    sp_vec  <- as.character(models_df[[species_col]])
+    gn_vec  <- if (!is.null(genus_col) && genus_col %in% names(models_df)) {
+      as.character(models_df[[genus_col]])
+    } else NULL
+    phylo_mat <- tryCatch(
+      build_phylo_dist_from_species(sp_vec, genus_vec = gn_vec),
+      error = function(e) NULL
+    )
+    if (!is.null(phylo_mat)) return(phylo_mat)
+  }
+
+  # ── Fallback: rank-based distance ────────────────────────────────────────────
+  rank_cols <- unname(tax_col_map[tax_col_map %in% names(models_df)])
+  n_ranks   <- length(rank_cols)
+  if (n_ranks == 0L) return(NULL)
+
+  deepest <- matrix(0L, nrow = n, ncol = n)
+  for (r in seq_len(n_ranks)) {
+    vals  <- stringr::str_squish(as.character(models_df[[rank_cols[[r]]]]))
+    vals[!nzchar(vals)] <- NA_character_
+    agree <- outer(vals, vals, function(a, b) !is.na(a) & !is.na(b) & (a == b))
+    deepest[agree] <- r
+  }
+  mat       <- 1 - deepest / n_ranks
+  diag(mat) <- 0
+  mat
+}
+
+#' Compute pairwise coherence distance matrices
+#'
+#' Builds length-, depth-, and frequency-coherence feature matrices for all
+#' candidate model pairs. Missing columns or `mode = "none"` silently return
+#' `NULL` for that dimension. The asymmetric convention matches
+#' [build_pair_data()]: `mat[i, j]` is the coherence distance when
+#' model j is the anchor and model i is the donor.
+#'
+#' @param models_df Data frame of candidate models.
+#' @param coherence_cfg Named list with sub-lists `length`, `depth`, and
+#'   `frequency`, each carrying a `mode` character field (`"overlap"`,
+#'   `"literal"`, or `"none"`).
+#'
+#' @return Named list of matrices (or `NULL` entries for disabled dimensions).
+#'   Names: `length_coherence`, `depth_coherence`, `frequency_coherence`.
+#'
+#' @keywords internal
+coherence_mats <- function(models_df, coherence_cfg) {
+  len_mode   <- as.character(coherence_cfg$length$mode    %||% "none")
+  dep_mode   <- as.character(coherence_cfg$depth$mode     %||% "none")
+  freq_mode  <- as.character(coherence_cfg$frequency$mode %||% "none")
+
+  # source controls which column(s) back each interval dimension:
+  #   "best"    — study columns if present, species columns as fallback (default)
+  #   "study"   — study-level sampling range only
+  #   "species" — species-level biological range only
+  #   "both"    — compute independently for both; returns two keyed matrices
+  #               (e.g. length_coherence_study + length_coherence_species)
+  len_source <- as.character(coherence_cfg$length$source %||% "best")
+  dep_source <- as.character(coherence_cfg$depth$source  %||% "best")
+
+  n <- nrow(models_df)
+
+  resolve_col <- function(candidates) {
+    col <- intersect(candidates, names(models_df))
+    if (length(col) == 0L) NULL else col[[1L]]
+  }
+  resolve_num <- function(col) {
+    if (is.null(col)) return(rep(NA_real_, n))
+    v <- suppressWarnings(as.numeric(models_df[[col]]))
+    v[!is.finite(v)] <- NA_real_
+    v
+  }
+
+  interval_mat <- function(lo_vals, hi_vals, method) {
+    if (identical(method, "none")) return(NULL)
+    mat <- matrix(NA_real_, nrow = n, ncol = n)
+    diag(mat) <- 0
+    for (j in seq_len(n)) {
+      for (i in seq_len(n)) {
+        if (i == j) next
+        mat[i, j] <- interval_overlap_distance(
+          anchor_min = lo_vals[[j]], anchor_max = hi_vals[[j]],
+          cand_min   = lo_vals[[i]], cand_max   = hi_vals[[i]],
+          method     = method
+        )
+      }
+    }
+    mat
+  }
+
+  # Returns a named list of zero, one, or two matrices for a given dimension.
+  # For source != "both", the key is plain `{dim}_coherence`.
+  # For source == "both", keys are `{dim}_coherence_study` and
+  # `{dim}_coherence_species` (absent if the corresponding columns are missing).
+  make_dim_mats <- function(mode, source,
+                             study_lo, study_hi, sp_lo, sp_hi, dim_key) {
+    base_key <- paste0(dim_key, "_coherence")
+    if (identical(mode, "none")) return(stats::setNames(list(NULL), base_key))
+
+    if (identical(source, "both")) {
+      result <- list()
+      lo_s  <- resolve_num(resolve_col(study_lo))
+      hi_s  <- resolve_num(resolve_col(study_hi))
+      if (any(is.finite(lo_s)) && any(is.finite(hi_s)))
+        result[[paste0(base_key, "_study")]]   <- interval_mat(lo_s,  hi_s,  mode)
+      lo_sp <- resolve_num(resolve_col(sp_lo))
+      hi_sp <- resolve_num(resolve_col(sp_hi))
+      if (any(is.finite(lo_sp)) && any(is.finite(hi_sp)))
+        result[[paste0(base_key, "_species")]] <- interval_mat(lo_sp, hi_sp, mode)
+      if (length(result) == 0L) result[[base_key]] <- NULL
+      return(result)
+    }
+
+    lo_candidates <- switch(source,
+      study   = study_lo,
+      species = sp_lo,
+      c(study_lo, sp_lo)     # "best": prefer study
+    )
+    hi_candidates <- switch(source,
+      study   = study_hi,
+      species = sp_hi,
+      c(study_hi, sp_hi)
+    )
+    lo  <- resolve_num(resolve_col(lo_candidates))
+    hi  <- resolve_num(resolve_col(hi_candidates))
+    mat <- if (any(is.finite(lo)) && any(is.finite(hi))) interval_mat(lo, hi, mode) else NULL
+    stats::setNames(list(mat), base_key)
+  }
+
+  len_mats <- make_dim_mats(
+    len_mode, len_source,
+    "study_length_min",   "study_length_max",
+    "species_length_min", "species_length_max",
+    "length"
+  )
+  dep_mats <- make_dim_mats(
+    dep_mode, dep_source,
+    "study_depth_min",   "study_depth_max",
+    "species_depth_min", "species_depth_max",
+    "depth"
+  )
+
+  freq_mat <- NULL
+  if (!identical(freq_mode, "none")) {
+    freq_vals  <- resolve_num("frequency")
+    valid_freq <- freq_vals[is.finite(freq_vals) & freq_vals > 0]
+    if (length(valid_freq) >= 2L) {
+      freq_span <- compute_frequency_span(valid_freq)
+      if (is.finite(freq_span) && freq_span > 0) {
+        freq_mat <- matrix(NA_real_, nrow = n, ncol = n)
+        diag(freq_mat) <- 0
+        for (j in seq_len(n)) {
+          for (i in seq_len(n)) {
+            if (i == j) next
+            freq_mat[i, j] <- frequency_offset_distance(
+              anchor_freq = freq_vals[[j]],
+              cand_freq   = freq_vals[[i]],
+              method      = freq_mode,
+              freq_span   = freq_span
+            )
+          }
+        }
+      }
+    }
+  }
+
+  c(len_mats, dep_mats, list(frequency_coherence = freq_mat))
+}
+
 #' Build the pair-level supervised training table
 #'
 #' @param models_df Candidate-model data frame.
 #' @param species_trait_names Character vector of species trait column names.
 #' @param study_trait_names Character vector of study trait column names.
+#' @param coherence_cfg Optional named list with sub-lists `length`, `depth`,
+#'   `frequency`, each containing a `mode` field (`"overlap"`, `"literal"`,
+#'   or `"none"`). When `NULL` all coherence terms are skipped.
+#' @param taxonomic_distance Logical. When `TRUE`, detected taxonomic rank
+#'   traits (family, genus, species, etc.) are additionally represented as a
+#'   single `.dist_tax` rank-based distance feature alongside the individual
+#'   Gower features.
 #'
 #' @return A list with `training_data`, `feature_cols`, `all_traits`,
-#'   `species_trait_names`, `n_models`, `model_ids`, `donor_sigma_matrix`,
-#'   `target_sigma`, and `trait_mats`.
+#'   `species_trait_names`, `species_feature_cols`, `n_models`, `model_ids`,
+#'   `donor_sigma_matrix`, `target_sigma`, and `trait_mats`.
 #'
 #' @keywords internal
-build_alchemist_pair_data <- function(models_df,
-                                      species_trait_names,
-                                      study_trait_names,
-                                      progress = FALSE) {
-  all_traits <- unique(c(species_trait_names, study_trait_names))
+build_pair_data <- function(models_df,
+                            species_trait_names,
+                            study_trait_names,
+                            coherence_cfg      = NULL,
+                            taxonomic_distance = FALSE,
+                            feature_type       = c("gower", "difference",
+                                                   "mahalanobis"),
+                            progress           = FALSE) {
+  feature_type <- match.arg(feature_type)
+  all_traits   <- unique(c(species_trait_names, study_trait_names))
   if (length(all_traits) == 0L) {
     stop(
       "No configured traits found in `candidate_models`. Supply species_traits and/or study_traits.",
@@ -283,16 +588,123 @@ build_alchemist_pair_data <- function(models_df,
 
   n <- nrow(models_df)
 
-  workflow_progress(
+  col_fn <- switch(
+    feature_type,
+    difference   = diff_col,
+    mahalanobis  = squared_col,
+    gower_col
+  )
+  feat_label <- switch(
+    feature_type,
+    difference  = "signed-difference",
+    mahalanobis = "squared-difference (Mahalanobis)",
+    "Gower"
+  )
+
+  report_progress(
     progress,
-    "  [Alchemist] Computing per-trait Gower matrices (",
+    "  [Alchemist] Computing per-trait ", feat_label, " matrices (",
     length(all_traits), " traits, ", n, " models)..."
   )
-  trait_mats <- stats::setNames(
-    lapply(all_traits, function(tr) alchemist_gower_col(models_df[[tr]])),
-    paste0(".dist_", all_traits)
-  )
+
+  # Normalize known set-type columns and expand any semicolon-separated
+  # multi-value trait into one binary indicator matrix per unique value.
+  # Column naming: .dist_ocean_basin__atlantic, .dist_fao_area__77, etc.
+  # (double-underscore matches the expand_trait_block() convention in similarity.R)
+  trait_mat_list <- lapply(all_traits, function(tr) {
+    x <- models_df[[tr]]
+    if (identical(tr, "ocean_basin")) {
+      x <- normalize_alchemist_ocean_basin(x)
+    } else if (identical(tr, "fao_area")) {
+      x <- normalize_alchemist_fao_area(x)
+    } else if (identical(tr, "species") && "genus" %in% names(models_df)) {
+      # Use full binomial so same-epithet species in different genera are distinct
+      g        <- trimws(as.character(models_df[["genus"]]))
+      s        <- trimws(as.character(x))
+      combined <- paste(g, s)
+      combined[is.na(g) | g == "NA" | is.na(s) | s == "NA"] <- NA_character_
+      x <- combined
+    }
+    expand_multival_col(x, col_fn, tr)
+  })
+  trait_mats <- do.call(c, trait_mat_list)
+
+  n_feat_cols <- length(trait_mats)
+  if (n_feat_cols > length(all_traits)) {
+    report_progress(
+      progress,
+      "  [Alchemist]   Set-type expansion: ", length(all_traits), " traits -> ",
+      n_feat_cols, " binary indicator columns."
+    )
+  }
+
+  # ── Optional phylogenetic/taxonomic distance ──────────────────────────────────
+  # When enabled, recognized taxonomic rank columns (family, genus, species,
+  # etc.) are REPLACED by a single .dist_tax feature. The primary method is the
+  # rotl/Tree of Life cophenetic distance; rank-based scoring is the fallback.
+  if (isTRUE(taxonomic_distance)) {
+    tax_ranks_found <- intersect(.ALCH_TAX_RANKS, tolower(species_trait_names))
+    tax_col_map <- stats::setNames(
+      vapply(tax_ranks_found, function(rk) {
+        m <- species_trait_names[tolower(species_trait_names) == rk]
+        if (length(m) > 0L) m[[1L]] else NA_character_
+      }, character(1)),
+      tax_ranks_found
+    )
+    tax_col_map <- tax_col_map[!is.na(tax_col_map) & tax_col_map %in% names(models_df)]
+
+    if (length(tax_col_map) >= 1L) {
+      report_progress(
+        progress,
+        "  [Alchemist] Computing phylogenetic distance (rotl, fallback: rank-based) for: ",
+        paste(names(tax_col_map), collapse = ", "), "..."
+      )
+      tax_mat <- tax_dist_mat(models_df, tax_col_map)
+      if (!is.null(tax_mat)) {
+        trait_mats[[".dist_tax"]] <- tax_mat
+        # Remove individual taxonomic Gower features — they are now redundant
+        drop_cols <- paste0(".dist_", unname(tax_col_map))
+        trait_mats <- trait_mats[setdiff(names(trait_mats), drop_cols)]
+        report_progress(
+          progress,
+          "  [Alchemist]   Replaced ", paste(drop_cols, collapse = ", "),
+          " with .dist_tax."
+        )
+      } else {
+        report_progress(progress,
+          "  [Alchemist]   WARNING: phylogenetic distance failed; keeping individual Gower features.")
+      }
+    }
+  }
+
+  # ── Coherence features ───────────────────────────────────────────────────────
+  if (!is.null(coherence_cfg) && length(coherence_cfg) > 0L) {
+    report_progress(progress, "  [Alchemist] Computing coherence feature matrices...")
+    coh_mats <- coherence_mats(models_df, coherence_cfg)
+    for (coh_nm in names(coh_mats)) {
+      if (!is.null(coh_mats[[coh_nm]])) {
+        trait_mats[[paste0(".dist_", coh_nm)]] <- coh_mats[[coh_nm]]
+        report_progress(progress, "    + ", coh_nm, " added.")
+      }
+    }
+  }
+
   feature_cols <- names(trait_mats)
+
+  # Match both simple columns (.dist_ocean_basin) and all expanded indicator
+  # columns derived from a species trait (.dist_ocean_basin__atlantic, etc.)
+  species_feature_cols <- unlist(lapply(species_trait_names, function(tr) {
+    base   <- paste0(".dist_", tr)
+    prefix <- paste0(base, "__")
+    c(
+      if (base   %in% names(trait_mats)) base else character(0),
+      grep(paste0("^\\Q", prefix, "\\E"), names(trait_mats), value = TRUE)
+    )
+  }), use.names = FALSE)
+  species_feature_cols <- c(
+    species_feature_cols,
+    if (".dist_tax" %in% names(trait_mats)) ".dist_tax" else character(0)
+  )
 
   slope_vals     <- suppressWarnings(as.numeric(models_df$slope_len))
   intercept_vals <- suppressWarnings(as.numeric(models_df$intercept_len))
@@ -303,14 +715,14 @@ build_alchemist_pair_data <- function(models_df,
   len_max_col <- intersect(c("study_length_max", "length_maximum"), names(models_df))[[1]] %||% NULL
 
   anchor_pdfs <- lapply(seq_len(n), function(j) {
-    alchemist_anchor_pdf(
+    anchor_pdf(
       lo = if (!is.null(len_min_col)) models_df[[len_min_col]][[j]] else NA_real_,
       hi = if (!is.null(len_max_col)) models_df[[len_max_col]][[j]] else NA_real_
     )
   })
   n_valid_pdfs <- sum(!vapply(anchor_pdfs, is.null, logical(1)))
 
-  workflow_progress(
+  report_progress(
     progress,
     "  [Alchemist] Building ", n, "x", n,
     " donor sigma matrix (", n_valid_pdfs, "/", n,
@@ -327,7 +739,7 @@ build_alchemist_pair_data <- function(models_df,
       numeric(1)
     )
     if (progress && j %in% tick_at) {
-      workflow_progress(
+      report_progress(
         progress,
         "  [Alchemist]   sigma matrix: model ", j, "/", n,
         " (", round(j / n * 100), "%)"
@@ -344,7 +756,7 @@ build_alchemist_pair_data <- function(models_df,
     models_df$model_id_chr %||% models_df$model_id %||% as.character(seq_len(n))
   )
 
-  workflow_progress(
+  report_progress(
     progress,
     "  [Alchemist] Assembling donor-anchor model pairs (excluding same-species)..."
   )
@@ -384,7 +796,7 @@ build_alchemist_pair_data <- function(models_df,
     stop("No valid donor-anchor pairs found for distance learning.", call. = FALSE)
   }
 
-  workflow_progress(
+  report_progress(
     progress,
     "  [Alchemist] Binding ", k, " training pairs into tibble..."
   )
@@ -392,15 +804,17 @@ build_alchemist_pair_data <- function(models_df,
   rm(rows)
 
   list(
-    training_data       = training_data,
-    feature_cols        = feature_cols,
-    all_traits          = all_traits,
-    species_trait_names = species_trait_names,
-    n_models            = n,
-    model_ids           = model_ids,
-    donor_sigma_matrix  = donor_sigma_mat,
-    target_sigma        = target_sigma,
-    trait_mats          = trait_mats
+    training_data        = training_data,
+    feature_cols         = feature_cols,
+    all_traits           = all_traits,
+    species_trait_names  = species_trait_names,
+    species_feature_cols = species_feature_cols,
+    n_models             = n,
+    model_ids            = model_ids,
+    donor_sigma_matrix   = donor_sigma_mat,
+    target_sigma         = target_sigma,
+    trait_mats           = trait_mats,
+    feature_type         = feature_type
   )
 }
 
@@ -409,7 +823,7 @@ build_alchemist_pair_data <- function(models_df,
 #' Resolve and validate Alchemist base learner method names
 #'
 #' Accepts a character vector of method names and returns only those that are
-#' recognised by [alchemist_fit_base()]. Unrecognised names are silently
+#' recognised by [fit_base_learner()]. Unrecognised names are silently
 #' dropped with a warning.
 #'
 #' @param methods Character vector of requested method names.
@@ -417,7 +831,7 @@ build_alchemist_pair_data <- function(models_df,
 #' @return Character vector of validated method names, length >= 1.
 #'
 #' @keywords internal
-alchemist_resolve_methods <- function(methods) {
+resolve_learner_methods <- function(methods) {
   supported <- c(
     "glm",
     "glmnet_ridge", "glmnet_lasso", "glmnet_elasticnet",
@@ -461,7 +875,7 @@ alchemist_resolve_methods <- function(methods) {
 #'   columns.
 #'
 #' @keywords internal
-alchemist_feature_matrix <- function(data, feature_cols) {
+feature_matrix <- function(data, feature_cols) {
   mat <- as.matrix(data[, feature_cols, drop = FALSE])
   mode(mat) <- "numeric"
   mat[!is.finite(mat)] <- 0.5
@@ -481,7 +895,7 @@ alchemist_feature_matrix <- function(data, feature_cols) {
 #' @return Named list of resolved settings for this family+variant.
 #'
 #' @keywords internal
-alchemist_method_settings <- function(family, method, method_settings) {
+learner_method_settings <- function(family, method, method_settings) {
   ms <- as.list(method_settings[[family]] %||% list())
   variant <- sub(paste0("^", family, "_?"), "", method)
   if (nzchar(variant) && !is.null(ms$variants[[variant]])) {
@@ -499,21 +913,21 @@ alchemist_method_settings <- function(family, method, method_settings) {
 #'
 #' @param x_train Numeric feature matrix (training rows).
 #' @param y_train Numeric outcome vector (training rows), in transformed space.
-#' @param method Character method name. See [alchemist_resolve_methods()] for
+#' @param method Character method name. See [resolve_learner_methods()] for
 #'   the supported set.
 #' @param method_settings Named list of per-family tuning settings.
 #' @param seed Integer random seed.
 #' @param lambda_rule Character. One of `"lambda.1se"` or `"lambda.min"`.
 #'   Only used by glmnet-family methods.
 #'
-#' @return A list with class `"tsb_alchemist_base_learner"` and fields
+#' @return A list with class `"BaseLearner"` and fields
 #'   `fit`, `method`, `family`, `lambda_rule`.
 #'
 #' @keywords internal
-alchemist_fit_base <- function(x_train, y_train, method,
-                                method_settings = NULL,
-                                seed = 42L,
-                                lambda_rule = "lambda.1se") {
+fit_base_learner <- function(x_train, y_train, method,
+                             method_settings = NULL,
+                             seed            = 42L,
+                             lambda_rule     = "lambda.1se") {
   set.seed(as.integer(seed))
   family <- if (grepl("^glmnet", method)) "glmnet"
   else if (grepl("^ranger",  method)) "ranger"
@@ -521,7 +935,7 @@ alchemist_fit_base <- function(x_train, y_train, method,
   else if (grepl("^xgboost", method)) "xgboost"
   else method
 
-  ms <- alchemist_method_settings(family, method, method_settings %||% list())
+  ms <- learner_method_settings(family, method, method_settings %||% list())
 
   fit <- switch(
     family,
@@ -550,20 +964,34 @@ alchemist_fit_base <- function(x_train, y_train, method,
       df_train <- as.data.frame(x_train)
       df_train$.y <- y_train
       feat_nms <- setdiff(names(df_train), ".y")
-      smooth_terms <- vapply(feat_nms, function(v) {
+      terms <- vapply(feat_nms, function(v) {
         n_unique <- length(unique(df_train[[v]][is.finite(df_train[[v]])]))
-        k_val <- min(10L, max(3L, n_unique - 1L))
-        sprintf("s(%s, bs='tp', k=%d)", v, k_val)
+        if (n_unique <= 3L) {
+          v
+        } else {
+          k_val <- min(5L, n_unique - 1L)
+          sprintf("s(%s, bs='cr', k=%d)", v, k_val)
+        }
       }, character(1))
       gam_formula <- stats::as.formula(
-        paste(".y ~", paste(smooth_terms, collapse = " + "))
+        paste(".y ~", paste(terms, collapse = " + "))
       )
-      mgcv::gam(
-        formula    = gam_formula,
-        data       = df_train,
-        method     = ms$fit_method %||% "REML",
-        select     = isTRUE(ms$select_terms %||% TRUE)
-      )
+      n_train <- nrow(df_train)
+      if (n_train > 10000L) {
+        mgcv::bam(
+          formula  = gam_formula,
+          data     = df_train,
+          method   = ms$fit_method %||% "fREML",
+          discrete = TRUE
+        )
+      } else {
+        mgcv::gam(
+          formula = gam_formula,
+          data    = df_train,
+          method  = ms$fit_method %||% "REML",
+          select  = isTRUE(ms$select_terms %||% TRUE)
+        )
+      }
     },
     ranger = {
       df_train <- as.data.frame(x_train)
@@ -596,10 +1024,8 @@ alchemist_fit_base <- function(x_train, y_train, method,
       )
     },
     xgboost = {
-      dtrain <- xgboost::xgb.DMatrix(data = x_train, label = y_train)
-      xgboost::xgboost(
-        data             = dtrain,
-        nrounds          = as.integer(ms$nrounds          %||% 100L),
+      dtrain     <- xgboost::xgb.DMatrix(data = x_train, label = y_train)
+      xgb_params <- list(
         eta              = as.numeric(ms$eta              %||% 0.3),
         max_depth        = as.integer(ms$max_depth        %||% 6L),
         min_child_weight = as.numeric(ms$min_child_weight %||% 1),
@@ -608,8 +1034,13 @@ alchemist_fit_base <- function(x_train, y_train, method,
         lambda           = as.numeric(ms$lambda           %||% 1.0),
         alpha            = as.numeric(ms$alpha            %||% 0.0),
         objective        = "reg:squarederror",
-        verbose          = 0L,
         nthread          = 1L
+      )
+      xgboost::xgb.train(
+        params  = xgb_params,
+        data    = dtrain,
+        nrounds = as.integer(ms$nrounds %||% 100L),
+        verbose = 0L
       )
     },
     stop(sprintf("Unsupported Alchemist base learner: '%s'.", method), call. = FALSE)
@@ -622,7 +1053,7 @@ alchemist_fit_base <- function(x_train, y_train, method,
       family      = family,
       lambda_rule = lambda_rule
     ),
-    class = "tsb_alchemist_base_learner"
+    class = "BaseLearner"
   )
 }
 
@@ -632,39 +1063,45 @@ alchemist_fit_base <- function(x_train, y_train, method,
 #' trained in. Back-transformation to the original outcome scale is the
 #' responsibility of the caller.
 #'
-#' @param object A `"tsb_alchemist_base_learner"` from [alchemist_fit_base()].
+#' @param object A `"BaseLearner"` from [fit_base_learner()].
 #' @param x_new Numeric feature matrix (prediction rows).
 #'
 #' @return Numeric prediction vector, length `nrow(x_new)`.
 #'
 #' @keywords internal
-alchemist_predict_base <- function(object, x_new) {
-  if (!inherits(object, "tsb_alchemist_base_learner")) {
+predict_base_learner <- function(object, x_new) {
+  if (!inherits(object, "BaseLearner")) {
     stop("'object' must be a 'tsb_alchemist_base_learner'.", call. = FALSE)
   }
   df_new <- as.data.frame(x_new)
+  # Use getFromNamespace throughout to bypass S3 dispatch — on PSOCK workers
+  # imported packages are loaded as namespaces but not attached, so
+  # stats::predict cannot find their S3 methods via global dispatch.
   switch(
     object$family,
     glm = {
-      as.numeric(stats::predict(object$fit, newdata = df_new))
+      as.numeric(stats::predict.lm(object$fit, newdata = df_new))
     },
     glmnet = {
-      as.numeric(stats::predict(
-        object$fit, newx = x_new, s = object$lambda_rule %||% "lambda.1se"
-      ))
+      pfn <- utils::getFromNamespace("predict.cv.glmnet", "glmnet")
+      as.numeric(pfn(object$fit, newx = x_new, s = object$lambda_rule %||% "lambda.1se"))
     },
     gam = {
-      as.numeric(stats::predict(object$fit, newdata = df_new, type = "response"))
+      pfn <- utils::getFromNamespace("predict.gam", "mgcv")
+      as.numeric(pfn(object$fit, newdata = df_new, type = "response"))
     },
     ranger = {
-      as.numeric(stats::predict(object$fit, data = df_new)$predictions)
+      pfn <- utils::getFromNamespace("predict.ranger", "ranger")
+      as.numeric(pfn(object$fit, data = df_new)$predictions)
     },
     rpart = {
-      as.numeric(stats::predict(object$fit, newdata = df_new))
+      pfn <- utils::getFromNamespace("predict.rpart", "rpart")
+      as.numeric(pfn(object$fit, newdata = df_new))
     },
     xgboost = {
       dtest <- xgboost::xgb.DMatrix(data = x_new)
-      as.numeric(stats::predict(object$fit, newdata = dtest))
+      pfn   <- utils::getFromNamespace("predict.xgb.Booster", "xgboost")
+      as.numeric(pfn(object$fit, dtest))
     },
     stop(sprintf("Unsupported Alchemist base learner family: '%s'.", object$family),
          call. = FALSE)
@@ -689,8 +1126,8 @@ alchemist_predict_base <- function(object, x_new) {
 #'   `NULL`), and `error` (character or `NULL`).
 #'
 #' @keywords internal
-alchemist_run_oof_method <- function(method, x_all, y_all, foldid,
-                                      method_settings, seed, lambda_rule) {
+run_oof_method <- function(method, x_all, y_all, foldid,
+                           method_settings, seed, lambda_rule) {
   n         <- length(y_all)
   oof_pred  <- rep(NA_real_, n)
   ok        <- TRUE
@@ -705,7 +1142,7 @@ alchemist_run_oof_method <- function(method, x_all, y_all, foldid,
     }
 
     learner <- tryCatch(
-      alchemist_fit_base(
+      fit_base_learner(
         x_train         = x_all[train_idx, , drop = FALSE],
         y_train         = y_all[train_idx],
         method          = method,
@@ -723,7 +1160,7 @@ alchemist_run_oof_method <- function(method, x_all, y_all, foldid,
     }
 
     preds <- tryCatch(
-      alchemist_predict_base(learner, x_all[valid_idx, , drop = FALSE]),
+      predict_base_learner(learner, x_all[valid_idx, , drop = FALSE]),
       error = function(e) structure(conditionMessage(e), class = "try-error")
     )
 
@@ -756,13 +1193,13 @@ alchemist_run_oof_method <- function(method, x_all, y_all, foldid,
 #' `meta_policy.R`. It is purpose-built for learning pairwise acoustic
 #' distances from Gower trait features.
 #'
-#' @param training_data Tibble produced by [build_alchemist_pair_data()].
+#' @param training_data Tibble produced by [build_pair_data()].
 #'   Must contain `.outcome`, optionally `.split_group`, and all columns named
 #'   by `feature_cols`.
 #' @param feature_cols Character vector of Gower distance column names
 #'   (e.g. `.dist_swimbladder_type`).
 #' @param methods Character vector of base learner method names. See
-#'   [alchemist_resolve_methods()] for the supported set.
+#'   [resolve_learner_methods()] for the supported set.
 #' @param outcome_transform One of `"log1p"` or `"identity"`. Applied to
 #'   `.outcome` before fitting; predictions are back-transformed before
 #'   storage.
@@ -771,15 +1208,15 @@ alchemist_run_oof_method <- function(method, x_all, y_all, foldid,
 #' @param inner_folds Integer number of cross-validation folds.
 #' @param seed Integer random seed for fold assignment and base learner fits.
 #' @param method_settings Named list of per-family tuning overrides (same
-#'   structure as `metalearner.method_settings` in the workflow YAML).
+#'   structure as `metalearner.method_settings` in the config YAML).
 #' @param workers Integer number of parallel workers. Workers are assigned one
 #'   method each. `1L` runs sequentially.
 #' @param progress Logical. Emit [tsb_message()] progress lines when `TRUE`.
 #'
-#' @return A list with class `"tsb_alchemist_learner"` containing:
+#' @return A list with class `"SuperLearner"` containing:
 #'   \describe{
 #'     \item{`fit`}{Named list of final base learner objects
-#'       (`"tsb_alchemist_base_learner"`).}
+#'       (`"BaseLearner"`).}
 #'     \item{`weights`}{Named numeric vector of NNLS ensemble weights.}
 #'     \item{`feature_cols`}{Character vector of feature column names.}
 #'     \item{`outcome_transform`}{The transform applied during training.}
@@ -792,23 +1229,23 @@ alchemist_run_oof_method <- function(method, x_all, y_all, foldid,
 #'   }
 #'
 #' @keywords internal
-fit_alchemist_learner <- function(training_data,
-                                   feature_cols,
-                                   methods,
-                                   outcome_transform = "log1p",
-                                   lambda_rule       = "lambda.1se",
-                                   inner_folds       = 5L,
-                                   seed              = 42L,
-                                   method_settings   = NULL,
-                                   workers           = 1L,
-                                   progress          = FALSE) {
+fit_super_learner <- function(training_data,
+                              feature_cols,
+                              methods,
+                              outcome_transform = "log1p",
+                              lambda_rule       = "lambda.1se",
+                              inner_folds       = 5L,
+                              seed              = 42L,
+                              method_settings   = NULL,
+                              workers           = 1L,
+                              progress          = FALSE) {
   training_data <- tibble::as_tibble(training_data)
-  methods       <- alchemist_resolve_methods(methods)
+  methods       <- resolve_learner_methods(methods)
   inner_folds   <- as.integer(inner_folds)
   seed          <- as.integer(seed)
   workers       <- as.integer(workers)
 
-  x_all <- alchemist_feature_matrix(training_data, feature_cols)
+  x_all <- feature_matrix(training_data, feature_cols)
   y_raw <- training_data$.outcome
   y_all <- if (identical(outcome_transform, "log1p")) log1p(y_raw) else y_raw
 
@@ -824,7 +1261,7 @@ fit_alchemist_learner <- function(training_data,
     )
   }
 
-  workflow_progress(
+  report_progress(
     progress,
     "[Alchemist] Fitting ", length(methods), " base learner(s) with ",
     inner_folds, "-fold CV",
@@ -839,7 +1276,7 @@ fit_alchemist_learner <- function(training_data,
       on.exit(parallel::stopCluster(cl), add = TRUE)
       oof_results <- parallel::parLapplyLB(
         cl, methods,
-        fun = alchemist_run_oof_method,
+        fun = run_oof_method,
         x_all           = x_all,
         y_all           = y_all,
         foldid          = foldid,
@@ -849,7 +1286,7 @@ fit_alchemist_learner <- function(training_data,
       )
     } else {
       oof_results <- lapply(
-        methods, alchemist_run_oof_method,
+        methods, run_oof_method,
         x_all           = x_all,
         y_all           = y_all,
         foldid          = foldid,
@@ -860,7 +1297,7 @@ fit_alchemist_learner <- function(training_data,
     }
   } else {
     oof_results <- lapply(
-      methods, alchemist_run_oof_method,
+      methods, run_oof_method,
       x_all           = x_all,
       y_all           = y_all,
       foldid          = foldid,
@@ -872,12 +1309,27 @@ fit_alchemist_learner <- function(training_data,
   names(oof_results) <- methods
 
   # ---- Collect successful OOF predictions ----------------------------------
-  ok_methods <- Filter(function(r) !is.null(r$oof_pred), oof_results)
+  ok_methods    <- Filter(function(r) !is.null(r$oof_pred), oof_results)
+  failed_methods <- Filter(function(r)  is.null(r$oof_pred), oof_results)
+
+  if (length(failed_methods) > 0L) {
+    for (r in failed_methods) {
+      report_progress(
+        progress,
+        "[Alchemist]   Method failed (excluded from ensemble): ", r$method,
+        if (!is.null(r$error)) paste0(" — ", r$error) else ""
+      )
+    }
+  }
+
   if (length(ok_methods) == 0L) {
-    failed <- vapply(oof_results, function(r) r$error %||% "unknown error", character(1))
     stop(
       "No Alchemist base learners produced complete OOF predictions.\n",
-      paste(names(failed), failed, sep = ": ", collapse = "\n"),
+      paste(
+        names(failed_methods),
+        vapply(failed_methods, function(r) r$error %||% "unknown error", character(1)),
+        sep = ": ", collapse = "\n"
+      ),
       call. = FALSE
     )
   }
@@ -904,7 +1356,7 @@ fit_alchemist_learner <- function(training_data,
     pmax(0, oof_ensemble_transformed)
   }
 
-  workflow_progress(
+  report_progress(
     progress,
     "[Alchemist] OOF ensemble RMSE: ",
     round(sqrt(mean((oof_ensemble_pred - y_raw)^2, na.rm = TRUE)), 4),
@@ -912,11 +1364,18 @@ fit_alchemist_learner <- function(training_data,
   )
 
   # ---- Final refit on full training set ------------------------------------
-  workflow_progress(progress, "[Alchemist] Refitting base learners on full data...")
-  final_learners <- list()
-  for (m in names(weights)) {
-    fit_obj <- tryCatch(
-      alchemist_fit_base(
+  refit_methods <- names(weights)
+  report_progress(
+    progress,
+    "[Alchemist] Refitting ", length(refit_methods), " base learner(s) on full ",
+    nrow(training_data), " pairs",
+    if (workers > 1L) paste0(" (", min(workers, length(refit_methods)), " workers)") else "",
+    "..."
+  )
+
+  run_refit <- function(m) {
+    tryCatch(
+      fit_base_learner(
         x_train         = x_all,
         y_train         = y_all,
         method          = m,
@@ -926,7 +1385,29 @@ fit_alchemist_learner <- function(training_data,
       ),
       error = function(e) NULL
     )
-    if (!is.null(fit_obj)) final_learners[[m]] <- fit_obj
+  }
+
+  if (workers > 1L && length(refit_methods) > 1L) {
+    cl_refit <- initialize_parallel_cluster(workers = min(workers, length(refit_methods)))
+    if (!is.null(cl_refit)) {
+      on.exit(parallel::stopCluster(cl_refit), add = TRUE)
+      refit_list <- parallel::parLapplyLB(cl_refit, refit_methods, run_refit)
+    } else {
+      refit_list <- lapply(refit_methods, run_refit)
+    }
+  } else {
+    refit_list <- lapply(refit_methods, run_refit)
+  }
+  names(refit_list) <- refit_methods
+
+  final_learners <- Filter(Negate(is.null), refit_list)
+
+  refit_failed <- setdiff(refit_methods, names(final_learners))
+  if (length(refit_failed) > 0L) {
+    report_progress(
+      progress,
+      "[Alchemist]   Refit failed for: ", paste(refit_failed, collapse = ", ")
+    )
   }
 
   weights <- weights[names(final_learners)]
@@ -966,7 +1447,7 @@ fit_alchemist_learner <- function(training_data,
       oof_ensemble_prediction = oof_ensemble_pred,
       oof_performance        = perf_tbl
     ),
-    class = "tsb_alchemist_learner"
+    class = "SuperLearner"
   )
 }
 
@@ -976,8 +1457,8 @@ fit_alchemist_learner <- function(training_data,
 #' predictions using the stored NNLS weights, and back-transforms the result to
 #' the original outcome scale.
 #'
-#' @param object A `"tsb_alchemist_learner"` object from
-#'   [fit_alchemist_learner()].
+#' @param object A `"SuperLearner"` object from
+#'   [fit_super_learner()].
 #' @param new_data Tibble or data frame containing at least the columns named by
 #'   `object$feature_cols`.
 #'
@@ -985,16 +1466,24 @@ fit_alchemist_learner <- function(training_data,
 #'   (non-transformed) scale.
 #'
 #' @keywords internal
-predict_alchemist_score <- function(object, new_data) {
-  if (!inherits(object, "tsb_alchemist_learner")) {
-    stop("'object' must be a 'tsb_alchemist_learner'.", call. = FALSE)
+predict_distance <- function(object, new_data) {
+  if (inherits(object, "Mahalanobis")) {
+    new_data <- tibble::as_tibble(new_data)
+    x_new    <- feature_matrix(new_data, object$feature_cols)
+    return(sqrt(pmax(0, as.numeric(x_new %*% object$weights))))
+  }
+  if (!inherits(object, "SuperLearner")) {
+    stop(
+      "'object' must be a 'tsb_alchemist_learner' or 'Mahalanobis'.",
+      call. = FALSE
+    )
   }
   new_data <- tibble::as_tibble(new_data)
-  x_new    <- alchemist_feature_matrix(new_data, object$feature_cols)
+  x_new    <- feature_matrix(new_data, object$feature_cols)
   weights  <- object$weights
 
   pred_mat <- vapply(names(object$fit), function(m) {
-    alchemist_predict_base(object$fit[[m]], x_new)
+    predict_base_learner(object$fit[[m]], x_new)
   }, numeric(nrow(x_new)))
 
   if (is.null(dim(pred_mat))) {
@@ -1002,14 +1491,64 @@ predict_alchemist_score <- function(object, new_data) {
     colnames(pred_mat) <- names(object$fit)
   }
 
-  pred_transformed <- as.numeric(pred_mat[, names(weights), drop = FALSE] %*% weights)
+  pred_transformed <- as.numeric(
+    pred_mat[, names(weights), drop = FALSE] %*% weights
+  )
   pmax(0, if (identical(object$outcome_transform, "log1p")) expm1(pred_transformed)
           else pred_transformed)
 }
 
+# Fit a diagonal Mahalanobis distance via NNLS on squared pairwise differences.
+# Predicts e_ij^2 = sum_k w_k * delta_k^2; distance = sqrt(predicted value).
+fit_mahalanobis <- function(training_data, feature_cols,
+                           progress = FALSE) {
+  x_all <- feature_matrix(training_data, feature_cols)
+  y_raw <- training_data$.outcome
+  y_sq  <- y_raw^2
+
+  report_progress(
+    progress,
+    "[Alchemist] Fitting diagonal Mahalanobis (NNLS) on ",
+    nrow(x_all), " pairs x ", length(feature_cols), " features..."
+  )
+
+  result  <- nnls::nnls(x_all, y_sq)
+  weights <- result$x
+  names(weights) <- feature_cols
+
+  oof_pred <- sqrt(pmax(0, as.numeric(x_all %*% weights)))
+  rmse_val <- sqrt(mean((oof_pred - y_raw)^2, na.rm = TRUE))
+  mae_val  <- mean(abs(oof_pred - y_raw), na.rm = TRUE)
+
+  report_progress(
+    progress,
+    "[Alchemist] Mahalanobis fit: RMSE=", round(rmse_val, 4),
+    " | MAE=", round(mae_val, 4),
+    " | non-zero weights: ",
+    sum(weights > 0), "/", length(weights)
+  )
+
+  structure(
+    list(
+      weights         = weights,
+      feature_cols    = feature_cols,
+      oof_predictions = oof_pred,
+      oof_performance = tibble::tibble(
+        method = "mahalanobis_nnls",
+        rmse   = rmse_val,
+        mae    = mae_val
+      )
+    ),
+    class = "Mahalanobis"
+  )
+}
+
 # ── forge_distances ────────────────────────────────────────────────────────────
 
-S7::method(forge_distances, Alchemist) <- function(object, progress = NULL, ...) {
+S7::method(forge_distances, Alchemist) <- function(object,
+                                                   progress     = NULL,
+                                                   feature_type = NULL,
+                                                   ...) {
   config   <- object@config
   progress <- progress %||% config$progress %||% FALSE
 
@@ -1022,7 +1561,7 @@ S7::method(forge_distances, Alchemist) <- function(object, progress = NULL, ...)
   sp_names  <- alchemist_trait_names(config$species_traits %||% list(), models_df)
   st_names  <- alchemist_trait_names(config$study_traits   %||% list(), models_df)
 
-  workflow_progress(
+  report_progress(
     progress,
     "[Alchemist] forge_distances: ", n_models, " candidate models | ",
     length(sp_names), " species traits [",
@@ -1031,12 +1570,44 @@ S7::method(forge_distances, Alchemist) <- function(object, progress = NULL, ...)
     paste(st_names, collapse = ", "), "]"
   )
 
-  workflow_progress(
+  coherence_cfg      <- config$coherence %||% list()
+  taxonomic_distance <- isTRUE(config$taxonomic_distance)
+  feature_type       <- feature_type %||% config$feature_type %||% "gower"
+
+  report_progress(
+    progress,
+    "[Alchemist] Pairwise feature type: ",
+    switch(
+      feature_type,
+      difference   = "signed standardized differences [(t_i - t_j) / sd(t); categorical: Gower]",
+      mahalanobis  = "squared standardized differences [(t_i - t_j)^2 / sd(t)^2; fit via NNLS -> diagonal Mahalanobis]",
+      "Gower distances [|t_i - t_j| / range(t)]"
+    )
+  )
+
+  has_coh <- any(vapply(
+    c("length", "depth", "frequency"),
+    function(k) !identical(as.character(coherence_cfg[[k]]$mode %||% "none"), "none"),
+    logical(1)
+  ))
+
+  report_progress(
     progress,
     "[Alchemist] Stage 1/4: Building pairwise training data ",
-    "(up to ~", n_models * (n_models - 1L), " cross-species pairs)..."
+    "(up to ~", n_models * (n_models - 1L), " cross-species pairs",
+    if (has_coh) " + coherence features" else "",
+    if (taxonomic_distance) " + taxonomic distance" else "",
+    ")..."
   )
-  pair_data <- build_alchemist_pair_data(models_df, sp_names, st_names, progress = progress)
+  pair_data <- build_pair_data(
+    models_df,
+    sp_names,
+    st_names,
+    coherence_cfg      = if (has_coh) coherence_cfg else NULL,
+    taxonomic_distance = taxonomic_distance,
+    feature_type       = feature_type,
+    progress           = progress
+  )
   n_pairs   <- nrow(pair_data$training_data)
 
   learner_cfg <- config$learner %||% list()
@@ -1044,29 +1615,41 @@ S7::method(forge_distances, Alchemist) <- function(object, progress = NULL, ...)
   folds_lbl   <- as.integer(learner_cfg$inner_folds %||% 5L)
   workers_lbl <- as.integer(learner_cfg$workers %||% 1L)
 
-  workflow_progress(
-    progress,
-    "[Alchemist] Stage 2/4: Fitting Alchemist ensemble on ", n_pairs,
-    " pairs (", folds_lbl, "-fold CV, ", workers_lbl, " worker(s))..."
-  )
-
-  sl_fit <- fit_alchemist_learner(
-    training_data     = pair_data$training_data,
-    feature_cols      = pair_data$feature_cols,
-    methods           = methods_lbl %||% c(
-      "glmnet_elasticnet", "ranger_shallow", "xgboost_conservative"
-    ),
-    outcome_transform = learner_cfg$outcome_transform %||% "identity",
-    lambda_rule       = learner_cfg$lambda_rule       %||% "lambda.1se",
-    inner_folds       = folds_lbl,
-    seed              = as.integer(learner_cfg$seed   %||% 42L),
-    method_settings   = learner_cfg$method_settings   %||% NULL,
-    workers           = workers_lbl,
-    progress          = progress
-  )
+  if (identical(feature_type, "mahalanobis")) {
+    report_progress(
+      progress,
+      "[Alchemist] Stage 2/4: Fitting diagonal Mahalanobis (NNLS) on ", n_pairs,
+      " pairs..."
+    )
+    sl_fit <- fit_mahalanobis(
+      training_data = pair_data$training_data,
+      feature_cols  = pair_data$feature_cols,
+      progress      = progress
+    )
+  } else {
+    report_progress(
+      progress,
+      "[Alchemist] Stage 2/4: Fitting Alchemist ensemble on ", n_pairs,
+      " pairs (", folds_lbl, "-fold CV, ", workers_lbl, " worker(s))..."
+    )
+    sl_fit <- fit_super_learner(
+      training_data     = pair_data$training_data,
+      feature_cols      = pair_data$feature_cols,
+      methods           = methods_lbl %||% c(
+        "glmnet_elasticnet", "ranger_shallow", "xgboost_conservative"
+      ),
+      outcome_transform = learner_cfg$outcome_transform %||% "identity",
+      lambda_rule       = learner_cfg$lambda_rule       %||% "lambda.1se",
+      inner_folds       = folds_lbl,
+      seed              = as.integer(learner_cfg$seed   %||% 42L),
+      method_settings   = learner_cfg$method_settings   %||% NULL,
+      workers           = workers_lbl,
+      progress          = progress
+    )
+  }
 
   # Reconstruct N×N matrix: use OOF predictions for honest distance estimates
-  workflow_progress(
+  report_progress(
     progress,
     "[Alchemist] Stage 3/4: Reconstructing ", n_models, "x", n_models,
     " distance matrix from OOF predictions..."
@@ -1079,7 +1662,8 @@ S7::method(forge_distances, Alchemist) <- function(object, progress = NULL, ...)
   diag(dist_mat) <- 0
 
   oof_preds <- sl_fit$oof_ensemble_prediction %||%
-    predict_alchemist_score(sl_fit, pair_data$training_data)
+    sl_fit$oof_predictions %||%
+    predict_distance(sl_fit, pair_data$training_data)
   oof_preds <- pmax(0, oof_preds)
 
   pair_rows <- pair_data$training_data
@@ -1098,7 +1682,7 @@ S7::method(forge_distances, Alchemist) <- function(object, progress = NULL, ...)
     dist_mat[na_idx, j] <- col_max[[j]]
   }
 
-  workflow_progress(
+  report_progress(
     progress,
     "[Alchemist] Stage 4/4: Symmetrizing distance matrix..."
   )
@@ -1106,23 +1690,27 @@ S7::method(forge_distances, Alchemist) <- function(object, progress = NULL, ...)
   diag(sym_mat) <- 0
 
   dist_range <- round(range(sym_mat[sym_mat > 0], na.rm = TRUE), 4)
-  workflow_progress(
+  report_progress(
     progress,
     "[Alchemist] forge_distances complete. Distance range: [",
     dist_range[[1]], ", ", dist_range[[2]], "]"
   )
 
   distance_matrix <- list(
-    combined_dist       = stats::as.dist(sym_mat),
-    dist_matrix         = sym_mat,
-    model_ids           = model_ids,
-    all_traits          = pair_data$all_traits,
-    species_trait_names = sp_names,
-    trait_cols          = pair_data$all_traits,
-    oof_performance     = sl_fit$oof_performance %||% tibble::tibble(),
-    pair_data           = pair_data$training_data,
-    feature_cols        = pair_data$feature_cols,
-    trait_mats          = pair_data$trait_mats
+    combined_dist        = stats::as.dist(sym_mat),
+    dist_matrix          = sym_mat,
+    model_ids            = model_ids,
+    all_traits           = pair_data$all_traits,
+    species_trait_names  = sp_names,
+    species_feature_cols = pair_data$species_feature_cols,
+    trait_cols           = pair_data$all_traits,
+    oof_performance      = sl_fit$oof_performance %||% tibble::tibble(),
+    pair_data            = pair_data$training_data,
+    feature_cols         = pair_data$feature_cols,
+    trait_mats           = pair_data$trait_mats,
+    feature_type         = feature_type,
+    donor_sigma_matrix   = pair_data$donor_sigma_matrix,
+    target_sigma         = pair_data$target_sigma
   )
 
   object <- alchemist_rebuild(object, distance_matrix = distance_matrix)
@@ -1131,57 +1719,130 @@ S7::method(forge_distances, Alchemist) <- function(object, progress = NULL, ...)
 
 # ── distill_traits helpers ────────────────────────────────────────────────────
 
-#' Run permutation importance for one trait column
+#' Evaluate kernel-weighted sigma RMSE from predicted pairwise distances
 #'
-#' Shuffles `fc` in `pair_data` `n_permutations` times, predicts with the
-#' fitted ensemble after each shuffle, and returns the mean and SD of the
-#' resulting RMSE increases relative to `baseline_rmse`. This is the per-trait
-#' worker function used by [distill_traits()] in both sequential and parallel
-#' execution paths.
+#' Reconstructs an n×n distance matrix from (donor_idx, anchor_idx, dist_vec)
+#' triplets, then computes the log sigma RMSE of the kernel-weighted ensemble
+#' sigma prediction — the same objective used by [score_similarity_basis()] in
+#' the similarity tuning step.
 #'
-#' @param fc Character. Name of the feature column to permute
-#'   (e.g. `".dist_swimbladder_type"`).
-#' @param pair_data Tibble of training pairs produced by
-#'   [build_alchemist_pair_data()]. Must contain `.outcome` and `fc`.
-#' @param y Numeric vector of observed outcomes (`pair_data$.outcome`). Passed
-#'   explicitly to avoid re-extracting it inside each worker.
-#' @param sl_fit A `"tsb_alchemist_learner"` object from
-#'   [fit_alchemist_learner()].
-#' @param baseline_rmse Numeric. RMSE of the ensemble on the unshuffled data.
-#'   Used to compute the delta for each permutation.
-#' @param n_permutations Integer. Number of independent shuffles per trait.
-#' @param seed Integer. Base random seed. The trait's position index is added
-#'   to this value so each trait gets a unique, reproducible seed sequence.
-#' @param trait_idx Integer. Index of this trait in the full feature list, used
-#'   only to offset `seed` for reproducibility.
+#' @param anchor_idx Integer vector of anchor indices (column into sigma matrix).
+#' @param donor_idx Integer vector of donor indices (row into sigma matrix).
+#' @param dist_vec Numeric vector of predicted distances, aligned with the index
+#'   vectors.
+#' @param donor_sigma_mat n×n matrix; `[i, j]` = sigma of donor equation i
+#'   evaluated at anchor j's length PDF.
+#' @param target_sigma Length-n numeric vector of each model's own sigma.
+#' @param scale Positive numeric kernel bandwidth. Distances are fed into
+#'   `exp(-dist / scale)`; pairs absent from pair_data receive `Inf` distance
+#'   (weight 0).
 #'
-#' @return A [tibble::tibble()] with one row and columns `trait`,
-#'   `feature_col`, `delta_rmse`, `sd_delta_rmse`.
+#' @return Scalar RMSE, or `NA_real_` when no valid anchors remain.
 #'
 #' @keywords internal
-alchemist_permute_trait <- function(fc, pair_data, y, sl_fit,
-                                     baseline_rmse, n_permutations,
-                                     seed, trait_idx) {
-  trait_name <- sub("^\\.dist_", "", fc)
-  set.seed(as.integer(seed) + as.integer(trait_idx))
-  delta_rmse_vals <- vapply(seq_len(n_permutations), function(perm_i) {
-    perm_data       <- pair_data
-    perm_data[[fc]] <- sample(pair_data[[fc]])
-    perm_pred       <- predict_alchemist_score(sl_fit, perm_data)
-    perm_rmse       <- sqrt(mean((perm_pred - y)^2, na.rm = TRUE))
-    perm_rmse - baseline_rmse
-  }, numeric(1))
+eval_sigma_rmse <- function(anchor_idx, donor_idx, dist_vec,
+                             donor_sigma_mat, target_sigma, scale) {
+  n        <- length(target_sigma)
+  dist_mat <- matrix(Inf, nrow = n, ncol = n)
+  diag(dist_mat) <- 0
+  dist_mat[cbind(donor_idx, anchor_idx)] <- pmax(0, dist_vec)
+
+  w_raw <- exp(-dist_mat / scale)
+  w_raw[!is.finite(w_raw)] <- 0
+  diag(w_raw) <- 0
+
+  w_sum <- colSums(w_raw, na.rm = TRUE)
+  valid <- which(
+    is.finite(target_sigma) & target_sigma > 0 &
+      is.finite(w_sum)      & w_sum > 0
+  )
+  if (length(valid) == 0L) return(NA_real_)
+
+  w    <- sweep(w_raw[, valid, drop = FALSE], 2, w_sum[valid], "/")
+  pred <- colSums(donor_sigma_mat[, valid, drop = FALSE] * w, na.rm = TRUE)
+  keep <- is.finite(pred) & pred > 0 &
+    is.finite(target_sigma[valid]) & target_sigma[valid] > 0
+  if (!any(keep)) return(NA_real_)
+
+  errs <- log(pred[keep]) - log(target_sigma[valid][keep])
+  sqrt(mean(errs^2))
+}
+
+#' Run sigma-dropout sensitivity for one trait column
+#'
+#' Sets the named feature column to zero in the pair data (equivalent to
+#' removing that trait's contribution to pairwise distance), re-predicts
+#' distances with the trained learner, and evaluates the change in
+#' kernel-weighted sigma RMSE relative to the baseline.  This mirrors the
+#' component-dropout logic in [score_dropout_task()], applied to the
+#' Alchemist's learned distance function.
+#'
+#' @param fc Character. Feature column to zero out.
+#' @param pair_data Tibble of training pairs.
+#' @param anchor_idx Integer vector of anchor indices from `pair_data$.anchor_idx`.
+#' @param donor_idx Integer vector of donor indices from `pair_data$.donor_idx`.
+#' @param sl_fit A `"SuperLearner"` or `"Mahalanobis"` learner object.
+#' @param donor_sigma_mat n×n donor sigma matrix from [build_pair_data()].
+#' @param target_sigma Length-n target sigma vector.
+#' @param baseline_sigma_rmse Scalar baseline sigma RMSE with no feature zeroed.
+#' @param scale Kernel bandwidth passed to [eval_sigma_rmse()].
+#'
+#' @return A one-row [tibble::tibble()] with columns `trait`, `feature_col`,
+#'   `delta_rmse`.
+#'
+#' @keywords internal
+dropout_trait <- function(fc, pair_data, anchor_idx, donor_idx,
+                          sl_fit, donor_sigma_mat, target_sigma,
+                          baseline_sigma_rmse, scale) {
+  zero_data       <- pair_data
+  zero_data[[fc]] <- 0
+  dist_vec        <- predict_distance(sl_fit, zero_data)
+  dropout_rmse    <- eval_sigma_rmse(
+    anchor_idx, donor_idx, dist_vec,
+    donor_sigma_mat, target_sigma, scale
+  )
   tibble::tibble(
-    trait         = trait_name,
-    feature_col   = fc,
-    delta_rmse    = mean(delta_rmse_vals),
-    sd_delta_rmse = stats::sd(delta_rmse_vals)
+    trait       = sub("^\\.dist_", "", fc),
+    feature_col = fc,
+    delta_rmse  = (dropout_rmse %||% NA_real_) - baseline_sigma_rmse
+  )
+}
+
+#' Evaluate dropout importance for a group of related feature columns
+#'
+#' Zeros all columns in `fcs` simultaneously so that one-hot dummy columns
+#' belonging to the same categorical trait are dropped together. Returns the
+#' change in kernel-weighted sigma RMSE relative to the full-feature baseline.
+#'
+#' @param fcs Character vector of feature column names to zero.
+#' @param trait_name Display name for this trait group.
+#' @param pair_data,anchor_idx,donor_idx,sl_fit,donor_sigma_mat,target_sigma,baseline_sigma_rmse,scale
+#'   Passed through from [distill_traits()].
+#'
+#' @return A one-row [tibble::tibble()] with columns `trait`, `feature_col`,
+#'   `delta_rmse`.
+#'
+#' @keywords internal
+dropout_trait_group <- function(fcs, trait_name, pair_data, anchor_idx, donor_idx,
+                                sl_fit, donor_sigma_mat, target_sigma,
+                                baseline_sigma_rmse, scale) {
+  zero_data <- pair_data
+  for (fc in fcs) zero_data[[fc]] <- 0
+  dist_vec     <- predict_distance(sl_fit, zero_data)
+  dropout_rmse <- eval_sigma_rmse(
+    anchor_idx, donor_idx, dist_vec,
+    donor_sigma_mat, target_sigma, scale
+  )
+  tibble::tibble(
+    trait       = trait_name,
+    feature_col = paste(fcs, collapse = ", "),
+    delta_rmse  = (dropout_rmse %||% NA_real_) - baseline_sigma_rmse
   )
 }
 
 # ── distill_traits ─────────────────────────────────────────────────────────────
 
-S7::method(distill_traits, Alchemist) <- function(object, n_permutations = 10L, seed = NULL,
+S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
                                                    workers = NULL, progress = NULL, ...) {
   if (length(object@learner) == 0L) {
     stop("Run `forge_distances()` before `distill_traits()`.", call. = FALSE)
@@ -1190,97 +1851,118 @@ S7::method(distill_traits, Alchemist) <- function(object, n_permutations = 10L, 
     stop("Run `forge_distances()` before `distill_traits()`.", call. = FALSE)
   }
 
+  donor_sigma_mat <- object@distance_matrix$donor_sigma_matrix
+  target_sigma    <- object@distance_matrix$target_sigma
+  if (is.null(donor_sigma_mat) || is.null(target_sigma)) {
+    stop(
+      "`donor_sigma_matrix` not found in distance_matrix — re-run `forge_distances()`.",
+      call. = FALSE
+    )
+  }
+
   progress <- progress %||% object@config$progress %||% FALSE
-  workers  <- as.integer(workers %||% object@config$learner$workers %||% 1L)
-  seed     <- as.integer(seed %||% object@config$learner$seed %||% 42L)
+  workers  <- as.integer(workers %||% object@config$distill_workers %||% 1L)
 
   sl_fit       <- object@learner
   pair_data    <- object@distance_matrix$pair_data
   feature_cols <- object@distance_matrix$feature_cols
-  n_traits     <- length(feature_cols)
-  n_pairs      <- nrow(pair_data)
-  y            <- pair_data$.outcome
+  anchor_idx   <- pair_data$.anchor_idx
+  donor_idx    <- pair_data$.donor_idx
 
-  workflow_progress(
+  # Group one-hot dummy columns back to their parent trait so that all levels
+  # of a categorical (e.g. season__summer, season__fall) are zeroed together.
+  parent_names <- sub("__.*$", "", sub("^\\.dist_", "", feature_cols))
+  trait_groups <- split(feature_cols, parent_names)
+  n_groups     <- length(trait_groups)
+  n_features   <- length(feature_cols)
+
+  report_progress(
     progress,
-    "[Alchemist] distill_traits: permutation importance over ",
-    n_traits, " traits x ", n_permutations, " permutations (",
-    n_pairs, " pairs each)",
-    if (workers > 1L) paste0(", ", min(workers, n_traits), " workers") else "",
-    "..."
+    "[Alchemist] distill_traits: sigma dropout sensitivity over ",
+    n_groups, " traits (", n_features, " feature columns, ", nrow(pair_data), " pairs)..."
   )
 
-  baseline <- sl_fit$oof_ensemble_prediction %||%
-    predict_alchemist_score(sl_fit, pair_data)
-  baseline_rmse <- sqrt(mean((baseline - y)^2, na.rm = TRUE))
-
-  workflow_progress(
-    progress,
-    "[Alchemist] Baseline OOF RMSE: ", round(baseline_rmse, 4)
+  # Baseline: full model, kernel-weighted sigma RMSE
+  baseline_dist  <- predict_distance(sl_fit, pair_data)
+  med_d          <- stats::median(
+    baseline_dist[is.finite(baseline_dist) & baseline_dist > 0], na.rm = TRUE
+  )
+  if (!is.finite(med_d) || med_d <= 0) med_d <- 1
+  scale_param    <- med_d * kernel_scale
+  baseline_sigma_rmse <- eval_sigma_rmse(
+    anchor_idx, donor_idx, baseline_dist,
+    donor_sigma_mat, target_sigma, scale_param
   )
 
-  # ---- Dispatch: parallel across traits, or sequential with per-trait ticks -
-  if (workers > 1L && n_traits > 1L) {
-    workflow_progress(
-      progress,
-      "[Alchemist] Launching ", min(workers, n_traits),
-      " parallel workers for trait permutation..."
-    )
-    cl <- initialize_parallel_cluster(workers = min(workers, n_traits))
+  report_progress(
+    progress,
+    "[Alchemist] Baseline sigma RMSE: ", round(baseline_sigma_rmse, 4),
+    " (kernel_scale = ", kernel_scale, ", bandwidth = ", round(scale_param, 4), ")"
+  )
+
+  use_parallel <- workers > 1L && n_groups > 1L
+  cl <- NULL
+  if (use_parallel) {
+    cl <- initialize_parallel_cluster(workers = min(workers, n_groups))
     if (!is.null(cl)) {
       on.exit(parallel::stopCluster(cl), add = TRUE)
-      importance_rows <- parallel::parLapplyLB(
-        cl, seq_along(feature_cols),
-        fun = function(fc_idx) {
-          alchemist_permute_trait(
-            fc            = feature_cols[[fc_idx]],
-            pair_data     = pair_data,
-            y             = y,
-            sl_fit        = sl_fit,
-            baseline_rmse = baseline_rmse,
-            n_permutations = n_permutations,
-            seed          = seed,
-            trait_idx     = fc_idx
-          )
-        }
+      tsb_cluster_export(
+        cl,
+        varlist = c("pair_data", "anchor_idx", "donor_idx",
+                    "sl_fit", "donor_sigma_mat", "target_sigma",
+                    "baseline_sigma_rmse", "scale_param",
+                    "trait_groups"),
+        envir   = environment()
       )
-    } else {
-      importance_rows <- lapply(seq_along(feature_cols), function(fc_idx) {
-        workflow_progress(
-          progress,
-          "[Alchemist]   Permuting trait ", fc_idx, "/", n_traits, ": ",
-          sub("^\\.dist_", "", feature_cols[[fc_idx]]), "..."
-        )
-        alchemist_permute_trait(
-          fc            = feature_cols[[fc_idx]],
-          pair_data     = pair_data,
-          y             = y,
-          sl_fit        = sl_fit,
-          baseline_rmse = baseline_rmse,
-          n_permutations = n_permutations,
-          seed          = seed,
-          trait_idx     = fc_idx
-        )
-      })
-    }
-  } else {
-    importance_rows <- lapply(seq_along(feature_cols), function(fc_idx) {
-      workflow_progress(
+      report_progress(
         progress,
-        "[Alchemist]   Permuting trait ", fc_idx, "/", n_traits, ": ",
-        sub("^\\.dist_", "", feature_cols[[fc_idx]]), "..."
+        "[Alchemist] Cluster ready: ", min(workers, n_groups), " workers."
       )
-      alchemist_permute_trait(
-        fc            = feature_cols[[fc_idx]],
-        pair_data     = pair_data,
-        y             = y,
-        sl_fit        = sl_fit,
-        baseline_rmse = baseline_rmse,
-        n_permutations = n_permutations,
-        seed          = seed,
-        trait_idx     = fc_idx
+    }
+  }
+
+  trait_names_ordered <- names(trait_groups)
+
+  run_dropout_group <- function(trait_name) {
+    fcs <- trait_groups[[trait_name]]
+    report_progress(
+      progress,
+      "[Alchemist]   Dropout: ", trait_name,
+      if (length(fcs) > 1L) paste0(" [", length(fcs), " levels]") else "",
+      "..."
+    )
+    dropout_trait_group(
+      fcs                 = fcs,
+      trait_name          = trait_name,
+      pair_data           = pair_data,
+      anchor_idx          = anchor_idx,
+      donor_idx           = donor_idx,
+      sl_fit              = sl_fit,
+      donor_sigma_mat     = donor_sigma_mat,
+      target_sigma        = target_sigma,
+      baseline_sigma_rmse = baseline_sigma_rmse,
+      scale               = scale_param
+    )
+  }
+
+  importance_rows <- if (!is.null(cl)) {
+    parallel::parLapplyLB(cl, trait_names_ordered, fun = function(trait_name) {
+      fcs <- trait_groups[[trait_name]]
+      tsbiomass:::dropout_trait_group(
+        fcs                 = fcs,
+        trait_name          = trait_name,
+        pair_data           = pair_data,
+        anchor_idx          = anchor_idx,
+        donor_idx           = donor_idx,
+        sl_fit              = sl_fit,
+        donor_sigma_mat     = donor_sigma_mat,
+        target_sigma        = target_sigma,
+        baseline_sigma_rmse = baseline_sigma_rmse,
+        scale               = scale_param
       )
     })
+  } else {
+    lapply(trait_names_ordered, run_dropout_group)
   }
 
   importance_tbl <- dplyr::bind_rows(importance_rows) |>
@@ -1290,18 +1972,22 @@ S7::method(distill_traits, Alchemist) <- function(object, n_permutations = 10L, 
       importance_pct   = importance_score / max(sum(importance_score, na.rm = TRUE), 1e-12)
     )
 
-  sp_names <- object@distance_matrix$species_trait_names %||% character(0)
-  importance_tbl$trait_set <- ifelse(
-    importance_tbl$trait %in% sp_names,
-    "species",
-    "survey"
+  sp_feature_cols <- object@distance_matrix$species_feature_cols %||% character(0)
+  sp_names        <- object@distance_matrix$species_trait_names %||% character(0)
+  importance_tbl$trait_set <- vapply(
+    importance_tbl$trait,
+    function(tn) {
+      fcs_for_trait <- trait_groups[[tn]] %||% character(0)
+      if (any(fcs_for_trait %in% sp_feature_cols) || tn %in% sp_names) "species" else "survey"
+    },
+    character(1L)
   )
 
   sp_total    <- sum(importance_tbl$importance_score[importance_tbl$trait_set == "species"], na.rm = TRUE)
   all_total   <- sum(importance_tbl$importance_score, na.rm = TRUE)
   alpha_equiv <- if (all_total > 0) sp_total / all_total else 0.5
 
-  workflow_progress(
+  report_progress(
     progress,
     "[Alchemist] distill_traits complete. alpha-equivalent = ",
     round(alpha_equiv, 3),
@@ -1310,12 +1996,12 @@ S7::method(distill_traits, Alchemist) <- function(object, n_permutations = 10L, 
   )
 
   trait_importance <- list(
-    importance_tbl  = importance_tbl,
-    alpha_equiv     = alpha_equiv,
-    species_total   = sp_total,
-    survey_total    = all_total - sp_total,
-    baseline_rmse   = baseline_rmse,
-    n_permutations  = as.integer(n_permutations)
+    importance_tbl      = importance_tbl,
+    alpha_equiv         = alpha_equiv,
+    species_total       = sp_total,
+    survey_total        = all_total - sp_total,
+    baseline_sigma_rmse = baseline_sigma_rmse,
+    kernel_scale        = kernel_scale
   )
 
   alchemist_rebuild(object, trait_importance = trait_importance)
@@ -1345,14 +2031,14 @@ S7::method(distill_traits, Alchemist) <- function(object, n_permutations = 10L, 
     stop("Run `forge_distances()` before `run_ordination()`.", call. = FALSE)
   }
 
-  workflow_cfg     <- config$workflow_config %||% list()
-  ordination_cfg   <- workflow_cfg$ordination %||% list()
+  cfg_data     <- config$config_data %||% list()
+  ordination_cfg   <- cfg_data$ordination %||% list()
   nmds_args        <- nmds_args        %||% ordination_cfg$nmds_args        %||% list()
   envfit_args      <- envfit_args      %||% ordination_cfg$envfit_args      %||% list()
   include_loadings <- include_loadings %||% ordination_cfg$include_loadings %||% FALSE
   include_centroids <- include_centroids %||% ordination_cfg$include_centroids %||% FALSE
 
-  workflow_progress(progress, "Running Alchemist ordination.")
+  report_progress(progress, "Running Alchemist ordination.")
 
   combined_dist    <- alchemist@distance_matrix$combined_dist
   candidate_models <- tibble::as_tibble(alchemist@candidates@candidate_models)
@@ -1360,9 +2046,68 @@ S7::method(distill_traits, Alchemist) <- function(object, n_permutations = 10L, 
   trait_cols       <- intersect(all_traits, names(candidate_models))
 
   model_trait_table <- if (length(trait_cols) > 0) {
-    dplyr::select(candidate_models, dplyr::all_of(trait_cols))
+    tbl <- dplyr::select(candidate_models, dplyr::all_of(trait_cols))
+    if ("species" %in% names(tbl) && "genus" %in% names(candidate_models)) {
+      g <- trimws(as.character(candidate_models[["genus"]]))
+      s <- trimws(as.character(tbl[["species"]]))
+      combined <- paste(g, s)
+      combined[is.na(g) | g == "NA" | is.na(s) | s == "NA"] <- NA_character_
+      tbl[["species"]] <- combined
+    }
+    tbl
   } else {
     NULL
+  }
+
+  # Coherence distances are pairwise and cannot be used directly by envfit.
+  # Instead, add the per-model scalar columns that drive each configured
+  # coherence dimension so they appear as continuous vectors in the ordination.
+  # The set of columns depends on the `source` field in each coherence dimension:
+  #   "best"    — whichever of study/species is available (study preferred)
+  #   "study"   — study-level columns only
+  #   "species" — species-level columns only
+  #   "both"    — all available columns from both sources
+  coherence_cfg    <- config$coherence %||% list()
+  coh_cols_for_dim <- function(mode, source, study_cols, sp_cols) {
+    if (identical(as.character(mode %||% "none"), "none")) return(character(0))
+    all_avail <- names(candidate_models)
+    switch(as.character(source %||% "best"),
+      study   = intersect(study_cols, all_avail),
+      species = intersect(sp_cols,    all_avail),
+      both    = intersect(c(study_cols, sp_cols), all_avail),
+      {
+        # "best": first available study column, or fall back to species column
+        s_match  <- intersect(study_cols, all_avail)
+        sp_match <- intersect(sp_cols,    all_avail)
+        if (length(s_match) > 0L) s_match else sp_match
+      }
+    )
+  }
+  coh_cols <- unique(c(
+    coh_cols_for_dim(
+      coherence_cfg$length$mode,    coherence_cfg$length$source,
+      c("study_length_min",   "study_length_max"),
+      c("species_length_min", "species_length_max")
+    ),
+    coh_cols_for_dim(
+      coherence_cfg$depth$mode,     coherence_cfg$depth$source,
+      c("study_depth_min",   "study_depth_max"),
+      c("species_depth_min", "species_depth_max")
+    ),
+    coh_cols_for_dim(
+      coherence_cfg$frequency$mode, NULL,
+      "frequency", "frequency"
+    )
+  ))
+  if (length(coh_cols) > 0L) {
+    coh_extra <- dplyr::select(candidate_models, dplyr::all_of(coh_cols)) |>
+      dplyr::mutate(dplyr::across(dplyr::everything(),
+                                  ~ suppressWarnings(as.numeric(.x))))
+    model_trait_table <- if (!is.null(model_trait_table)) {
+      dplyr::bind_cols(model_trait_table, coh_extra)
+    } else {
+      coh_extra
+    }
   }
 
   if (is.null(reference_ids) && nrow(alchemist@candidates@reference_anchors) > 0) {
@@ -1401,8 +2146,20 @@ S7::method(distill_traits, Alchemist) <- function(object, n_permutations = 10L, 
     cluster_col = model_cluster_col
   )
 
+  model_hulls <- tryCatch(
+    build_ordination_hulls(model_points, cluster_col = model_cluster_col),
+    error = function(e) tibble::tibble()
+  )
+
   ordination <- list(
-    model = c(model_ord, list(points = model_points, scores = model_scores))
+    model = list(
+      ordination = model_ord$ordination,
+      points     = tibble::as_tibble(model_points),
+      loadings   = model_ord$loadings   %||% tibble::tibble(),
+      centroids  = model_ord$centroids  %||% tibble::tibble(),
+      scores     = tibble::as_tibble(model_scores),
+      hulls      = tibble::as_tibble(model_hulls)
+    )
   )
 
   alchemist_rebuild(alchemist, ordination = ordination)
@@ -1438,7 +2195,7 @@ S7::method(distill_traits, Alchemist) <- function(object, n_permutations = 10L, 
 
   result <- screen_admissibility(
     candidate_models = injected_candidates,
-    config           = config %||% alchemist@config$workflow_config %||% NULL,
+    config           = config %||% alchemist@config$config_data %||% NULL,
     cache_path       = cache_path,
     refresh          = refresh,
     progress         = progress %||% alchemist@config$progress %||% FALSE,
@@ -1523,4 +2280,121 @@ S7::method(print_generic, Alchemist) <- function(x, ...) {
 S7::method(show_generic, Alchemist) <- function(object) {
   print(object)
   invisible(object)
+}
+
+# ── plot dispatch ──────────────────────────────────────────────────────────────
+
+#' Plot an `Alchemist`
+#'
+#' Dispatches `plot(alchemist, ...)` to one of several figure families based
+#' on `type`. Mirrors the `plot.Candidates` interface so both object types
+#' behave consistently at the REPL.
+#'
+#' @name plot.Alchemist
+#'
+#' @param x An [Alchemist] object.
+#' @param y Unused.
+#' @param type Figure family to draw. `"ordination"` requires a prior call to
+#'   [run_ordination()]; `"trait_importance"` requires [distill_traits()].
+#' @param view Secondary plot selector for `type = "ordination"`. One of
+#'   `"clusters"`, `"cluster_hulls"`, `"vectors"`, or `"centers"`.
+#' @param include_hulls Logical. When `TRUE` (default) and hull data are
+#'   available, `view = NULL` defaults to `"cluster_hulls"` for `type =
+#'   "ordination"`.
+#' @param ... Unused additional arguments.
+#'
+#' @return A ggplot object.
+#'
+#' @examples
+#' \dontrun{
+#' alchemist <- run_ordination(alchemist)
+#' plot(alchemist)
+#' plot(alchemist, type = "ordination", view = "vectors")
+#' alchemist <- distill_traits(alchemist)
+#' plot(alchemist, type = "trait_importance")
+#' }
+S7::method(plot_generic, Alchemist) <- function(x,
+                                                y = NULL,
+                                                type = c("ordination", "trait_importance"),
+                                                view = NULL,
+                                                include_hulls = TRUE,
+                                                ...) {
+  type <- match.arg(type)
+
+  if (identical(type, "ordination")) {
+    if (length(x@ordination) == 0L) {
+      stop(
+        "No ordination results stored. Run `run_ordination()` first.",
+        call. = FALSE
+      )
+    }
+    model_obj   <- x@ordination$model %||% list()
+    point_tbl   <- tibble::as_tibble(model_obj$points   %||% tibble::tibble())
+    hull_tbl    <- tibble::as_tibble(model_obj$hulls    %||% tibble::tibble())
+    loading_tbl <- tibble::as_tibble(model_obj$loadings %||% tibble::tibble())
+    centroid_tbl <- tibble::as_tibble(model_obj$centroids %||% tibble::tibble())
+
+    ord_view <- match.arg(
+      view %||% if (isTRUE(include_hulls) && nrow(hull_tbl) > 0) "cluster_hulls" else "clusters",
+      c("clusters", "cluster_hulls", "vectors", "centers")
+    )
+
+    if (identical(ord_view, "vectors") && nrow(loading_tbl) > 0) {
+      return(plot_ordination_vectors(vec_tbl = loading_tbl, points_tbl = point_tbl))
+    }
+    if (identical(ord_view, "centers") && nrow(centroid_tbl) > 0) {
+      return(plot_ordination_centers(fac_tbl = centroid_tbl, points_tbl = point_tbl))
+    }
+    if (identical(ord_view, "cluster_hulls") && nrow(hull_tbl) > 0) {
+      return(plot_ordination_cluster_hulls(
+        points_tbl  = point_tbl,
+        hull_tbl    = hull_tbl,
+        cluster_col = "nmds_cluster_id"
+      ))
+    }
+    return(plot_ordination_clusters(
+      points_tbl  = point_tbl,
+      cluster_col = "nmds_cluster_id"
+    ))
+  }
+
+  if (identical(type, "trait_importance")) {
+    if (length(x@trait_importance) == 0L) {
+      stop(
+        "No trait importance data stored. Run `distill_traits()` first.",
+        call. = FALSE
+      )
+    }
+    imp_tbl <- tibble::as_tibble(x@trait_importance$importance_tbl %||% tibble::tibble())
+    if (nrow(imp_tbl) == 0L) {
+      stop("Trait importance table is empty.", call. = FALSE)
+    }
+    trait_levels <- imp_tbl |>
+      dplyr::arrange(importance_score) |>
+      dplyr::pull(trait)
+    imp_tbl <- dplyr::mutate(
+      imp_tbl,
+      trait = factor(trait, levels = trait_levels),
+      trait_set = factor(
+        trait_set,
+        levels = c("species", "survey"),
+        labels = c("Species trait", "Survey trait")
+      )
+    )
+    ggplot2::ggplot(imp_tbl, ggplot2::aes(
+      x    = trait,
+      y    = importance_pct * 100,
+      fill = trait_set
+    )) +
+      ggplot2::geom_col() +
+      ggplot2::coord_flip() +
+      ggplot2::scale_fill_manual(values = c("Species trait" = "#4575b4", "Survey trait" = "#d73027")) +
+      ggplot2::labs(
+        x    = NULL,
+        y    = "Sigma dropout sensitivity (%)",
+        fill = NULL
+      ) +
+      ggplot2::theme_minimal(base_size = 11) +
+      ggplot2::theme(legend.position = "bottom")
+  }
 }

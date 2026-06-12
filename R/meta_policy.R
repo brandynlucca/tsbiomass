@@ -120,7 +120,7 @@ is_default_meta_policy_feature <- function(name,
 #' Default meta-policy feature columns
 #'
 #' Selects a generalized set of candidate feature columns from the supplied
-#' policy table without relying on a workflow-specific hard-coded policy roster.
+#' policy table without relying on a analysis-specific hard-coded policy roster.
 #'
 #' @param tbl Policy-performance table.
 #'
@@ -382,7 +382,7 @@ available_meta_policy_super_methods <- function(methods = NULL,
 #' Default learner-specific settings for meta-policy models
 #'
 #' Returns the shared method-specific settings used by both the selection and
-#' conditional-uncertainty learners unless the workflow YAML overrides them.
+#' conditional-uncertainty learners unless the config YAML overrides them.
 #'
 #' @return Named list of method-specific settings.
 #'
@@ -758,6 +758,155 @@ fit_meta_policy_base_safely <- function(training_data,
   )
 }
 
+#' Predict super-learner scores for one outer crossfit fold with streaming fits
+#'
+#' Runs the inner OOF loop to derive metalearner weights, then fits each base
+#' learner on the full training split and predicts on the test split one at a
+#' time, accumulating a weighted average before freeing each model. This keeps
+#' at most one fitted base learner in memory per worker at any instant, avoiding
+#' the ~11× model accumulation that causes the RAM spike during parallel
+#' crossfit.
+#'
+#' @param train_data Model-ready training split for this fold.
+#' @param test_data Test split for this fold.
+#' @param feature_cols Feature columns.
+#' @param outcome_transform Outcome transform.
+#' @param lambda_rule Regularization rule.
+#' @param inner_folds Inner CV folds.
+#' @param seed Integer seed.
+#' @param super_methods Optional base methods.
+#' @param metalearner_loss Metalearner loss.
+#' @param method_settings Optional method-specific settings.
+#' @param progress Logical. Emit per-method progress messages.
+#'
+#' @return `test_data` with `.meta_predicted_score` appended.
+#'
+#' @keywords internal
+stream_outer_fold_super_learner_predictions <- function(train_data,
+                                                         test_data,
+                                                         feature_cols,
+                                                         outcome_transform,
+                                                         lambda_rule,
+                                                         inner_folds,
+                                                         seed,
+                                                         super_methods = NULL,
+                                                         metalearner_loss = c("squared_error", "absolute_error"),
+                                                         method_settings = NULL,
+                                                         progress = FALSE) {
+  train_data    <- tibble::as_tibble(train_data)
+  test_data     <- tibble::as_tibble(test_data)
+  metalearner_loss <- match.arg(metalearner_loss)
+  methods   <- available_meta_policy_super_methods(super_methods, method_settings = method_settings)
+  n_methods <- length(methods)
+
+  # Strip context/anchor columns from train_data before the inner-fold loop.
+  # Each train_data[tr_idx, ] subset copies the data frame; removing unused
+  # columns reduces the size of every copy. Only strip when feature_cols is
+  # explicitly provided; when NULL features are discovered from the data itself.
+  if (!is.null(feature_cols) && length(feature_cols) > 0L) {
+    keep_train <- intersect(
+      unique(c(feature_cols, ".outcome", ".split_group")),
+      names(train_data)
+    )
+    train_data <- train_data[, keep_train, drop = FALSE]
+  }
+
+  foldid <- if (".split_group" %in% names(train_data)) {
+    grouped_foldid(train_data$.split_group, n_folds = inner_folds, seed = seed)
+  } else {
+    NULL
+  }
+  foldid <- foldid %||% row_foldid(nrow(train_data), n_folds = inner_folds, seed = seed)
+  if (is.null(foldid)) {
+    stop("stream_outer_fold: inner cross-validation requires at least two training rows.", call. = FALSE)
+  }
+
+  y         <- train_data$.outcome
+  pred_cols <- list()
+
+  for (i_method in seq_along(methods)) {
+    method_now <- methods[[i_method]]
+    report_progress(progress, sprintf("  [%d/%d] OOF: %s", i_method, n_methods, method_now))
+    pred_now  <- rep(NA_real_, nrow(train_data))
+    ok_method <- TRUE
+    for (fold_now in sort(unique(foldid))) {
+      tr_idx <- which(foldid != fold_now)
+      vl_idx <- which(foldid == fold_now)
+      if (length(tr_idx) == 0 || length(vl_idx) == 0) { ok_method <- FALSE; next }
+      bl <- fit_meta_policy_base_safely(
+        training_data  = train_data[tr_idx, , drop = FALSE],
+        method         = method_now,
+        feature_cols   = feature_cols,
+        outcome_transform = outcome_transform,
+        lambda_rule    = lambda_rule,
+        inner_folds    = inner_folds,
+        seed           = as.integer(seed) + as.integer(fold_now),
+        method_settings = method_settings
+      )
+      if (inherits(bl, "try-error")) { ok_method <- FALSE; break }
+      sc <- try(predict_meta_policy_score(bl, train_data[vl_idx, , drop = FALSE]), silent = TRUE)
+      if (inherits(sc, "try-error") || !".meta_predicted_score" %in% names(sc)) {
+        ok_method <- FALSE; break
+      }
+      pred_now[vl_idx] <- sc$.meta_predicted_score
+      rm(bl, sc); gc()
+    }
+    if (ok_method && all(is.finite(pred_now))) {
+      pred_cols[[method_now]] <- pred_now
+    }
+  }
+
+  if (length(pred_cols) == 0) {
+    stop("stream_outer_fold: no base methods produced complete OOF predictions.", call. = FALSE)
+  }
+  oof_mat <- do.call(cbind, pred_cols)
+  colnames(oof_mat) <- names(pred_cols)
+  weights <- fit_super_learner_weights(oof_mat, y, loss = metalearner_loss)
+  names(weights) <- colnames(oof_mat)
+  weights <- weights[weights > 0]
+  if (length(weights) == 0) {
+    stop("stream_outer_fold: metalearner produced zero-weight ensemble.", call. = FALSE)
+  }
+  weights <- weights / sum(weights)
+
+  prediction_cap <- meta_policy_prediction_cap(train_data$.outcome)
+  n_test         <- nrow(test_data)
+  acc_pred       <- rep(0, n_test)
+  weight_sum     <- 0
+  methods_final  <- names(weights)
+
+  report_progress(progress, sprintf("  Streaming %d final fits ...", length(methods_final)))
+  for (i_final in seq_along(methods_final)) {
+    method_now <- methods_final[[i_final]]
+    w <- weights[[method_now]]
+    if (!is.finite(w) || w <= 0) next
+    report_progress(progress, sprintf("  [%d/%d] Final: %s (w=%.3f)", i_final, length(methods_final), method_now, w))
+    bl <- fit_meta_policy_base_safely(
+      training_data  = train_data,
+      method         = method_now,
+      feature_cols   = feature_cols,
+      outcome_transform = outcome_transform,
+      lambda_rule    = lambda_rule,
+      inner_folds    = inner_folds,
+      seed           = as.integer(seed),
+      method_settings = method_settings
+    )
+    if (!inherits(bl, "try-error")) {
+      sc <- try(predict_meta_policy_score(bl, test_data), silent = TRUE)
+      if (!inherits(sc, "try-error") && ".meta_predicted_score" %in% names(sc)) {
+        acc_pred   <- acc_pred + w * sc$.meta_predicted_score
+        weight_sum <- weight_sum + w
+      }
+      rm(bl, sc); gc()
+    }
+  }
+  if (weight_sum > 0) {
+    acc_pred <- acc_pred / weight_sum
+  }
+  acc_pred <- pmin(pmax(0, acc_pred), prediction_cap)
+  test_data |> dplyr::mutate(.meta_predicted_score = acc_pred)
+}
+
 #' Fit the meta-policy super learner
 #'
 #' @param training_data Model-ready training data.
@@ -782,10 +931,20 @@ fit_meta_policy_super_learner <- function(training_data,
                                           seed,
                                           super_methods = NULL,
                                           metalearner_loss = c("squared_error", "absolute_error"),
-                                          method_settings = NULL) {
+                                          method_settings = NULL,
+                                          progress = FALSE) {
   training_data <- tibble::as_tibble(training_data)
   metalearner_loss <- match.arg(metalearner_loss)
   methods <- available_meta_policy_super_methods(super_methods, method_settings = method_settings)
+  n_methods <- length(methods)
+
+  # Strip context/anchor columns before inner-fold loop — only feature_cols +
+  # .outcome + .split_group are needed, and every train_idx/valid_idx subset
+  # copies the full data frame.
+  keep_cols <- unique(c(feature_cols, ".outcome", ".split_group"))
+  keep_cols <- intersect(keep_cols, names(training_data))
+  training_data <- training_data[, keep_cols, drop = FALSE]
+
   foldid <- if (".split_group" %in% names(training_data)) {
     grouped_foldid(training_data$.split_group, n_folds = inner_folds, seed = seed)
   } else {
@@ -799,7 +958,9 @@ fit_meta_policy_super_learner <- function(training_data,
   y <- training_data$.outcome
   pred_cols <- list()
   learner_errors <- list()
-  for (method_now in methods) {
+  for (i_method in seq_along(methods)) {
+    method_now <- methods[[i_method]]
+    report_progress(progress, sprintf("  [%d/%d] OOF: %s", i_method, n_methods, method_now))
     pred_now <- rep(NA_real_, nrow(training_data))
     ok_method <- TRUE
     for (fold_now in sort(unique(foldid))) {
@@ -848,8 +1009,12 @@ fit_meta_policy_super_learner <- function(training_data,
   weights <- fit_super_learner_weights(oof_mat, y, loss = metalearner_loss)
   names(weights) <- colnames(oof_mat)
 
+  report_progress(progress, sprintf("  Refitting %d base learners on full training data ...", length(weights)))
   final_learners <- list()
-  for (method_now in names(weights)) {
+  final_method_names <- names(weights)
+  for (i_final in seq_along(final_method_names)) {
+    method_now <- final_method_names[[i_final]]
+    report_progress(progress, sprintf("  [%d/%d] Final fit: %s", i_final, length(final_method_names), method_now))
     learner <- fit_meta_policy_base_safely(
       training_data = training_data,
       method = method_now,
@@ -994,6 +1159,8 @@ prepare_meta_policy_data <- function(policy_perf,
 #' @param super_methods Optional super-learner base methods.
 #' @param metalearner_loss Loss used to combine super-learner base predictions.
 #' @param method_settings Optional shared method-specific tuning settings.
+#' @param progress Logical. Emit [tsb_message()] progress lines when `TRUE`.
+#'   Only active for `method = "super_learner"`.
 #' @param ... Additional method-specific arguments.
 #'
 #' @return A fitted meta-policy learner object.
@@ -1018,15 +1185,17 @@ fit_meta_policy_learner <- function(training_data,
                                     super_methods = NULL,
                                     metalearner_loss = c("squared_error", "absolute_error"),
                                     method_settings = NULL,
+                                    progress = FALSE,
                                     ...) {
   training_data <- tibble::as_tibble(training_data)
   method <- stringr::str_squish(as.character(method %||% ""))[[1]]
   outcome_transform <- match.arg(outcome_transform)
   lambda_rule <- match.arg(lambda_rule)
   metalearner_loss <- match.arg(metalearner_loss)
+  method_catalog <- meta_policy_method_catalog(method_settings = method_settings)
   allowed_methods <- c(
     "super_learner",
-    available_meta_policy_super_methods(method_settings = method_settings)
+    method_catalog$methods
   )
   if (!method %in% allowed_methods) {
     stop(
@@ -1054,7 +1223,8 @@ fit_meta_policy_learner <- function(training_data,
       seed = seed,
       super_methods = super_methods,
       metalearner_loss = metalearner_loss,
-      method_settings = method_settings
+      method_settings = method_settings,
+      progress = progress
     ))
   }
 
@@ -1364,6 +1534,7 @@ predict_meta_policy_score <- function(object,
 #' @param workers Number of workers used for cross-fitting.
 #' @param package_dir Optional package source directory used to initialize
 #'   worker processes.
+#' @param progress Logical. Emit [tsb_message()] progress lines when `TRUE`.
 #'
 #' @return A list with cross-fitted predictions and fold assignments.
 #'
@@ -1391,7 +1562,8 @@ crossfit_meta_policy_learner <- function(policy_perf,
                                          metalearner_loss = "squared_error",
                                          method_settings = NULL,
                                          workers = 1L,
-                                         package_dir = NULL) {
+                                         package_dir = NULL,
+                                         progress = FALSE) {
   policy_perf <- tibble::as_tibble(policy_perf)
   group_col <- resolve_meta_policy_group_col(policy_perf, group_col = group_col)
   if (!is.numeric(workers) || length(workers) != 1 || !is.finite(workers) || workers < 1) {
@@ -1431,63 +1603,146 @@ crossfit_meta_policy_learner <- function(policy_perf,
   data_all <- data_all |>
     dplyr::select(-dplyr::any_of(c("fold_id.x", "fold_id.y")))
 
-  run_fold <- function(fold_now) {
-    train <- data_all |> dplyr::filter(fold_id != fold_now)
-    test <- data_all |> dplyr::filter(fold_id == fold_now)
-    if (nrow(train) == 0 || nrow(test) == 0) {
-      return(tibble::tibble())
-    }
-    learner <- fit_meta_policy_learner(
-      training_data = train,
-      method = method,
-      feature_cols = feature_cols,
-      outcome_transform = outcome_transform,
-      lambda_rule = lambda_rule,
-      alpha = alpha,
-      inner_folds = inner_folds,
-      super_methods = super_methods,
-      metalearner_loss = metalearner_loss,
-      seed = as.integer(seed) + fold_now,
-      method_settings = method_settings
-    )
-    predict_meta_policy_score(learner, test) |>
-      dplyr::mutate(fold_id = fold_now)
+  is_super <- identical(as.character(method), "super_learner")
+  n_base_methods <- if (is_super) {
+    length(available_meta_policy_super_methods(super_methods, method_settings = method_settings))
+  } else {
+    1L
   }
 
+  # Pre-compute per-fold train/test splits. Strip context/anchor columns from the
+  # training halves so each serialised fold_split element is as small as possible.
+  # Only strip when feature_cols is explicitly provided; when NULL the feature
+  # columns are determined dynamically by prepare_meta_policy_data and we must
+  # keep all columns so downstream fitting can discover them.
+  n_rows_data        <- nrow(data_all)
+  data_clip_quantile <- attr(data_all, "outcome_clip_quantile")
+  data_clip_cap      <- attr(data_all, "outcome_clip_cap")
+  train_keep  <- if (!is.null(feature_cols) && length(feature_cols) > 0L) {
+    intersect(
+      unique(c(feature_cols, ".outcome", ".split_group", "fold_id")),
+      names(data_all)
+    )
+  } else {
+    names(data_all)
+  }
+  fold_splits  <- lapply(seq_len(n_folds), function(f) {
+    mask_train <- !is.na(data_all$fold_id) & data_all$fold_id != f
+    mask_test  <-  !is.na(data_all$fold_id) & data_all$fold_id == f
+    list(
+      train   = data_all[mask_train, train_keep, drop = FALSE],
+      test    = data_all[mask_test,             , drop = FALSE],
+      fold_id = f
+    )
+  })
+  rm(data_all)
+  gc()
+
+  # run_fold_split receives a pre-sliced list(train, test, fold_id). Using the
+  # streaming path for super_learner avoids accumulating all 11 base learner
+  # model objects simultaneously — only one model at a time is held in RAM.
+  run_fold_split <- function(fold_split) {
+    f     <- fold_split$fold_id
+    train <- fold_split$train
+    test  <- fold_split$test
+    if (nrow(train) == 0 || nrow(test) == 0) return(tibble::tibble())
+    if (is_super) {
+      preds <- tsbiomass:::stream_outer_fold_super_learner_predictions(
+        train_data        = train,
+        test_data         = test,
+        feature_cols      = feature_cols,
+        outcome_transform = outcome_transform,
+        lambda_rule       = lambda_rule,
+        inner_folds       = inner_folds,
+        seed              = as.integer(seed) + f,
+        super_methods     = super_methods,
+        metalearner_loss  = metalearner_loss,
+        method_settings   = method_settings,
+        progress          = FALSE
+      )
+    } else {
+      learner <- tsbiomass:::fit_meta_policy_learner(
+        training_data     = train,
+        method            = method,
+        feature_cols      = feature_cols,
+        outcome_transform = outcome_transform,
+        lambda_rule       = lambda_rule,
+        alpha             = alpha,
+        inner_folds       = inner_folds,
+        super_methods     = super_methods,
+        metalearner_loss  = metalearner_loss,
+        seed              = as.integer(seed) + f,
+        method_settings   = method_settings
+      )
+      preds <- tsbiomass:::predict_meta_policy_score(learner, test)
+    }
+    preds |> dplyr::mutate(fold_id = f)
+  }
+
+  # Replace the closure's captured environment with a minimal set of scalars.
+  # Without this, run_fold_split's environment includes fold_splits (10 × data_all
+  # in size) and that entire object is serialised into every PSOCK worker when
+  # clusterExport sends the function. Workers receive their fold_split as an
+  # argument from parLapplyLB — they do not need the full list in their namespace.
+  environment(run_fold_split) <- list2env(
+    list(
+      is_super          = is_super,
+      feature_cols      = feature_cols,
+      method            = method,
+      outcome_transform = outcome_transform,
+      lambda_rule       = lambda_rule,
+      alpha             = alpha,
+      inner_folds       = inner_folds,
+      super_methods     = super_methods,
+      metalearner_loss  = metalearner_loss,
+      method_settings   = method_settings,
+      seed              = seed
+    ),
+    parent = baseenv()
+  )
+
   workers <- as.integer(workers)
+  n_workers_eff <- min(workers, n_folds)
+  report_progress(
+    progress,
+    sprintf(
+      "Starting %d-fold cross-fit: method=%s, %d base learners, %d workers, %d rows.",
+      n_folds, method, n_base_methods, n_workers_eff, n_rows_data
+    )
+  )
+
   if (workers > 1L && n_folds > 1L) {
     cluster_obj <- initialize_parallel_cluster(
-      workers = min(workers, n_folds),
+      workers = n_workers_eff,
       package_dir = package_dir
     )
     on.exit(parallel::stopCluster(cluster_obj), add = TRUE)
     tsb_cluster_export(
       cluster_obj,
-      c(
-        "data_all",
-        "feature_cols",
-        "method",
-        "outcome_transform",
-        "lambda_rule",
-        "alpha",
-        "inner_folds",
-        "super_methods",
-        "metalearner_loss",
-        "method_settings",
-        "seed",
-        "run_fold"
-      ),
+      # fold_splits is intentionally absent: parLapplyLB distributes each
+      # element as the function argument, and run_fold_split's closure
+      # environment has already been stripped to scalars only.
+      c("run_fold_split"),
       envir = environment()
     )
-    pred_rows <- parallel::parLapplyLB(cluster_obj, seq_len(n_folds), run_fold) |>
+    pred_rows <- parallel::parLapplyLB(cluster_obj, fold_splits, run_fold_split) |>
       dplyr::bind_rows()
   } else {
-    pred_rows <- purrr::map_dfr(seq_len(n_folds), run_fold)
+    pred_rows <- purrr::map_dfr(seq_along(fold_splits), function(i) {
+      report_progress(
+        progress,
+        sprintf("  Outer fold %d/%d (%d train rows, %d test rows) ...",
+          i, n_folds, nrow(fold_splits[[i]]$train), nrow(fold_splits[[i]]$test))
+      )
+      run_fold_split(fold_splits[[i]])
+    })
   }
+
+  report_progress(progress, sprintf("Cross-fit complete: %d prediction rows collected.", nrow(pred_rows)))
 
   # Mirror the observed outcome onto the configured outcome name so downstream
   # code can work with one stable column regardless of whether it expects the
-  # generic `.outcome` training field or the workflow-facing outcome label.
+  # generic `.outcome` training field or the analysis-facing outcome label.
   if (!outcome_col %in% names(pred_rows) && ".outcome" %in% names(pred_rows)) {
     pred_rows[[outcome_col]] <- pred_rows$.outcome
   }
@@ -1495,8 +1750,8 @@ crossfit_meta_policy_learner <- function(policy_perf,
   list(
     fold_assignments = fold_tbl,
     predictions = pred_rows,
-    outcome_clip_quantile = attr(data_all, "outcome_clip_quantile"),
-    outcome_clip_cap = attr(data_all, "outcome_clip_cap")
+    outcome_clip_quantile = data_clip_quantile,
+    outcome_clip_cap      = data_clip_cap
   )
 }
 

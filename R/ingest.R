@@ -197,7 +197,7 @@ fetch_worms <- function(species, cache_path = NULL, refresh = FALSE) {
 #' Read and clean the master TS-length workbook
 #'
 #' Reads the TS-length workbook, applies the same core cleaning steps used in
-#' the original workflow, and parses the study-reported fitting length range
+#' the original script, and parses the study-reported fitting length range
 #' into numeric minimum, maximum, and range columns.
 #'
 #' @param path Path to the TS-length workbook.

@@ -284,7 +284,18 @@ policy_selector_similarity_defaults <- function(candidates) {
     ))
   }
 
-  list()
+  cfg <- default_config(use_canonical_names = TRUE)
+  list(
+    species_traits = as.list(cfg$similarity$species_traits %||% list()),
+    study_traits = as.list(cfg$similarity$study_traits %||% list()),
+    alpha = cfg$similarity$alpha %||% NULL,
+    k_species = cfg$similarity$kernel_scale %||% cfg$similarity$k_species %||% NULL,
+    k_study = cfg$similarity$kernel_scale %||% cfg$similarity$k_study %||% NULL,
+    length_overlap_weight = cfg$similarity$coherence$length$weight %||% NULL,
+    depth_overlap_weight = cfg$similarity$coherence$depth$weight %||% NULL,
+    frequency_coherence_weight = cfg$similarity$coherence$frequency$weight %||% NULL,
+    frequency_coherence_mode = cfg$similarity$coherence$frequency$method %||% NULL
+  )
 }
 
 #' Resolve the benchmark/admissibility config for a `PolicySelector`
@@ -299,75 +310,77 @@ policy_selector_anchor_config <- function(object,
                                           config = NULL) {
   cfg <- merge_cfg(object@config, policy_selector_config_data(config))
   defaults <- policy_selector_similarity_defaults(object@candidates)
+  overrides <- list(
+    species_traits = policy_selector_config_value(
+      cfg, "species_traits",
+      sections = c("similarity", "benchmark", "policy")
+    ),
+    study_traits = policy_selector_config_value(
+      cfg, "study_traits",
+      sections = c("similarity", "benchmark", "policy")
+    ),
+    admissibility_species_traits = policy_selector_config_value(
+      cfg, "species_traits",
+      sections = c("admissibility", "benchmark")
+    ),
+    admissibility_study_traits = policy_selector_config_value(
+      cfg, "study_traits",
+      sections = c("admissibility", "benchmark")
+    ),
+    alpha = policy_selector_config_value(
+      cfg, "alpha",
+      sections = c("similarity", "benchmark", "policy")
+    ),
+    k_species = policy_selector_config_value(
+      cfg, "k_species",
+      sections = c("similarity", "benchmark", "policy")
+    ),
+    k_study = policy_selector_config_value(
+      cfg, "k_study",
+      sections = c("similarity", "benchmark", "policy")
+    ),
+    length_overlap_weight = policy_selector_config_value(
+      cfg, "length_overlap_weight",
+      sections = c("similarity", "benchmark", "policy")
+    ),
+    depth_overlap_weight = policy_selector_config_value(
+      cfg, "depth_overlap_weight",
+      sections = c("similarity", "benchmark", "policy")
+    ),
+    frequency_coherence_weight = policy_selector_config_value(
+      cfg, "frequency_coherence_weight",
+      sections = c("similarity", "benchmark", "policy")
+    ),
+    frequency_coherence_mode = policy_selector_config_value(
+      cfg, "frequency_coherence_mode",
+      sections = c("admissibility", "benchmark", "policy", "similarity")
+    ),
+    min_length_overlap_fraction = policy_selector_config_value(
+      cfg, "min_length_overlap_fraction",
+      sections = c("admissibility", "policy", "benchmark")
+    ),
+    min_depth_overlap_fraction = policy_selector_config_value(
+      cfg, "min_depth_overlap_fraction",
+      sections = c("admissibility", "policy", "benchmark")
+    ),
+    missing_key_metadata_max_fraction = policy_selector_config_value(
+      cfg, "missing_key_metadata_max_fraction",
+      sections = c("admissibility", "policy", "benchmark")
+    ),
+    core_weight_cutoff = policy_selector_config_value(
+      cfg, "core_weight_cutoff",
+      sections = c("similarity", "policy", "benchmark")
+    ),
+    seed = policy_selector_config_value(
+      cfg, "seed",
+      sections = c("benchmark", "tuning")
+    )
+  )
+  overrides <- overrides[!vapply(overrides, is.null, logical(1))]
 
   merge_cfg(
     defaults,
-    list(
-      species_traits = policy_selector_config_value(
-        cfg, "species_traits",
-        sections = c("similarity", "benchmark", "policy")
-      ),
-      study_traits = policy_selector_config_value(
-        cfg, "study_traits",
-        sections = c("similarity", "benchmark", "policy")
-      ),
-      admissibility_species_traits = policy_selector_config_value(
-        cfg, "species_traits",
-        sections = c("admissibility", "benchmark")
-      ),
-      admissibility_study_traits = policy_selector_config_value(
-        cfg, "study_traits",
-        sections = c("admissibility", "benchmark")
-      ),
-      alpha = policy_selector_config_value(
-        cfg, "alpha",
-        sections = c("similarity", "benchmark", "policy")
-      ),
-      k_species = policy_selector_config_value(
-        cfg, "k_species",
-        sections = c("similarity", "benchmark", "policy")
-      ),
-      k_study = policy_selector_config_value(
-        cfg, "k_study",
-        sections = c("similarity", "benchmark", "policy")
-      ),
-      length_overlap_weight = policy_selector_config_value(
-        cfg, "length_overlap_weight",
-        sections = c("similarity", "benchmark", "policy")
-      ),
-      depth_overlap_weight = policy_selector_config_value(
-        cfg, "depth_overlap_weight",
-        sections = c("similarity", "benchmark", "policy")
-      ),
-      frequency_coherence_weight = policy_selector_config_value(
-        cfg, "frequency_coherence_weight",
-        sections = c("similarity", "benchmark", "policy")
-      ),
-      frequency_coherence_mode = policy_selector_config_value(
-        cfg, "frequency_coherence_mode",
-        sections = c("admissibility", "benchmark", "policy", "similarity")
-      ),
-      min_length_overlap_fraction = policy_selector_config_value(
-        cfg, "min_length_overlap_fraction",
-        sections = c("admissibility", "policy", "benchmark")
-      ),
-      min_depth_overlap_fraction = policy_selector_config_value(
-        cfg, "min_depth_overlap_fraction",
-        sections = c("admissibility", "policy", "benchmark")
-      ),
-      missing_key_metadata_max_fraction = policy_selector_config_value(
-        cfg, "missing_key_metadata_max_fraction",
-        sections = c("admissibility", "policy", "benchmark")
-      ),
-      core_weight_cutoff = policy_selector_config_value(
-        cfg, "core_weight_cutoff",
-        sections = c("similarity", "policy", "benchmark")
-      ),
-      seed = policy_selector_config_value(
-        cfg, "seed",
-        sections = c("benchmark", "tuning")
-      )
-    )
+    overrides
   )
 }
 
@@ -577,7 +590,7 @@ S7::method(benchmark, PolicySelector) <- function(object,
     group_block_label = group_block_label,
     registry_path = registry_path
   )
-  workflow_progress(progress, "Completed policy benchmark.")
+  report_progress(progress, "Completed policy benchmark.")
 
   # Rebuild the selector with a fresh benchmark bundle and clear downstream
   # layers that depended on any previous benchmark.
@@ -637,7 +650,7 @@ S7::method(calibrate_uncertainty, PolicySelector) <- function(object,
   progress <- progress %||%
     policy_selector_config_value(cfg, "progress", sections = c("uncertainty", "selection", "post_selection_conformal")) %||%
     FALSE
-  workflow_progress(progress, "Calibrating selector uncertainty.")
+  report_progress(progress, "Calibrating selector uncertainty.")
 
   uncertainty_obj <- run_anchor_conformal(
     policy_perf = policy_perf %||% benchmark_obj$policy_perf %||% tibble::tibble(),
@@ -655,7 +668,7 @@ S7::method(calibrate_uncertainty, PolicySelector) <- function(object,
     cache_path = cache_path,
     refresh = refresh
   )
-  workflow_progress(progress, "Completed selector uncertainty calibration.")
+  report_progress(progress, "Completed selector uncertainty calibration.")
 
   # Persist the conformal bundle without disturbing the benchmark layer.
   policy_selector_rebuild(
@@ -702,7 +715,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
   progress <- progress %||%
     policy_selector_config_value(cfg, "progress", sections = "selection") %||%
     FALSE
-  workflow_progress(progress, "Selecting benchmark-supported policies.")
+  report_progress(progress, "Selecting benchmark-supported policies.")
 
   selection_cfg <- list(
     one_se_multiplier = policy_selector_config_value(cfg, "one_se_multiplier", sections = "selection"),
@@ -719,7 +732,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
     cache_path = cache_path,
     refresh = refresh
   )
-  workflow_progress(progress, "Completed policy selection.")
+  report_progress(progress, "Completed policy selection.")
 
   # Persist the selection summaries alongside the existing benchmark and
   # uncertainty layers.
@@ -1136,7 +1149,7 @@ S7::method(show_generic, PolicyPredictions) <- function(object) {
 
 #' Plot a `PolicySelector`
 #'
-#' Uses the package's S7 method on [base::plot()] so selector-stage workflow
+#' Uses the package's S7 method on [base::plot()] so selector-stage
 #' summaries can be drawn directly from the staged object.
 #'
 #' @name plot.PolicySelector

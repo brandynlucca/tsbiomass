@@ -1,8 +1,8 @@
 #' Generalized Configurer S7 Class
 #'
-#' `Configurer` stores one fully specified workflow configuration as a
+#' `Configurer` stores one fully specified configuration as a
 #' validated S7 object. Construction is explicit: callers must supply either a
-#' YAML path or a complete nested R list. No packaged workflow template or
+#' YAML path or a complete nested R list. No packaged analysis template or
 #' study-specific default is injected during S7 construction.
 #'
 #' @examples
@@ -13,9 +13,9 @@
 #'     cache_folder = "cache",
 #'     support_folder = "supplemental",
 #'     area_file = "fao_areas.csv",
-#'     log_path = "outputs/workflow.log"
+#'     log_path = "outputs/run.log"
 #'   ),
-#'   workflow = list(
+#'   execution = list(
 #'     strict_pdf = FALSE,
 #'     run_multiplier = FALSE,
 #'     write_log = FALSE
@@ -48,19 +48,18 @@
 #' cfg@data$similarity$alpha
 #'
 #' \dontrun{
-#' cfg <- configurer_from_yaml("path/to/workflow.yaml")
+#' cfg <- configurer_from_yaml("path/to/config.yaml")
 #' }
 #'
 #' @name Configurer-class
-#' @aliases Configurer WorkflowConfig
 NULL
 
-validate_workflow_extra_sections <- function(config) {
-  required_sections <- c("paths", "workflow", "tuning", "policy", "policies", "metalearner")
+validate_extra_config_sections <- function(config) {
+  required_sections <- c("paths", "execution", "tuning", "policy", "policies", "metalearner")
   extra_names <- setdiff(names(config), required_sections)
 
   # Validate the remaining top-level sections generically so the S7 object can
-  # hold the full workflow payload without hard-coding study-specific sections.
+  # hold the full configuration payload without hard-coding study-specific sections.
   validate_node <- function(x,
                             path_label) {
     if (is.null(x)) {
@@ -77,7 +76,7 @@ validate_workflow_extra_sections <- function(config) {
           return(invisible(NULL))
         }
         if (any(is.na(child_names)) || any(!nzchar(child_names))) {
-          stop(sprintf("Workflow config section '%s' contains invalid unnamed entries.", path_label), call. = FALSE)
+          stop(sprintf("Config section '%s' contains invalid unnamed entries.", path_label), call. = FALSE)
         }
         for (nm in child_names) {
           validate_node(x[[nm]], paste(path_label, nm, sep = "."))
@@ -92,7 +91,7 @@ validate_workflow_extra_sections <- function(config) {
 
     stop(
       sprintf(
-        "Workflow config section '%s' must contain only nested lists, atomic vectors, or NULL.",
+        "Config section '%s' must contain only nested lists, atomic vectors, or NULL.",
         path_label
       ),
       call. = FALSE
@@ -106,10 +105,10 @@ validate_workflow_extra_sections <- function(config) {
   invisible(NULL)
 }
 
-normalize_explicit_workflow_config <- function(config,
-                                               base_dir = getwd(),
-                                               registry_path = NULL,
-                                               policy_path = NULL) {
+normalize_explicit_config <- function(config,
+                                      base_dir = getwd(),
+                                      registry_path = NULL,
+                                      policy_path = NULL) {
   if (!is.list(config)) {
     stop("'config' must be a list.", call. = FALSE)
   }
@@ -120,19 +119,19 @@ normalize_explicit_workflow_config <- function(config,
   if (is.null(config$policies) && !is.null(config$strategies)) {
     config$policies <- config$strategies
   }
-  config <- normalize_workflow_aliases(config)
-  config <- normalize_similarity_workflow_shape(config)
-  config <- apply_workflow_cache_defaults(config)
+  config <- normalize_config_aliases(config)
+  config <- normalize_similarity_config_shape(config)
+  config <- apply_cache_defaults(config)
   config <- normalize_active_policy_names(config)
   config$metalearner <- normalize_metalearner_section(config$metalearner %||% list())
-  config <- normalize_workflow_trait_sections(config)
+  config <- normalize_trait_sections(config)
 
-  validate_workflow_config(
+  validate_config(
     config = config,
     registry_path = registry_path,
     policy_path = policy_path
   )
-  validate_workflow_extra_sections(config)
+  validate_extra_config_sections(config)
 
   # Resolve path fields only after the explicit config has passed structural
   # validation so callers get schema errors before filesystem-normalization
@@ -153,7 +152,7 @@ normalize_explicit_workflow_config <- function(config,
   }
 
   # Materialize the existing compatibility fields so downstream code can read
-  # the validated S7-backed config without changing the workflow engine here.
+  # the validated S7-backed config without changing the execution layer here.
   config$alpha <- config$policy$alpha
   config$kernel_scale <- config$similarity$kernel_scale %||% NULL
   config$k_species <- config$similarity$kernel_scale %||% config$policy$k_species
@@ -193,7 +192,7 @@ Configurer <- S7::new_class(
   validator = function(self) {
     tryCatch(
       {
-        normalize_explicit_workflow_config(
+        normalize_explicit_config(
           config = self@data,
           base_dir = self@base_dir,
           registry_path = if (length(self@registry_path) == 1 && is.na(self@registry_path)) NULL else self@registry_path,
@@ -207,18 +206,17 @@ Configurer <- S7::new_class(
 )
 
 S7::S4_register(Configurer)
-WorkflowConfig <- Configurer
 
 #' Create a `Configurer`
 #'
-#' @param config A complete nested workflow-config list or an existing
+#' @param config A complete nested config list or an existing
 #'   [Configurer] object.
 #' @param base_dir Base directory used to resolve relative paths.
 #' @param registry_path Optional trait-registry path used during validation.
 #' @param policy_path Optional policy-registry path used during validation.
 #'
 #' @return A validated [Configurer] object whose `@data` slot contains the
-#'   normalized workflow config list.
+#'   normalized config list.
 #'
 #' @examples
 #' cfg <- create_configurer(list(
@@ -228,9 +226,9 @@ WorkflowConfig <- Configurer
 #'     cache_folder = "cache",
 #'     support_folder = "supplemental",
 #'     area_file = "fao_areas.csv",
-#'     log_path = "outputs/workflow.log"
+#'     log_path = "outputs/run.log"
 #'   ),
-#'   workflow = list(
+#'   execution = list(
 #'     strict_pdf = FALSE,
 #'     run_multiplier = FALSE,
 #'     write_log = FALSE
@@ -275,7 +273,7 @@ create_configurer <- function(config,
     stop(
       paste(
         "'config' is required.",
-        "Supply a complete nested workflow list."
+        "Supply a complete nested config list."
       ),
       call. = FALSE
     )
@@ -283,13 +281,13 @@ create_configurer <- function(config,
 
   if (!is.list(config)) {
     stop(
-      "'config' must be a complete nested workflow-config list or a `Configurer` object.",
+      "'config' must be a complete nested config list or a `Configurer` object.",
       call. = FALSE
     )
   }
 
   normalized_base_dir <- normalizePath(base_dir, winslash = "/", mustWork = FALSE)
-  normalized_config <- normalize_explicit_workflow_config(
+  normalized_config <- normalize_explicit_config(
     config = config,
     base_dir = normalized_base_dir,
     registry_path = registry_path,
@@ -318,9 +316,9 @@ create_configurer <- function(config,
   )
 }
 
-#' Read a YAML workflow config into `Configurer`
+#' Read a YAML config into `Configurer`
 #'
-#' @param path Workflow YAML path.
+#' @param path Config YAML path.
 #' @param base_dir Base directory used to resolve relative paths. When omitted,
 #'   the YAML file directory is used.
 #' @param registry_path Optional trait-registry path used during validation.
@@ -330,7 +328,7 @@ create_configurer <- function(config,
 #'
 #' @examples
 #' \dontrun{
-#' cfg <- configurer_from_yaml("path/to/workflow.yaml")
+#' cfg <- configurer_from_yaml("path/to/config.yaml")
 #' cfg@data$policies$active
 #' }
 #'
@@ -343,7 +341,7 @@ configurer_from_yaml <- function(path,
     stop("'path' must be a single YAML file path.", call. = FALSE)
   }
   if (!file.exists(path)) {
-    stop(sprintf("Workflow config does not exist: %s", path), call. = FALSE)
+    stop(sprintf("Config file does not exist: %s", path), call. = FALSE)
   }
 
   create_configurer(
@@ -358,7 +356,7 @@ configurer_console_summary <- function(x) {
   data_list <- x@data
   policy_section <- data_list$policy %||% list()
   similarity_section <- data_list$similarity %||% list()
-  workflow_section <- data_list$workflow %||% list()
+  execution_section <- data_list$execution %||% list()
   benchmark_section <- data_list$benchmark %||% list()
   learner_settings <- data_list$metalearner %||% list()
 
@@ -400,14 +398,10 @@ configurer_console_summary <- function(x) {
   cat("  uncertainty_method: ", learner_settings$uncertainty_method %||% learner_settings$selection_method %||% "none", "\n", sep = "")
   cat("  alpha: ", policy_section$alpha %||% similarity_section$alpha %||% NA_real_, "\n", sep = "")
   cat("  kernel_scale: ", similarity_section$kernel_scale %||% data_list$kernel_scale %||% NA_real_, "\n", sep = "")
-  cat("  strict_pdf: ", workflow_section$strict_pdf %||% NA, "\n", sep = "")
+  cat("  strict_pdf: ", execution_section$strict_pdf %||% NA, "\n", sep = "")
   cat("  refresh_benchmark: ", benchmark_section$refresh %||% NA, "\n", sep = "")
   cat("  sections: ", preview_values(enabled_sections), "\n", sep = "")
   invisible(x)
-}
-
-workflow_config_console_summary <- function(x) {
-  configurer_console_summary(x)
 }
 
 #' Print a `Configurer`
@@ -437,16 +431,16 @@ S7::method(show_generic, Configurer) <- function(object) {
   configurer_console_summary(object)
 }
 
-#' Coerce a complete workflow config to `Configurer`
+#' Coerce a complete config to `Configurer`
 #'
-#' @param config A complete nested workflow-config list, a YAML path, or an
+#' @param config A complete nested config list, a YAML path, or an
 #'   existing [Configurer] object.
 #' @param base_dir Base directory used to resolve relative paths.
 #' @param registry_path Optional trait-registry path used during validation.
 #' @param policy_path Optional policy-registry path used during validation.
 #'
 #' @return A validated [Configurer] object whose `@data` slot contains the
-#'   normalized workflow config list.
+#'   normalized config list.
 #'
 #' @export
 as_configurer <- function(config,
