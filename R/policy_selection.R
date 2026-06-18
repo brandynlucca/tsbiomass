@@ -8,35 +8,113 @@
 #' @return Integer vector.
 #'
 #' @export
-policy_specificity_rank <- function(policy) {
-  # Keep the global policy-selection rule agnostic to policy family. Benchmark
-  # error, bootstrap stability, and equivalence summaries determine support;
-  # policy name is used later only as a deterministic final tie-break.
-  rep.int(1L, length(policy))
+policy_specificity_rank <- function(policy,
+                                    candidate_pool = NULL,
+                                    aggregation_method = NULL,
+                                    policy_family = NULL) {
+  policy <- stringr::str_to_lower(stringr::str_squish(as.character(policy)))
+  candidate_pool <- stringr::str_to_lower(stringr::str_squish(as.character(candidate_pool %||% rep(NA_character_, length(policy)))))
+  aggregation_method <- stringr::str_to_lower(stringr::str_squish(as.character(aggregation_method %||% rep(NA_character_, length(policy)))))
+  policy_family <- stringr::str_to_lower(stringr::str_squish(as.character(policy_family %||% rep(NA_character_, length(policy)))))
+
+  policy_pool_rank <- dplyr::case_when(
+    stringr::str_detect(policy, "same_species|within_species|study_cell_species") ~ 1L,
+    stringr::str_detect(policy, "same_genus|within_genus|study_cell_genus|genus_fao|genus_") ~ 2L,
+    stringr::str_detect(policy, "same_family|within_family|study_cell_family|family_ocean_basin|family_") ~ 3L,
+    stringr::str_detect(policy, "same_order|within_order") ~ 4L,
+    stringr::str_detect(policy, "study_cell|within_study_cell|closest_study_cell") ~ 5L,
+    stringr::str_detect(policy, "same_fao|within_fao|_fao$") ~ 6L,
+    stringr::str_detect(policy, "same_ocean_basin|within_ocean_basin|ocean_basin") ~ 7L,
+    stringr::str_detect(policy, "all_admissible|across_all_admissible") ~ 8L,
+    TRUE ~ 9L
+  )
+  candidate_pool_rank <- dplyr::case_when(
+    candidate_pool %in% c("same_species", "within_species") ~ 1L,
+    candidate_pool %in% c("same_genus", "within_genus") ~ 2L,
+    candidate_pool %in% c("same_family", "within_family") ~ 3L,
+    candidate_pool %in% c("same_order", "within_order") ~ 4L,
+    candidate_pool %in% c("same_study_cell", "within_study_cell", "closest_study_cell") ~ 5L,
+    candidate_pool %in% c("same_fao_area", "within_fao", "within_fao_area") ~ 6L,
+    candidate_pool %in% c("same_ocean_basin", "within_ocean_basin") ~ 7L,
+    candidate_pool %in% c("all_admissible", "across_all_admissible") ~ 8L,
+    TRUE ~ 9L
+  )
+  pool_rank <- pmin(policy_pool_rank, candidate_pool_rank, na.rm = TRUE)
+  pool_rank[!is.finite(pool_rank)] <- 9L
+
+  aggregation_method <- dplyr::coalesce(
+    aggregation_method,
+    dplyr::case_when(
+      stringr::str_detect(policy, "closest|distance|nearest") ~ "nearest",
+      stringr::str_detect(policy, "weighted_mean") ~ "weighted_mean",
+      stringr::str_detect(policy, "unweighted_mean") ~ "unweighted_mean",
+      stringr::str_detect(policy, "random_baseline|random_draw") ~ "random_baseline",
+      TRUE ~ NA_character_
+    )
+  )
+
+  aggregation_rank <- dplyr::case_when(
+    aggregation_method %in% c(
+      "nearest",
+      "nearest_by_combined_distance",
+      "nearest_by_trait_gower_distance",
+      "nearest_by_taxonomic_distance",
+      "nearest_by_species_distance",
+      "nearest_study_then_model"
+    ) ~ 1L,
+    aggregation_method %in% c(
+      "kernel_weighted_mean",
+      "distance_weighted_mean",
+      "study_kernel_weighted_mean",
+      "weighted_mean"
+    ) ~ 2L,
+    aggregation_method %in% c(
+      "study_equal_weight_mean",
+      "unweighted_mean"
+    ) ~ 3L,
+    aggregation_method %in% c("random_baseline", "random_draw") ~ 4L,
+    TRUE ~ 3L
+  )
+  family_penalty <- dplyr::case_when(
+    policy_family %in% c("single_model", "study_hierarchical_single_model") ~ 0L,
+    policy_family %in% c("baseline", "random_baseline") ~ 20L,
+    TRUE ~ 5L
+  )
+
+  pool_rank * 100L + aggregation_rank * 10L + family_penalty
+}
+
+first_non_missing_character <- function(x) {
+  x <- stringr::str_squish(as.character(x))
+  x <- x[!is.na(x) & nzchar(x)]
+  if (length(x) == 0L) {
+    return(NA_character_)
+  }
+  x[[1]]
 }
 
 #' Add calibrated interval columns to anchor-policy rows
 #'
-#' Attaches the conformal prediction interval to each policy row. The
-#' operational interval is derived from the conformal log-radius alone
-#' (`q_col`), which is calibrated from held-out transfer errors and already
-#' reflects the quality of the donor pool for species like the anchor. Donor
-#' structural spread (`local_structural_q_abs_log`) is retained as a
-#' diagnostic column but is not combined into the interval: doing so would
-#' require assuming independence between the two sources, an assumption that
-#' is violated because both increase together when the donor pool is
-#' heterogeneous.
+#' Attaches the calibrated prediction interval to each policy row. The
+#' operational interval combines the conformal log-radius (`q_col`) and the
+#' donor structural spread (`local_structural_q_abs_log`) in quadrature:
+#' `q_total = sqrt(q_conformal^2 + (weight * q_structural)^2)`.
+#' Structural spread — the 90th-percentile weighted deviation of donor
+#' log-backscatter values from the policy prediction — penalises strategies
+#' that rely on heterogeneous donor pools (e.g. ocean-basin means), ensuring
+#' that narrower, more homogeneous donor sets are preferred when their
+#' conformal error is similar.
 #'
 #' @param policy_tbl Anchor-policy prediction table.
-#' @param structural_uncertainty_weight Ignored. Retained for backward
-#'   compatibility only; structural spread is no longer combined into the
-#'   operational interval.
+#' @param structural_uncertainty_weight Multiplicative weight applied to the
+#'   structural spread component before combining with the conformal radius.
+#'   Default 1 gives equal weight to both sources.
 #' @param q_col Name of the conformal log-radius column.
 #' @param prediction_col Name of the predicted biomass multiplier column.
 #'
-#' @return `policy_tbl` with `q_abs_log_conformal`, `q_abs_log_structural`
-#'   (diagnostic only), `q_abs_log_total`, `multiplier_lo`, `multiplier_hi`,
-#'   `interval_log_width`, and `uncertainty_cost_log_width`.
+#' @return `policy_tbl` with `q_abs_log_conformal`, `q_abs_log_structural`,
+#'   `q_abs_log_total`, `multiplier_lo`, `multiplier_hi`, `interval_log_width`,
+#'   and `uncertainty_cost_log_width`.
 #'
 #' @examples
 #' interval_tbl <- add_policy_intervals(
@@ -54,8 +132,6 @@ add_policy_intervals <- function(policy_tbl,
                                  structural_uncertainty_weight = 1,
                                  q_col = "q_abs_log",
                                  prediction_col = "multiplier_pred") {
-  # Normalize the incoming table once so all downstream pipelines compute the
-  # same interval columns from the same conformal-plus-structural formula.
   out <- tibble::as_tibble(policy_tbl)
 
   if (!q_col %in% names(out)) {
@@ -77,36 +153,41 @@ add_policy_intervals <- function(policy_tbl,
   }
 
   q_conformal <- suppressWarnings(as.numeric(out[[q_col]]))
-  # Structural spread is the 90th-percentile weighted deviation of donor
-  # log-backscatter values from the policy mean. It is retained as a
-  # diagnostic column to indicate why a given interval is wide, but is NOT
-  # combined into the operational interval — the conformal radius already
-  # reflects transfer error calibrated from anchors with comparably sized
-  # donor pools, so adding structural spread would double-count that source.
-  q_structural_diagnostic <- if ("local_structural_q_abs_log" %in% names(out)) {
+  q_structural_raw <- if ("local_structural_q_abs_log" %in% names(out)) {
     suppressWarnings(as.numeric(out$local_structural_q_abs_log))
   } else {
     rep(NA_real_, nrow(out))
   }
+  # Treat missing structural spread as zero so conformal alone drives the
+  # interval when structural information is unavailable.
+  q_structural_eff <- dplyr::coalesce(q_structural_raw, 0)
+  # RSS combination: structural spread penalises heterogeneous donor pools so
+  # that broad ensemble strategies (ocean-basin mean, all-admissible mean) carry
+  # wider operational intervals than same-species or same-genus strategies with
+  # homogeneous donors.
+  q_total <- sqrt(q_conformal^2 + (structural_uncertainty_weight * q_structural_eff)^2)
 
-  # Materialize the multiplicative interval bounds here so plotting and policy
-  # selection layers can share the exact same uncertainty columns.
   out$q_abs_log_conformal  <- q_conformal
-  out$q_abs_log_structural <- q_structural_diagnostic
-  out$q_abs_log_total      <- q_conformal
+  out$q_abs_log_structural <- q_structural_raw
+  out$q_abs_log_total      <- q_total
+  # Display uses conformal-only q. Structural spread is large for cross-taxa
+  # pools and would produce 10,000x display bands that are uninterpretable.
+  # q_total (structural + conformal) drives uncertainty_cost_log_width below
+  # so that diverse donor pools are correctly penalised in policy selection.
+  q_display <- dplyr::coalesce(q_conformal, q_total)
   out$multiplier_lo <- dplyr::if_else(
-    out$valid_prediction & is.finite(q_conformal),
-    out[[prediction_col]] * exp(-q_conformal),
+    out$valid_prediction & is.finite(q_display),
+    out[[prediction_col]] * exp(-q_display),
     NA_real_
   )
   out$multiplier_hi <- dplyr::if_else(
-    out$valid_prediction & is.finite(q_conformal),
-    out[[prediction_col]] * exp(q_conformal),
+    out$valid_prediction & is.finite(q_display),
+    out[[prediction_col]] * exp(q_display),
     NA_real_
   )
   out$interval_log_width <- dplyr::if_else(
-    is.finite(q_conformal),
-    2 * q_conformal,
+    is.finite(q_total),
+    2 * q_total,
     NA_real_
   )
   out$uncertainty_cost_log_width <- dplyr::if_else(
@@ -198,9 +279,27 @@ select_anchor_policies <- function(policy_tbl,
   if (!"bootstrap_median_rank" %in% names(policy_tbl)) {
     policy_tbl$bootstrap_median_rank <- NA_real_
   }
-  if (!"specificity_rank" %in% names(policy_tbl)) {
-    policy_tbl$specificity_rank <- policy_specificity_rank(policy_tbl$policy)
+  candidate_pool_values <- if ("candidate_pool" %in% names(policy_tbl)) {
+    policy_tbl$candidate_pool
+  } else {
+    NULL
   }
+  aggregation_values <- if ("aggregation_method" %in% names(policy_tbl)) {
+    policy_tbl$aggregation_method
+  } else {
+    NULL
+  }
+  policy_family_values <- if ("policy_family" %in% names(policy_tbl)) {
+    policy_tbl$policy_family
+  } else {
+    NULL
+  }
+  policy_tbl$specificity_rank <- policy_specificity_rank(
+    policy = policy_tbl$policy,
+    candidate_pool = candidate_pool_values,
+    aggregation_method = aggregation_values,
+    policy_family = policy_family_values
+  )
 
   local_distance <- dplyr::coalesce(
     policy_tbl$local_weighted_mean_combined_distance,
@@ -240,8 +339,8 @@ select_anchor_policies <- function(policy_tbl,
       dplyr::arrange(
         anchor_selection_validation_error,
         anchor_selection_local_distance,
-        dplyr::desc(local_effective_support),
         specificity_rank,
+        dplyr::desc(local_effective_support),
         policy
       ) |>
       dplyr::slice(1) |>
@@ -282,10 +381,19 @@ select_anchor_policies <- function(policy_tbl,
   if (is.finite(min_validation_error)) {
     best_score_rows <- score_ranked |>
       dplyr::filter(
-        anchor_selection_validation_error <= min_validation_error + as.numeric(local_distance_tolerance)
+        anchor_selection_validation_error <= min_validation_error + as.numeric(uncertainty_absolute_tolerance)
       )
   } else {
     best_score_rows <- score_ranked
+  }
+
+  min_specificity_rank <- suppressWarnings(min(best_score_rows$specificity_rank, na.rm = TRUE))
+  if (is.finite(min_specificity_rank)) {
+    more_specific_rows <- best_score_rows |>
+      dplyr::filter(is.finite(specificity_rank), specificity_rank <= min_specificity_rank)
+    if (nrow(more_specific_rows) > 0) {
+      best_score_rows <- more_specific_rows
+    }
   }
 
   min_width <- suppressWarnings(min(best_score_rows$uncertainty_cost_log_width, na.rm = TRUE))
@@ -328,11 +436,12 @@ select_anchor_policies <- function(policy_tbl,
       anchor_selection_validation_error,
       uncertainty_cost_log_width,
       anchor_selection_local_distance,
+      specificity_rank,
       bootstrap_median_rank,
       dplyr::desc(local_effective_support),
-      specificity_rank,
       policy
     ) |>
+    dplyr::slice(1) |>
     dplyr::mutate(
       selected_policy = policy,
       selected_policy_display = policy,
@@ -383,6 +492,21 @@ species_performance <- function(species_performance_table) {
       species_median_abs_log = stats::median(error_abs_log, na.rm = TRUE),
       species_mean_abs_log = mean(error_abs_log, na.rm = TRUE),
       n_anchor_models = dplyr::n(),
+      candidate_pool = if ("candidate_pool" %in% names(species_tbl)) {
+        first_non_missing_character(candidate_pool)
+      } else {
+        NA_character_
+      },
+      aggregation_method = if ("aggregation_method" %in% names(species_tbl)) {
+        first_non_missing_character(aggregation_method)
+      } else {
+        NA_character_
+      },
+      policy_family = if ("policy_family" %in% names(species_tbl)) {
+        first_non_missing_character(policy_family)
+      } else {
+        NA_character_
+      },
       .groups = "drop"
     )
 }
@@ -428,10 +552,18 @@ build_selection_table <- function(species_performance_table,
         sd_species_median_abs_log / sqrt(n_species),
         NA_real_
       ),
+      candidate_pool = first_non_missing_character(candidate_pool),
+      aggregation_method = first_non_missing_character(aggregation_method),
+      policy_family = first_non_missing_character(policy_family),
       .groups = "drop"
     ) |>
     dplyr::mutate(
-      specificity_rank = policy_specificity_rank(policy),
+      specificity_rank = policy_specificity_rank(
+        policy = policy,
+        candidate_pool = candidate_pool,
+        aggregation_method = aggregation_method,
+        policy_family = policy_family
+      ),
       policy_display = policy_display_label(policy, equation_branch_filter)
     )
 
@@ -480,7 +612,15 @@ build_selection_table <- function(species_performance_table,
       sep = "|"
     )
   )
-  key_lookup <- dplyr::distinct(species_level_keyed, .policy_key, policy, equation_branch_filter)
+  key_lookup <- dplyr::distinct(
+    species_level_keyed,
+    .policy_key,
+    policy,
+    equation_branch_filter,
+    candidate_pool,
+    aggregation_method,
+    policy_family
+  )
   species_wide <- tidyr::pivot_wider(
     species_level_keyed,
     id_cols = anchor_species,
@@ -521,7 +661,20 @@ build_selection_table <- function(species_performance_table,
 
   # boot_rank: rank policies within each bootstrap draw using a tiny numeric
   # secondary key to break ties by specificity_rank (matches original ordering).
-  spec_ranks    <- policy_specificity_rank(sub("\\|.*$", "", policy_key_order))
+  spec_ranks <- dplyr::left_join(
+    tibble::tibble(.policy_key = policy_key_order),
+    key_lookup,
+    by = ".policy_key"
+  ) |>
+    dplyr::mutate(
+      specificity_rank = policy_specificity_rank(
+        policy = policy,
+        candidate_pool = candidate_pool,
+        aggregation_method = aggregation_method,
+        policy_family = policy_family
+      )
+    ) |>
+    dplyr::pull(specificity_rank)
   secondary_key <- (spec_ranks / (max(spec_ranks, na.rm = TRUE) + 1L)) * 1e-10
   rank_mat      <- apply(boot_means_mat + secondary_key, 2, rank, ties.method = "first")
   boot_rank <- dplyr::left_join(
@@ -692,6 +845,7 @@ build_equivalence_table <- function(species_performance_table,
           paired_boot_q025 = NA_real_,
           paired_boot_q975 = NA_real_,
           equivalent_pair = FALSE,
+          pair_decision = "inconclusive",
           better_policy = NA_character_
         ))
       }
@@ -709,17 +863,28 @@ build_equivalence_table <- function(species_performance_table,
       mean_diff <- mean(diff_vec, na.rm = TRUE)
       med_diff <- stats::median(diff_vec, na.rm = TRUE)
 
-      eq_pair <- is.finite(mean_diff) &&
-        abs(mean_diff) <= tolerance &&
-        is.finite(q025) &&
+      # Treat overlap with the tolerance boundary as inconclusive. A pair is
+      # equivalent only when the full bootstrap interval lies inside the
+      # practical-equivalence band; a policy is better only when the full
+      # interval lies beyond that band on one side.
+      eq_pair <- is.finite(q025) &&
         is.finite(q975) &&
-        q025 <= 0 &&
-        q975 >= 0
+        q025 >= -tolerance &&
+        q975 <= tolerance
+      lhs_better <- is.finite(q975) &&
+        q975 < -tolerance
+      rhs_better <- is.finite(q025) &&
+        q025 > tolerance
+      pair_decision <- dplyr::case_when(
+        eq_pair ~ "equivalent",
+        lhs_better ~ "lhs_better",
+        rhs_better ~ "rhs_better",
+        TRUE ~ "inconclusive"
+      )
 
       better <- dplyr::case_when(
-        eq_pair ~ NA_character_,
-        is.finite(mean_diff) && mean_diff < 0 ~ lhs,
-        is.finite(mean_diff) && mean_diff > 0 ~ rhs,
+        pair_decision == "lhs_better" ~ lhs,
+        pair_decision == "rhs_better" ~ rhs,
         TRUE ~ NA_character_
       )
 
@@ -734,6 +899,7 @@ build_equivalence_table <- function(species_performance_table,
         paired_boot_q025 = q025,
         paired_boot_q975 = q975,
         equivalent_pair = eq_pair,
+        pair_decision = pair_decision,
         better_policy = better
       )
     })

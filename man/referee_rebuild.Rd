@@ -32,4 +32,3 @@ A \code{Referee} object.
 \description{
 Rebuild a \code{Referee}
 }
-\keyword{internal}

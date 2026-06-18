@@ -8,7 +8,8 @@ run_policy_selection(
   species_performance_table,
   config = NULL,
   cache_path = NULL,
-  refresh = FALSE
+  refresh = FALSE,
+  progress = FALSE
 )
 }
 \arguments{

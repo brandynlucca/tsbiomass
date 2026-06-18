@@ -1127,7 +1127,7 @@ plot_overlap_heatmap <- function(overlap_tbl,
   # can be compared across anchors on one scale.
   overlap_df <- tibble::as_tibble(overlap_tbl)
   if (nrow(overlap_df) == 0 || !"anchor_species" %in% names(overlap_df)) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Applicability Overlap Profile by Reference", subtitle = "Required plotting fields were not available.", x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
   }
   if (is.null(metric_labs)) {
     metric_labs <- c(
@@ -1163,7 +1163,6 @@ plot_overlap_heatmap <- function(overlap_tbl,
     ggplot2::geom_tile(colour = "white") +
     ggplot2::scale_fill_gradient(low = "#f7fbff", high = "#08306b", na.value = "grey90") +
     ggplot2::labs(
-      title = "Applicability Overlap Profile by Reference",
       x = NULL,
       y = NULL,
       fill = "Weighted overlap"
@@ -1172,9 +1171,294 @@ plot_overlap_heatmap <- function(overlap_tbl,
     ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 30, hjust = 1))
 }
 
+#' Resolve raw admissibility plotting config
+#'
+#' @param config Raw config list or staged object.
+#'
+#' @return Named list.
+#' @keywords internal
+admissibility_plot_config_data <- function(config = NULL) {
+  if (inherits(config, "S7_object") &&
+    exists("Candidates", inherits = TRUE) &&
+    isTRUE(tryCatch(S7::S7_inherits(config, Candidates), error = function(e) FALSE))) {
+    return(candidates_config_data(config) %||% list())
+  }
+  if (inherits(config, "S7_object") &&
+    exists("Alchemist", inherits = TRUE) &&
+    isTRUE(tryCatch(S7::S7_inherits(config, Alchemist), error = function(e) FALSE))) {
+    return((config@config)$config_data %||% list())
+  }
+  if (inherits(config, "S7_object") &&
+    exists("Configurer", inherits = TRUE) &&
+    isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE))) {
+    return(config@data %||% list())
+  }
+  if (is.list(config) && is.list(config$config_data %||% NULL)) {
+    return(config$config_data)
+  }
+  if (is.list(config)) {
+    return(config)
+  }
+  list()
+}
+
+#' Resolve one raw admissibility section
+#'
+#' @param config Raw config list or staged object.
+#'
+#' @return Named list.
+#' @keywords internal
+admissibility_plot_section <- function(config = NULL) {
+  raw_cfg <- admissibility_plot_config_data(config)
+  if (is.list(raw_cfg$admissibility %||% NULL)) {
+    return(raw_cfg$admissibility)
+  }
+  admissibility_keys <- c(
+    "species_traits", "study_traits", "coherence", "key_metadata_max",
+    "length_overlap_min", "depth_overlap_min", "frequency_mode",
+    "frequency_gap", "exact_frequency", "missing_key_metadata_max_fraction"
+  )
+  if (is.list(raw_cfg) && any(admissibility_keys %in% names(raw_cfg))) {
+    return(raw_cfg)
+  }
+  list()
+}
+
+#' Resolve one admissibility trait vector
+#'
+#' @param x Raw admissibility trait specification.
+#'
+#' @return Character vector.
+#' @keywords internal
+admissibility_plot_trait_names <- function(x) {
+  if (is.null(x)) {
+    return(character(0))
+  }
+  x_names <- names(x)
+  if (length(x_names) > 0 && any(nzchar(x_names))) {
+    out <- as.character(x_names)
+  } else {
+    out <- as.character(unlist(x, use.names = FALSE))
+  }
+  unique(out[!is.na(out) & nzchar(out)])
+}
+
+#' Resolve whether one admissibility coherence gate is active
+#'
+#' @param section Raw admissibility section.
+#' @param dimension One of `"length"`, `"depth"`, or `"frequency"`.
+#'
+#' @return Logical scalar.
+#' @keywords internal
+admissibility_plot_coherence_active <- function(section,
+                                                dimension = c("length", "depth", "frequency")) {
+  dimension <- match.arg(dimension)
+  section <- section %||% list()
+  coherence <- section$coherence %||% list()
+  block <- coherence[[dimension]] %||% list()
+
+  if (identical(dimension, "frequency")) {
+    mode <- section$frequency_mode %||% block$mode %||% NULL
+    if (isTRUE(section$exact_frequency %||% FALSE) && is.null(mode)) {
+      mode <- "literal"
+    }
+    mode <- stringr::str_to_lower(stringr::str_squish(as.character(mode %||% "")))[[1]]
+    return(nzchar(mode) && !identical(mode, "none"))
+  }
+
+  min_value <- if (identical(dimension, "length")) {
+    block$min %||% section$length_overlap_min %||% NULL
+  } else {
+    block$min %||% section$depth_overlap_min %||% NULL
+  }
+  mode <- stringr::str_to_lower(stringr::str_squish(as.character(block$mode %||% "")))[[1]]
+  if (nzchar(mode)) {
+    return(!identical(mode, "none"))
+  }
+  is.finite(suppressWarnings(as.numeric(min_value %||% NA_real_)))
+}
+
+#' Resolve whether the missing-metadata gate is active
+#'
+#' @param section Raw admissibility section.
+#'
+#' @return Logical scalar.
+#' @keywords internal
+admissibility_plot_missing_active <- function(section) {
+  threshold <- section$key_metadata_max %||% section$missing_key_metadata_max_fraction %||% NA_real_
+  is.finite(suppressWarnings(as.numeric(threshold)))
+}
+
+#' Humanize one admissibility trait label
+#'
+#' @param trait Trait code.
+#'
+#' @return Character scalar.
+#' @keywords internal
+admissibility_plot_trait_label <- function(trait) {
+  trait <- as.character(trait %||% "")[[1]]
+  if (!nzchar(trait)) {
+    return("Trait")
+  }
+  out <- stringr::str_replace_all(trait, "_", " ")
+  out <- stringr::str_squish(out)
+  out <- stringr::str_replace(out, "(?i)\\btype$", "")
+  out <- stringr::str_squish(out)
+  out <- stringr::str_to_title(out)
+  out <- stringr::str_replace_all(out, "\\bFao\\b", "FAO")
+  out
+}
+
+#' Humanize one admissibility gate label
+#'
+#' @param reason Gate reason code.
+#'
+#' @return Character scalar.
+#' @keywords internal
+admissibility_plot_gate_label <- function(reason) {
+  reason <- as.character(reason %||% "")[[1]]
+  if (!nzchar(reason)) {
+    return("")
+  }
+  if (startsWith(reason, "trait_mismatch:")) {
+    trait <- sub("^trait_mismatch:", "", reason)
+    return(paste0(admissibility_plot_trait_label(trait), " mismatch"))
+  }
+  label_map <- c(
+    admissible = "Admissible",
+    length_domain_nonoverlap = "Length nonoverlap",
+    depth_domain_nonoverlap = "Depth nonoverlap",
+    frequency_nonoverlap = "Frequency nonoverlap",
+    metadata_missing_excess = "Missing metadata",
+    self = "Self"
+  )
+  out <- unname(label_map[[reason]])
+  if (!is.null(out) && nzchar(out)) {
+    return(out)
+  }
+  stringr::str_to_title(stringr::str_replace_all(reason, "_", " "))
+}
+
+#' Resolve default colors for admissibility gate labels
+#'
+#' @param reasons Gate reason codes.
+#'
+#' @return Named character vector keyed by display label.
+#' @keywords internal
+admissibility_plot_gate_colors <- function(reasons) {
+  reasons <- unique(as.character(reasons))
+  reasons <- reasons[!is.na(reasons) & nzchar(reasons)]
+
+  base_cols <- c(
+    admissible = "#1b9e77",
+    length_domain_nonoverlap = "#7570b3",
+    depth_domain_nonoverlap = "#66a61e",
+    frequency_nonoverlap = "#1f78b4",
+    metadata_missing_excess = "#e6ab02",
+    self = "#666666"
+  )
+
+  out <- rep(NA_character_, length(reasons))
+  names(out) <- reasons
+
+  matched <- intersect(names(base_cols), reasons)
+  out[matched] <- base_cols[matched]
+
+  trait_reasons <- reasons[grepl("^trait_mismatch:", reasons)]
+  if (length(trait_reasons) > 0) {
+    out[trait_reasons] <- grDevices::hcl.colors(length(trait_reasons), "Warm")
+  }
+
+  remaining <- reasons[is.na(out) | !nzchar(out)]
+  if (length(remaining) > 0) {
+    out[remaining] <- grDevices::hcl.colors(length(remaining), "Set 2")
+  }
+
+  stats::setNames(unname(out), vapply(reasons, admissibility_plot_gate_label, character(1)))
+}
+
+#' Resolve admissibility gate specifications for plotting
+#'
+#' @param config Raw config list or staged object.
+#' @param observed_reasons Gate reason codes found in the data.
+#' @param gate_labs Optional named vector mapping gate codes to labels.
+#' @param gate_cols Optional named vector mapping gate labels to colors.
+#'
+#' @return Tibble with `reason`, `label`, and `color`.
+#' @keywords internal
+admissibility_plot_gate_spec <- function(config = NULL,
+                                         observed_reasons = character(0),
+                                         gate_labs = NULL,
+                                         gate_cols = NULL) {
+  observed_reasons <- unique(as.character(observed_reasons))
+  observed_reasons <- observed_reasons[!is.na(observed_reasons) & nzchar(observed_reasons)]
+
+  section <- admissibility_plot_section(config)
+  reasons <- "admissible"
+
+  if (length(section) > 0) {
+    trait_names <- unique(c(
+      admissibility_plot_trait_names(section$species_traits),
+      admissibility_plot_trait_names(section$study_traits)
+    ))
+    trait_names <- trait_names[!is.na(trait_names) & nzchar(trait_names)]
+    trait_reasons <- if (length(trait_names) == 0) {
+      character(0)
+    } else {
+      paste0("trait_mismatch:", trait_names)
+    }
+    reasons <- c(reasons, trait_reasons)
+    if (admissibility_plot_coherence_active(section, "length")) {
+      reasons <- c(reasons, "length_domain_nonoverlap")
+    }
+    if (admissibility_plot_coherence_active(section, "depth")) {
+      reasons <- c(reasons, "depth_domain_nonoverlap")
+    }
+    if (admissibility_plot_coherence_active(section, "frequency")) {
+      reasons <- c(reasons, "frequency_nonoverlap")
+    }
+    if (admissibility_plot_missing_active(section)) {
+      reasons <- c(reasons, "metadata_missing_excess")
+    }
+  } else {
+    reasons <- unique(c(reasons, observed_reasons[observed_reasons != "self"]))
+  }
+
+  reasons <- unique(c(reasons, setdiff(observed_reasons, c(reasons, "self"))))
+  reasons <- reasons[!is.na(reasons) & nzchar(reasons) & reasons != "self"]
+
+  labels <- vapply(reasons, admissibility_plot_gate_label, character(1))
+  if (!is.null(gate_labs)) {
+    gate_labs <- gate_labs[!is.na(names(gate_labs)) & nzchar(names(gate_labs))]
+    gate_idx <- match(names(gate_labs), reasons, nomatch = 0L)
+    if (any(gate_idx > 0L)) {
+      labels[gate_idx[gate_idx > 0L]] <- unname(as.character(gate_labs[names(gate_labs)[gate_idx > 0L]]))
+    }
+  }
+
+  colors <- admissibility_plot_gate_colors(reasons)
+  color_lookup <- stats::setNames(unname(colors), names(colors))
+  resolved_colors <- unname(color_lookup[labels])
+  if (!is.null(gate_cols)) {
+    gate_cols <- gate_cols[!is.na(names(gate_cols)) & nzchar(names(gate_cols))]
+    replace_idx <- match(labels, names(gate_cols), nomatch = 0L)
+    if (any(replace_idx > 0L)) {
+      resolved_colors[replace_idx > 0L] <- unname(as.character(gate_cols[labels[replace_idx > 0L]]))
+    }
+  }
+
+  tibble::tibble(
+    reason = reasons,
+    label = labels,
+    color = resolved_colors
+  )
+}
+
 #' Plot admissibility gate composition
 #'
 #' @param gate_tbl Admissibility gate-count table.
+#' @param config Raw config list or staged object used to derive the active gate
+#'   legend.
 #' @param gate_labs Optional named vector mapping gate codes to labels.
 #' @param gate_cols Optional named vector mapping gate labels to colors.
 #'
@@ -1182,48 +1466,35 @@ plot_overlap_heatmap <- function(overlap_tbl,
 #'
 #' @export
 plot_gate_composition <- function(gate_tbl,
+                                  config = NULL,
                                   gate_labs = NULL,
                                   gate_cols = NULL) {
   # Normalize the gate ordering and labels before drawing the stacked
   # proportions so anchors remain directly comparable.
   plot_df <- tibble::as_tibble(gate_tbl)
   if (nrow(plot_df) == 0 || !all(c("anchor_species", "inadmissible_reason", "n_models") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Admissibility Gate Composition by Reference", subtitle = "Required plotting fields were not available.", x = NULL, y = "Proportion of candidate models") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = "Proportion of candidate models") + ggplot2::theme_minimal(base_size = 11))
   }
-  gate_levels <- c(
-    "admissible",
-    "swimbladder_mismatch",
-    "length_domain_nonoverlap",
-    "depth_domain_nonoverlap",
-    "metadata_missing_excess",
-    "self"
+  plot_df <- dplyr::filter(plot_df, dplyr::coalesce(as.character(inadmissible_reason), "") != "self")
+  gate_spec <- admissibility_plot_gate_spec(
+    config = config,
+    observed_reasons = plot_df$inadmissible_reason,
+    gate_labs = gate_labs,
+    gate_cols = gate_cols
   )
-  if (is.null(gate_labs)) {
-    gate_labs <- c(
-      admissible = "Admissible",
-      swimbladder_mismatch = "Swimbladder mismatch",
-      length_domain_nonoverlap = "Length nonoverlap",
-      depth_domain_nonoverlap = "Depth nonoverlap",
-      metadata_missing_excess = "Missing metadata",
-      self = "Self"
-    )
-  }
-  if (is.null(gate_cols)) {
-    gate_cols <- c(
-      "Admissible" = "#1b9e77",
-      "Swimbladder mismatch" = "#d95f02",
-      "Length nonoverlap" = "#7570b3",
-      "Depth nonoverlap" = "#66a61e",
-      "Missing metadata" = "#e6ab02",
-      "Self" = "#666666"
-    )
-  }
+  gate_levels <- gate_spec$reason
+  gate_label_levels <- unique(gate_spec$label)
+  gate_label_lookup <- stats::setNames(gate_spec$label, gate_spec$reason)
+  gate_color_lookup <- stats::setNames(gate_spec$color, gate_spec$label)
 
   plot_df <- plot_df |>
     dplyr::mutate(
       anchor_species = factor(anchor_species, levels = unique(anchor_species)),
       inadmissible_reason = factor(inadmissible_reason, levels = gate_levels),
-      gate_label = factor(dplyr::recode(as.character(inadmissible_reason), !!!gate_labs), levels = unname(gate_labs[gate_levels]))
+      gate_label = factor(
+        dplyr::recode(as.character(inadmissible_reason), !!!gate_label_lookup),
+        levels = gate_label_levels
+      )
     ) |>
     tidyr::complete(
       anchor_species,
@@ -1231,15 +1502,17 @@ plot_gate_composition <- function(gate_tbl,
       fill = list(n_models = 0)
     ) |>
     dplyr::mutate(
-      gate_label = factor(dplyr::recode(as.character(inadmissible_reason), !!!gate_labs), levels = unname(gate_labs[gate_levels]))
+      gate_label = factor(
+        dplyr::recode(as.character(inadmissible_reason), !!!gate_label_lookup),
+        levels = gate_label_levels
+      )
     )
 
   ggplot2::ggplot(plot_df, ggplot2::aes(x = anchor_species, y = n_models, fill = gate_label)) +
     ggplot2::geom_col(position = "fill", width = 0.78) +
     ggplot2::scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
-    ggplot2::scale_fill_manual(values = gate_cols, drop = FALSE, name = "Gate outcome") +
+    ggplot2::scale_fill_manual(values = gate_color_lookup, drop = FALSE, name = "Gate outcome") +
     ggplot2::labs(
-      title = "Admissibility Gate Composition by Reference",
       x = NULL,
       y = "Proportion of candidate models"
     ) +
@@ -1614,19 +1887,19 @@ conjurer_heatmap_plot <- function(x,
 #' plot(conjurer, metric = "q95_abs_db_shift")
 #' plot(conjurer, metric = "switch_rate_vs_baseline")
 #' }
-S7::method(plot_generic, Conjurer) <- function(x,
-                                               y = NULL,
-                                               metric = "mean_abs_db_shift",
-                                               trait_labs = NULL,
-                                               anchor_order = NULL,
-                                               trait_order = NULL,
-                                               title = NULL,
-                                               subtitle = NULL,
-                                               fill_lab = NULL,
-                                               show_values = TRUE,
-                                               na_value = "grey90",
-                                               tile_colour = "white",
-                                               ...) {
+.plot_conjurer <- function(x,
+                           y = NULL,
+                           metric = "mean_abs_db_shift",
+                           trait_labs = NULL,
+                           anchor_order = NULL,
+                           trait_order = NULL,
+                           title = NULL,
+                           subtitle = NULL,
+                           fill_lab = NULL,
+                           show_values = TRUE,
+                           na_value = "grey90",
+                           tile_colour = "white",
+                           ...) {
   # Route `plot()` calls for Conjurer objects through the shared heatmap helper.
   conjurer_heatmap_plot(
     x = x,
@@ -1641,6 +1914,12 @@ S7::method(plot_generic, Conjurer) <- function(x,
     na_value = na_value,
     tile_colour = tile_colour
   )
+}
+
+S7::method(plot_generic, Conjurer) <- .plot_conjurer
+
+`plot.tsbiomass::Conjurer` <- function(x, y = NULL, ...) {
+  .plot_conjurer(x, y, ...)
 }
 
 #' Summarize species-policy benchmark performance
@@ -1866,58 +2145,6 @@ compare_selected_policy_species_rank <- function(species_policy_tbl,
         species_oracle_best_median_abs_log_error
     ) |>
     dplyr::arrange(anchor_species, selection_source, species_rank, selected_policy_display)
-}
-
-#' Plot selected policies against species-block oracle ranks
-#'
-#' @param diagnostics_tbl Output from
-#'   [compare_selected_policy_species_rank()].
-#'
-#' @return A ggplot object.
-#' @export
-plot_selected_policy_species_rank <- function(diagnostics_tbl) {
-  plot_df <- tibble::as_tibble(diagnostics_tbl)
-  if (nrow(plot_df) == 0 ||
-    !all(c("anchor_species", "species_rank", "selection_source") %in% names(plot_df)) ||
-    !any(c("selected_policy", "selected_policy_display") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = "Species-block rank", y = NULL) + ggplot2::theme_minimal(base_size = 11))
-  }
-  plot_df$selected_policy_display <- resolve_selected_policy_names(plot_df)
-  plot_df <- plot_df |>
-    dplyr::filter(
-      !is.na(anchor_species),
-      !is.na(selected_policy_display),
-      nzchar(selected_policy_display),
-      is.finite(species_rank)
-    )
-  if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = "Species-block rank", y = NULL) + ggplot2::theme_minimal(base_size = 11))
-  }
-
-  ggplot2::ggplot(
-    plot_df,
-    ggplot2::aes(
-      x = species_rank,
-      y = stats::reorder(anchor_species, species_rank, stats::median, na.rm = TRUE),
-      color = selection_source
-    )
-  ) +
-    ggplot2::geom_vline(xintercept = 1, linetype = "dashed", color = "grey55") +
-    ggplot2::geom_point(size = 2.6, alpha = 0.9) +
-    ggplot2::geom_text(
-      ggplot2::aes(label = selected_policy_display),
-      hjust = -0.05,
-      size = 2.4,
-      show.legend = FALSE
-    ) +
-    ggplot2::scale_x_continuous(limits = c(1, NA), expand = ggplot2::expansion(mult = c(0.02, 0.35))) +
-    ggplot2::scale_y_discrete(labels = function(x) parse(text = paste0("italic('", x, "')"))) +
-    ggplot2::labs(
-      x = "Rank within held-out species",
-      y = NULL,
-      color = "Selection source"
-    ) +
-    ggplot2::theme_minimal(base_size = 10)
 }
 
 #' Plot conformal calibration by policy
@@ -2215,6 +2442,30 @@ plot_selected_intervals <- function(sel_tbl,
   # interval summary.
   plot_df <- tibble::as_tibble(sel_tbl)
   plot_df$selected_policy_display <- resolve_selected_policy_names(plot_df)
+  plot_df$multiplier_lo <- dplyr::coalesce(
+    if ("meta_post_selection_multiplier_lo" %in% names(plot_df)) {
+      suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_lo))
+    } else {
+      rep(NA_real_, nrow(plot_df))
+    },
+    if ("multiplier_lo" %in% names(plot_df)) {
+      suppressWarnings(as.numeric(plot_df$multiplier_lo))
+    } else {
+      rep(NA_real_, nrow(plot_df))
+    }
+  )
+  plot_df$multiplier_hi <- dplyr::coalesce(
+    if ("meta_post_selection_multiplier_hi" %in% names(plot_df)) {
+      suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_hi))
+    } else {
+      rep(NA_real_, nrow(plot_df))
+    },
+    if ("multiplier_hi" %in% names(plot_df)) {
+      suppressWarnings(as.numeric(plot_df$multiplier_hi))
+    } else {
+      rep(NA_real_, nrow(plot_df))
+    }
+  )
   if (nrow(plot_df) == 0 || !all(c("anchor_species", "multiplier_pred", "multiplier_lo", "multiplier_hi", "selected_policy_display") %in% names(plot_df))) {
     return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = "Biomass multiplier") + ggplot2::theme_minimal(base_size = 11))
   }
@@ -2673,33 +2924,59 @@ plot_policy_coefficients <- function(coefficient_tbl) {
   if (nrow(plot_df) == 0 || !"anchor_species" %in% names(plot_df)) {
     return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
   }
-  plot_df$slope_estimate <- resolve_one(plot_df, c("policy_slope_len"))
-  plot_df$slope_lo <- resolve_one(plot_df, c("policy_slope_len_lo_95", "policy_slope_len_lo_95.x", "policy_slope_len_lo_95.y"))
-  plot_df$slope_hi <- resolve_one(plot_df, c("policy_slope_len_hi_95", "policy_slope_len_hi_95.x", "policy_slope_len_hi_95.y"))
-  plot_df$intercept_estimate <- resolve_one(plot_df, c("policy_intercept_len"))
-  plot_df$intercept_lo <- resolve_one(plot_df, c("policy_intercept_len_lo_95", "policy_intercept_len_lo_95.x", "policy_intercept_len_lo_95.y"))
-  plot_df$intercept_hi <- resolve_one(plot_df, c("policy_intercept_len_hi_95", "policy_intercept_len_hi_95.x", "policy_intercept_len_hi_95.y"))
-  if (!all(c("slope_estimate", "slope_lo", "slope_hi", "intercept_estimate", "intercept_lo", "intercept_hi") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
-  }
-  long_df <- dplyr::bind_rows(
+  plot_df$estimate_slope <- resolve_one(plot_df, c("policy_slope_len"))
+  plot_df$estimate_intercept <- resolve_one(plot_df, c("policy_intercept_len"))
+  post_df <- dplyr::bind_rows(
     plot_df |>
       dplyr::transmute(
         anchor_species,
+        layer = "Post-selection",
         parameter = "Slope",
-        estimate = slope_estimate,
-        lo = slope_lo,
-        hi = slope_hi
+        estimate = estimate_slope,
+        lo = resolve_one(plot_df, c("policy_slope_len_lo_95", "policy_slope_len_lo_95.x", "policy_slope_len_lo_95.y")),
+        hi = resolve_one(plot_df, c("policy_slope_len_hi_95", "policy_slope_len_hi_95.x", "policy_slope_len_hi_95.y"))
       ),
     plot_df |>
       dplyr::transmute(
         anchor_species,
+        layer = "Post-selection",
         parameter = "Intercept",
-        estimate = intercept_estimate,
-        lo = intercept_lo,
-        hi = intercept_hi
+        estimate = estimate_intercept,
+        lo = resolve_one(plot_df, c("policy_intercept_len_lo_95", "policy_intercept_len_lo_95.x", "policy_intercept_len_lo_95.y")),
+        hi = resolve_one(plot_df, c("policy_intercept_len_hi_95", "policy_intercept_len_hi_95.x", "policy_intercept_len_hi_95.y"))
       )
-  ) |>
+  )
+  conditional_available <- all(c(
+    "conditional_policy_slope_len_lo_95",
+    "conditional_policy_slope_len_hi_95",
+    "conditional_policy_intercept_len_lo_95",
+    "conditional_policy_intercept_len_hi_95"
+  ) %in% names(plot_df))
+  conditional_df <- if (isTRUE(conditional_available)) {
+    dplyr::bind_rows(
+      plot_df |>
+        dplyr::transmute(
+          anchor_species,
+          layer = "Conditional on selected policy",
+          parameter = "Slope",
+          estimate = estimate_slope,
+          lo = conditional_policy_slope_len_lo_95,
+          hi = conditional_policy_slope_len_hi_95
+        ),
+      plot_df |>
+        dplyr::transmute(
+          anchor_species,
+          layer = "Conditional on selected policy",
+          parameter = "Intercept",
+          estimate = estimate_intercept,
+          lo = conditional_policy_intercept_len_lo_95,
+          hi = conditional_policy_intercept_len_hi_95
+        )
+    )
+  } else {
+    tibble::tibble()
+  }
+  long_df <- dplyr::bind_rows(conditional_df, post_df) |>
     dplyr::filter(
       !is.na(anchor_species),
       is.finite(estimate),
@@ -2707,7 +2984,8 @@ plot_policy_coefficients <- function(coefficient_tbl) {
       is.finite(hi)
     ) |>
     dplyr::mutate(
-      anchor_species = factor(anchor_species, levels = unique(plot_df$anchor_species))
+      anchor_species = factor(anchor_species, levels = unique(plot_df$anchor_species)),
+      layer = factor(layer, levels = c("Conditional on selected policy", "Post-selection"))
     )
   if (nrow(long_df) == 0) {
     return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
@@ -2717,11 +2995,12 @@ plot_policy_coefficients <- function(coefficient_tbl) {
     ggplot2::geom_vline(xintercept = 0, linetype = "dashed", colour = "grey60") +
     ggplot2::geom_errorbar(orientation = "y", width = 0.16, linewidth = 0.7, colour = "#4d4d4d") +
     ggplot2::geom_point(size = 2.4, colour = "#2166ac") +
-    ggplot2::facet_wrap(~parameter, ncol = 1, scales = "free_x") +
+    ggplot2::facet_grid(parameter ~ layer, scales = "free_x") +
     ggplot2::scale_y_discrete(labels = function(x) parse(text = paste0("italic('", x, "')"))) +
     ggplot2::labs(
       x = "Coefficient value",
-      y = NULL
+      y = NULL,
+      caption = "Conditional bars hold the selected policy fixed. Post-selection bars add policy ambiguity. Both are marginal 95% intervals; joint slope-intercept uncertainty is stored in the covariance and should not be sampled independently."
     ) +
     ggplot2::theme_minimal(base_size = 11)
 }
@@ -2781,87 +3060,6 @@ plot_multiplier_vs_expected_length <- function(anchor_tbl) {
       y = "Biomass multiplier"
     ) +
     ggplot2::theme_minimal(base_size = 11)
-}
-
-#' Plot admissible candidate multipliers and selected policy multipliers
-#'
-#' @param candidate_tbl Anchor candidate-score table with candidate-model multipliers.
-#' @param selected_tbl Selected-policy table.
-#'
-#' @return A ggplot object.
-#'
-#' @export
-plot_multiplier_candidate_lines <- function(candidate_tbl,
-                                            selected_tbl) {
-  candidate_tbl <- tibble::as_tibble(candidate_tbl)
-  selected_tbl <- tibble::as_tibble(selected_tbl)
-  candidate_needed <- c("anchor_model_id", "anchor_species", "biomass_multiplier_if_replace")
-  selected_needed <- c("anchor_model_id", "anchor_species", "multiplier_pred")
-  if (nrow(candidate_tbl) == 0 || nrow(selected_tbl) == 0 ||
-    !all(candidate_needed %in% names(candidate_tbl)) ||
-    !all(selected_needed %in% names(selected_tbl))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Candidate Model and Selected Policy Biomass Multipliers", subtitle = "Required plotting fields were not available.", x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
-  }
-
-  candidate_plot <- candidate_tbl |>
-    dplyr::filter(
-      is.finite(biomass_multiplier_if_replace),
-      biomass_multiplier_if_replace > 0
-    ) |>
-    dplyr::transmute(
-      anchor_model_id = as.character(anchor_model_id),
-      anchor_species = as.character(anchor_species),
-      multiplier = biomass_multiplier_if_replace,
-      line_type = "Candidate models"
-    )
-
-  selected_plot <- selected_tbl |>
-    dplyr::filter(
-      is.finite(multiplier_pred),
-      multiplier_pred > 0
-    ) |>
-    dplyr::transmute(
-      anchor_model_id = as.character(anchor_model_id),
-      anchor_species = as.character(anchor_species),
-      multiplier = multiplier_pred,
-      line_type = "Selected policies"
-    )
-
-  plot_df <- dplyr::bind_rows(candidate_plot, selected_plot)
-  if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Candidate Model and Selected Policy Biomass Multipliers", subtitle = "Required plotting fields were not available.", x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
-  }
-
-  ggplot2::ggplot(plot_df) +
-    ggplot2::geom_segment(
-      data = dplyr::filter(plot_df, line_type == "Candidate models"),
-      ggplot2::aes(x = multiplier, xend = multiplier, y = 0, yend = 1),
-      colour = "#b2182b",
-      alpha = 0.30,
-      linewidth = 0.45
-    ) +
-    ggplot2::geom_segment(
-      data = dplyr::filter(plot_df, line_type == "Selected policies"),
-      ggplot2::aes(x = multiplier, xend = multiplier, y = 0, yend = 1),
-      colour = "#2166ac",
-      alpha = 0.95,
-      linewidth = 1.05
-    ) +
-    ggplot2::geom_vline(xintercept = 1, linetype = "dashed", colour = "grey45") +
-    ggplot2::scale_x_log10(labels = scales::label_number(accuracy = 0.01)) +
-    ggplot2::scale_y_continuous(NULL, breaks = NULL) +
-    ggplot2::facet_wrap(~anchor_species, ncol = 2, scales = "free_x") +
-    ggplot2::labs(
-      title = "Candidate Model and Selected Policy Biomass Multipliers",
-      subtitle = "Red lines are admissible candidate-model replacements; blue lines are the selected policy multiplier(s).",
-      x = "Biomass multiplier relative to reference anchor",
-      y = NULL
-    ) +
-    ggplot2::theme_minimal(base_size = 11) +
-    ggplot2::theme(
-      plot.subtitle = ggplot2::element_text(size = 8, colour = "grey35"),
-      strip.text = ggplot2::element_text(face = "bold")
-    )
 }
 
 #' Plot length-specific biomass multiplier spectrum
@@ -3451,7 +3649,6 @@ plot_anchor_missing <- function(anchor_tbl) {
 #' @param cluster_col Cluster-label column.
 #' @param reference_col Reference-flag column.
 #' @param label_col Point-label column.
-#' @param title Plot title.
 #'
 #' @return A ggplot object.
 #'

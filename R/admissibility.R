@@ -29,12 +29,32 @@ default_anchor_config <- function(config = NULL) {
   if ((inherits(config, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Candidates), error = function(e) FALSE)))) {
     config <- candidates_config_data(config)
   }
+  if (is.list(config) &&
+    is.list(config$fields %||% NULL) &&
+    all(c("model_id_chr", "species_name", "frequency") %in% names(config$fields)) &&
+    all(c(
+      "species_traits",
+      "study_traits",
+      "similarity_species_traits",
+      "similarity_study_traits",
+      "frequency_coherence_mode",
+      "min_length_overlap_fraction",
+      "min_depth_overlap_fraction",
+      "missing_key_metadata_max_fraction"
+    ) %in% names(config))) {
+    return(config)
+  }
   cfg_data <- if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
     config@data
   } else if (
     is.list(config) &&
-      all(c("paths", "execution", "tuning", "policies") %in% names(config)) &&
-      any(c("similarity", "policy", "admissibility") %in% names(config))
+      (
+        (
+          all(c("paths", "execution", "tuning", "policies") %in% names(config)) &&
+            any(c("similarity", "policy", "admissibility") %in% names(config))
+        ) ||
+          any(c("similarity", "policy", "admissibility") %in% names(config))
+      )
   ) {
     config
   } else {
@@ -74,6 +94,9 @@ default_anchor_config <- function(config = NULL) {
   safe_overrides <- direct_overrides
   safe_overrides[["species_traits"]] <- NULL
   safe_overrides[["study_traits"]] <- NULL
+  if (length(safe_overrides) > 0) {
+    safe_overrides <- safe_overrides[!vapply(safe_overrides, is.null, logical(1))]
+  }
 
   merge_cfg(
     list(
@@ -140,6 +163,137 @@ default_anchor_config <- function(config = NULL) {
     ),
     safe_overrides
   )
+}
+
+#' Resolve the key metadata fields used by admissibility screening
+#'
+#' @param config Anchor config list or staged object.
+#'
+#' @return Character vector of column names.
+#' @keywords internal
+admissibility_key_metadata_cols <- function(config = NULL) {
+  cfg <- default_anchor_config(config)
+  trait_names <- function(x) {
+    if (is.null(x)) {
+      return(character(0))
+    }
+    if (is.list(x)) {
+      nm <- names(x)
+      if (!is.null(nm) && any(!is.na(nm) & nzchar(nm))) {
+        return(as.character(nm[!is.na(nm) & nzchar(nm)]))
+      }
+      return(as.character(unlist(x, use.names = FALSE)))
+    }
+    as.character(x)
+  }
+
+  key_cols <- trait_names(cfg$similarity_study_traits %||% character(0))
+  if (length(key_cols) == 0) {
+    key_cols <- trait_names(cfg$study_traits %||% character(0))
+  }
+  if (length(key_cols) == 0) {
+    key_cols <- unique(c(
+      trait_names(cfg$similarity_species_traits %||% character(0)),
+      trait_names(cfg$similarity_study_traits %||% character(0))
+    ))
+  }
+  if (length(key_cols) == 0) {
+    key_cols <- unique(c(
+      trait_names(cfg$species_traits %||% character(0)),
+      trait_names(cfg$study_traits %||% character(0))
+    ))
+  }
+
+  length_min <- anchor_field(cfg, "length_min")
+  length_max <- anchor_field(cfg, "length_max")
+  depth_min <- anchor_field(cfg, "depth_min")
+  depth_max <- anchor_field(cfg, "depth_max")
+  freq_col <- anchor_field(cfg, "frequency")
+
+  min_length_overlap <- suppressWarnings(as.numeric(cfg$min_length_overlap_fraction %||% NA_real_))
+  min_depth_overlap <- suppressWarnings(as.numeric(cfg$min_depth_overlap_fraction %||% NA_real_))
+  frequency_mode <- stringr::str_to_lower(
+    stringr::str_squish(as.character(cfg$frequency_coherence_mode %||% "none"))
+  )[[1]]
+
+  if (is.finite(min_length_overlap)) {
+    key_cols <- c(key_cols, length_min, length_max)
+  }
+  if (is.finite(min_depth_overlap)) {
+    key_cols <- c(key_cols, depth_min, depth_max)
+  }
+  if (!identical(frequency_mode, "none")) {
+    key_cols <- c(key_cols, freq_col)
+  }
+
+  unique(key_cols[!is.na(key_cols) & nzchar(key_cols)])
+}
+
+#' Validate whether a stored admissibility bundle matches the current gate logic
+#'
+#' @param admissibility_bundle Stored admissibility result list.
+#' @param config Anchor config list or staged object.
+#'
+#' @return Logical scalar.
+#' @keywords internal
+admissibility_bundle_is_current <- function(admissibility_bundle,
+                                            config = NULL) {
+  if (!is.list(admissibility_bundle)) {
+    return(FALSE)
+  }
+
+  scores_tbl <- tibble::as_tibble(admissibility_bundle$all_scores %||% tibble::tibble())
+  if (nrow(scores_tbl) == 0) {
+    return(FALSE)
+  }
+
+  cfg <- default_anchor_config(config)
+  expected_trait_cols <- unique(c(
+    as.character(cfg$species_traits %||% character(0)),
+    as.character(cfg$study_traits %||% character(0))
+  ))
+  expected_trait_cols <- expected_trait_cols[!is.na(expected_trait_cols) & nzchar(expected_trait_cols)]
+  expected_gate_cols <- if (length(expected_trait_cols) == 0) {
+    character(0)
+  } else {
+    paste0("gate_trait_", expected_trait_cols)
+  }
+  if (length(expected_gate_cols) > 0 && !all(expected_gate_cols %in% names(scores_tbl))) {
+    return(FALSE)
+  }
+
+  freq_mode <- stringr::str_to_lower(
+    stringr::str_squish(as.character(cfg$frequency_coherence_mode %||% "none"))
+  )[[1]]
+  if (!identical(freq_mode, "none")) {
+    if (!"gate_frequency" %in% names(scores_tbl) ||
+      !"frequency_coherence_distance" %in% names(scores_tbl)) {
+      return(FALSE)
+    }
+    if ("frequency" %in% names(scores_tbl)) {
+      freq_now <- suppressWarnings(as.numeric(scores_tbl$frequency))
+      if (any(is.finite(freq_now) & freq_now > 0, na.rm = TRUE) &&
+        !any(is.finite(scores_tbl$frequency_coherence_distance), na.rm = TRUE)) {
+        return(FALSE)
+      }
+    }
+  }
+
+  expected_key_cols <- intersect(admissibility_key_metadata_cols(cfg), names(scores_tbl))
+  if ("key_metadata_missing_fraction" %in% names(scores_tbl) &&
+    length(expected_key_cols) > 0) {
+    has_missing_inputs <- any(vapply(
+      expected_key_cols,
+      function(col_nm) any(is.na(scores_tbl[[col_nm]])),
+      logical(1)
+    ))
+    if (has_missing_inputs &&
+      !any(is.finite(scores_tbl$key_metadata_missing_fraction) & scores_tbl$key_metadata_missing_fraction > 0, na.rm = TRUE)) {
+      return(FALSE)
+    }
+  }
+
+  TRUE
 }
 
 #' Build an anchor length PDF
@@ -642,13 +796,16 @@ apply_anchor_gates <- function(candidate_models,
     }
     trait_type <- trait_defn$data_type %||% "categorical"
     gate_col <- paste0("gate_trait_", trait_name)
-    gate_pass <- rep(TRUE, nrow(out))
+    gate_pass <- rep(FALSE, nrow(out))
     fail_reason <- paste0("trait_mismatch:", trait_name)
 
     if (identical(trait_name, "frequency")) {
       freq_mode <- stringr::str_to_lower(stringr::str_squish(as.character(config$frequency_coherence_mode %||% "none")))[[1]]
       candidate_freq <- suppressWarnings(as.numeric(out[[trait_name]]))
       anchor_freq <- suppressWarnings(as.numeric(anchor_row[[trait_name]][[1]]))
+      if (identical(freq_mode, "none")) {
+        gate_pass[] <- TRUE
+      }
       if (identical(freq_mode, "literal")) {
         present_idx <- is.finite(candidate_freq) & candidate_freq > 0 & is.finite(anchor_freq) & anchor_freq > 0
         gate_pass[present_idx] <- as.integer(round(candidate_freq[present_idx])) == as.integer(round(anchor_freq))
@@ -659,13 +816,15 @@ apply_anchor_gates <- function(candidate_models,
           gate_pass[present_idx] <- abs(candidate_freq[present_idx] - anchor_freq) <= freq_gap
         }
       }
-      fail_reason <- "frequency_mismatch"
+      fail_reason <- "frequency_nonoverlap"
     } else if (identical(trait_type, "set")) {
       anchor_set <- parse_set_value(anchor_row[[trait_name]][[1]])
-      for (i in seq_len(nrow(out))) {
-        candidate_set <- parse_set_value(out[[trait_name]][[i]])
-        if (length(anchor_set) > 0 && length(candidate_set) > 0) {
-          gate_pass[[i]] <- any(candidate_set %in% anchor_set)
+      if (length(anchor_set) > 0) {
+        for (i in seq_len(nrow(out))) {
+          candidate_set <- parse_set_value(out[[trait_name]][[i]])
+          if (length(candidate_set) > 0) {
+            gate_pass[[i]] <- any(candidate_set %in% anchor_set)
+          }
         }
       }
     } else if (identical(trait_type, "binary")) {
@@ -694,14 +853,42 @@ apply_anchor_gates <- function(candidate_models,
   } else {
     Reduce(`&`, out[gate_cols])
   }
-  out$gate_swimbladder <- if ("gate_trait_swimbladder_type" %in% names(out)) out$gate_trait_swimbladder_type else TRUE
-  out$gate_frequency <- if ("gate_trait_frequency" %in% names(out)) out$gate_trait_frequency else TRUE
+  out$gate_frequency <- if ("gate_trait_frequency" %in% names(out)) {
+    out$gate_trait_frequency
+  } else {
+    freq_mode <- stringr::str_to_lower(
+      stringr::str_squish(as.character(config$frequency_coherence_mode %||% "none"))
+    )[[1]]
+    freq_col <- anchor_field(config, "frequency")
+    gate_pass <- if (identical(freq_mode, "none")) rep(TRUE, nrow(out)) else rep(FALSE, nrow(out))
+    if (!identical(freq_mode, "none") &&
+      freq_col %in% names(out) &&
+      freq_col %in% names(anchor_row)) {
+      candidate_freq <- suppressWarnings(as.numeric(out[[freq_col]]))
+      anchor_freq <- suppressWarnings(as.numeric(anchor_row[[freq_col]][[1]]))
+      present_idx <- is.finite(candidate_freq) &
+        candidate_freq > 0 &
+        is.finite(anchor_freq) &
+        anchor_freq > 0
+      if (identical(freq_mode, "literal")) {
+        gate_pass[present_idx] <- as.integer(round(candidate_freq[present_idx])) == as.integer(round(anchor_freq))
+      } else if (identical(freq_mode, "overlap")) {
+        freq_gap <- suppressWarnings(as.numeric(config$frequency_gap %||% NA_real_))
+        if (is.finite(freq_gap) && freq_gap >= 0) {
+          gate_pass[present_idx] <- abs(candidate_freq[present_idx] - anchor_freq) <= freq_gap
+        }
+      }
+    }
+    gate_pass
+  }
   out$gate_length_overlap <- dplyr::case_when(
-    is.na(out$length_overlap_fraction) ~ TRUE,
+    is.na(suppressWarnings(as.numeric(config$min_length_overlap_fraction %||% NA_real_))) ~ TRUE,
+    is.na(out$length_overlap_fraction) ~ FALSE,
     TRUE ~ out$length_overlap_fraction >= config$min_length_overlap_fraction
   )
   out$gate_depth_overlap <- dplyr::case_when(
-    is.na(out$depth_overlap_fraction) ~ TRUE,
+    is.na(suppressWarnings(as.numeric(config$min_depth_overlap_fraction %||% NA_real_))) ~ TRUE,
+    is.na(out$depth_overlap_fraction) ~ FALSE,
     TRUE ~ out$depth_overlap_fraction >= config$min_depth_overlap_fraction
   )
   out$gate_missing_key_metadata <- dplyr::case_when(
@@ -710,10 +897,11 @@ apply_anchor_gates <- function(candidate_models,
   )
   out$admissible <- with(
     out,
-    gate_not_self & gate_configured_traits & gate_length_overlap & gate_depth_overlap & gate_missing_key_metadata
+    gate_not_self & gate_configured_traits & gate_frequency & gate_length_overlap & gate_depth_overlap & gate_missing_key_metadata
   )
   out$inadmissible_reason <- trait_reason
   out$inadmissible_reason[!out$gate_not_self] <- "self"
+  out$inadmissible_reason[is.na(out$inadmissible_reason) & !out$gate_frequency] <- "frequency_nonoverlap"
   out$inadmissible_reason[is.na(out$inadmissible_reason) & !out$gate_length_overlap] <- "length_domain_nonoverlap"
   out$inadmissible_reason[is.na(out$inadmissible_reason) & !out$gate_depth_overlap] <- "depth_domain_nonoverlap"
   out$inadmissible_reason[is.na(out$inadmissible_reason) & !out$gate_missing_key_metadata] <- "metadata_missing_excess"
@@ -1281,7 +1469,7 @@ screen_one_anchor_admissibility <- function(anchor_row,
     candidate_models_prepared <- tibble::as_tibble(sim_obj$candidate_models %||% candidate_models)
     candidate_models <- screen_missing_metadata(
       candidate_models = candidate_models_prepared,
-      key_cols = unique(c(cfg$species_traits %||% character(0), cfg$study_traits %||% character(0)))
+      key_cols = admissibility_key_metadata_cols(cfg)
     )
   } else {
     candidate_models <- tibble::as_tibble(candidate_models_scored)
@@ -1472,10 +1660,19 @@ screen_admissibility <- function(reference_anchors = NULL,
   if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
     report_progress(progress, "Loading cached anchor admissibility from ", cache_path, ".")
     cached_result <- readRDS(cache_path)
-    if (!is.null(candidates_obj)) {
-      return(candidates_with_admissibility(candidates_obj, cached_result))
+    if (!admissibility_bundle_is_current(cached_result, config)) {
+      report_progress(
+        progress,
+        "Cached anchor admissibility at ",
+        cache_path,
+        " is stale under the current admissibility logic; rebuilding."
+      )
+    } else {
+      if (!is.null(candidates_obj)) {
+        return(candidates_with_admissibility(candidates_obj, cached_result))
+      }
+      return(cached_result)
     }
-    return(cached_result)
   }
 
   cfg <- default_anchor_config(config)
@@ -1534,7 +1731,7 @@ screen_admissibility <- function(reference_anchors = NULL,
   candidate_models_prepared <- tibble::as_tibble(sim_obj$candidate_models %||% candidate_models)
   candidate_models_scored <- screen_missing_metadata(
     candidate_models = candidate_models_prepared,
-    key_cols = unique(c(cfg$species_traits %||% character(0), cfg$study_traits %||% character(0)))
+    key_cols = admissibility_key_metadata_cols(cfg)
   )
 
   # Evaluate every reference anchor independently and retain both the per-anchor

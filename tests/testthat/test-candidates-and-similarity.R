@@ -106,6 +106,83 @@ test_that("build_gower_distances stores distance matrices on Candidates", {
   )
 })
 
+test_that("forge_distances invalidates stale downstream alchemist state", {
+  candidates <- make_candidates(seed_similarity_tuning = FALSE)
+  alchemist <- as_alchemist(candidates)
+  alchemist <- tsbiomass:::alchemist_rebuild(
+    alchemist,
+    learner = list(old = TRUE),
+    trait_importance = list(old = TRUE),
+    ordination = list(old = TRUE),
+    admissibility = list(old = TRUE)
+  )
+
+  testthat::local_mocked_bindings(
+    build_pair_data = function(models_df,
+                               sp_names,
+                               st_names,
+                               coherence_cfg = NULL,
+                               taxonomic_distance = FALSE,
+                               feature_type = "gower",
+                               progress = FALSE) {
+      list(
+        training_data = tibble::tibble(
+          .donor_idx = c(1L, 1L, 2L, 2L),
+          .anchor_idx = c(2L, 3L, 3L, 4L),
+          .dist_family = c(0.1, 0.2, 0.3, 0.4)
+        ),
+        feature_cols = ".dist_family",
+        all_traits = "family",
+        species_feature_cols = ".dist_family",
+        trait_mats = list(),
+        donor_sigma_matrix = matrix(1, nrow = 4, ncol = 4),
+        target_sigma = rep(1, 4),
+        model_ids = as.character(seq_len(nrow(models_df))),
+        n_models = nrow(models_df)
+      )
+    },
+    fit_super_learner = function(...) {
+      list(
+        oof_ensemble_prediction = c(0.2, 0.3, 0.4, 0.5),
+        oof_performance = tibble::tibble(method = "mock", rmse = 0.1, mae = 0.1)
+      )
+    },
+    .package = "tsbiomass"
+  )
+
+  rebuilt <- forge_distances(alchemist)
+
+  expect_true(length(rebuilt@learner) > 0)
+  expect_true(length(rebuilt@distance_matrix) > 0)
+  expect_equal(length(rebuilt@trait_importance), 0L)
+  expect_equal(length(rebuilt@ordination), 0L)
+  expect_equal(length(rebuilt@admissibility), 0L)
+})
+
+test_that("screen_admissibility preserves arbitrary configured trait gates", {
+  cfg <- minimal_config_data()
+  cfg$admissibility$species_traits <- c("family")
+  cfg$admissibility$study_traits <- character(0)
+  cfg$admissibility$coherence$frequency$mode <- "none"
+  cfg_obj <- as_configurer(cfg, base_dir = tempdir())
+
+  candidates <- set_reference_anchors(
+    make_candidates(seed_similarity_tuning = FALSE),
+    selector = list(regional_body = "SWFSC")
+  )
+  screened <- screen_admissibility(
+    candidate_models = candidates,
+    config = cfg_obj,
+    refresh = TRUE,
+    progress = FALSE
+  )
+  scores <- tibble::as_tibble(screened@admissibility$all_scores)
+
+  expect_true(tsbiomass:::admissibility_bundle_is_current(screened@admissibility, cfg_obj))
+  expect_true("gate_trait_family" %in% names(scores))
+  expect_true(any(scores$inadmissible_reason == "trait_mismatch:family", na.rm = TRUE))
+})
+
 test_that("missingness summaries dispatch through Candidates and PolicySelector", {
   candidates <- make_candidates()
   screened <- tsbiomass:::screen_missing_metadata(candidates)

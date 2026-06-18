@@ -27,6 +27,11 @@ test_that("plot.Candidates renders admissibility and anchor-review plots", {
     species_name = c("Beta beta", "Gamma gamma"),
     model_id_chr = c("3", "4"),
     admissible = c(TRUE, TRUE),
+    gate_frequency = c(TRUE, TRUE),
+    frequency = c(38, 70),
+    frequency_coherence_distance = c(0.00, 0.12),
+    gate_missing_key_metadata = c(TRUE, TRUE),
+    key_metadata_missing_fraction = c(0, 0),
     biomass_multiplier_if_replace = c(1.20, 0.92),
     w_adm = c(0.62, 0.38),
     w_combined = c(0.58, 0.42),
@@ -102,6 +107,8 @@ test_that("plot.Candidates renders admissibility and anchor-review plots", {
   expect_s3_class(p_biomass, "ggplot")
   expect_s3_class(p_weights, "ggplot")
   expect_s3_class(p_similarity, "ggplot")
+  expect_null(p_gate$labels$title)
+  expect_null(p_overlap$labels$title)
 })
 
 test_that("plot.Candidates exposes ordination, tuning, and slope diagnostics", {
@@ -163,17 +170,120 @@ test_that("plot.Candidates exposes ordination, tuning, and slope diagnostics", {
   )
   candidates <- make_candidates(ordination = ordination_bundle)
 
+  p_combined_hulls <- plot(candidates, type = "ordination")
   p_combined_vectors <- plot(candidates, type = "ordination", dissimilarity = "combined", view = "vectors")
   p_species_centers <- plot(candidates, type = "ordination", dissimilarity = "species", view = "centers")
   p_tuning <- plot(candidates, type = "tuning_variation")
   p_component <- plot(candidates, type = "similarity_tuning", view = "component_importance")
   p_slope_group <- plot(candidates, type = "slope_support", view = "group")
 
+  expect_s3_class(p_combined_hulls, "ggplot")
   expect_s3_class(p_combined_vectors, "ggplot")
   expect_s3_class(p_species_centers, "ggplot")
   expect_s3_class(p_tuning, "ggplot")
   expect_s3_class(p_component, "ggplot")
   expect_s3_class(p_slope_group, "ggplot")
+})
+
+test_that("plot_gate_composition derives configured gate labels and omits self", {
+  gate_tbl <- tibble::tibble(
+    anchor_species = c("Alpha alpha", "Alpha alpha", "Alpha alpha", "Alpha alpha"),
+    inadmissible_reason = c(
+      "admissible",
+      "trait_mismatch:family",
+      "length_domain_nonoverlap",
+      "metadata_missing_excess"
+    ),
+    n_models = c(4L, 2L, 1L, 1L)
+  )
+  cfg <- list(
+    admissibility = list(
+      species_traits = c("family"),
+      study_traits = character(0),
+      coherence = list(
+        length = list(mode = "overlap", min = 0.01),
+        depth = list(mode = "overlap", min = 0.01),
+        frequency = list(mode = "none", gap = 60)
+      ),
+      key_metadata_max = 0.75
+    )
+  )
+
+  p_gate <- plot_gate_composition(gate_tbl, config = cfg)
+
+  expect_s3_class(p_gate, "ggplot")
+  expect_null(p_gate$labels$title)
+  expect_equal(
+    levels(p_gate$data$gate_label),
+    c(
+      "Admissible",
+      "Family mismatch",
+      "Length nonoverlap",
+      "Depth nonoverlap",
+      "Missing metadata"
+    )
+  )
+  expect_false("Self" %in% levels(p_gate$data$gate_label))
+})
+
+test_that("plot.Alchemist exposes admissibility summaries", {
+  gate_tbl <- tibble::tibble(
+    anchor_species = c("Alpha alpha", "Alpha alpha"),
+    inadmissible_reason = c("admissible", "trait_mismatch:swimbladder_type"),
+    n_models = c(3L, 1L)
+  )
+  overlap_tbl <- tibble::tibble(
+    anchor_species = "Alpha alpha",
+    w_same_species = 0.70,
+    w_same_family = 0.92,
+    w_same_swimbladder = 0.81,
+    w_same_fao = 0.66,
+    w_same_ocean_basin = 0.66,
+    mean_length_overlap_fraction = 0.54,
+    mean_depth_overlap_fraction = 0.43
+  )
+  alchemist <- Alchemist(
+    candidates = make_candidates(),
+    config = list(
+      config_data = list(
+        admissibility = list(
+          species_traits = c("swimbladder_type"),
+          study_traits = character(0),
+          coherence = list(
+            length = list(mode = "overlap", min = 0.01),
+            depth = list(mode = "overlap", min = 0.01),
+            frequency = list(mode = "none", gap = 60)
+          ),
+          key_metadata_max = 0.75
+        )
+      )
+    ),
+    learner = list(),
+    distance_matrix = list(),
+    trait_importance = list(),
+    ordination = list(),
+    admissibility = list(
+      all_scores = tibble::tibble(
+        anchor_model_id = "1",
+        anchor_species = "Alpha alpha",
+        gate_trait_swimbladder_type = TRUE,
+        gate_frequency = TRUE,
+        frequency = 38,
+        frequency_coherence_distance = 0,
+        gate_missing_key_metadata = TRUE,
+        key_metadata_missing_fraction = 0,
+        admissible = TRUE
+      ),
+      all_gates = gate_tbl,
+      all_overlap = overlap_tbl
+    )
+  )
+
+  p_gate <- plot(alchemist, type = "admissibility")
+  p_overlap <- plot(alchemist, type = "admissibility", view = "overlap_profile")
+
+  expect_s3_class(p_gate, "ggplot")
+  expect_s3_class(p_overlap, "ggplot")
 })
 
 test_that("plot.PolicySelector dispatches benchmark and uncertainty summaries", {
@@ -275,12 +385,6 @@ test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
     ts_lo_80 = c(-56, -51, -58, -53),
     ts_hi_80 = c(-54, -49, -56, -51)
   )
-  selection_diagnostics <- tibble::tibble(
-    anchor_species = c("Alpha alpha", "Gamma gamma"),
-    selected_policy = c("same_species_closest", "same_species_closest"),
-    species_rank = c(1, 2),
-    selection_source = c("deterministic_policy_selection", "deterministic_policy_selection")
-  )
   anchor_summary_tbl <- tibble::tibble(
     anchor_model_id = c("1", "4"),
     anchor_species = c("Alpha alpha", "Gamma gamma"),
@@ -323,7 +427,7 @@ test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
     anchor_summary = anchor_summary_tbl,
     anchor_audit = anchor_audit_tbl,
     species_coverage = tibble::tibble(),
-    selection_diagnostics = selection_diagnostics,
+    selection_diagnostics = tibble::tibble(),
     key_missing_overall = tibble::tibble(),
     key_missing_by_field = field_missing_tbl,
     key_missing_by_model = tibble::tibble(),
@@ -365,16 +469,15 @@ test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
   p_bands <- plot(scorecard, type = "ts_length_bands", anchor_species = "Alpha alpha")
   p_bands_top <- plot(scorecard, type = "ts_length_bands", anchor_species = "Alpha alpha", show_top_candidate = TRUE)
   p_coef <- plot(scorecard, type = "coefficient_uncertainty")
-  p_rank <- plot(scorecard, type = "selection_rank")
   p_selected <- plot(scorecard, type = "selected_intervals")
   p_selected_multiplier <- plot(scorecard, type = "selected_multiplier_summary")
   p_selected_counts <- plot(scorecard, type = "selected_policy_counts")
   p_selected_counts_anchor <- plot(scorecard, type = "selected_policy_counts", view = "by_anchor")
   p_competition_scorecard <- plot(scorecard, type = "strategy_competition", anchor_species = "Alpha alpha")
   p_field_missing <- plot(scorecard, type = "field_missingness")
-  p_summary <- plot(referee, type = "anchor_multiplier_summary")
+  p_summary <- plot(referee, type = "biomass_change")
   p_competition <- plot(referee, type = "strategy_competition", anchor_species = "Alpha alpha")
-  p_competition_alias <- plot(referee, type = "anchor_multiplier_summary", view = "strategy_competition", anchor_species = "Alpha alpha")
+  p_competition_alias <- plot(referee, type = "biomass_change", view = "strategy_competition", anchor_species = "Alpha alpha")
   p_length_density <- plot(referee, type = "length_density", anchor_species = "Alpha alpha")
   p_length_density_panel <- plot(referee, type = "length_density")
 
@@ -386,7 +489,6 @@ test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
   expect_s3_class(p_bands, "ggplot")
   expect_s3_class(p_bands_top, "ggplot")
   expect_s3_class(p_coef, "ggplot")
-  expect_s3_class(p_rank, "ggplot")
   expect_s3_class(p_selected, "ggplot")
   expect_s3_class(p_selected_multiplier, "ggplot")
   expect_s3_class(p_selected_counts, "ggplot")
@@ -398,6 +500,81 @@ test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
   expect_s3_class(p_competition_alias, "ggplot")
   expect_s3_class(p_length_density, "ggplot")
   expect_s3_class(p_length_density_panel, "ggplot")
+})
+
+test_that("plot_selected_intervals prefers learner post-selection interval columns", {
+  plot_tbl <- tibble::tibble(
+    anchor_species = "Alpha alpha",
+    multiplier_pred = 2.0,
+    multiplier_lo = 0.5,
+    multiplier_hi = 5.0,
+    meta_post_selection_multiplier_lo = 1.8,
+    meta_post_selection_multiplier_hi = 2.2,
+    selected_policy = "weighted_mean_within_family",
+    selected_policy_display = "Weighted mean within family"
+  )
+
+  p <- plot_selected_intervals(plot_tbl)
+  built <- ggplot2::ggplot_build(p)
+  errorbar_data <- built[["data"]][[2]]
+
+  expect_equal(errorbar_data$y[[1]], log10(2.0), tolerance = 1e-8)
+  expect_equal(errorbar_data$ymin[[1]], log10(1.8), tolerance = 1e-8)
+  expect_equal(errorbar_data$ymax[[1]], log10(2.2), tolerance = 1e-8)
+})
+
+test_that("plot.Referee uses stored predictions when scorecards are not yet stored", {
+  candidates <- set_reference_anchors(
+    make_candidates(
+      admissibility = list(
+        all_scores = minimal_admissibility_scores() |>
+          dplyr::mutate(
+            biomass_multiplier_if_replace = c(1.00, 1.18, 1.12, 1.26, 1.09, 1.21)
+          )
+      )
+    ),
+    selector = list(regional_body = "SWFSC")
+  )
+  selector <- make_selector(
+    candidates = candidates,
+    benchmark = list(
+      policy_perf = minimal_policy_performance(),
+      species_block_perf = minimal_policy_performance()
+    ),
+    uncertainty = minimal_uncertainty(),
+    selection = list(final_ref = minimal_selection_ref())
+  )
+
+  testthat::local_mocked_bindings(
+    screen_one_anchor_admissibility = function(...) list(),
+    evaluate_policies = function(...) {
+      tibble::tibble(
+        policy = c("same_species_closest", "same_genus_weighted"),
+        equation_branch_filter = "all",
+        multiplier_pred = c(1.10, 1.30)
+      )
+    },
+    summarize_evaluation = function(...) {
+      tibble::tibble(
+        consensus_multiplier = 1.20,
+        multiplier_q05 = 1.00,
+        multiplier_q50 = 1.20,
+        multiplier_q95 = 1.40,
+        local_support_mass = 0.80,
+        local_effective_support = 3.00
+      )
+    },
+    .package = "tsbiomass"
+  )
+
+  predictions <- predict(selector)
+  referee <- as_referee(selector, predictions = predictions)
+
+  expect_equal(nrow(referee@scorecard@selected), 0)
+
+  p_summary <- plot(referee, type = "biomass_change")
+
+  expect_s3_class(p_summary, "ggplot")
 })
 
 test_that("plot.PolicyLearner exposes calibration and residual diagnostics", {

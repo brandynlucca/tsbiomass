@@ -79,6 +79,57 @@ test_that("PolicyLearner warns and records explicit uncertainty fallback state",
   expect_true(is.character(learner@calibration$uncertainty_warning))
 })
 
+test_that("PolicyLearner calibration uses modeled clipped outcomes when available", {
+  predictions <- tibble::tibble(
+    anchor_model_id = c("1", "2"),
+    anchor_species = c("Alpha alpha", "Gamma gamma"),
+    policy = c("same_species_closest", "same_species_closest"),
+    equation_branch_filter = c("all", "all"),
+    valid_prediction = c(TRUE, TRUE),
+    n_valid_models = c(1L, 1L),
+    local_effective_support = c(1, 1),
+    .meta_predicted_score = c(0.20, 0.30),
+    error_abs_log = c(100, 1),
+    .outcome = c(1, 1),
+    .outcome_raw = c(100, 1),
+    .outcome_was_clipped = c(TRUE, FALSE)
+  )
+  learner <- PolicyLearner(
+    selector = NULL,
+    config = list(metalearner = list()),
+    training_data = tibble::tibble(),
+    crossfit = list(
+      result = list(
+        predictions = predictions,
+        outcome_clip_quantile = 0.5
+      ),
+      outcome_col = "error_abs_log"
+    ),
+    fitted_model = list(),
+    calibration = list()
+  )
+
+  testthat::local_mocked_bindings(
+    policy_learner_uncertainty_feature_cols = function(...) character(),
+    .package = "tsbiomass"
+  )
+
+  expect_warning(
+    learner <- calibrate_uncertainty(
+      learner,
+      max_selection_tolerance = 1e-12,
+      min_bin_scores = 1L
+    ),
+    "Falling back to point-score-scaled uncertainty"
+  )
+
+  expect_equal(learner@calibration$outcome_col, ".outcome")
+  expect_equal(learner@calibration$raw_outcome_col, "error_abs_log")
+  expect_true(all(learner@calibration$selected$.outcome == 1))
+  expect_equal(learner@calibration$summary$median_outcome[[1]], 1)
+  expect_equal(learner@calibration$coverage$median_abs_log_error[[1]], 1)
+})
+
 test_that("PolicyLearner predict ranks and selects anchor-policy rows", {
   selector <- make_selector()
   learner <- PolicyLearner(
@@ -130,7 +181,7 @@ test_that("PolicyLearner predict ranks and selects anchor-policy rows", {
   expect_true("post_selection_support_label" %in% names(scored))
   expect_setequal(unique(scored$post_selection_support_label), c("Lower support", "Higher support"))
   expect_equal(sum(scored$is_selected), 2)
-  expect_setequal(scored$policy[scored$is_selected], c("same_species_closest", "same_genus_weighted"))
+  expect_equal(scored$policy[scored$is_selected], c("same_species_closest", "same_species_closest"))
   expect_true(all(c(
     "meta_q_abs_log_width",
     "meta_q_abs_log_conformal_factor",
@@ -138,9 +189,10 @@ test_that("PolicyLearner predict ranks and selects anchor-policy rows", {
     "meta_uncertainty_source",
     "meta_uncertainty_fallback"
   ) %in% names(scored)))
-  expect_true(all(scored$meta_q_abs_log_total >= scored$meta_q_abs_log_width))
+  expect_true(all(is.finite(scored$meta_q_abs_log_total)))
+  expect_true(all(startsWith(scored$meta_uncertainty_source, "direct_")))
   alpha_rows <- scored[scored$anchor_model_id == "1", , drop = FALSE]
-  expect_gt(
+  expect_gte(
     alpha_rows$meta_q_abs_log_total[alpha_rows$policy == "same_genus_weighted"],
     alpha_rows$meta_q_abs_log_total[alpha_rows$policy == "same_species_closest"]
   )

@@ -676,6 +676,18 @@ smooth_selected_ts_calibration <- function(ts_cal) {
     return(tibble::as_tibble(ts_cal))
   }
 
+  ts_cal <- tibble::as_tibble(ts_cal)
+  for (nm in c(
+    "q80_log_sigma_abs_dev",
+    "q90_log_sigma_abs_dev",
+    "q95_log_sigma_abs_dev",
+    "q99_log_sigma_abs_dev"
+  )) {
+    if (!nm %in% names(ts_cal)) {
+      ts_cal[[nm]] <- NA_real_
+    }
+  }
+
   smooth_one <- function(x, y) {
     keep <- is.finite(x) & is.finite(y)
     if (sum(keep) < 4) {
@@ -693,8 +705,17 @@ smooth_selected_ts_calibration <- function(ts_cal) {
     out
   }
 
-  tibble::as_tibble(ts_cal) |>
-    dplyr::group_by(post_selection_support_bin, equation_branch_filter) |>
+  ts_cal |>
+    dplyr::group_by(
+      dplyr::across(dplyr::any_of(c(
+        "anchor_model_id",
+        "anchor_species",
+        "anchor_family",
+        "policy",
+        "post_selection_support_bin",
+        "equation_branch_filter"
+      )))
+    ) |>
     dplyr::arrange(u, .by_group = TRUE) |>
     dplyr::mutate(
       median_ts_error_smooth = smooth_one(u, median_ts_error),
@@ -703,6 +724,10 @@ smooth_selected_ts_calibration <- function(ts_cal) {
       q95_ts_abs_dev_smooth = smooth_one(u, q95_ts_abs_dev),
       q99_ts_abs_dev_smooth = smooth_one(u, q99_ts_abs_dev),
       median_log_sigma_residual_smooth = smooth_one(u, median_log_sigma_residual),
+      q80_log_sigma_abs_dev_smooth = smooth_one(u, q80_log_sigma_abs_dev),
+      q90_log_sigma_abs_dev_smooth = smooth_one(u, q90_log_sigma_abs_dev),
+      q95_log_sigma_abs_dev_smooth = smooth_one(u, q95_log_sigma_abs_dev),
+      q99_log_sigma_abs_dev_smooth = smooth_one(u, q99_log_sigma_abs_dev),
       q10_log_sigma_residual_smooth = smooth_one(u, q10_log_sigma_residual),
       q90_log_sigma_residual_smooth = smooth_one(u, q90_log_sigma_residual),
       q05_log_sigma_residual_smooth = smooth_one(u, q05_log_sigma_residual),
@@ -749,6 +774,16 @@ summarize_selected_ts_calibration <- function(ts_error,
   selected_keys <- selected_tbl |>
     dplyr::transmute(
       anchor_model_id = as.character(anchor_model_id),
+      selected_anchor_species = if ("anchor_species" %in% names(selected_tbl)) {
+        as.character(anchor_species)
+      } else {
+        rep(NA_character_, dplyr::n())
+      },
+      selected_anchor_family = if ("anchor_family" %in% names(selected_tbl)) {
+        as.character(anchor_family)
+      } else {
+        rep(NA_character_, dplyr::n())
+      },
       policy = selected_policy_values,
       equation_branch_filter = selected_branches(selected_tbl),
       post_selection_support_bin = selected_support_bins
@@ -767,48 +802,33 @@ summarize_selected_ts_calibration <- function(ts_error,
   selected_ts <- standardize_policies(ts_error)
   selected_ts$policy <- resolve_policy_names(selected_ts)
   selected_ts <- selected_ts |>
-    dplyr::mutate(anchor_model_id = as.character(anchor_model_id)) |>
+    dplyr::mutate(
+      anchor_model_id = as.character(anchor_model_id),
+      anchor_species = if ("anchor_species" %in% names(selected_ts)) as.character(anchor_species) else rep(NA_character_, dplyr::n())
+    ) |>
     dplyr::inner_join(
       selected_keys,
       by = c("anchor_model_id", "policy", "equation_branch_filter")
+    ) |>
+    dplyr::mutate(
+      anchor_species = dplyr::coalesce(selected_anchor_species, anchor_species),
+      anchor_family = selected_anchor_family
     )
   if (nrow(selected_ts) == 0) {
     return(tibble::tibble())
   }
 
   selected_ts |>
-    dplyr::group_by(post_selection_support_bin, equation_branch_filter, u) |>
-    dplyr::summarise(
-      n = dplyr::n(),
-      median_ts_error = stats::median(ts_error, na.rm = TRUE),
-      q80_ts_abs_dev = stats::quantile(
-        abs(ts_error - stats::median(ts_error, na.rm = TRUE)),
-        probs = 0.80, na.rm = TRUE, names = FALSE, type = 8
-      ),
-      q90_ts_abs_dev = stats::quantile(
-        abs(ts_error - stats::median(ts_error, na.rm = TRUE)),
-        probs = 0.90, na.rm = TRUE, names = FALSE, type = 8
-      ),
-      q95_ts_abs_dev = stats::quantile(
-        abs(ts_error - stats::median(ts_error, na.rm = TRUE)),
-        probs = 0.95, na.rm = TRUE, names = FALSE, type = 8
-      ),
-      q99_ts_abs_dev = stats::quantile(
-        abs(ts_error - stats::median(ts_error, na.rm = TRUE)),
-        probs = 0.99, na.rm = TRUE, names = FALSE, type = 8
-      ),
-      median_log_sigma_residual = stats::median(log_sigma_residual, na.rm = TRUE),
-      q10_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.10, na.rm = TRUE, names = FALSE, type = 8),
-      q90_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
-      q05_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.05, na.rm = TRUE, names = FALSE, type = 8),
-      q95_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.95, na.rm = TRUE, names = FALSE, type = 8),
-      q025_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.025, na.rm = TRUE, names = FALSE, type = 8),
-      q975_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.975, na.rm = TRUE, names = FALSE, type = 8),
-      q005_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.005, na.rm = TRUE, names = FALSE, type = 8),
-      q995_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.995, na.rm = TRUE, names = FALSE, type = 8),
-      .groups = "drop"
+    dplyr::mutate(
+      u = suppressWarnings(as.numeric(u)),
+      ts_error = suppressWarnings(as.numeric(ts_error)),
+      log_sigma_residual = suppressWarnings(as.numeric(log_sigma_residual))
     ) |>
-    smooth_selected_ts_calibration()
+    dplyr::filter(
+      is.finite(u),
+      is.finite(ts_error),
+      is.finite(log_sigma_residual)
+    )
 }
 
 #' Summarize selected-policy coefficient calibration
@@ -820,12 +840,15 @@ summarize_selected_ts_calibration <- function(ts_error,
 #' @param selected_tbl Selected-policy table.
 #' @param candidate_models Candidate-model table containing the true anchor
 #'   coefficients.
+#' @param ts_error Optional policy TS-error table used to recover policy
+#'   coefficients when `selected_tbl` does not carry them directly.
 #'
 #' @return A tibble of residual pairs.
 #'
 #' @keywords internal
 summarize_selected_coefficient_calibration <- function(selected_tbl,
-                                                       candidate_models) {
+                                                       candidate_models,
+                                                       ts_error = NULL) {
   selected_tbl <- tibble::as_tibble(selected_tbl)
   candidate_models <- tibble::as_tibble(candidate_models)
   if (nrow(selected_tbl) == 0 || nrow(candidate_models) == 0) {
@@ -849,20 +872,120 @@ summarize_selected_coefficient_calibration <- function(selected_tbl,
   truth_tbl <- candidate_models |>
     dplyr::transmute(
       anchor_model_id = as.character(.data[[id_col]]),
+      anchor_species = if ("species_name" %in% names(candidate_models)) as.character(species_name) else rep(NA_character_, dplyr::n()),
+      anchor_family = if ("family_name" %in% names(candidate_models)) as.character(family_name) else rep(NA_character_, dplyr::n()),
       anchor_slope_len = suppressWarnings(as.numeric(slope_len)),
       anchor_intercept_len = suppressWarnings(as.numeric(intercept_len))
     )
 
-  selected_tbl |>
+  selected_coefficients <- selected_tbl |>
     dplyr::transmute(
       anchor_model_id = as.character(anchor_model_id),
+      anchor_species = if ("anchor_species" %in% names(selected_tbl)) {
+        as.character(anchor_species)
+      } else {
+        rep(NA_character_, dplyr::n())
+      },
+      anchor_family = if ("anchor_family" %in% names(selected_tbl)) {
+        as.character(anchor_family)
+      } else {
+        rep(NA_character_, dplyr::n())
+      },
       policy = selected_policy_values,
       equation_branch_filter = selected_branches(selected_tbl),
       post_selection_support_bin = selected_support_bins,
-      policy_slope_len = suppressWarnings(as.numeric(policy_slope_len)),
-      policy_intercept_len = suppressWarnings(as.numeric(policy_intercept_len))
-    ) |>
+      policy_slope_len = if ("policy_slope_len" %in% names(selected_tbl)) {
+        suppressWarnings(as.numeric(policy_slope_len))
+      } else {
+        rep(NA_real_, dplyr::n())
+      },
+      policy_intercept_len = if ("policy_intercept_len" %in% names(selected_tbl)) {
+        suppressWarnings(as.numeric(policy_intercept_len))
+      } else {
+        rep(NA_real_, dplyr::n())
+      }
+    )
+  if ((!all(c("policy_slope_len", "policy_intercept_len") %in% names(selected_tbl)) ||
+      !any(is.finite(selected_coefficients$policy_slope_len) & is.finite(selected_coefficients$policy_intercept_len))) &&
+      !is.null(ts_error) && nrow(ts_error) > 0) {
+    ts_error <- standardize_policies(ts_error)
+    ts_error$policy <- resolve_policy_names(ts_error)
+    if (all(c("policy_slope_len", "policy_intercept_len") %in% names(ts_error))) {
+      derived_coefficients <- ts_error |>
+        dplyr::mutate(
+          anchor_model_id = as.character(anchor_model_id),
+          policy_slope_len = suppressWarnings(as.numeric(policy_slope_len)),
+          policy_intercept_len = suppressWarnings(as.numeric(policy_intercept_len))
+        ) |>
+        dplyr::group_by(anchor_model_id, policy, equation_branch_filter) |>
+        dplyr::summarise(
+          policy_slope_len = stats::median(policy_slope_len, na.rm = TRUE),
+          policy_intercept_len = stats::median(policy_intercept_len, na.rm = TRUE),
+          .groups = "drop"
+        ) |>
+        dplyr::filter(
+          is.finite(policy_slope_len),
+          is.finite(policy_intercept_len)
+        )
+    } else if (all(c("length_cm", "ts_pred") %in% names(ts_error))) {
+      derived_coefficients <- ts_error |>
+        dplyr::mutate(
+          anchor_model_id = as.character(anchor_model_id),
+          length_cm = suppressWarnings(as.numeric(length_cm)),
+          ts_pred = suppressWarnings(as.numeric(ts_pred))
+        ) |>
+        dplyr::group_by(anchor_model_id, policy, equation_branch_filter) |>
+        dplyr::summarise(
+          policy_slope_len = {
+            keep <- is.finite(length_cm) & length_cm > 0 & is.finite(ts_pred)
+            if (sum(keep) < 2L) {
+              NA_real_
+            } else {
+              x <- log10(length_cm[keep])
+              y <- ts_pred[keep]
+              slope_var <- stats::var(x)
+              if (!is.finite(slope_var) || slope_var <= 0) {
+                NA_real_
+              } else {
+                stats::cov(x, y) / slope_var
+              }
+            }
+          },
+          policy_intercept_len = {
+            keep <- is.finite(length_cm) & length_cm > 0 & is.finite(ts_pred)
+            if (sum(keep) < 2L) {
+              NA_real_
+            } else {
+              x <- log10(length_cm[keep])
+              y <- ts_pred[keep]
+              slope_var <- stats::var(x)
+              if (!is.finite(slope_var) || slope_var <= 0) {
+                NA_real_
+              } else {
+                slope_now <- stats::cov(x, y) / slope_var
+                mean(y) - slope_now * mean(x)
+              }
+            }
+          },
+          .groups = "drop"
+        )
+    } else {
+      derived_coefficients <- tibble::tibble()
+    }
+    selected_coefficients <- selected_coefficients |>
+      dplyr::select(-dplyr::any_of(c("policy_slope_len", "policy_intercept_len"))) |>
+      dplyr::left_join(
+        derived_coefficients,
+        by = c("anchor_model_id", "policy", "equation_branch_filter")
+      )
+  }
+
+  selected_coefficients |>
     dplyr::inner_join(truth_tbl, by = "anchor_model_id") |>
+    dplyr::mutate(
+      anchor_species = dplyr::coalesce(anchor_species.x, anchor_species.y),
+      anchor_family = dplyr::coalesce(anchor_family.x, anchor_family.y)
+    ) |>
     dplyr::mutate(
       slope_resid = anchor_slope_len - policy_slope_len,
       intercept_resid = anchor_intercept_len - policy_intercept_len
@@ -878,12 +1001,718 @@ summarize_selected_coefficient_calibration <- function(selected_tbl,
       !is.na(equation_branch_filter)
     ) |>
     dplyr::select(
+      anchor_model_id,
+      anchor_species,
+      anchor_family,
       policy,
       equation_branch_filter,
       post_selection_support_bin,
       slope_resid,
       intercept_resid
     )
+}
+
+resolve_numeric_candidates <- function(tbl,
+                                       candidates) {
+  tbl <- tibble::as_tibble(tbl)
+  for (nm in candidates) {
+    if (nm %in% names(tbl)) {
+      return(suppressWarnings(as.numeric(tbl[[nm]])))
+    }
+  }
+  rep(NA_real_, nrow(tbl))
+}
+
+weighted_mean_or_na <- function(x,
+                                w) {
+  x <- suppressWarnings(as.numeric(x))
+  w <- suppressWarnings(as.numeric(w))
+  keep <- is.finite(x) & is.finite(w) & w > 0
+  if (!any(keep)) {
+    return(NA_real_)
+  }
+  stats::weighted.mean(x[keep], w[keep], na.rm = TRUE)
+}
+
+collapse_selected_ts_calibration <- function(ts_calibration) {
+  ts_calibration <- tibble::as_tibble(ts_calibration)
+  if (nrow(ts_calibration) == 0 || !"u" %in% names(ts_calibration)) {
+    return(tibble::tibble())
+  }
+
+  if (all(c("ts_error", "log_sigma_residual") %in% names(ts_calibration))) {
+    collapsed_raw <- ts_calibration |>
+      dplyr::mutate(
+        u = suppressWarnings(as.numeric(u)),
+        ts_error = suppressWarnings(as.numeric(ts_error)),
+        log_sigma_residual = suppressWarnings(as.numeric(log_sigma_residual))
+      ) |>
+      dplyr::filter(
+        is.finite(u),
+        is.finite(ts_error),
+        is.finite(log_sigma_residual)
+      ) |>
+      dplyr::group_by(u) |>
+      dplyr::summarise(
+        n = dplyr::n(),
+        median_ts_error = stats::median(ts_error, na.rm = TRUE),
+        q80_ts_abs_dev = stats::quantile(abs(ts_error - stats::median(ts_error, na.rm = TRUE)), probs = 0.80, na.rm = TRUE, names = FALSE, type = 8),
+        q90_ts_abs_dev = stats::quantile(abs(ts_error - stats::median(ts_error, na.rm = TRUE)), probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
+        q95_ts_abs_dev = stats::quantile(abs(ts_error - stats::median(ts_error, na.rm = TRUE)), probs = 0.95, na.rm = TRUE, names = FALSE, type = 8),
+        q99_ts_abs_dev = stats::quantile(abs(ts_error - stats::median(ts_error, na.rm = TRUE)), probs = 0.99, na.rm = TRUE, names = FALSE, type = 8),
+        median_log_sigma_residual = stats::median(log_sigma_residual, na.rm = TRUE),
+        q80_log_sigma_abs_dev = stats::quantile(abs(log_sigma_residual - stats::median(log_sigma_residual, na.rm = TRUE)), probs = 0.80, na.rm = TRUE, names = FALSE, type = 8),
+        q90_log_sigma_abs_dev = stats::quantile(abs(log_sigma_residual - stats::median(log_sigma_residual, na.rm = TRUE)), probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
+        q95_log_sigma_abs_dev = stats::quantile(abs(log_sigma_residual - stats::median(log_sigma_residual, na.rm = TRUE)), probs = 0.95, na.rm = TRUE, names = FALSE, type = 8),
+        q99_log_sigma_abs_dev = stats::quantile(abs(log_sigma_residual - stats::median(log_sigma_residual, na.rm = TRUE)), probs = 0.99, na.rm = TRUE, names = FALSE, type = 8),
+        q10_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.10, na.rm = TRUE, names = FALSE, type = 8),
+        q90_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
+        q05_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.05, na.rm = TRUE, names = FALSE, type = 8),
+        q95_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.95, na.rm = TRUE, names = FALSE, type = 8),
+        q025_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.025, na.rm = TRUE, names = FALSE, type = 8),
+        q975_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.975, na.rm = TRUE, names = FALSE, type = 8),
+        q005_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.005, na.rm = TRUE, names = FALSE, type = 8),
+        q995_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.995, na.rm = TRUE, names = FALSE, type = 8),
+        .groups = "drop"
+      )
+    if (nrow(collapsed_raw) == 0) {
+      return(collapsed_raw)
+    }
+    collapsed_raw <- smooth_selected_ts_calibration(collapsed_raw)
+    return(
+      collapsed_raw |>
+        dplyr::mutate(
+          q80_ts_abs_dev = pmax(q80_ts_abs_dev, 0, na.rm = TRUE),
+          q90_ts_abs_dev = pmax(q90_ts_abs_dev, q80_ts_abs_dev, 0, na.rm = TRUE),
+          q95_ts_abs_dev = pmax(q95_ts_abs_dev, q90_ts_abs_dev, 0, na.rm = TRUE),
+          q99_ts_abs_dev = pmax(q99_ts_abs_dev, q95_ts_abs_dev, 0, na.rm = TRUE),
+          q80_log_sigma_abs_dev = pmax(q80_log_sigma_abs_dev, 0, na.rm = TRUE),
+          q90_log_sigma_abs_dev = pmax(q90_log_sigma_abs_dev, q80_log_sigma_abs_dev, 0, na.rm = TRUE),
+          q95_log_sigma_abs_dev = pmax(q95_log_sigma_abs_dev, q90_log_sigma_abs_dev, 0, na.rm = TRUE),
+          q99_log_sigma_abs_dev = pmax(q99_log_sigma_abs_dev, q95_log_sigma_abs_dev, 0, na.rm = TRUE)
+        )
+    )
+  }
+
+  collapsed <- ts_calibration |>
+    dplyr::mutate(
+      u = suppressWarnings(as.numeric(u)),
+      .weight_n = dplyr::coalesce(
+        if ("n" %in% names(ts_calibration)) suppressWarnings(as.numeric(n)) else rep(NA_real_, dplyr::n()),
+        1
+      ),
+      .weight_n = dplyr::if_else(is.finite(.weight_n) & .weight_n > 0, .weight_n, 1),
+      median_ts_error_use = resolve_numeric_candidates(ts_calibration, c("median_ts_error_smooth", "median_ts_error")),
+      q80_ts_abs_dev_use = resolve_numeric_candidates(ts_calibration, c("q80_ts_abs_dev_smooth", "q80_ts_abs_dev")),
+      q90_ts_abs_dev_use = resolve_numeric_candidates(ts_calibration, c("q90_ts_abs_dev_smooth", "q90_ts_abs_dev")),
+      q95_ts_abs_dev_use = resolve_numeric_candidates(ts_calibration, c("q95_ts_abs_dev_smooth", "q95_ts_abs_dev")),
+      q99_ts_abs_dev_use = resolve_numeric_candidates(ts_calibration, c("q99_ts_abs_dev_smooth", "q99_ts_abs_dev")),
+      median_log_sigma_residual_use = resolve_numeric_candidates(ts_calibration, c("median_log_sigma_residual_smooth", "median_log_sigma_residual")),
+      q10_log_sigma_residual_use = resolve_numeric_candidates(ts_calibration, c("q10_log_sigma_residual_smooth", "q10_log_sigma_residual")),
+      q90_log_sigma_residual_use = resolve_numeric_candidates(ts_calibration, c("q90_log_sigma_residual_smooth", "q90_log_sigma_residual")),
+      q05_log_sigma_residual_use = resolve_numeric_candidates(ts_calibration, c("q05_log_sigma_residual_smooth", "q05_log_sigma_residual")),
+      q95_log_sigma_residual_use = resolve_numeric_candidates(ts_calibration, c("q95_log_sigma_residual_smooth", "q95_log_sigma_residual")),
+      q025_log_sigma_residual_use = resolve_numeric_candidates(ts_calibration, c("q025_log_sigma_residual_smooth", "q025_log_sigma_residual")),
+      q975_log_sigma_residual_use = resolve_numeric_candidates(ts_calibration, c("q975_log_sigma_residual_smooth", "q975_log_sigma_residual")),
+      q005_log_sigma_residual_use = resolve_numeric_candidates(ts_calibration, c("q005_log_sigma_residual_smooth", "q005_log_sigma_residual")),
+      q995_log_sigma_residual_use = resolve_numeric_candidates(ts_calibration, c("q995_log_sigma_residual_smooth", "q995_log_sigma_residual"))
+    ) |>
+    dplyr::filter(is.finite(u)) |>
+    dplyr::group_by(u) |>
+    dplyr::summarise(
+      n = sum(.weight_n, na.rm = TRUE),
+      median_ts_error = weighted_mean_or_na(median_ts_error_use, .weight_n),
+      q80_ts_abs_dev = weighted_mean_or_na(q80_ts_abs_dev_use, .weight_n),
+      q90_ts_abs_dev = weighted_mean_or_na(q90_ts_abs_dev_use, .weight_n),
+      q95_ts_abs_dev = weighted_mean_or_na(q95_ts_abs_dev_use, .weight_n),
+      q99_ts_abs_dev = weighted_mean_or_na(q99_ts_abs_dev_use, .weight_n),
+      median_log_sigma_residual = weighted_mean_or_na(median_log_sigma_residual_use, .weight_n),
+      q10_log_sigma_residual = weighted_mean_or_na(q10_log_sigma_residual_use, .weight_n),
+      q90_log_sigma_residual = weighted_mean_or_na(q90_log_sigma_residual_use, .weight_n),
+      q05_log_sigma_residual = weighted_mean_or_na(q05_log_sigma_residual_use, .weight_n),
+      q95_log_sigma_residual = weighted_mean_or_na(q95_log_sigma_residual_use, .weight_n),
+      q025_log_sigma_residual = weighted_mean_or_na(q025_log_sigma_residual_use, .weight_n),
+      q975_log_sigma_residual = weighted_mean_or_na(q975_log_sigma_residual_use, .weight_n),
+      q005_log_sigma_residual = weighted_mean_or_na(q005_log_sigma_residual_use, .weight_n),
+      q995_log_sigma_residual = weighted_mean_or_na(q995_log_sigma_residual_use, .weight_n),
+      .groups = "drop"
+    ) |>
+    dplyr::arrange(u)
+
+  if (nrow(collapsed) == 0) {
+    return(collapsed)
+  }
+
+  collapsed |>
+    dplyr::mutate(
+      q80_ts_abs_dev = pmax(q80_ts_abs_dev, 0, na.rm = TRUE),
+      q90_ts_abs_dev = pmax(q90_ts_abs_dev, q80_ts_abs_dev, 0, na.rm = TRUE),
+      q95_ts_abs_dev = pmax(q95_ts_abs_dev, q90_ts_abs_dev, 0, na.rm = TRUE),
+      q99_ts_abs_dev = pmax(q99_ts_abs_dev, q95_ts_abs_dev, 0, na.rm = TRUE)
+    )
+}
+
+select_ts_calibration_curve <- function(ts_calibration,
+                                        row_now,
+                                        min_u = 4L,
+                                        min_avg_scores_per_u = 2) {
+  ts_calibration <- tibble::as_tibble(ts_calibration)
+  row_now <- tibble::as_tibble(row_now)
+  if (nrow(ts_calibration) == 0 || nrow(row_now) == 0) {
+    return(tibble::tibble())
+  }
+
+  anchor_id_value <- as.character(row_now$anchor_model_id[[1]] %||% NA_character_)
+  anchor_species_value <- as.character(row_now$anchor_species[[1]] %||% NA_character_)
+  anchor_family_value <- as.character(row_now$anchor_family[[1]] %||% NA_character_)
+  policy_value <- as.character(row_now$selected_policy[[1]] %||% row_now$policy[[1]] %||% NA_character_)
+  branch_value <- selected_branches(row_now)[[1]]
+  if ("anchor_model_id" %in% names(ts_calibration)) {
+    ts_calibration$anchor_model_id <- as.character(ts_calibration$anchor_model_id)
+  } else {
+    ts_calibration$anchor_model_id <- NA_character_
+  }
+  if ("anchor_species" %in% names(ts_calibration)) {
+    ts_calibration$anchor_species <- as.character(ts_calibration$anchor_species)
+  } else {
+    ts_calibration$anchor_species <- NA_character_
+  }
+  if ("anchor_family" %in% names(ts_calibration)) {
+    ts_calibration$anchor_family <- as.character(ts_calibration$anchor_family)
+  } else {
+    ts_calibration$anchor_family <- NA_character_
+  }
+  if ("policy" %in% names(ts_calibration)) {
+    ts_calibration$policy <- as.character(ts_calibration$policy)
+  } else {
+    ts_calibration$policy <- NA_character_
+  }
+  ts_calibration$equation_branch_filter <- standardize_branches(ts_calibration)
+
+  distinct_u <- function(tbl) {
+    length(unique(suppressWarnings(as.numeric(tbl$u[is.finite(suppressWarnings(as.numeric(tbl$u)))]))))
+  }
+  choose_curve <- function(tbl) {
+    collapsed <- collapse_selected_ts_calibration(tbl)
+    if (nrow(collapsed) == 0) {
+      return(NULL)
+    }
+    n_distinct_u <- distinct_u(collapsed)
+    total_n <- sum(suppressWarnings(as.numeric(collapsed$n)), na.rm = TRUE)
+    if (n_distinct_u >= as.integer(min_u) &&
+        is.finite(total_n) &&
+        total_n >= as.numeric(min_avg_scores_per_u) * n_distinct_u) {
+      return(collapsed)
+    }
+    NULL
+  }
+
+  subset_curve <- function(anchor_id = NA_character_,
+                           anchor_species = NA_character_,
+                           anchor_family = NA_character_,
+                           policy = NA_character_,
+                           branch = NA_character_) {
+    out <- ts_calibration
+    if (!is.na(anchor_id)) {
+      out <- dplyr::filter(out, anchor_model_id == !!anchor_id)
+    }
+    if (!is.na(anchor_species)) {
+      out <- dplyr::filter(out, anchor_species == !!anchor_species)
+    }
+    if (!is.na(anchor_family)) {
+      out <- dplyr::filter(out, anchor_family == !!anchor_family)
+    }
+    if (!is.na(policy)) {
+      out <- dplyr::filter(out, policy == !!policy)
+    }
+    if (!is.na(branch)) {
+      out <- dplyr::filter(out, equation_branch_filter == !!branch)
+    }
+    out
+  }
+
+  candidate_tables <- list()
+  candidate_tables[[length(candidate_tables) + 1L]] <- subset_curve(
+    anchor_id = anchor_id_value,
+    policy = policy_value,
+    branch = branch_value
+  )
+  candidate_tables[[length(candidate_tables) + 1L]] <- subset_curve(
+    anchor_id = anchor_id_value,
+    policy = policy_value
+  )
+  candidate_tables[[length(candidate_tables) + 1L]] <- subset_curve(
+    anchor_id = anchor_id_value,
+    branch = branch_value
+  )
+  candidate_tables[[length(candidate_tables) + 1L]] <- subset_curve(
+    anchor_species = anchor_species_value,
+    policy = policy_value,
+    branch = branch_value
+  )
+  candidate_tables[[length(candidate_tables) + 1L]] <- subset_curve(
+    anchor_species = anchor_species_value,
+    policy = policy_value
+  )
+  candidate_tables[[length(candidate_tables) + 1L]] <- subset_curve(
+    anchor_species = anchor_species_value,
+    branch = branch_value
+  )
+  candidate_tables[[length(candidate_tables) + 1L]] <- subset_curve(
+    anchor_species = anchor_species_value
+  )
+  candidate_tables[[length(candidate_tables) + 1L]] <- subset_curve(
+    anchor_family = anchor_family_value,
+    policy = policy_value,
+    branch = branch_value
+  )
+  candidate_tables[[length(candidate_tables) + 1L]] <- subset_curve(
+    anchor_family = anchor_family_value,
+    policy = policy_value
+  )
+  candidate_tables[[length(candidate_tables) + 1L]] <- subset_curve(
+    anchor_family = anchor_family_value,
+    branch = branch_value
+  )
+  candidate_tables[[length(candidate_tables) + 1L]] <- subset_curve(
+    anchor_family = anchor_family_value
+  )
+  candidate_tables[[length(candidate_tables) + 1L]] <- subset_curve(
+    policy = policy_value,
+    branch = branch_value
+  )
+  candidate_tables[[length(candidate_tables) + 1L]] <- subset_curve(
+    policy = policy_value
+  )
+  candidate_tables[[length(candidate_tables) + 1L]] <- subset_curve(
+    branch = branch_value
+  )
+  candidate_tables[[length(candidate_tables) + 1L]] <- ts_calibration
+
+  best_curve <- tibble::tibble()
+  best_u <- 0L
+  for (tbl_now in candidate_tables) {
+    curve_now <- collapse_selected_ts_calibration(tbl_now)
+    u_now <- distinct_u(curve_now)
+    if (u_now > best_u) {
+      best_curve <- curve_now
+      best_u <- u_now
+    }
+    chosen <- choose_curve(tbl_now)
+    if (!is.null(chosen)) {
+      return(chosen)
+    }
+  }
+
+  best_curve
+}
+
+anchor_local_log_sigma_calibration <- function(row_now,
+                                               ts_calibration,
+                                               candidate_models,
+                                               length_grid_n = 400L) {
+  row_now <- tibble::as_tibble(row_now)
+  candidate_models <- tibble::as_tibble(candidate_models)
+  if (nrow(row_now) == 0 || nrow(candidate_models) == 0) {
+    return(NULL)
+  }
+  curve <- select_ts_calibration_curve(
+    ts_calibration = ts_calibration,
+    row_now = row_now
+  )
+  if (nrow(curve) == 0) {
+    return(NULL)
+  }
+  id_col <- if ("model_id_chr" %in% names(candidate_models)) "model_id_chr" else "model_id"
+  anchor_id_chr <- as.character(row_now$anchor_model_id[[1]] %||% NA_character_)
+  anchor_row <- candidate_models |>
+    dplyr::filter(as.character(.data[[id_col]]) == anchor_id_chr) |>
+    dplyr::slice(1)
+  if (nrow(anchor_row) == 0) {
+    return(NULL)
+  }
+  anchor_pdf <- anchor_pdf_from_row(anchor_row, n = length_grid_n)
+  if (nrow(anchor_pdf) == 0) {
+    return(NULL)
+  }
+  target_u <- seq(0, 1, length.out = nrow(anchor_pdf))
+  approx_curve <- function(candidates) {
+    values <- resolve_numeric_candidates(curve, candidates)
+    keep <- is.finite(curve$u) & is.finite(values)
+    if (!any(keep)) {
+      return(rep(NA_real_, length(target_u)))
+    }
+    if (sum(keep) == 1) {
+      return(rep(values[keep][[1]], length(target_u)))
+    }
+    stats::approx(
+      x = curve$u[keep],
+      y = values[keep],
+      xout = target_u,
+      rule = 2,
+      ties = "ordered"
+    )$y
+  }
+  pdf_weights <- suppressWarnings(as.numeric(anchor_pdf$f_len))
+  if (!any(is.finite(pdf_weights) & pdf_weights > 0)) {
+    pdf_weights <- rep(1 / nrow(anchor_pdf), nrow(anchor_pdf))
+  } else {
+    pdf_weights <- pdf_weights / sum(pdf_weights, na.rm = TRUE)
+  }
+  q95_abs_dev <- approx_curve(c("q95_log_sigma_abs_dev_smooth", "q95_log_sigma_abs_dev"))
+  q99_abs_dev <- approx_curve(c("q99_log_sigma_abs_dev_smooth", "q99_log_sigma_abs_dev"))
+  median_shift <- approx_curve(c("median_log_sigma_residual_smooth", "median_log_sigma_residual"))
+  list(
+    q95 = stats::weighted.mean(q95_abs_dev, pdf_weights, na.rm = TRUE),
+    q99 = stats::weighted.mean(q99_abs_dev, pdf_weights, na.rm = TRUE),
+    median_shift = stats::weighted.mean(median_shift, pdf_weights, na.rm = TRUE)
+  )
+}
+
+select_coefficient_residual_pool <- function(coefficient_calibration,
+                                             row_now,
+                                             min_rows = 4L) {
+  coefficient_calibration <- tibble::as_tibble(coefficient_calibration)
+  row_now <- tibble::as_tibble(row_now)
+  if (nrow(coefficient_calibration) == 0 || nrow(row_now) == 0) {
+    return(tibble::tibble())
+  }
+
+  coefficient_calibration <- coefficient_calibration |>
+    dplyr::mutate(
+      anchor_model_id = if ("anchor_model_id" %in% names(coefficient_calibration)) as.character(anchor_model_id) else NA_character_,
+      anchor_species = if ("anchor_species" %in% names(coefficient_calibration)) as.character(anchor_species) else NA_character_,
+      anchor_family = if ("anchor_family" %in% names(coefficient_calibration)) as.character(anchor_family) else NA_character_,
+      policy = as.character(policy),
+      equation_branch_filter = standardize_branches(coefficient_calibration),
+      post_selection_support_bin = as.character(post_selection_support_bin),
+      slope_resid = suppressWarnings(as.numeric(slope_resid)),
+      intercept_resid = suppressWarnings(as.numeric(intercept_resid))
+    ) |>
+    dplyr::filter(
+      is.finite(slope_resid),
+      is.finite(intercept_resid)
+    )
+  if (nrow(coefficient_calibration) == 0) {
+    return(tibble::tibble())
+  }
+
+  policy_value <- as.character(row_now$selected_policy[[1]] %||% row_now$policy[[1]] %||% NA_character_)
+  anchor_species_value <- as.character(row_now$anchor_species[[1]] %||% NA_character_)
+  anchor_family_value <- as.character(row_now$anchor_family[[1]] %||% NA_character_)
+  branch_value <- selected_branches(row_now)[[1]]
+  subset_pool <- function(anchor_species = NA_character_,
+                          anchor_family = NA_character_,
+                          policy = NA_character_,
+                          branch = NA_character_) {
+    out <- coefficient_calibration
+    if (!is.na(anchor_species)) {
+      out <- dplyr::filter(out, anchor_species == !!anchor_species)
+    }
+    if (!is.na(anchor_family)) {
+      out <- dplyr::filter(out, anchor_family == !!anchor_family)
+    }
+    if (!is.na(policy)) {
+      out <- dplyr::filter(out, policy == !!policy)
+    }
+    if (!is.na(branch)) {
+      out <- dplyr::filter(out, equation_branch_filter == !!branch)
+    }
+    out
+  }
+
+  candidate_pools <- list(
+    subset_pool(anchor_species = anchor_species_value, policy = policy_value, branch = branch_value),
+    subset_pool(anchor_species = anchor_species_value, policy = policy_value),
+    subset_pool(anchor_species = anchor_species_value, branch = branch_value),
+    subset_pool(anchor_species = anchor_species_value),
+    subset_pool(anchor_family = anchor_family_value, policy = policy_value, branch = branch_value),
+    subset_pool(anchor_family = anchor_family_value, policy = policy_value),
+    subset_pool(anchor_family = anchor_family_value, branch = branch_value),
+    subset_pool(anchor_family = anchor_family_value),
+    subset_pool(policy = policy_value, branch = branch_value),
+    subset_pool(policy = policy_value),
+    subset_pool(branch = branch_value),
+    coefficient_calibration
+  )
+
+  best_pool <- tibble::tibble()
+  best_n <- 0L
+  first_specific_pool <- tibble::tibble()
+  specific_pool_count <- length(candidate_pools) - 2L
+  for (i in seq_len(specific_pool_count)) {
+    pool_now <- candidate_pools[[i]]
+    n_now <- nrow(pool_now)
+    if (n_now > best_n) {
+      best_pool <- pool_now
+      best_n <- n_now
+    }
+    if (n_now >= as.integer(min_rows)) {
+      return(pool_now)
+    }
+    if (nrow(first_specific_pool) == 0L && n_now >= 2L) {
+      first_specific_pool <- pool_now
+    }
+  }
+
+  for (pool_now in candidate_pools[(specific_pool_count + 1L):length(candidate_pools)]) {
+    n_now <- nrow(pool_now)
+    if (n_now > best_n) {
+      best_pool <- pool_now
+      best_n <- n_now
+    }
+    if (n_now >= as.integer(min_rows)) {
+      return(pool_now)
+    }
+    if (nrow(first_specific_pool) == 0L && n_now >= 2L) {
+      first_specific_pool <- pool_now
+    }
+  }
+
+  if (nrow(first_specific_pool) >= 2L) {
+    return(first_specific_pool)
+  }
+  if (nrow(best_pool) >= 2L) {
+    return(best_pool)
+  }
+  tibble::tibble()
+}
+
+selected_coefficient_covariance <- function(coefficient_calibration,
+                                            row_now,
+                                            min_rows = 4L) {
+  pool <- select_coefficient_residual_pool(
+    coefficient_calibration = coefficient_calibration,
+    row_now = row_now,
+    min_rows = min_rows
+  )
+  if (nrow(pool) < 2L) {
+    return(NULL)
+  }
+
+  sigma_now <- tryCatch(
+    stats::cov(
+      cbind(
+        suppressWarnings(as.numeric(pool$slope_resid)),
+        suppressWarnings(as.numeric(pool$intercept_resid))
+      ),
+      use = "complete.obs"
+    ),
+    error = function(e) NULL
+  )
+  if (is.null(sigma_now) || !is.matrix(sigma_now) || any(!is.finite(sigma_now))) {
+    return(NULL)
+  }
+
+  sigma_now <- (sigma_now + t(sigma_now)) / 2
+  diag(sigma_now) <- pmax(diag(sigma_now), 0)
+  list(
+    covariance = sigma_now,
+    n = nrow(pool)
+  )
+}
+
+coefficient_interval_critical_value <- function(support_n,
+                                                level = 0.95) {
+  support_n <- suppressWarnings(as.numeric(support_n))
+  alpha <- 1 - suppressWarnings(as.numeric(level))
+  if (!is.finite(alpha) || alpha <= 0 || alpha >= 1) {
+    alpha <- 0.05
+  }
+  tail_prob <- 1 - alpha / 2
+  if (is.finite(support_n) && support_n >= 2) {
+    return(stats::qt(tail_prob, df = max(support_n - 1, 1)))
+  }
+  stats::qnorm(tail_prob)
+}
+
+selection_competition_pool <- function(policy_tbl,
+                                       row_now,
+                                       config = NULL) {
+  policy_tbl <- tibble::as_tibble(policy_tbl)
+  row_now <- tibble::as_tibble(row_now)
+  if (nrow(policy_tbl) == 0 || nrow(row_now) == 0) {
+    return(tibble::tibble())
+  }
+
+  anchor_id_chr <- as.character(row_now$anchor_model_id[[1]] %||% NA_character_)
+  if (is.na(anchor_id_chr) || !nzchar(anchor_id_chr)) {
+    return(tibble::tibble())
+  }
+
+  uncertainty_relative_tolerance <- suppressWarnings(as.numeric(
+    policy_selector_config_value(
+      config,
+      "uncertainty_relative_tolerance",
+      sections = c("selection", "policy")
+    ) %||% NA_real_
+  ))
+  if (!is.finite(uncertainty_relative_tolerance)) {
+    uncertainty_relative_tolerance <- 0.25
+  }
+  uncertainty_absolute_tolerance <- suppressWarnings(as.numeric(
+    policy_selector_config_value(
+      config,
+      "uncertainty_absolute_tolerance",
+      sections = c("selection", "policy")
+    ) %||% NA_real_
+  ))
+  if (!is.finite(uncertainty_absolute_tolerance)) {
+    uncertainty_absolute_tolerance <- 0.05
+  }
+
+  validation_error <- dplyr::coalesce(
+    if ("anchor_selection_validation_error" %in% names(policy_tbl)) suppressWarnings(as.numeric(policy_tbl$anchor_selection_validation_error)) else rep(NA_real_, nrow(policy_tbl)),
+    if ("species_block_median_abs_log_error" %in% names(policy_tbl)) suppressWarnings(as.numeric(policy_tbl$species_block_median_abs_log_error)) else rep(NA_real_, nrow(policy_tbl)),
+    if ("mean_species_median_abs_log" %in% names(policy_tbl)) suppressWarnings(as.numeric(policy_tbl$mean_species_median_abs_log)) else rep(NA_real_, nrow(policy_tbl)),
+    if ("median_abs_log" %in% names(policy_tbl)) suppressWarnings(as.numeric(policy_tbl$median_abs_log)) else rep(NA_real_, nrow(policy_tbl)),
+    if (".meta_predicted_score" %in% names(policy_tbl)) suppressWarnings(as.numeric(policy_tbl$.meta_predicted_score)) else rep(NA_real_, nrow(policy_tbl))
+  )
+  specificity_rank <- if ("specificity_rank" %in% names(policy_tbl)) {
+    suppressWarnings(as.numeric(policy_tbl$specificity_rank))
+  } else {
+    policy_specificity_rank(
+      policy = policy_tbl$policy %||% rep(NA_character_, nrow(policy_tbl)),
+      candidate_pool = policy_tbl$candidate_pool %||% NULL,
+      aggregation_method = policy_tbl$aggregation_method %||% NULL,
+      policy_family = policy_tbl$policy_family %||% NULL
+    )
+  }
+  uncertainty_width <- dplyr::coalesce(
+    if ("uncertainty_cost_log_width" %in% names(policy_tbl)) suppressWarnings(as.numeric(policy_tbl$uncertainty_cost_log_width)) else rep(NA_real_, nrow(policy_tbl)),
+    if ("interval_log_width" %in% names(policy_tbl)) suppressWarnings(as.numeric(policy_tbl$interval_log_width)) else rep(NA_real_, nrow(policy_tbl))
+  )
+  selection_valid <- dplyr::coalesce(
+    if ("selection_valid" %in% names(policy_tbl)) as.logical(policy_tbl$selection_valid) else rep(NA, nrow(policy_tbl)),
+    if ("n_valid_models" %in% names(policy_tbl)) {
+      n_valid <- suppressWarnings(as.numeric(policy_tbl$n_valid_models))
+      is.finite(n_valid) & n_valid > 0
+    } else {
+      rep(NA, nrow(policy_tbl))
+    },
+    if ("n_models" %in% names(policy_tbl)) {
+      n_models <- suppressWarnings(as.numeric(policy_tbl$n_models))
+      is.finite(n_models) & n_models > 0
+    } else {
+      rep(NA, nrow(policy_tbl))
+    },
+    if ("valid_prediction" %in% names(policy_tbl)) as.logical(policy_tbl$valid_prediction) else rep(FALSE, nrow(policy_tbl)),
+    FALSE
+  )
+  uncertainty_eligible <- dplyr::coalesce(
+    if ("uncertainty_eligible" %in% names(policy_tbl)) as.logical(policy_tbl$uncertainty_eligible) else rep(NA, nrow(policy_tbl)),
+    FALSE
+  )
+
+  pool <- policy_tbl |>
+    dplyr::mutate(
+      .anchor_model_id_chr = as.character(anchor_model_id),
+      .validation_error = validation_error,
+      .specificity_rank = specificity_rank,
+      .uncertainty_width = uncertainty_width,
+      .selection_valid = selection_valid,
+      .uncertainty_eligible = uncertainty_eligible
+    ) |>
+    dplyr::filter(
+      .anchor_model_id_chr == anchor_id_chr,
+      .selection_valid,
+      is.finite(.validation_error),
+      is.finite(.uncertainty_width)
+    )
+  if (nrow(pool) == 0) {
+    return(pool)
+  }
+
+  eligible_pool <- pool |>
+    dplyr::filter(dplyr::coalesce(.uncertainty_eligible, FALSE))
+  if (nrow(eligible_pool) > 0) {
+    pool <- eligible_pool
+  }
+
+  min_validation_error <- suppressWarnings(as.numeric(
+    row_now$anchor_selection_min_validation_error[[1]] %||% NA_real_
+  ))
+  if (!is.finite(min_validation_error)) {
+    min_validation_error <- suppressWarnings(min(pool$.validation_error, na.rm = TRUE))
+  }
+  if (!is.finite(min_validation_error)) {
+    return(pool[0, , drop = FALSE])
+  }
+
+  score_pool <- pool |>
+    dplyr::filter(.validation_error <= min_validation_error + uncertainty_absolute_tolerance)
+  if (nrow(score_pool) == 0) {
+    score_pool <- pool |>
+      dplyr::filter(.validation_error <= min_validation_error + 1e-12)
+  }
+  if (nrow(score_pool) == 0) {
+    return(pool[0, , drop = FALSE])
+  }
+
+  min_specificity_rank <- suppressWarnings(min(score_pool$.specificity_rank, na.rm = TRUE))
+  if (is.finite(min_specificity_rank)) {
+    more_specific_pool <- score_pool |>
+      dplyr::filter(
+        is.finite(.specificity_rank),
+        .specificity_rank <= min_specificity_rank
+      )
+    if (nrow(more_specific_pool) > 0) {
+      score_pool <- more_specific_pool
+    }
+  }
+
+  width_threshold <- suppressWarnings(as.numeric(
+    row_now$anchor_selection_uncertainty_threshold[[1]] %||% NA_real_
+  ))
+  if (!is.finite(width_threshold)) {
+    min_width <- suppressWarnings(min(score_pool$.uncertainty_width, na.rm = TRUE))
+    if (!is.finite(min_width)) {
+      return(score_pool[0, , drop = FALSE])
+    }
+    width_threshold <- min_width + max(
+      uncertainty_absolute_tolerance,
+      abs(min_width) * uncertainty_relative_tolerance,
+      na.rm = TRUE
+    )
+  }
+
+  score_pool |>
+    dplyr::filter(.uncertainty_width <= width_threshold + 1e-12)
+}
+
+selection_competition_covariance <- function(policy_tbl,
+                                             row_now,
+                                             config = NULL) {
+  pool <- selection_competition_pool(
+    policy_tbl = policy_tbl,
+    row_now = row_now,
+    config = config
+  )
+  if (nrow(pool) < 2L) {
+    return(NULL)
+  }
+
+  slope_vals <- suppressWarnings(as.numeric(pool$policy_slope_len))
+  intercept_vals <- suppressWarnings(as.numeric(pool$policy_intercept_len))
+  keep <- is.finite(slope_vals) & is.finite(intercept_vals)
+  if (sum(keep) < 2L) {
+    return(NULL)
+  }
+
+  sigma_now <- tryCatch(
+    stats::cov(cbind(slope_vals[keep], intercept_vals[keep])),
+    error = function(e) NULL
+  )
+  if (is.null(sigma_now) || !is.matrix(sigma_now) || any(!is.finite(sigma_now))) {
+    return(NULL)
+  }
+
+  sigma_now <- (sigma_now + t(sigma_now)) / 2
+  diag(sigma_now) <- pmax(diag(sigma_now), 0)
+  list(
+    covariance = sigma_now,
+    n = sum(keep)
+  )
 }
 
 #' Build anchor PDF directly from one anchor row
@@ -971,14 +1800,14 @@ augment_anchor_length_context <- function(policy_tbl,
 strategy_q_scalars <- function(row_now) {
   q95 <- suppressWarnings(as.numeric(
     row_now$meta_q_abs_log_total[[1]] %||%
-      row_now$q_abs_log_total[[1]] %||%
+      row_now$q_abs_log_conformal[[1]] %||%
       row_now$meta_q_abs_log[[1]] %||%
       row_now$q_abs_log[[1]] %||%
+      row_now$q_abs_log_total[[1]] %||%
       NA_real_
   ))
   q99_raw <- suppressWarnings(as.numeric(
-    row_now$meta_q_abs_log_simultaneous_total[[1]] %||%
-      NA_real_
+    row_now$meta_q_abs_log_simultaneous_total[[1]] %||% NA_real_
   ))
   z80 <- stats::qnorm(0.90)
   z90 <- stats::qnorm(0.95)
@@ -1001,6 +1830,104 @@ lognormal_mean_centered_shifts <- function(q_log, z_value) {
   lower_shift <- ifelse(is.finite(sigma_log), z_value * sigma_log + 0.5 * sigma_log^2, NA_real_)
   upper_shift <- ifelse(is.finite(sigma_log), z_value * sigma_log - 0.5 * sigma_log^2, NA_real_)
   list(lower = lower_shift, upper = pmax(upper_shift, 0))
+}
+
+coefficient_shape_modifier <- function(covariance,
+                                       length_grid,
+                                       pdf_weights) {
+  covariance <- suppressWarnings(as.matrix(covariance))
+  x <- suppressWarnings(as.numeric(log10(length_grid)))
+  pdf_weights <- suppressWarnings(as.numeric(pdf_weights))
+  keep <- is.finite(x)
+  if (!is.matrix(covariance) || !identical(dim(covariance), c(2L, 2L)) || sum(keep) < 3L) {
+    return(rep(1, length(length_grid)))
+  }
+  if (length(pdf_weights) != length(length_grid) || !any(is.finite(pdf_weights) & pdf_weights > 0)) {
+    pdf_weights <- rep(1 / length(length_grid), length(length_grid))
+  } else {
+    pdf_weights <- pdf_weights / sum(pdf_weights, na.rm = TRUE)
+  }
+  X <- cbind(x[keep], 1)
+  pred_var <- rowSums((X %*% covariance) * X)
+  pred_sd <- sqrt(pmax(pred_var, 0))
+  half_width <- stats::qnorm(0.975) * pred_sd
+  avg_half_width <- stats::weighted.mean(half_width, pdf_weights[keep], na.rm = TRUE)
+  out <- rep(1, length(length_grid))
+  if (is.finite(avg_half_width) && avg_half_width > 0) {
+    out[keep] <- half_width / avg_half_width
+  }
+  out[!is.finite(out)] <- 1
+  out
+}
+
+rescale_coefficient_covariance <- function(covariance,
+                                           length_grid,
+                                           pdf_weights,
+                                           q95_scalar) {
+  covariance <- suppressWarnings(as.matrix(covariance))
+  x <- suppressWarnings(as.numeric(log10(length_grid)))
+  pdf_weights <- suppressWarnings(as.numeric(pdf_weights))
+  q95_scalar <- suppressWarnings(as.numeric(q95_scalar))
+  keep <- is.finite(x)
+  if (!is.matrix(covariance) || !identical(dim(covariance), c(2L, 2L)) || sum(keep) < 3L) {
+    return(list(
+      covariance = matrix(NA_real_, nrow = 2, ncol = 2),
+      shape_modifier = rep(NA_real_, length(length_grid))
+    ))
+  }
+  if (length(pdf_weights) != length(length_grid) || !any(is.finite(pdf_weights) & pdf_weights > 0)) {
+    pdf_weights <- rep(1 / length(length_grid), length(length_grid))
+  } else {
+    pdf_weights <- pdf_weights / sum(pdf_weights, na.rm = TRUE)
+  }
+  X <- cbind(x[keep], 1)
+  pred_var <- rowSums((X %*% covariance) * X)
+  pred_sd <- sqrt(pmax(pred_var, 0))
+  z95 <- stats::qnorm(0.975)
+  half_width <- z95 * pred_sd
+  avg_half_width <- stats::weighted.mean(half_width, pdf_weights[keep], na.rm = TRUE)
+  scale_factor <- if (is.finite(q95_scalar) && q95_scalar > 0 && is.finite(avg_half_width) && avg_half_width > 0) {
+    q95_scalar / avg_half_width
+  } else {
+    1
+  }
+  shape_modifier <- rep(NA_real_, length(length_grid))
+  shape_modifier[keep] <- if (is.finite(avg_half_width) && avg_half_width > 0) {
+    half_width / avg_half_width
+  } else {
+    rep(1, sum(keep))
+  }
+  list(
+    covariance = (scale_factor^2) * covariance,
+    shape_modifier = shape_modifier
+  )
+}
+
+coefficient_covariance_is_sane <- function(covariance,
+                                           slope_hat,
+                                           intercept_hat,
+                                           slope_half_width_max = 10,
+                                           intercept_hi_max = -50) {
+  covariance <- suppressWarnings(as.matrix(covariance))
+  slope_hat <- suppressWarnings(as.numeric(slope_hat))
+  intercept_hat <- suppressWarnings(as.numeric(intercept_hat))
+  if (!is.matrix(covariance) || !identical(dim(covariance), c(2L, 2L)) || any(!is.finite(covariance))) {
+    return(FALSE)
+  }
+  slope_se <- sqrt(max(covariance[1, 1], 0))
+  intercept_se <- sqrt(max(covariance[2, 2], 0))
+  z95 <- stats::qnorm(0.975)
+  slope_lo <- slope_hat - z95 * slope_se
+  slope_hi <- slope_hat + z95 * slope_se
+  intercept_hi <- intercept_hat + z95 * intercept_se
+  slope_half_width <- (slope_hi - slope_lo) / 2
+
+  is.finite(slope_lo) &&
+    is.finite(slope_hi) &&
+    is.finite(intercept_hi) &&
+    slope_lo > 0 &&
+    slope_half_width <= slope_half_width_max &&
+    intercept_hi <= intercept_hi_max
 }
 
 calibrated_coefficient_covariance <- function(length_grid,
@@ -1056,11 +1983,16 @@ calibrated_coefficient_covariance <- function(length_grid,
 strategy_uncertainty_context <- function(row_now,
                                          candidate_models,
                                          anchor_scores,
+                                         policy_tbl = NULL,
+                                         ts_calibration = NULL,
+                                         coefficient_calibration = NULL,
                                          config = NULL,
                                          model_scores = NULL,
                                          species_lookup = NULL,
                                          policy_lookup,
                                          policy_path = NULL,
+                                         include_competition = TRUE,
+                                         lock_fixed_slope = FALSE,
                                          length_grid_n = 400L) {
   id_col <- if ("model_id_chr" %in% names(candidate_models)) "model_id_chr" else "model_id"
   anchor_id_chr <- as.character(row_now$anchor_model_id[[1]])
@@ -1080,13 +2012,128 @@ strategy_uncertainty_context <- function(row_now,
   anchor_intercept <- suppressWarnings(as.numeric(anchor_row$intercept_len[[1]]))
   ts_anchor <- anchor_slope * log10(length_grid) + anchor_intercept
   policy_name <- as.character(row_now$selected_policy[[1]] %||% row_now$policy[[1]])
+  branch_value <- selected_branches(row_now)[[1]]
+  is_fixed_branch <- identical(branch_value, "fixed20_only")
   q_scalars <- strategy_q_scalars(row_now)
-  covariance_result <- calibrated_coefficient_covariance(
-    length_grid = length_grid,
-    pdf_weights = pdf_weights,
-    q95_scalar = q_scalars$q95
+  ts_curve_calibration <- select_ts_calibration_curve(
+    ts_calibration = ts_calibration,
+    row_now = row_now
   )
-  shape_modifier <- covariance_result$shape_modifier
+  competition_sigma <- if (isTRUE(include_competition)) {
+    selection_competition_covariance(
+      policy_tbl = policy_tbl %||% tibble::tibble(),
+      row_now = row_now,
+      config = config
+    )
+  } else {
+    NULL
+  }
+  selected_sigma <- selected_coefficient_covariance(
+    coefficient_calibration = coefficient_calibration,
+    row_now = row_now
+  )
+  slope_hat <- suppressWarnings(as.numeric(row_now$policy_slope_len[[1]]))
+  intercept_hat <- suppressWarnings(as.numeric(row_now$policy_intercept_len[[1]]))
+  selected_sigma_ok <- !is.null(selected_sigma) &&
+    coefficient_covariance_is_sane(
+      covariance = selected_sigma$covariance,
+      slope_hat = slope_hat,
+      intercept_hat = intercept_hat
+    )
+  raw_covariance <- NULL
+  coefficient_support_n <- NA_real_
+  if (selected_sigma_ok) {
+    raw_covariance <- selected_sigma$covariance
+    coefficient_support_n <- selected_sigma$n %||% NA_real_
+  } else {
+    donor_pool <- if (
+      !is.null(anchor_scores) &&
+        is.data.frame(anchor_scores) &&
+        nrow(anchor_scores) > 0 &&
+        all(c("anchor_model_id", "slope_len", "intercept_len") %in% names(anchor_scores))
+    ) {
+      anc_id_col_d <- intersect(c("model_id_chr", "model_id"), names(anchor_scores))
+      df_d <- dplyr::filter(
+        tibble::as_tibble(anchor_scores),
+        as.character(anchor_model_id) == anchor_id_chr
+      )
+      if (length(anc_id_col_d) > 0) {
+        df_d <- dplyr::filter(df_d, as.character(.data[[anc_id_col_d[[1]]]]) != anchor_id_chr)
+      }
+      dplyr::filter(df_d, is.finite(slope_len), is.finite(intercept_len))
+    } else {
+      tibble::tibble()
+    }
+    n_pool <- nrow(donor_pool)
+    if (n_pool >= 2) {
+      d_s <- suppressWarnings(as.numeric(donor_pool$slope_len))
+      d_b <- suppressWarnings(as.numeric(donor_pool$intercept_len))
+      wts_raw <- if ("w_adm" %in% names(donor_pool)) {
+        suppressWarnings(as.numeric(donor_pool$w_adm))
+      } else {
+        rep(1, n_pool)
+      }
+      wts_raw[!is.finite(wts_raw) | wts_raw <= 0] <- 1
+      wts <- wts_raw / sum(wts_raw)
+      m_s <- sum(wts * d_s)
+      m_b <- sum(wts * d_b)
+      var_s <- sum(wts * (d_s - m_s)^2)
+      var_b <- sum(wts * (d_b - m_b)^2)
+      cov_sb <- sum(wts * (d_s - m_s) * (d_b - m_b))
+      raw_covariance <- matrix(c(var_s, cov_sb, cov_sb, var_b), 2, 2)
+      coefficient_support_n <- n_pool
+    }
+  }
+
+  competition_support_n <- competition_sigma$n %||% NA_real_
+  if (!is.null(competition_sigma) &&
+      is.matrix(competition_sigma$covariance) &&
+      all(is.finite(competition_sigma$covariance))) {
+    raw_covariance <- if (is.null(raw_covariance)) {
+      competition_sigma$covariance
+    } else {
+      raw_covariance + competition_sigma$covariance
+    }
+  }
+
+  support_candidates <- c(coefficient_support_n, competition_support_n)
+  support_candidates <- support_candidates[is.finite(support_candidates)]
+  coefficient_support_n <- if (length(support_candidates) > 0) {
+    min(support_candidates)
+  } else {
+    NA_real_
+  }
+
+  if (isTRUE(lock_fixed_slope) && isTRUE(is_fixed_branch)) {
+    if (is.null(raw_covariance) || !all(is.finite(raw_covariance))) {
+      raw_covariance <- matrix(c(0, 0, 0, 1), nrow = 2, ncol = 2)
+    } else {
+      raw_covariance <- suppressWarnings(as.matrix(raw_covariance))
+      raw_covariance[1, ] <- c(0, 0)
+      raw_covariance[, 1] <- c(0, 0)
+      raw_covariance[2, 2] <- pmax(raw_covariance[2, 2], 1e-8)
+    }
+  }
+
+  if (!is.null(raw_covariance) && all(is.finite(raw_covariance))) {
+    sigma_result <- rescale_coefficient_covariance(
+      covariance = raw_covariance,
+      length_grid = length_grid,
+      pdf_weights = pdf_weights,
+      q95_scalar = q_scalars$q95
+    )
+    Sigma <- sigma_result$covariance
+    shape_modifier <- sigma_result$shape_modifier
+  } else {
+    covariance_result <- calibrated_coefficient_covariance(
+      length_grid = length_grid,
+      pdf_weights = pdf_weights,
+      q95_scalar = q_scalars$q95
+    )
+    shape_modifier <- covariance_result$shape_modifier
+    Sigma <- covariance_result$covariance
+  }
+
   if (length(shape_modifier) != length(length_grid) || !all(is.finite(shape_modifier))) {
     shape_modifier <- rep(1, length(length_grid))
   }
@@ -1094,22 +2141,102 @@ strategy_uncertainty_context <- function(row_now,
   q90_L <- q_scalars$q90 * shape_modifier
   q95_L <- q_scalars$q95 * shape_modifier
   q99_L <- q_scalars$q99 * shape_modifier
-  slope_hat <- suppressWarnings(as.numeric(row_now$policy_slope_len[[1]]))
-  intercept_hat <- suppressWarnings(as.numeric(row_now$policy_intercept_len[[1]]))
   ts_pred_raw <- slope_hat * log10(length_grid) + intercept_hat
-  sigma_pred <- 10^(ts_pred_raw / 10)
-  q80_shift <- lognormal_mean_centered_shifts(q80_L, stats::qnorm(0.90))
-  q90_shift <- lognormal_mean_centered_shifts(q90_L, stats::qnorm(0.95))
-  q95_shift <- lognormal_mean_centered_shifts(q95_L, stats::qnorm(0.975))
-  q99_shift <- lognormal_mean_centered_shifts(q99_L, stats::qnorm(0.995))
-  ts_lo_80 <- 10 * log10(sigma_pred * exp(-q80_shift$lower))
-  ts_hi_80 <- 10 * log10(sigma_pred * exp(q80_shift$upper))
-  ts_lo_90 <- 10 * log10(sigma_pred * exp(-q90_shift$lower))
-  ts_hi_90 <- 10 * log10(sigma_pred * exp(q90_shift$upper))
-  ts_lo_95 <- 10 * log10(sigma_pred * exp(-q95_shift$lower))
-  ts_hi_95 <- 10 * log10(sigma_pred * exp(q95_shift$upper))
-  ts_lo_99 <- 10 * log10(sigma_pred * exp(-q99_shift$lower))
-  ts_hi_99 <- 10 * log10(sigma_pred * exp(q99_shift$upper))
+  if (nrow(ts_curve_calibration) > 0) {
+    target_u <- seq(0, 1, length.out = length(length_grid))
+    approx_ts_calibration <- function(candidates) {
+      values <- resolve_numeric_candidates(ts_curve_calibration, candidates)
+      keep <- is.finite(ts_curve_calibration$u) & is.finite(values)
+      if (!any(keep)) {
+        return(rep(NA_real_, length(target_u)))
+      }
+      if (sum(keep) == 1) {
+        return(rep(values[keep][[1]], length(target_u)))
+      }
+      stats::approx(
+        x = ts_curve_calibration$u[keep],
+        y = values[keep],
+        xout = target_u,
+        rule = 2,
+        ties = "ordered"
+      )$y
+    }
+    median_ts_error_curve <- dplyr::coalesce(
+      approx_ts_calibration(c("median_ts_error")),
+      0
+    )
+    q80_ts_dev <- pmax(approx_ts_calibration(c("q80_ts_abs_dev")), 0, na.rm = TRUE)
+    q90_ts_dev <- pmax(approx_ts_calibration(c("q90_ts_abs_dev")), q80_ts_dev, 0, na.rm = TRUE)
+    q95_ts_dev <- pmax(approx_ts_calibration(c("q95_ts_abs_dev")), q90_ts_dev, 0, na.rm = TRUE)
+    q99_ts_dev <- pmax(approx_ts_calibration(c("q99_ts_abs_dev")), q95_ts_dev, 0, na.rm = TRUE)
+    ts_center <- ts_pred_raw + median_ts_error_curve
+    ts_lo_80 <- ts_center - q80_ts_dev
+    ts_hi_80 <- ts_center + q80_ts_dev
+    ts_lo_90 <- ts_center - q90_ts_dev
+    ts_hi_90 <- ts_center + q90_ts_dev
+    ts_lo_95 <- ts_center - q95_ts_dev
+    ts_hi_95 <- ts_center + q95_ts_dev
+    ts_lo_99 <- ts_center - q99_ts_dev
+    ts_hi_99 <- ts_center + q99_ts_dev
+    q95_scalar_local <- stats::weighted.mean(q95_ts_dev, pdf_weights, na.rm = TRUE)
+    covariance_result <- if (!is.null(raw_covariance) && all(is.finite(raw_covariance))) {
+      rescale_coefficient_covariance(
+        covariance = raw_covariance,
+        length_grid = length_grid,
+        pdf_weights = pdf_weights,
+        q95_scalar = q95_scalar_local
+      )
+    } else {
+      calibrated_coefficient_covariance(
+        length_grid = length_grid,
+        pdf_weights = pdf_weights,
+        q95_scalar = q95_scalar_local
+      )
+    }
+    if (all(is.finite(covariance_result$covariance))) {
+      Sigma <- covariance_result$covariance
+    }
+    if (length(covariance_result$shape_modifier) == length(length_grid) &&
+        all(is.finite(covariance_result$shape_modifier))) {
+      shape_modifier <- covariance_result$shape_modifier
+    }
+    if (!coefficient_covariance_is_sane(
+      covariance = Sigma,
+      slope_hat = slope_hat,
+      intercept_hat = intercept_hat
+    )) {
+      fallback_covariance <- calibrated_coefficient_covariance(
+        length_grid = length_grid,
+        pdf_weights = pdf_weights,
+        q95_scalar = q_scalars$q95
+      )
+      if (all(is.finite(fallback_covariance$covariance))) {
+        Sigma <- fallback_covariance$covariance
+      }
+      if (length(fallback_covariance$shape_modifier) == length(length_grid) &&
+          all(is.finite(fallback_covariance$shape_modifier))) {
+        shape_modifier <- fallback_covariance$shape_modifier
+      }
+    }
+    q80_L <- q80_ts_dev
+    q90_L <- q90_ts_dev
+    q95_L <- q95_ts_dev
+    q99_L <- q99_ts_dev
+  } else {
+    sigma_pred <- 10^(ts_pred_raw / 10)
+    q80_shift <- lognormal_mean_centered_shifts(q80_L, stats::qnorm(0.90))
+    q90_shift <- lognormal_mean_centered_shifts(q90_L, stats::qnorm(0.95))
+    q95_shift <- lognormal_mean_centered_shifts(q95_L, stats::qnorm(0.975))
+    q99_shift <- lognormal_mean_centered_shifts(q99_L, stats::qnorm(0.995))
+    ts_lo_80 <- 10 * log10(sigma_pred * exp(-q80_shift$lower))
+    ts_hi_80 <- 10 * log10(sigma_pred * exp(q80_shift$upper))
+    ts_lo_90 <- 10 * log10(sigma_pred * exp(-q90_shift$lower))
+    ts_hi_90 <- 10 * log10(sigma_pred * exp(q90_shift$upper))
+    ts_lo_95 <- 10 * log10(sigma_pred * exp(-q95_shift$lower))
+    ts_hi_95 <- 10 * log10(sigma_pred * exp(q95_shift$upper))
+    ts_lo_99 <- 10 * log10(sigma_pred * exp(-q99_shift$lower))
+    ts_hi_99 <- 10 * log10(sigma_pred * exp(q99_shift$upper))
+  }
   top_candidate_fields <- c(
     "anchor_model_id",
     "slope_len",
@@ -1149,7 +2276,6 @@ strategy_uncertainty_context <- function(row_now,
   } else {
     rep(NA_real_, length(length_grid))
   }
-  Sigma <- covariance_result$covariance
   list(
     anchor_model_id = anchor_id_chr,
     anchor_species = as.character(row_now$anchor_species[[1]]),
@@ -1173,7 +2299,9 @@ strategy_uncertainty_context <- function(row_now,
     q90_L = q90_L,
     q95_L = q95_L,
     q99_L = q99_L,
-    coefficient_covariance = Sigma
+    coefficient_covariance = Sigma,
+    coefficient_support_n = coefficient_support_n,
+    policy_selection_competitor_n = competition_support_n
   )
 }
 
@@ -1183,8 +2311,9 @@ strategy_uncertainty_context <- function(row_now,
 #' for each anchor retained in a policy-selection table.
 #'
 #' @param selected_tbl Selected-policy table.
-#' @param ts_calibration Unused legacy argument retained for compatibility.
-#' @param coefficient_calibration Unused legacy argument retained for compatibility.
+#' @param ts_calibration Optional selected-row TS residual calibration table.
+#' @param coefficient_calibration Optional selected-row coefficient residual
+#'   calibration table used as a fallback when TS calibration is unavailable.
 #' @param candidate_models Candidate-model table.
 #' @param anchor_scores Anchor-score table.
 #' @param config Optional config list.
@@ -1224,6 +2353,8 @@ build_ts_conformal_panel_data <- function(selected_tbl,
       row_now = selected_tbl[i, , drop = FALSE],
       candidate_models = candidate_models,
       anchor_scores = anchor_scores,
+      ts_calibration = ts_calibration,
+      coefficient_calibration = coefficient_calibration,
       config = config,
       model_scores = model_scores,
       species_lookup = species_lookup,
@@ -1264,19 +2395,23 @@ build_ts_conformal_panel_data <- function(selected_tbl,
 augment_policy_coefficient_intervals <- function(policy_tbl,
                                                  candidate_models,
                                                  anchor_scores,
+                                                 competition_policy_tbl = NULL,
+                                                 ts_calibration = NULL,
+                                                 coefficient_calibration = NULL,
                                                  config = NULL,
                                                  model_scores = NULL,
                                                  species_lookup = NULL,
                                                  policy_path = NULL,
                                                  length_grid_n = 400L) {
   policy_tbl <- tibble::as_tibble(policy_tbl)
+  competition_policy_tbl <- tibble::as_tibble(competition_policy_tbl %||% policy_tbl)
   candidate_models <- tibble::as_tibble(candidate_models)
   anchor_scores <- tibble::as_tibble(anchor_scores)
   if (nrow(policy_tbl) == 0) {
     return(policy_tbl)
   }
   drop_cols <- grep(
-    "^policy_(slope|intercept)_len_(se|lo_95|hi_95)(\\..+)?$|^policy_coefficient_(covariance|correlation)(\\..+)?$",
+    "^policy_(slope|intercept)_len_(se|lo_95|hi_95)(\\..+)?$|^policy_coefficient_(covariance|correlation|support_n|competitor_n)(\\..+)?$",
     names(policy_tbl),
     value = TRUE
   )
@@ -1320,6 +2455,9 @@ augment_policy_coefficient_intervals <- function(policy_tbl,
       row_now = row_now,
       candidate_models = candidate_models,
       anchor_scores = anchor_scores,
+      policy_tbl = competition_policy_tbl,
+      ts_calibration = ts_calibration,
+      coefficient_calibration = coefficient_calibration,
       config = config,
       model_scores = model_scores,
       species_lookup = species_lookup,
@@ -1339,11 +2477,13 @@ augment_policy_coefficient_intervals <- function(policy_tbl,
         policy_intercept_len_lo_95 = NA_real_,
         policy_intercept_len_hi_95 = NA_real_,
         policy_coefficient_covariance = NA_real_,
-        policy_coefficient_correlation = NA_real_
+        policy_coefficient_correlation = NA_real_,
+        policy_coefficient_support_n = NA_real_,
+        policy_coefficient_competitor_n = NA_real_
       ))
     }
     Sigma <- ctx$coefficient_covariance
-    z95 <- stats::qnorm(0.975)
+    z95 <- coefficient_interval_critical_value(ctx$coefficient_support_n %||% NA_real_)
     slope_hat <- suppressWarnings(as.numeric(row_now$policy_slope_len[[1]]))
     intercept_hat <- suppressWarnings(as.numeric(row_now$policy_intercept_len[[1]]))
     slope_se <- sqrt(max(Sigma[1, 1], 0))
@@ -1360,7 +2500,127 @@ augment_policy_coefficient_intervals <- function(policy_tbl,
       policy_intercept_len_lo_95 = intercept_hat - z95 * intercept_se,
       policy_intercept_len_hi_95 = intercept_hat + z95 * intercept_se,
       policy_coefficient_covariance = Sigma[1, 2],
-      policy_coefficient_correlation = corr
+      policy_coefficient_correlation = corr,
+      policy_coefficient_support_n = suppressWarnings(as.numeric(ctx$coefficient_support_n %||% NA_real_)),
+      policy_coefficient_competitor_n = suppressWarnings(as.numeric(ctx$policy_selection_competitor_n %||% NA_real_))
+    )
+  })
+  join_cols <- intersect(c("anchor_model_id", "policy", "equation_branch_filter"), intersect(names(policy_tbl), names(summaries)))
+  policy_tbl |>
+    dplyr::left_join(summaries, by = join_cols)
+}
+
+augment_policy_conditional_coefficient_intervals <- function(policy_tbl,
+                                                             candidate_models,
+                                                             anchor_scores,
+                                                             ts_calibration = NULL,
+                                                             coefficient_calibration = NULL,
+                                                             config = NULL,
+                                                             model_scores = NULL,
+                                                             species_lookup = NULL,
+                                                             policy_path = NULL,
+                                                             length_grid_n = 400L) {
+  policy_tbl <- tibble::as_tibble(policy_tbl)
+  candidate_models <- tibble::as_tibble(candidate_models)
+  anchor_scores <- tibble::as_tibble(anchor_scores)
+  if (nrow(policy_tbl) == 0) {
+    return(policy_tbl)
+  }
+  drop_cols <- grep(
+    "^conditional_policy_(slope|intercept)_len_(se|lo_95|hi_95)$|^conditional_policy_coefficient_(covariance|correlation|support_n|competitor_n)$",
+    names(policy_tbl),
+    value = TRUE
+  )
+  if (length(drop_cols) > 0) {
+    policy_tbl <- dplyr::select(policy_tbl, -dplyr::all_of(drop_cols))
+  }
+  if ("anchor_model_id" %in% names(policy_tbl)) {
+    policy_tbl$anchor_model_id <- as.character(policy_tbl$anchor_model_id)
+  }
+  if ("policy" %in% names(policy_tbl)) {
+    policy_tbl$policy <- as.character(policy_tbl$policy)
+  }
+  if ("equation_branch_filter" %in% names(policy_tbl)) {
+    policy_tbl$equation_branch_filter <- as.character(policy_tbl$equation_branch_filter)
+  }
+  if ("selected_policy" %in% names(policy_tbl)) {
+    policy_tbl$selected_policy <- as.character(policy_tbl$selected_policy)
+  }
+  if ("selected_equation_branch_filter" %in% names(policy_tbl)) {
+    policy_tbl$selected_equation_branch_filter <- as.character(policy_tbl$selected_equation_branch_filter)
+  }
+  policy_lookup <- policy_lookup_table(policy_path = policy_path)
+  if (!"selected_policy" %in% names(policy_tbl)) {
+    policy_tbl$selected_policy <- if ("policy" %in% names(policy_tbl)) {
+      as.character(policy_tbl$policy)
+    } else {
+      rep(NA_character_, nrow(policy_tbl))
+    }
+  } else if ("policy" %in% names(policy_tbl)) {
+    policy_tbl$selected_policy <- dplyr::coalesce(
+      as.character(policy_tbl$selected_policy),
+      as.character(policy_tbl$policy)
+    )
+  } else {
+    policy_tbl$selected_policy <- as.character(policy_tbl$selected_policy)
+  }
+  policy_tbl$selected_equation_branch_filter <- selected_branches(policy_tbl)
+  summaries <- purrr::map_dfr(seq_len(nrow(policy_tbl)), function(i) {
+    row_now <- policy_tbl[i, , drop = FALSE]
+    ctx <- strategy_uncertainty_context(
+      row_now = row_now,
+      candidate_models = candidate_models,
+      anchor_scores = anchor_scores,
+      policy_tbl = tibble::tibble(),
+      ts_calibration = ts_calibration,
+      coefficient_calibration = coefficient_calibration,
+      config = config,
+      model_scores = model_scores,
+      species_lookup = species_lookup,
+      policy_lookup = policy_lookup,
+      policy_path = policy_path,
+      include_competition = FALSE,
+      lock_fixed_slope = TRUE,
+      length_grid_n = length_grid_n
+    )
+    if (is.null(ctx) || any(!is.finite(ctx$coefficient_covariance))) {
+      return(tibble::tibble(
+        anchor_model_id = as.character(row_now$anchor_model_id[[1]]),
+        policy = as.character(row_now$selected_policy[[1]] %||% row_now$policy[[1]]),
+        equation_branch_filter = as.character(row_now$selected_equation_branch_filter[[1]] %||% row_now$equation_branch_filter[[1]]),
+        conditional_policy_slope_len_se = NA_real_,
+        conditional_policy_intercept_len_se = NA_real_,
+        conditional_policy_slope_len_lo_95 = NA_real_,
+        conditional_policy_slope_len_hi_95 = NA_real_,
+        conditional_policy_intercept_len_lo_95 = NA_real_,
+        conditional_policy_intercept_len_hi_95 = NA_real_,
+        conditional_policy_coefficient_covariance = NA_real_,
+        conditional_policy_coefficient_correlation = NA_real_,
+        conditional_policy_coefficient_support_n = NA_real_,
+        conditional_policy_coefficient_competitor_n = NA_real_
+      ))
+    }
+    Sigma <- ctx$coefficient_covariance
+    z95 <- coefficient_interval_critical_value(ctx$coefficient_support_n %||% NA_real_)
+    slope_hat <- suppressWarnings(as.numeric(row_now$policy_slope_len[[1]]))
+    intercept_hat <- suppressWarnings(as.numeric(row_now$policy_intercept_len[[1]]))
+    slope_se <- sqrt(max(Sigma[1, 1], 0))
+    intercept_se <- sqrt(max(Sigma[2, 2], 0))
+    corr <- if (slope_se > 0 && intercept_se > 0) Sigma[1, 2] / (slope_se * intercept_se) else NA_real_
+    tibble::tibble(
+      anchor_model_id = as.character(row_now$anchor_model_id[[1]]),
+      policy = as.character(row_now$selected_policy[[1]] %||% row_now$policy[[1]]),
+      equation_branch_filter = as.character(row_now$selected_equation_branch_filter[[1]] %||% row_now$equation_branch_filter[[1]]),
+      conditional_policy_slope_len_se = slope_se,
+      conditional_policy_intercept_len_se = intercept_se,
+      conditional_policy_slope_len_lo_95 = slope_hat - z95 * slope_se,
+      conditional_policy_slope_len_hi_95 = slope_hat + z95 * slope_se,
+      conditional_policy_intercept_len_lo_95 = intercept_hat - z95 * intercept_se,
+      conditional_policy_intercept_len_hi_95 = intercept_hat + z95 * intercept_se,
+      conditional_policy_coefficient_covariance = Sigma[1, 2],
+      conditional_policy_coefficient_correlation = corr,
+      conditional_policy_coefficient_support_n = suppressWarnings(as.numeric(ctx$coefficient_support_n %||% NA_real_)),
+      conditional_policy_coefficient_competitor_n = suppressWarnings(as.numeric(ctx$policy_selection_competitor_n %||% NA_real_))
     )
   })
   join_cols <- intersect(c("anchor_model_id", "policy", "equation_branch_filter"), intersect(names(policy_tbl), names(summaries)))

@@ -611,10 +611,9 @@ build_candidates_uncertainty_diagnostics <- function(candidates,
   global_component_order <- unique(c(global_component_order, component_tbl$component))
   component_rank <- stats::setNames(seq_along(global_component_order), global_component_order)
 
-  key_cols <- unique(c(names(cfg_base$species_traits), names(cfg_base$study_traits)))
   candidate_models_scored <- screen_missing_metadata(
     candidate_models = candidates@candidate_models,
-    key_cols = key_cols
+    key_cols = admissibility_key_metadata_cols(candidates_config_data(candidates))
   )
   excluded_model_ids <- if ("model_id_chr" %in% names(candidates@reference_anchors)) {
     as.character(candidates@reference_anchors$model_id_chr)

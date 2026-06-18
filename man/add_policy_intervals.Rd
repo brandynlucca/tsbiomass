@@ -14,29 +14,29 @@ add_policy_intervals(
 \arguments{
 \item{policy_tbl}{Anchor-policy prediction table.}
 
-\item{structural_uncertainty_weight}{Ignored. Retained for backward
-compatibility only; structural spread is no longer combined into the
-operational interval.}
+\item{structural_uncertainty_weight}{Multiplicative weight applied to the
+structural spread component before combining with the conformal radius.
+Default 1 gives equal weight to both sources.}
 
 \item{q_col}{Name of the conformal log-radius column.}
 
 \item{prediction_col}{Name of the predicted biomass multiplier column.}
 }
 \value{
-\code{policy_tbl} with \code{q_abs_log_conformal}, \code{q_abs_log_structural}
-(diagnostic only), \code{q_abs_log_total}, \code{multiplier_lo}, \code{multiplier_hi},
-\code{interval_log_width}, and \code{uncertainty_cost_log_width}.
+\code{policy_tbl} with \code{q_abs_log_conformal}, \code{q_abs_log_structural},
+\code{q_abs_log_total}, \code{multiplier_lo}, \code{multiplier_hi}, \code{interval_log_width},
+and \code{uncertainty_cost_log_width}.
 }
 \description{
-Attaches the conformal prediction interval to each policy row. The
-operational interval is derived from the conformal log-radius alone
-(\code{q_col}), which is calibrated from held-out transfer errors and already
-reflects the quality of the donor pool for species like the anchor. Donor
-structural spread (\code{local_structural_q_abs_log}) is retained as a
-diagnostic column but is not combined into the interval: doing so would
-require assuming independence between the two sources, an assumption that
-is violated because both increase together when the donor pool is
-heterogeneous.
+Attaches the calibrated prediction interval to each policy row. The
+operational interval combines the conformal log-radius (\code{q_col}) and the
+donor structural spread (\code{local_structural_q_abs_log}) in quadrature:
+\code{q_total = sqrt(q_conformal^2 + (weight * q_structural)^2)}.
+Structural spread — the 90th-percentile weighted deviation of donor
+log-backscatter values from the policy prediction — penalises strategies
+that rely on heterogeneous donor pools (e.g. ocean-basin means), ensuring
+that narrower, more homogeneous donor sets are preferred when their
+conformal error is similar.
 }
 \examples{
 interval_tbl <- add_policy_intervals(

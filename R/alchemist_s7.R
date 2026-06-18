@@ -67,10 +67,19 @@ alchemist_config_from_config <- function(source) {
     learner = list(
       methods           = alch$learner$methods           %||% ml$selection_super_methods %||% NULL,
       inner_folds       = as.integer(alch$learner$inner_folds %||% ml$inner_folds %||% 5L),
-      seed              = as.integer(alch$learner$seed        %||% ml$seed        %||% 42L),
+      seed              = if (!is.null(alch$learner$seed %||% ml$seed)) {
+        as.integer(alch$learner$seed %||% ml$seed)
+      } else {
+        NULL
+      },
       outcome_transform = alch$learner$outcome_transform %||% ml$outcome_transform %||% "identity",
       lambda_rule       = alch$learner$lambda_rule       %||% ml$lambda_rule      %||% "min",
-      method_settings   = alch$learner$method_settings   %||% ml$method_settings  %||% NULL,
+      # Preserve the shared learner-family settings and let any Alchemist-
+      # specific overrides replace only the fields they explicitly set.
+      method_settings   = merge_cfg(
+        ml$method_settings %||% list(),
+        alch$learner$method_settings %||% list()
+      ),
       workers           = as.integer(alch$learner$workers %||% ml$workers %||% 1L)
     ),
     distill_workers = as.integer(alch$distill_workers %||% 1L),
@@ -105,7 +114,7 @@ normalize_alchemist_config <- function(config, candidates = NULL) {
 
   if (is.null(config$learner)) config$learner <- list()
   config$learner$inner_folds       <- as.integer(config$learner$inner_folds %||% 5L)
-  config$learner$seed              <- as.integer(config$learner$seed        %||% 42L)
+  config$learner$seed              <- if (!is.null(config$learner$seed)) as.integer(config$learner$seed) else NULL
   config$learner$outcome_transform <- config$learner$outcome_transform %||% "identity"
   config$learner$lambda_rule       <- config$learner$lambda_rule       %||% "min"
   config$learner$workers           <- as.integer(config$learner$workers %||% 1L)
@@ -926,9 +935,11 @@ learner_method_settings <- function(family, method, method_settings) {
 #' @keywords internal
 fit_base_learner <- function(x_train, y_train, method,
                              method_settings = NULL,
-                             seed            = 42L,
+                             seed            = NULL,
                              lambda_rule     = "lambda.1se") {
-  set.seed(as.integer(seed))
+  if (!is.null(seed)) {
+    set.seed(as.integer(seed))
+  }
   family <- if (grepl("^glmnet", method)) "glmnet"
   else if (grepl("^ranger",  method)) "ranger"
   else if (grepl("^rpart",   method)) "rpart"
@@ -994,11 +1005,9 @@ fit_base_learner <- function(x_train, y_train, method,
       }
     },
     ranger = {
-      df_train <- as.data.frame(x_train)
-      df_train$.y <- y_train
-      ranger::ranger(
-        .y ~ .,
-        data                      = df_train,
+      rf <- ranger::ranger(
+        x                         = as.data.frame(x_train),
+        y                         = y_train,
         seed                      = as.integer(seed),
         num.threads               = 1L,
         verbose                   = FALSE,
@@ -1008,6 +1017,9 @@ fit_base_learner <- function(x_train, y_train, method,
         replace                   = isTRUE(ms$replace %||% TRUE),
         respect.unordered.factors = "order"
       )
+      rf$predictions <- NULL
+      rf$call        <- NULL
+      rf
     },
     rpart = {
       df_train <- as.data.frame(x_train)
@@ -1141,13 +1153,14 @@ run_oof_method <- function(method, x_all, y_all, foldid,
       break
     }
 
+    fold_seed <- if (is.null(seed)) NULL else as.integer(seed) + as.integer(fold_now)
     learner <- tryCatch(
       fit_base_learner(
         x_train         = x_all[train_idx, , drop = FALSE],
         y_train         = y_all[train_idx],
         method          = method,
         method_settings = method_settings,
-        seed            = as.integer(seed) + as.integer(fold_now),
+        seed            = fold_seed,
         lambda_rule     = lambda_rule
       ),
       error = function(e) structure(conditionMessage(e), class = "try-error")
@@ -1235,14 +1248,14 @@ fit_super_learner <- function(training_data,
                               outcome_transform = "log1p",
                               lambda_rule       = "lambda.1se",
                               inner_folds       = 5L,
-                              seed              = 42L,
+                              seed              = NULL,
                               method_settings   = NULL,
                               workers           = 1L,
                               progress          = FALSE) {
   training_data <- tibble::as_tibble(training_data)
   methods       <- resolve_learner_methods(methods)
   inner_folds   <- as.integer(inner_folds)
-  seed          <- as.integer(seed)
+  seed          <- if (!is.null(seed)) as.integer(seed) else NULL
   workers       <- as.integer(workers)
 
   x_all <- feature_matrix(training_data, feature_cols)
@@ -1641,7 +1654,7 @@ S7::method(forge_distances, Alchemist) <- function(object,
       outcome_transform = learner_cfg$outcome_transform %||% "identity",
       lambda_rule       = learner_cfg$lambda_rule       %||% "lambda.1se",
       inner_folds       = folds_lbl,
-      seed              = as.integer(learner_cfg$seed   %||% 42L),
+      seed              = if (!is.null(learner_cfg$seed)) as.integer(learner_cfg$seed) else NULL,
       method_settings   = learner_cfg$method_settings   %||% NULL,
       workers           = workers_lbl,
       progress          = progress
@@ -1713,7 +1726,17 @@ S7::method(forge_distances, Alchemist) <- function(object,
     target_sigma         = pair_data$target_sigma
   )
 
-  object <- alchemist_rebuild(object, distance_matrix = distance_matrix)
+  # A fresh learned distance matrix invalidates every downstream artifact that
+  # depends on that geometry. Re-running forge_distances() on an existing
+  # Alchemist must therefore clear trait importance, ordination, and
+  # admissibility rather than silently carrying stale results forward.
+  object <- alchemist_rebuild(
+    object,
+    distance_matrix = distance_matrix,
+    trait_importance = list(),
+    ordination = list(),
+    admissibility = list()
+  )
   alchemist_rebuild(object, learner = sl_fit)
 }
 
@@ -2004,7 +2027,15 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
     kernel_scale        = kernel_scale
   )
 
-  alchemist_rebuild(object, trait_importance = trait_importance)
+  slim_dm             <- object@distance_matrix
+  slim_dm$pair_data   <- NULL
+  slim_dm$trait_mats  <- NULL
+  alchemist_rebuild(
+    object,
+    trait_importance = trait_importance,
+    learner          = list(),
+    distance_matrix  = slim_dm
+  )
 }
 
 # ── run_ordination dispatch ────────────────────────────────────────────────────
@@ -2295,9 +2326,12 @@ S7::method(show_generic, Alchemist) <- function(object) {
 #' @param x An [Alchemist] object.
 #' @param y Unused.
 #' @param type Figure family to draw. `"ordination"` requires a prior call to
-#'   [run_ordination()]; `"trait_importance"` requires [distill_traits()].
-#' @param view Secondary plot selector for `type = "ordination"`. One of
-#'   `"clusters"`, `"cluster_hulls"`, `"vectors"`, or `"centers"`.
+#'   [run_ordination()]; `"trait_importance"` requires [distill_traits()];
+#'   `"admissibility"` requires [screen_admissibility()].
+#' @param view Secondary plot selector for `type = "ordination"` or
+#'   `type = "admissibility"`. One of `"clusters"`, `"cluster_hulls"`,
+#'   `"vectors"`, or `"centers"` for ordination; one of `"gate_composition"`
+#'   or `"overlap_profile"` for admissibility.
 #' @param include_hulls Logical. When `TRUE` (default) and hull data are
 #'   available, `view = NULL` defaults to `"cluster_hulls"` for `type =
 #'   "ordination"`.
@@ -2313,12 +2347,12 @@ S7::method(show_generic, Alchemist) <- function(object) {
 #' alchemist <- distill_traits(alchemist)
 #' plot(alchemist, type = "trait_importance")
 #' }
-S7::method(plot_generic, Alchemist) <- function(x,
-                                                y = NULL,
-                                                type = c("ordination", "trait_importance"),
-                                                view = NULL,
-                                                include_hulls = TRUE,
-                                                ...) {
+.plot_alchemist <- function(x,
+                            y = NULL,
+                            type = c("ordination", "trait_importance", "admissibility"),
+                            view = NULL,
+                            include_hulls = TRUE,
+                            ...) {
   type <- match.arg(type)
 
   if (identical(type, "ordination")) {
@@ -2356,6 +2390,32 @@ S7::method(plot_generic, Alchemist) <- function(x,
       points_tbl  = point_tbl,
       cluster_col = "nmds_cluster_id"
     ))
+  }
+
+  if (identical(type, "admissibility")) {
+    if (length(x@admissibility) == 0L) {
+      stop(
+        "No admissibility results stored. Run `screen_admissibility()` first.",
+        call. = FALSE
+      )
+    }
+    if (!admissibility_bundle_is_current(x@admissibility, x@config$config_data %||% x@candidates)) {
+      stop(
+        paste(
+          "The stored admissibility bundle on this `Alchemist` object predates the current admissibility gate logic.",
+          "Run `screen_admissibility()` again to rebuild it before plotting."
+        ),
+        call. = FALSE
+      )
+    }
+    adm_view <- match.arg(view %||% "gate_composition", c("gate_composition", "overlap_profile"))
+    if (identical(adm_view, "gate_composition")) {
+      return(plot_gate_composition(
+        x@admissibility$all_gates %||% tibble::tibble(),
+        config = x@config$config_data %||% x@candidates
+      ))
+    }
+    return(plot_overlap_heatmap(x@admissibility$all_overlap %||% tibble::tibble()))
   }
 
   if (identical(type, "trait_importance")) {
@@ -2397,4 +2457,42 @@ S7::method(plot_generic, Alchemist) <- function(x,
       ggplot2::theme_minimal(base_size = 11) +
       ggplot2::theme(legend.position = "bottom")
   }
+}
+
+S7::method(plot_generic, Alchemist) <- .plot_alchemist
+
+methods::setMethod(
+  "plot",
+  signature(x = "tsbiomass::Alchemist", y = "missing"),
+  function(x,
+           y,
+           type = c("ordination", "trait_importance", "admissibility"),
+           view = NULL,
+           include_hulls = TRUE,
+           ...) {
+    .plot_alchemist(
+      x = x,
+      y = NULL,
+      type = type,
+      view = view,
+      include_hulls = include_hulls,
+      ...
+    )
+  }
+)
+
+`plot.tsbiomass::Alchemist` <- function(x,
+                                        y = NULL,
+                                        type = c("ordination", "trait_importance", "admissibility"),
+                                        view = NULL,
+                                        include_hulls = TRUE,
+                                        ...) {
+  .plot_alchemist(
+    x = x,
+    y = y,
+    type = type,
+    view = view,
+    include_hulls = include_hulls,
+    ...
+  )
 }

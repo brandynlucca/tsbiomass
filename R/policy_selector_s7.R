@@ -788,20 +788,18 @@ S7::method(select_policies, PolicySelector) <- function(object,
 #' @param reuse_admissibility Logical scalar. If `TRUE`, reuse admissibility
 #'   results already stored on the selector's [Candidates] object.
 #'
-#' @return A [PolicyPredictions] object.
-#' @name predict.PolicySelector
-S7::method(predict_generic, PolicySelector) <- function(object,
-                                                        reference_anchors = NULL,
-                                                        policies = NULL,
-                                                        config = NULL,
-                                                        policy_params = list(),
-                                                        policy_path = NULL,
-                                                        registry_path = NULL,
-                                                        learner = NULL,
-                                                        use_support_bin_intervals = NULL,
-                                                        max_selection_tolerance = NULL,
-                                                        reuse_admissibility = TRUE,
-                                                        progress = NULL) {
+.predict_policy_selector <- function(object,
+                                     reference_anchors = NULL,
+                                     policies = NULL,
+                                     config = NULL,
+                                     policy_params = list(),
+                                     policy_path = NULL,
+                                     registry_path = NULL,
+                                     learner = NULL,
+                                     use_support_bin_intervals = NULL,
+                                     max_selection_tolerance = NULL,
+                                     reuse_admissibility = TRUE,
+                                     progress = NULL) {
   cfg <- merge_cfg(object@config, policy_selector_config_data(config))
   progress <- progress %||%
     policy_selector_config_value(cfg, "progress", sections = c("selection", "benchmark")) %||%
@@ -1095,6 +1093,74 @@ S7::method(predict_generic, PolicySelector) <- function(object,
   )
 }
 
+#' @return A [PolicyPredictions] object.
+#' @name predict.PolicySelector
+S7::method(predict_generic, PolicySelector) <- .predict_policy_selector
+
+methods::setMethod(
+  "predict",
+  signature(object = "tsbiomass::PolicySelector"),
+  function(object,
+           reference_anchors = NULL,
+           policies = NULL,
+           config = NULL,
+           policy_params = list(),
+           policy_path = NULL,
+           registry_path = NULL,
+           learner = NULL,
+           use_support_bin_intervals = NULL,
+           max_selection_tolerance = NULL,
+           reuse_admissibility = TRUE,
+           progress = NULL,
+           ...) {
+    .predict_policy_selector(
+      object = object,
+      reference_anchors = reference_anchors,
+      policies = policies,
+      config = config,
+      policy_params = policy_params,
+      policy_path = policy_path,
+      registry_path = registry_path,
+      learner = learner,
+      use_support_bin_intervals = use_support_bin_intervals,
+      max_selection_tolerance = max_selection_tolerance,
+      reuse_admissibility = reuse_admissibility,
+      progress = progress
+    )
+  }
+)
+
+# Base `predict()` falls through `UseMethod()` for these S7 class strings in an
+# installed package, so provide an explicit S3 bridge on the literal class name.
+`predict.tsbiomass::PolicySelector` <- function(object,
+                                                reference_anchors = NULL,
+                                                policies = NULL,
+                                                config = NULL,
+                                                policy_params = list(),
+                                                policy_path = NULL,
+                                                registry_path = NULL,
+                                                learner = NULL,
+                                                use_support_bin_intervals = NULL,
+                                                max_selection_tolerance = NULL,
+                                                reuse_admissibility = TRUE,
+                                                progress = NULL,
+                                                ...) {
+  .predict_policy_selector(
+    object = object,
+    reference_anchors = reference_anchors,
+    policies = policies,
+    config = config,
+    policy_params = policy_params,
+    policy_path = policy_path,
+    registry_path = registry_path,
+    learner = learner,
+    use_support_bin_intervals = use_support_bin_intervals,
+    max_selection_tolerance = max_selection_tolerance,
+    reuse_admissibility = reuse_admissibility,
+    progress = progress
+  )
+}
+
 #' Print a `PolicySelector`
 #'
 #' @name print.PolicySelector
@@ -1185,15 +1251,15 @@ S7::method(show_generic, PolicyPredictions) <- function(object) {
 #' plot(selector, type = "policy_benchmark")
 #' plot(selector, type = "strategy_error_heatmap")
 #' }
-S7::method(plot_generic, PolicySelector) <- function(x,
-                                                     y = NULL,
-                                                     type = c(
-                                                       "strategy_error_heatmap",
-                                                       "conformal_scores",
-                                                       "policy_benchmark",
-                                                       "species_policy_ranked"
-                                                     ),
-                                                     ...) {
+.plot_policy_selector <- function(x,
+                                  y = NULL,
+                                  type = c(
+                                    "strategy_error_heatmap",
+                                    "conformal_scores",
+                                    "policy_benchmark",
+                                    "species_policy_ranked"
+                                  ),
+                                  ...) {
   type <- match.arg(type)
 
   if (type %in% c("strategy_error_heatmap", "policy_benchmark", "species_policy_ranked")) {
@@ -1221,6 +1287,12 @@ S7::method(plot_generic, PolicySelector) <- function(x,
   plot_conformal_scores((x@uncertainty)$conf_cal %||% tibble::tibble())
 }
 
+S7::method(plot_generic, PolicySelector) <- .plot_policy_selector
+
+`plot.tsbiomass::PolicySelector` <- function(x, y = NULL, ...) {
+  .plot_policy_selector(x, y, ...)
+}
+
 #' Plot a `PolicyPredictions`
 #'
 #' Uses the package's S7 method on [base::plot()] so prediction bundles can be
@@ -1245,12 +1317,12 @@ S7::method(plot_generic, PolicySelector) <- function(x,
 #' plot(predictions, type = "selected_intervals")
 #' plot(predictions, type = "strategy_competition")
 #' }
-S7::method(plot_generic, PolicyPredictions) <- function(x,
-                                                        y = NULL,
-                                                        type = c("selected_intervals", "strategy_competition"),
-                                                        anchor_species = NULL,
-                                                        reference_name = NULL,
-                                                        ...) {
+.plot_policy_predictions <- function(x,
+                                     y = NULL,
+                                     type = c("selected_intervals", "strategy_competition"),
+                                     anchor_species = NULL,
+                                     reference_name = NULL,
+                                     ...) {
   type <- match.arg(type)
 
   if (identical(type, "selected_intervals")) {
@@ -1267,6 +1339,12 @@ S7::method(plot_generic, PolicyPredictions) <- function(x,
     ))
   }
   plot_interval_panel(interval_tbl)
+}
+
+S7::method(plot_generic, PolicyPredictions) <- .plot_policy_predictions
+
+`plot.tsbiomass::PolicyPredictions` <- function(x, y = NULL, ...) {
+  .plot_policy_predictions(x, y, ...)
 }
 
 

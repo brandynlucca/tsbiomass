@@ -22,8 +22,6 @@ plot_ordination_cluster_hulls(
 \item{reference_col}{Reference-flag column.}
 
 \item{label_col}{Point-label column.}
-
-\item{title}{Plot title.}
 }
 \value{
 A ggplot object.

@@ -313,10 +313,9 @@ grouped_foldid <- function(groups,
     return(NULL)
   }
   n_folds <- min(as.integer(n_folds), length(unique_groups))
-  if (is.null(seed)) {
-    seed <- sample.int(.Machine$integer.max, 1)
+  if (!is.null(seed)) {
+    set.seed(as.integer(seed))
   }
-  set.seed(as.integer(seed))
   fold_tbl <- tibble::tibble(
     group = sample(unique_groups, length(unique_groups), replace = FALSE),
     fold = rep(seq_len(n_folds), length.out = length(unique_groups))
@@ -344,10 +343,9 @@ row_foldid <- function(n,
   if (!is.finite(n_folds) || n_folds < 2L) {
     return(NULL)
   }
-  if (is.null(seed)) {
-    seed <- sample.int(.Machine$integer.max, 1)
+  if (!is.null(seed)) {
+    set.seed(as.integer(seed))
   }
-  set.seed(as.integer(seed))
   sample(rep(seq_len(n_folds), length.out = n), n, replace = FALSE)
 }
 
@@ -833,6 +831,7 @@ stream_outer_fold_super_learner_predictions <- function(train_data,
       tr_idx <- which(foldid != fold_now)
       vl_idx <- which(foldid == fold_now)
       if (length(tr_idx) == 0 || length(vl_idx) == 0) { ok_method <- FALSE; next }
+      fold_seed <- if (is.null(seed)) NULL else as.integer(seed) + as.integer(fold_now)
       bl <- fit_meta_policy_base_safely(
         training_data  = train_data[tr_idx, , drop = FALSE],
         method         = method_now,
@@ -840,7 +839,7 @@ stream_outer_fold_super_learner_predictions <- function(train_data,
         outcome_transform = outcome_transform,
         lambda_rule    = lambda_rule,
         inner_folds    = inner_folds,
-        seed           = as.integer(seed) + as.integer(fold_now),
+        seed           = fold_seed,
         method_settings = method_settings
       )
       if (inherits(bl, "try-error")) { ok_method <- FALSE; break }
@@ -970,6 +969,7 @@ fit_meta_policy_super_learner <- function(training_data,
         ok_method <- FALSE
         next
       }
+      fold_seed <- if (is.null(seed)) NULL else as.integer(seed) + as.integer(fold_now)
       learner <- fit_meta_policy_base_safely(
         training_data = training_data[train_idx, , drop = FALSE],
         method = method_now,
@@ -977,7 +977,7 @@ fit_meta_policy_super_learner <- function(training_data,
         outcome_transform = outcome_transform,
         lambda_rule = lambda_rule,
         inner_folds = inner_folds,
-        seed = as.integer(seed) + as.integer(fold_now),
+        seed = fold_seed,
         method_settings = method_settings
       )
       if (inherits(learner, "try-error")) {
@@ -1022,7 +1022,7 @@ fit_meta_policy_super_learner <- function(training_data,
       outcome_transform = outcome_transform,
       lambda_rule = lambda_rule,
       inner_folds = inner_folds,
-      seed = as.integer(seed),
+      seed = if (is.null(seed)) NULL else as.integer(seed),
       method_settings = method_settings
     )
     if (!inherits(learner, "try-error")) {
@@ -1034,6 +1034,11 @@ fit_meta_policy_super_learner <- function(training_data,
     stop("No super-learner base methods could be refit on the full training data.", call. = FALSE)
   }
   weights <- weights / sum(weights)
+  active <- weights > 0
+  if (any(active)) {
+    final_learners <- final_learners[names(weights)[active]]
+    weights        <- weights[active]
+  }
 
   oof_pred <- as.numeric(oof_mat[, names(weights), drop = FALSE] %*% weights)
   oof_weights <- weights[colnames(oof_mat)]
@@ -1366,21 +1371,31 @@ fit_meta_policy_learner <- function(training_data,
       control = fit_arguments$control %||% rpart::rpart.control(),
       ...
     ),
-    ranger = ranger::ranger(
-      formula_now,
-      data = model_data,
-      seed = as.integer(seed),
-      num.threads = 1L,
-      verbose = FALSE,
-      num.trees = as.integer(fit_arguments$num.trees %||% 500L),
-      mtry = fit_arguments$mtry %||% NULL,
-      min.node.size = as.integer(fit_arguments$min.node.size %||% 5L),
-      sample.fraction = as.numeric(fit_arguments$sample.fraction %||% 1),
-      replace = isTRUE(fit_arguments$replace %||% TRUE),
-      respect.unordered.factors = fit_arguments$respect.unordered.factors %||% "order",
-      ...
+    ranger = do.call(
+      ranger::ranger,
+      c(
+        list(
+          x = as.data.frame(model_frame),
+          y = y,
+          num.threads = 1L,
+          verbose = FALSE,
+          num.trees = as.integer(fit_arguments$num.trees %||% 500L),
+          mtry = fit_arguments$mtry %||% NULL,
+          min.node.size = as.integer(fit_arguments$min.node.size %||% 5L),
+          sample.fraction = as.numeric(fit_arguments$sample.fraction %||% 1),
+          replace = isTRUE(fit_arguments$replace %||% TRUE),
+          respect.unordered.factors = fit_arguments$respect.unordered.factors %||% "order"
+        ),
+        if (!is.null(seed)) list(seed = as.integer(seed)) else list(),
+        list(...)
+      )
     )
   )
+
+  if (identical(method_spec$family, "ranger")) {
+    fit$predictions <- NULL
+    fit$call        <- NULL
+  }
 
   structure(
     list(
@@ -1575,10 +1590,9 @@ crossfit_meta_policy_learner <- function(policy_perf,
     stop("'n_folds' must be at least 2 and no larger than the number of groups.", call. = FALSE)
   }
 
-  if (is.null(seed)) {
-    seed <- sample.int(.Machine$integer.max, 1)
+  if (!is.null(seed)) {
+    set.seed(as.integer(seed))
   }
-  set.seed(as.integer(seed))
   fold_tbl <- tibble::tibble(
     group_id = sample(groups, length(groups), replace = FALSE),
     fold_id = rep(seq_len(n_folds), length.out = length(groups))
@@ -1646,6 +1660,7 @@ crossfit_meta_policy_learner <- function(policy_perf,
     train <- fold_split$train
     test  <- fold_split$test
     if (nrow(train) == 0 || nrow(test) == 0) return(tibble::tibble())
+    outer_seed <- if (is.null(seed)) NULL else as.integer(seed) + f
     if (is_super) {
       preds <- tsbiomass:::stream_outer_fold_super_learner_predictions(
         train_data        = train,
@@ -1654,7 +1669,7 @@ crossfit_meta_policy_learner <- function(policy_perf,
         outcome_transform = outcome_transform,
         lambda_rule       = lambda_rule,
         inner_folds       = inner_folds,
-        seed              = as.integer(seed) + f,
+        seed              = outer_seed,
         super_methods     = super_methods,
         metalearner_loss  = metalearner_loss,
         method_settings   = method_settings,
@@ -1671,7 +1686,7 @@ crossfit_meta_policy_learner <- function(policy_perf,
         inner_folds       = inner_folds,
         super_methods     = super_methods,
         metalearner_loss  = metalearner_loss,
-        seed              = as.integer(seed) + f,
+        seed              = outer_seed,
         method_settings   = method_settings
       )
       preds <- tsbiomass:::predict_meta_policy_score(learner, test)

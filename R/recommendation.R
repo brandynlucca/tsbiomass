@@ -247,7 +247,7 @@ prepare_recommendation_context <- function(candidate_models,
   candidate_models_prepared <- tibble::as_tibble(sim_obj$candidate_models %||% candidate_models)
   candidate_models_scored <- screen_missing_metadata(
     candidate_models = candidate_models_prepared,
-    key_cols = unique(c(sim_obj$species_traits, sim_obj$study_traits))
+    key_cols = admissibility_key_metadata_cols(cfg)
   ) |>
     add_recommendation_source_weights()
 

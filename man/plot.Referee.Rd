@@ -11,7 +11,7 @@
 \item{type}{Figure family to draw.}
 
 \item{view}{Secondary plot selector used for
-\code{type = "anchor_multiplier_summary"} and \code{type = "length_density"}.}
+\code{type = "biomass_change"} and \code{type = "length_density"}.}
 
 \item{anchor_model_id}{Optional anchor model ID used for anchor-specific
 diagnostics.}
@@ -37,7 +37,7 @@ both selector context and scorecard tables are needed.
 referee <- as_referee(selector, predictions = predictions)
 scorecard <- predict(referee)
 referee <- referee_rebuild(referee, scorecard = scorecard)
-plot(referee, type = "anchor_multiplier_summary")
+plot(referee, type = "biomass_change")
 plot(referee, type = "length_density", anchor_species = "Sardinops sagax")
 }
 }

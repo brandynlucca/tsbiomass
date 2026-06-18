@@ -410,15 +410,15 @@ S7::method(show_generic, PolicySimulator) <- function(object) {
 #' plot(simulator)
 #' plot(simulator, type = "multiplier_drift")
 #' }
-S7::method(plot_generic, PolicySimulator) <- function(x,
-                                                      y = NULL,
-                                                      type = c(
-                                                        "sensitivity_overview",
-                                                        "policy_stability",
-                                                        "multiplier_drift"
-                                                      ),
-                                                      baseline_label = "baseline",
-                                                      ...) {
+.plot_policy_simulator <- function(x,
+                                   y = NULL,
+                                   type = c(
+                                     "sensitivity_overview",
+                                     "policy_stability",
+                                     "multiplier_drift"
+                                   ),
+                                   baseline_label = "baseline",
+                                   ...) {
   type <- match.arg(type)
   sensitivity_tables <- bind_sensitivity_data(x)
   sensitivity_tbl <- tibble::as_tibble(sensitivity_tables$select_ref %||% tibble::tibble())
@@ -500,6 +500,12 @@ S7::method(plot_generic, PolicySimulator) <- function(x,
   }
 
   plot_sensitivity_overview(tibble::tibble())
+}
+
+S7::method(plot_generic, PolicySimulator) <- .plot_policy_simulator
+
+`plot.tsbiomass::PolicySimulator` <- function(x, y = NULL, ...) {
+  .plot_policy_simulator(x, y, ...)
 }
 
 

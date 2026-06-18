@@ -596,15 +596,11 @@ build_policy_sensitivity_scenarios <- function(candidate_models,
   config_values <- read_similarity_config(config)
   models_tbl <- tibble::as_tibble(candidate_models)
 
-  # Use the same selected species/study traits as the admissibility screen to
-  # compute one missingness fraction per model before any scenario filtering.
-  key_cols <- unique(c(
-    names(config_values$species_traits %||% list()),
-    names(config_values$study_traits %||% list())
-  ))
+  # Use the same key fields as the admissibility screen before any scenario
+  # filtering so missingness summaries remain aligned with donor exclusion.
   models_tbl <- screen_missing_metadata(
     candidate_models = models_tbl,
-    key_cols = key_cols
+    key_cols = admissibility_key_metadata_cols(config_values)
   )
 
   # Derive the generalized-model flag on the fly when the prepared model table

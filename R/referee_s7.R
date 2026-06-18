@@ -195,7 +195,7 @@ S7::S4_register(Referee)
 #'
 #' @return A `Referee` object.
 #'
-#' @keywords internal
+#' @export
 referee_rebuild <- function(object,
                             selector = object@selector,
                             learner = object@learner,
@@ -301,11 +301,6 @@ validate_referee_provenance <- function(selector,
   selected_tbl <- tibble::as_tibble(predictions@selections)
   intervals_tbl <- tibble::as_tibble(predictions@intervals)
   consensus_tbl <- tibble::as_tibble(predictions@consensus)
-  candidate_models <- tibble::as_tibble(selector@candidates@candidate_models)
-  anchor_scores <- tibble::as_tibble((selector@candidates@admissibility)$all_scores %||% tibble::tibble())
-  ordination_scores <- (selector@candidates@ordination)$model_scores %||% NULL
-  ordination_species_lookup <- (selector@candidates@ordination)$species_lookup %||% NULL
-  policy_cfg <- selector@config$policy %||% selector@config
 
   if (!all(c("anchor_model_id", "anchor_species") %in% names(selected_tbl))) {
     stop("`predictions@selections` must contain 'anchor_model_id' and 'anchor_species'.", call. = FALSE)
@@ -932,6 +927,52 @@ build_referee_scorecard <- function(object,
   ordination_scores <- (selector@candidates@ordination)$model_scores %||% NULL
   ordination_species_lookup <- (selector@candidates@ordination)$species_lookup %||% NULL
   policy_cfg <- selector@config$policy %||% selector@config
+  learner_selected_calibration <- if (
+    inherits(object@learner, "S7_object") &&
+      exists("PolicyLearner", inherits = TRUE) &&
+      isTRUE(tryCatch(S7::S7_inherits(object@learner, PolicyLearner), error = function(e) FALSE))
+  ) {
+    tibble::as_tibble(object@learner@calibration$selected %||% tibble::tibble())
+  } else {
+    tibble::tibble()
+  }
+  benchmark_ts_error <- tibble::as_tibble((selector@benchmark)$policy_ts_error %||% tibble::tibble())
+  ts_calibration_source <- dplyr::bind_rows(
+    tibble::as_tibble(selected_tbl),
+    tibble::as_tibble(learner_selected_calibration)
+  ) |>
+    dplyr::distinct()
+  selected_ts_calibration <- if (nrow(ts_calibration_source) > 0 && nrow(benchmark_ts_error) > 0) {
+    summarize_selected_ts_calibration(
+      ts_error = benchmark_ts_error,
+      selected_tbl = ts_calibration_source
+    )
+  } else {
+    tibble::tibble()
+  }
+  coefficient_calibration_source <- dplyr::bind_rows(
+    tibble::as_tibble(selected_tbl),
+    tibble::as_tibble(learner_selected_calibration)
+  ) |>
+    dplyr::distinct()
+  if (
+    !all(c("policy_slope_len", "policy_intercept_len") %in% names(coefficient_calibration_source)) ||
+      !any(
+        suppressWarnings(is.finite(as.numeric(coefficient_calibration_source$policy_slope_len))) &
+          suppressWarnings(is.finite(as.numeric(coefficient_calibration_source$policy_intercept_len)))
+      )
+  ) {
+    coefficient_calibration_source <- selected_tbl
+  }
+  selected_coefficient_calibration <- if (nrow(coefficient_calibration_source) > 0) {
+    summarize_selected_coefficient_calibration(
+      selected_tbl = coefficient_calibration_source,
+      candidate_models = candidate_models,
+      ts_error = benchmark_ts_error
+    )
+  } else {
+    tibble::tibble()
+  }
 
   if (!"selected_policy" %in% names(selected_tbl)) {
     selected_tbl$selected_policy <- dplyr::coalesce(
@@ -999,10 +1040,87 @@ build_referee_scorecard <- function(object,
     policy_tbl = selected_tbl,
     candidate_models = candidate_models,
     anchor_scores = anchor_scores,
+    competition_policy_tbl = intervals_tbl,
+    ts_calibration = selected_ts_calibration,
+    coefficient_calibration = selected_coefficient_calibration,
     config = policy_cfg,
     model_scores = ordination_scores,
     species_lookup = ordination_species_lookup
   )
+  selected_tbl <- augment_policy_conditional_coefficient_intervals(
+    policy_tbl = selected_tbl,
+    candidate_models = candidate_models,
+    anchor_scores = anchor_scores,
+    ts_calibration = selected_ts_calibration,
+    coefficient_calibration = selected_coefficient_calibration,
+    config = policy_cfg,
+    model_scores = ordination_scores,
+    species_lookup = ordination_species_lookup
+  )
+  if (nrow(selected_tbl) > 0 && nrow(selected_ts_calibration) > 0) {
+    selected_tbl <- purrr::map_dfr(seq_len(nrow(selected_tbl)), function(i) {
+      row_now <- selected_tbl[i, , drop = FALSE]
+      cal_now <- anchor_local_log_sigma_calibration(
+        row_now = row_now,
+        ts_calibration = selected_ts_calibration,
+        candidate_models = candidate_models
+      )
+      if (is.null(cal_now) || !is.finite(cal_now$q95) || cal_now$q95 <= 0) {
+        return(row_now)
+      }
+      q95_now <- cal_now$q95
+      q99_now <- if (is.finite(cal_now$q99) && cal_now$q99 >= q95_now) {
+        cal_now$q99
+      } else {
+        q95_now * stats::qnorm(0.995) / stats::qnorm(0.975)
+      }
+      multiplier_pred_now <- suppressWarnings(as.numeric(row_now$multiplier_pred[[1]] %||% NA_real_))
+      row_now$q_abs_log <- q95_now
+      row_now$q_abs_log_conformal <- q95_now
+      row_now$q_abs_log_total <- q95_now
+      row_now$interval_log_width <- 2 * q95_now
+      row_now$uncertainty_cost_log_width <- 2 * q95_now
+      row_now$meta_q_abs_log <- q95_now
+      row_now$meta_q_abs_log_local <- q95_now
+      row_now$meta_q_abs_log_total <- q95_now
+      row_now$meta_q_abs_log_simultaneous_total <- q99_now
+      row_now$meta_post_selection_interval_log_width <- 2 * q95_now
+      row_now$meta_interval_calibration <- "anchor_ts_curve"
+      row_now$meta_uncertainty_source <- "anchor_ts_curve"
+      row_now$meta_uncertainty_fallback <- FALSE
+      row_now$meta_q_abs_log_source <- "anchor_ts_curve"
+      row_now$meta_q_abs_log_factor_source <- "anchor_ts_curve"
+      row_now$meta_q_abs_log_conformal_factor <- 1
+      if (is.finite(multiplier_pred_now) && multiplier_pred_now > 0) {
+        row_now$multiplier_lo <- multiplier_pred_now * exp(-q95_now)
+        row_now$multiplier_hi <- multiplier_pred_now * exp(q95_now)
+        row_now$meta_post_selection_multiplier_lo <- multiplier_pred_now * exp(-q95_now)
+        row_now$meta_post_selection_multiplier_hi <- multiplier_pred_now * exp(q95_now)
+      }
+      row_now
+    })
+    selected_tbl <- augment_policy_coefficient_intervals(
+      policy_tbl = selected_tbl,
+      candidate_models = candidate_models,
+      anchor_scores = anchor_scores,
+      competition_policy_tbl = intervals_tbl,
+      ts_calibration = selected_ts_calibration,
+      coefficient_calibration = selected_coefficient_calibration,
+      config = policy_cfg,
+      model_scores = ordination_scores,
+      species_lookup = ordination_species_lookup
+    )
+    selected_tbl <- augment_policy_conditional_coefficient_intervals(
+      policy_tbl = selected_tbl,
+      candidate_models = candidate_models,
+      anchor_scores = anchor_scores,
+      ts_calibration = selected_ts_calibration,
+      coefficient_calibration = selected_coefficient_calibration,
+      config = policy_cfg,
+      model_scores = ordination_scores,
+      species_lookup = ordination_species_lookup
+    )
+  }
   selected_tbl <- augment_anchor_length_context(
     policy_tbl = selected_tbl,
     candidate_models = candidate_models
@@ -1011,6 +1129,9 @@ build_referee_scorecard <- function(object,
     policy_tbl = intervals_tbl,
     candidate_models = candidate_models,
     anchor_scores = anchor_scores,
+    competition_policy_tbl = intervals_tbl,
+    ts_calibration = selected_ts_calibration,
+    coefficient_calibration = selected_coefficient_calibration,
     config = policy_cfg,
     model_scores = ordination_scores,
     species_lookup = ordination_species_lookup,
@@ -1024,7 +1145,8 @@ build_referee_scorecard <- function(object,
   ts_panel_tbl <- if (all(c("policy_slope_len", "policy_intercept_len") %in% names(selected_tbl))) {
     build_ts_conformal_panel_data(
       selected_tbl = selected_tbl,
-      ts_calibration = tibble::tibble(),
+      ts_calibration = selected_ts_calibration,
+      coefficient_calibration = selected_coefficient_calibration,
       candidate_models = candidate_models,
       anchor_scores = anchor_scores,
       config = policy_cfg,
@@ -1210,12 +1332,10 @@ build_referee_scorecard <- function(object,
 #' @param allow_partial Logical scalar. If `TRUE`, flagged partial scorecards are
 #'   allowed when non-critical report components fail.
 #'
-#' @return A populated [Scorecard].
-#' @name predict.Referee
-S7::method(predict_generic, Referee) <- function(object,
-                                                 predictions = NULL,
-                                                 allow_partial = FALSE,
-                                                 progress = NULL) {
+.predict_referee <- function(object,
+                             predictions = NULL,
+                             allow_partial = FALSE,
+                             progress = NULL) {
   cfg      <- merge_cfg(object@selector@config, list())
   progress <- progress %||%
     policy_selector_config_value(cfg, "progress", sections = c("selection", "benchmark")) %||%
@@ -1241,6 +1361,40 @@ S7::method(predict_generic, Referee) <- function(object,
   )
   report_progress(progress, "[Referee] Scorecard complete.")
   sc
+}
+
+#' @return A populated [Scorecard].
+#' @name predict.Referee
+S7::method(predict_generic, Referee) <- .predict_referee
+
+methods::setMethod(
+  "predict",
+  signature(object = "tsbiomass::Referee"),
+  function(object,
+           predictions = NULL,
+           allow_partial = FALSE,
+           progress = NULL,
+           ...) {
+    .predict_referee(
+      object = object,
+      predictions = predictions,
+      allow_partial = allow_partial,
+      progress = progress
+      )
+    }
+  )
+
+`predict.tsbiomass::Referee` <- function(object,
+                                         predictions = NULL,
+                                         allow_partial = FALSE,
+                                         progress = NULL,
+                                         ...) {
+  .predict_referee(
+    object = object,
+    predictions = predictions,
+    allow_partial = allow_partial,
+    progress = progress
+  )
 }
 
 #' Collapse one `Scorecard` to a console summary
@@ -1409,28 +1563,27 @@ S7::method(show_generic, Referee) <- function(object) {
 #' plot(scorecard, type = "coefficient_uncertainty")
 #' plot(scorecard, type = "field_missingness")
 #' }
-S7::method(plot_generic, Scorecard) <- function(x,
-                                                y = NULL,
-                                                type = c(
-                                                  "ts_length",
-                                                  "ts_length_conformal",
-                                                  "ts_length_multiplier",
-                                                  "ts_length_bands",
-                                                  "coefficient_uncertainty",
-                                                  "selection_rank",
-                                                  "selected_intervals",
-                                                  "selected_multiplier_summary",
-                                                  "selected_policy_counts",
-                                                  "strategy_competition",
-                                                  "field_missingness"
-                                                ),
-                                                scale = c("ts", "multiplier"),
-                                                view = NULL,
-                                                anchor_model_id = NULL,
-                                                anchor_species = NULL,
-                                                show_top_candidate = FALSE,
-                                                reference_label = "Reference",
-                                                ...) {
+.plot_scorecard <- function(x,
+                            y = NULL,
+                            type = c(
+                              "ts_length",
+                              "ts_length_conformal",
+                              "ts_length_multiplier",
+                              "ts_length_bands",
+                              "coefficient_uncertainty",
+                              "selected_intervals",
+                              "selected_multiplier_summary",
+                              "selected_policy_counts",
+                              "strategy_competition",
+                              "field_missingness"
+                            ),
+                            scale = c("ts", "multiplier"),
+                            view = NULL,
+                            anchor_model_id = NULL,
+                            anchor_species = NULL,
+                            show_top_candidate = FALSE,
+                            reference_label = "Reference",
+                            ...) {
   type <- match.arg(type)
   scale <- match.arg(scale)
 
@@ -1504,9 +1657,6 @@ S7::method(plot_generic, Scorecard) <- function(x,
   }
   if (identical(type, "coefficient_uncertainty")) {
     return(plot_policy_coefficients(x@selected))
-  }
-  if (identical(type, "selection_rank")) {
-    return(plot_selected_policy_species_rank(x@selection_diagnostics))
   }
   if (identical(type, "selected_intervals")) {
     return(plot_selected_intervals(x@selected, reference_label = reference_label))
@@ -1673,6 +1823,12 @@ S7::method(plot_generic, Scorecard) <- function(x,
   plot_field_missing(x@key_missing_by_field)
 }
 
+S7::method(plot_generic, Scorecard) <- .plot_scorecard
+
+`plot.tsbiomass::Scorecard` <- function(x, y = NULL, ...) {
+  .plot_scorecard(x, y, ...)
+}
+
 #' Plot a `Referee`
 #'
 #' Uses the package's S7 method on [base::plot()] so the integrated
@@ -1685,7 +1841,7 @@ S7::method(plot_generic, Scorecard) <- function(x,
 #' @param y Unused.
 #' @param type Figure family to draw.
 #' @param view Secondary plot selector used for
-#'   `type = "anchor_multiplier_summary"` and `type = "length_density"`.
+#'   `type = "biomass_change"` and `type = "length_density"`.
 #' @param anchor_model_id Optional anchor model ID used for anchor-specific
 #'   diagnostics.
 #' @param anchor_species Optional anchor species used to restrict
@@ -1701,49 +1857,136 @@ S7::method(plot_generic, Scorecard) <- function(x,
 #' referee <- as_referee(selector, predictions = predictions)
 #' scorecard <- predict(referee)
 #' referee <- referee_rebuild(referee, scorecard = scorecard)
-#' plot(referee, type = "anchor_multiplier_summary")
+#' plot(referee, type = "biomass_change")
 #' plot(referee, type = "length_density", anchor_species = "Sardinops sagax")
 #' }
-S7::method(plot_generic, Referee) <- function(x,
-                                              y = NULL,
-                                              type = c(
-                                                "anchor_multiplier_summary",
-                                                "strategy_competition",
-                                                "length_density"
-                                              ),
-                                              view = NULL,
-                                              anchor_model_id = NULL,
-                                              anchor_species = NULL,
-                                              reference_name = NULL,
-                                              ...) {
-  type <- match.arg(type)
-  if (nrow(x@scorecard@anchor_summary) == 0 && nrow(x@scorecard@intervals) == 0) {
-    stop(
-      "No scorecard results are stored on this `Referee`. Run `predict(referee)` and store the returned `Scorecard` first.",
-      call. = FALSE
-    )
+.plot_referee <- function(x,
+                          y = NULL,
+                          type = "biomass_change",
+                          view = NULL,
+                          anchor_model_id = NULL,
+                          anchor_species = NULL,
+                          reference_name = NULL,
+                          ...) {
+  type <- match.arg(
+    type,
+    c("biomass_change", "strategy_competition", "length_density", "anchor_multiplier_summary")
+  )
+  if (identical(type, "anchor_multiplier_summary")) {
+    type <- "biomass_change"
+  }
+  scorecard_obj <- x@scorecard
+  predictions_obj <- if (isTRUE(tryCatch(S7::S7_inherits(x@predictions, PolicyPredictions), error = function(e) FALSE))) {
+    x@predictions
+  } else {
+    NULL
+  }
+  scorecard_ready <- nrow(scorecard_obj@anchor_summary) > 0 ||
+    nrow(scorecard_obj@intervals) > 0 ||
+    nrow(scorecard_obj@selected) > 0
+  candidate_scores <- if (length(x@selector@candidates@admissibility) == 0) {
+    tibble::tibble()
+  } else {
+    (x@selector@candidates@admissibility)$all_scores %||% tibble::tibble()
   }
 
-  if (identical(type, "anchor_multiplier_summary")) {
-    view <- match.arg(view %||% "summary", c("summary", "strategy_competition"))
-    candidate_scores <- if (length(x@selector@candidates@admissibility) == 0) {
-      tibble::tibble()
-    } else {
-      (x@selector@candidates@admissibility)$all_scores %||% tibble::tibble()
+  if (scorecard_ready) {
+    anchor_summary_tbl <- tibble::as_tibble(scorecard_obj@anchor_summary)
+    interval_tbl <- tibble::as_tibble(scorecard_obj@intervals)
+    selected_tbl <- tibble::as_tibble(scorecard_obj@selected)
+  } else if (!is.null(predictions_obj)) {
+    selected_tbl <- tibble::as_tibble(predictions_obj@selections)
+    interval_tbl <- tibble::as_tibble(predictions_obj@intervals)
+    consensus_tbl <- tibble::as_tibble(predictions_obj@consensus)
+
+    if (nrow(interval_tbl) > 0 && all(c("anchor_model_id", "policy") %in% names(interval_tbl))) {
+      selected_keys <- selected_tbl |>
+        dplyr::transmute(
+          anchor_model_id,
+          policy = if ("selected_policy" %in% names(selected_tbl)) {
+            as.character(selected_policy)
+          } else if ("policy" %in% names(selected_tbl)) {
+            as.character(policy)
+          } else {
+            rep(NA_character_, dplyr::n())
+          },
+          equation_branch_filter = if ("selected_equation_branch_filter" %in% names(selected_tbl)) {
+            as.character(selected_equation_branch_filter)
+          } else if ("equation_branch_filter" %in% names(selected_tbl)) {
+            as.character(equation_branch_filter)
+          } else {
+            rep(NA_character_, dplyr::n())
+          },
+          is_selected = TRUE
+        ) |>
+        dplyr::distinct()
+
+      interval_tbl <- interval_tbl |>
+        dplyr::left_join(
+          selected_keys,
+          by = intersect(
+            c("anchor_model_id", "policy", "equation_branch_filter"),
+            intersect(names(interval_tbl), names(selected_keys))
+          )
+        )
+      interval_tbl$is_selected <- dplyr::coalesce(
+        if ("is_selected.y" %in% names(interval_tbl)) as.logical(interval_tbl$is_selected.y) else rep(NA, nrow(interval_tbl)),
+        if ("is_selected" %in% names(interval_tbl)) as.logical(interval_tbl$is_selected) else rep(NA, nrow(interval_tbl)),
+        if ("is_selected.x" %in% names(interval_tbl)) as.logical(interval_tbl$is_selected.x) else rep(NA, nrow(interval_tbl)),
+        FALSE
+      )
+      interval_tbl <- interval_tbl |>
+        dplyr::select(-dplyr::any_of(c("is_selected.x", "is_selected.y")))
     }
+
+    anchor_summary_tbl <- selected_tbl |>
+      dplyr::select(dplyr::any_of(c(
+        "anchor_model_id",
+        "anchor_species",
+        "selected_policy",
+        "selected_policy_display",
+        "selected_equation_branch_filter",
+        "selection_tier",
+        "multiplier_pred",
+        "multiplier_lo",
+        "multiplier_hi",
+        "interval_log_width"
+      ))) |>
+      dplyr::left_join(
+        consensus_tbl |>
+          dplyr::transmute(
+            anchor_model_id,
+            combined_multiplier_q05 = multiplier_q05,
+            combined_multiplier_q50 = multiplier_q50,
+            combined_multiplier_q95 = multiplier_q95
+          ),
+        by = "anchor_model_id"
+      )
+  } else {
+    scorecard_obj <- stats::predict(x, progress = FALSE)
+    anchor_summary_tbl <- tibble::as_tibble(scorecard_obj@anchor_summary)
+    interval_tbl <- tibble::as_tibble(scorecard_obj@intervals)
+    selected_tbl <- tibble::as_tibble(scorecard_obj@selected)
+  }
+
+  if (nrow(anchor_summary_tbl) == 0 && nrow(interval_tbl) == 0 && nrow(selected_tbl) == 0) {
+    stop("No plot-ready prediction results are available on this `Referee`.", call. = FALSE)
+  }
+
+  if (identical(type, "biomass_change")) {
+    view <- match.arg(view %||% "summary", c("summary", "strategy_competition"))
     if (identical(view, "strategy_competition")) {
       type <- "strategy_competition"
     } else {
       return(plot_anchor_summary(
-        integrated_tbl = x@scorecard@anchor_summary,
+        integrated_tbl = anchor_summary_tbl,
         score_tbl = candidate_scores,
-        interval_tbl = x@scorecard@intervals
+        interval_tbl = interval_tbl
       ))
     }
   }
 
   if (identical(type, "strategy_competition")) {
-    interval_tbl <- tibble::as_tibble(x@scorecard@intervals)
     anchor_id_value <- if (!is.null(anchor_model_id)) as.character(anchor_model_id[[1]]) else NULL
     if (!is.null(anchor_id_value) && "anchor_model_id" %in% names(interval_tbl)) {
       interval_tbl <- interval_tbl |>
@@ -1764,7 +2007,6 @@ S7::method(plot_generic, Referee) <- function(x,
   # selector's admissible donor pool so the plotted support set matches the
   # final recommendation context exactly.
   if (identical(type, "length_density")) {
-    selected_tbl <- tibble::as_tibble(x@scorecard@selected)
     if (nrow(selected_tbl) == 0) {
       stop(
         "No selected-policy rows are stored on this `Referee`. Run `predict(referee)` first.",
@@ -1844,16 +2086,17 @@ S7::method(plot_generic, Referee) <- function(x,
     return(plot_length_density(anchor_pdf, anchor_label))
   }
 
-  candidate_scores <- if (length(x@selector@candidates@admissibility) == 0) {
-    tibble::tibble()
-  } else {
-    (x@selector@candidates@admissibility)$all_scores %||% tibble::tibble()
-  }
   plot_anchor_summary(
-    integrated_tbl = x@scorecard@anchor_summary,
+    integrated_tbl = anchor_summary_tbl,
     score_tbl = candidate_scores,
-    interval_tbl = x@scorecard@intervals
+    interval_tbl = interval_tbl
   )
+}
+
+S7::method(plot_generic, Referee) <- .plot_referee
+
+`plot.tsbiomass::Referee` <- function(x, y = NULL, ...) {
+  .plot_referee(x, y, ...)
 }
 
 

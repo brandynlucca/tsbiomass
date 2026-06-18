@@ -625,8 +625,17 @@ convert_to_length_form <- function(tbl) {
   length_bounds <- extract_length_bounds(tbl)
   ts_at_lower <- tbl$slope_len * log10(pmax(length_bounds$lower, 1e-6)) + tbl$intercept_len
   ts_at_upper <- tbl$slope_len * log10(pmax(length_bounds$upper, 1e-6)) + tbl$intercept_len
-  tbl$invalid_ts_length_curve <- is.finite(ts_at_lower) & is.finite(ts_at_upper) &
-    (ts_at_lower >= 0 | ts_at_upper >= 0)
+  tbl$implausible_ts_length_coefficients <- is.finite(tbl$slope_len) &
+    is.finite(tbl$intercept_len) &
+    (
+      tbl$slope_len <= 0 |
+        tbl$slope_len > 40 |
+        tbl$intercept_len > -20
+    )
+  tbl$invalid_ts_length_curve <- (
+    is.finite(ts_at_lower) & is.finite(ts_at_upper) &
+      (ts_at_lower >= 0 | ts_at_upper >= 0)
+  ) | (tbl$implausible_ts_length_coefficients %in% TRUE)
   tbl$slope_len[tbl$invalid_ts_length_curve %in% TRUE] <- NA_real_
   tbl$intercept_len[tbl$invalid_ts_length_curve %in% TRUE] <- NA_real_
 

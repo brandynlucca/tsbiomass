@@ -39,6 +39,22 @@ test_that("PolicySelector methods store benchmark, uncertainty, and selection st
   expect_true("final_ref" %in% names(selector@selection))
 })
 
+test_that("installed-style S3 bridges are registered for base predict and plot", {
+  expect_true(is.function(utils::getS3method("predict", "tsbiomass::PolicySelector", optional = TRUE)))
+  expect_true(is.function(utils::getS3method("predict", "tsbiomass::PolicyLearner", optional = TRUE)))
+  expect_true(is.function(utils::getS3method("predict", "tsbiomass::Referee", optional = TRUE)))
+  expect_true(is.function(utils::getS3method("plot", "tsbiomass::Alchemist", optional = TRUE)))
+  expect_true(is.function(utils::getS3method("plot", "tsbiomass::Candidates", optional = TRUE)))
+  expect_true(is.function(utils::getS3method("plot", "tsbiomass::PolicySelector", optional = TRUE)))
+  expect_true(is.function(utils::getS3method("plot", "tsbiomass::PolicyPredictions", optional = TRUE)))
+  expect_true(is.function(utils::getS3method("plot", "tsbiomass::PolicyLearner", optional = TRUE)))
+  expect_true(is.function(utils::getS3method("plot", "tsbiomass::Scorecard", optional = TRUE)))
+  expect_true(is.function(utils::getS3method("plot", "tsbiomass::Referee", optional = TRUE)))
+  expect_true(is.function(utils::getS3method("plot", "tsbiomass::PolicySimulator", optional = TRUE)))
+  expect_true(is.function(utils::getS3method("plot", "tsbiomass::Conjurer", optional = TRUE)))
+  expect_true("referee_rebuild" %in% getNamespaceExports("tsbiomass"))
+})
+
 test_that("predict returns PolicyPredictions and summary helpers use selector state", {
   candidates <- set_reference_anchors(make_candidates(), selector = list(regional_body = "SWFSC"))
   selector <- make_selector(

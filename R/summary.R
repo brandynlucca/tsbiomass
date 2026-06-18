@@ -7,7 +7,7 @@ S7::method(screen_missing_metadata, Candidates) <- function(candidate_models,
                                                             key_cols = NULL) {
   # Reuse the staged candidate key columns before delegating to the tabular
   # default method.
-  key_cols <- key_cols %||% candidates_similarity_key_cols(candidate_models)
+  key_cols <- key_cols %||% admissibility_key_metadata_cols(candidates_config_data(candidate_models))
 
   screen_missing_metadata(
     candidate_models = candidate_models@candidate_models,
@@ -23,7 +23,7 @@ S7::method(screen_missing_metadata, Candidates) <- function(candidate_models,
 S7::method(screen_missing_metadata, PolicySelector) <- function(candidate_models,
                                                                 key_cols = NULL) {
   # Pull the selector's candidate layer and apply the same missingness screen.
-  key_cols <- key_cols %||% candidates_similarity_key_cols(candidate_models@candidates)
+  key_cols <- key_cols %||% admissibility_key_metadata_cols(candidates_config_data(candidate_models@candidates))
 
   screen_missing_metadata(
     candidate_models = candidate_models@candidates,
@@ -141,6 +141,17 @@ S7::method(build_anchor_audit, S7::class_any) <- function(sel_tbl,
       {
         select_ref_tbl <- standardize_policies(select_ref)
         select_ref_tbl$policy <- resolve_policy_names(select_ref_tbl)
+        for (nm in c(
+          "mean_species_median_abs_log",
+          "acceptable_global",
+          "equivalent_to_best_global",
+          "bootstrap_prob_within_threshold",
+          "bootstrap_median_rank"
+        )) {
+          if (!nm %in% names(select_ref_tbl)) {
+            select_ref_tbl[[nm]] <- NA
+          }
+        }
         select_ref_tbl
       } |>
         dplyr::select(

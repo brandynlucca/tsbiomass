@@ -2,7 +2,25 @@
 % Please edit documentation in R/candidates_s7.R
 \name{plot.Candidates}
 \alias{plot.Candidates}
+\alias{.plot_candidates}
 \title{Plot a \code{Candidates}}
+\usage{
+.plot_candidates(
+  x,
+  y = NULL,
+  type = c("area_distribution", "ordination", "admissibility", "candidate_review",
+    "uncertainty_importance", "similarity_tuning", "most_similar",
+    "candidate_biomass_response", "model_weights", "similarity_map",
+    "component_importance", "tuning_variation", "slope_support", "slope_group"),
+  count_type = c("studies", "models"),
+  dissimilarity = c("combined", "species", "study"),
+  view = NULL,
+  anchor_model_id = NULL,
+  anchor_species = NULL,
+  include_hulls = TRUE,
+  ...
+)
+}
 \arguments{
 \item{x}{A \link{Candidates} object.}
 

@@ -4,10 +4,18 @@
 \alias{plot_gate_composition}
 \title{Plot admissibility gate composition}
 \usage{
-plot_gate_composition(gate_tbl, gate_labs = NULL, gate_cols = NULL)
+plot_gate_composition(
+  gate_tbl,
+  config = NULL,
+  gate_labs = NULL,
+  gate_cols = NULL
+)
 }
 \arguments{
 \item{gate_tbl}{Admissibility gate-count table.}
+
+\item{config}{Raw config list or staged object used to derive the active gate
+legend.}
 
 \item{gate_labs}{Optional named vector mapping gate codes to labels.}
 

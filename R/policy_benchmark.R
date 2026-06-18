@@ -196,6 +196,8 @@ build_ts_errors <- function(anchor_row,
       anchor_species = character(),
       policy = character(),
       equation_branch_filter = character(),
+      policy_slope_len = numeric(),
+      policy_intercept_len = numeric(),
       u = numeric(),
       length_cm = numeric(),
       ts_obs = numeric(),
@@ -289,6 +291,8 @@ build_ts_errors <- function(anchor_row,
       anchor_species = as.character(anchor_row[[species_col]][[1]]),
       policy = as.character(policy_tbl$policy[[i]]),
       equation_branch_filter = as.character(policy_tbl$equation_branch_filter[[i]]),
+      policy_slope_len = suppressWarnings(as.numeric(policy_tbl$policy_slope_len[[i]])),
+      policy_intercept_len = suppressWarnings(as.numeric(policy_tbl$policy_intercept_len[[i]])),
       u = u_grid,
       length_cm = eval_lengths,
       ts_obs = ts_obs,
@@ -810,7 +814,7 @@ run_policy_benchmark <- function(candidate_models,
   candidate_models_prepared <- tibble::as_tibble(sim_obj$candidate_models %||% candidate_models)
   candidate_models_scored <- screen_missing_metadata(
     candidate_models = candidate_models_prepared,
-    key_cols = unique(c(sim_obj$species_traits, sim_obj$study_traits))
+    key_cols = admissibility_key_metadata_cols(config_values)
   )
   # Slim both objects to only what workers need before cluster creation.
   # screen_one_anchor_admissibility accesses: sim_obj$alpha, $k_species,
@@ -932,8 +936,7 @@ run_policy_benchmark <- function(candidate_models,
   worker_strip_cols <- c(
     .anchor_meta_cols,
     if (!is.null(policy_meta_lookup)) .policy_meta_cols else character(0L),
-    "validation_scheme", "error_abs_log", "valid_prediction",
-    "policy_slope_len", "policy_intercept_len"
+    "validation_scheme", "error_abs_log", "valid_prediction"
   )
 
   # Helper: rejoin stripped perf-table metadata after result collection.

@@ -1351,31 +1351,31 @@ S7::method(show_generic, Candidates) <- function(object) {
 #' plot(candidates, type = "admissibility", view = "overlap_profile")
 #' plot(candidates, type = "candidate_review", view = "similarity_map")
 #' }
-S7::method(plot_generic, Candidates) <- function(x,
-                                                 y = NULL,
-                                                 type = c(
-                                                   "area_distribution",
-                                                   "ordination",
-                                                   "admissibility",
-                                                   "candidate_review",
-                                                   "uncertainty_importance",
-                                                  "similarity_tuning",
-                                                  "most_similar",
-                                                  "candidate_biomass_response",
-                                                  "model_weights",
-                                                  "similarity_map",
-                                                  "component_importance",
-                                                  "tuning_variation",
-                                                  "slope_support",
-                                                  "slope_group"
-                                                 ),
-                                                 count_type = c("studies", "models"),
-                                                 dissimilarity = c("combined", "species", "study"),
-                                                 view = NULL,
-                                                 anchor_model_id = NULL,
-                                                 anchor_species = NULL,
-                                                 include_hulls = TRUE,
-                                                 ...) {
+.plot_candidates <- function(x,
+                             y = NULL,
+                             type = c(
+                               "area_distribution",
+                               "ordination",
+                               "admissibility",
+                               "candidate_review",
+                               "uncertainty_importance",
+                               "similarity_tuning",
+                               "most_similar",
+                               "candidate_biomass_response",
+                               "model_weights",
+                               "similarity_map",
+                               "component_importance",
+                               "tuning_variation",
+                               "slope_support",
+                               "slope_group"
+                             ),
+                             count_type = c("studies", "models"),
+                             dissimilarity = c("combined", "species", "study"),
+                             view = NULL,
+                             anchor_model_id = NULL,
+                             anchor_species = NULL,
+                             include_hulls = TRUE,
+                             ...) {
   type <- match.arg(type)
   count_type <- match.arg(count_type)
   dissimilarity <- match.arg(dissimilarity)
@@ -1425,8 +1425,7 @@ S7::method(plot_generic, Candidates) <- function(x,
         return(plot_ordination_cluster_hulls(
           points_tbl = point_tbl,
           hull_tbl = hull_tbl,
-          cluster_col = "nmds_cluster_id",
-          title = "Combined-Distance NMDS Clusters"
+          cluster_col = "nmds_cluster_id"
         ))
       }
       return(plot_ordination_clusters(
@@ -1469,8 +1468,7 @@ S7::method(plot_generic, Candidates) <- function(x,
         return(plot_ordination_cluster_hulls(
           points_tbl = species_points,
           hull_tbl = hull_tbl,
-          cluster_col = "species_cluster_id",
-          title = "Species-Distance NMDS Clusters"
+          cluster_col = "species_cluster_id"
         ))
       }
       return(plot_ordination_clusters(
@@ -1548,8 +1546,7 @@ S7::method(plot_generic, Candidates) <- function(x,
         points_tbl = study_points,
         hull_tbl = hull_tbl,
         cluster_col = "study_cluster_id",
-        label_col = if ("reference_tsl_short" %in% names(study_points)) "reference_tsl_short" else "species_name",
-        title = "Study-Distance NMDS Clusters"
+        label_col = if ("reference_tsl_short" %in% names(study_points)) "reference_tsl_short" else "species_name"
       ))
     }
     return(plot_ordination_clusters(
@@ -1569,9 +1566,21 @@ S7::method(plot_generic, Candidates) <- function(x,
         call. = FALSE
       )
     }
+    if (!admissibility_bundle_is_current(x@admissibility, x)) {
+      stop(
+        paste(
+          "The stored admissibility bundle on this `Candidates` object predates the current admissibility gate logic.",
+          "Run `screen_admissibility()` again to rebuild it before plotting."
+        ),
+        call. = FALSE
+      )
+    }
     view <- match.arg(view %||% "gate_composition", c("gate_composition", "overlap_profile"))
     if (identical(view, "gate_composition")) {
-      return(plot_gate_composition((x@admissibility)$all_gates %||% tibble::tibble()))
+      return(plot_gate_composition(
+        (x@admissibility)$all_gates %||% tibble::tibble(),
+        config = x
+      ))
     }
     return(plot_overlap_heatmap((x@admissibility)$all_overlap %||% tibble::tibble()))
   }
@@ -1842,6 +1851,90 @@ S7::method(plot_generic, Candidates) <- function(x,
   }
 
   plot_slope_support(tibble::tibble())
+}
+
+S7::method(plot_generic, Candidates) <- .plot_candidates
+
+methods::setMethod(
+  "plot",
+  signature(x = "tsbiomass::Candidates", y = "missing"),
+  function(x,
+           y,
+           type = c(
+             "area_distribution",
+             "ordination",
+             "admissibility",
+             "candidate_review",
+             "uncertainty_importance",
+             "similarity_tuning",
+             "most_similar",
+             "candidate_biomass_response",
+             "model_weights",
+             "similarity_map",
+             "component_importance",
+             "tuning_variation",
+             "slope_support",
+             "slope_group"
+           ),
+           count_type = c("studies", "models"),
+           dissimilarity = c("combined", "species", "study"),
+           view = NULL,
+           anchor_model_id = NULL,
+           anchor_species = NULL,
+           include_hulls = TRUE,
+           ...) {
+    .plot_candidates(
+      x = x,
+      y = NULL,
+      type = type,
+      count_type = count_type,
+      dissimilarity = dissimilarity,
+      view = view,
+      anchor_model_id = anchor_model_id,
+      anchor_species = anchor_species,
+      include_hulls = include_hulls,
+      ...
+      )
+    }
+  )
+
+`plot.tsbiomass::Candidates` <- function(x,
+                                         y = NULL,
+                                         type = c(
+                                           "area_distribution",
+                                           "ordination",
+                                           "admissibility",
+                                           "candidate_review",
+                                           "uncertainty_importance",
+                                           "similarity_tuning",
+                                           "most_similar",
+                                           "candidate_biomass_response",
+                                           "model_weights",
+                                           "similarity_map",
+                                           "component_importance",
+                                           "tuning_variation",
+                                           "slope_support",
+                                           "slope_group"
+                                         ),
+                                         count_type = c("studies", "models"),
+                                         dissimilarity = c("combined", "species", "study"),
+                                         view = NULL,
+                                         anchor_model_id = NULL,
+                                         anchor_species = NULL,
+                                         include_hulls = TRUE,
+                                         ...) {
+  .plot_candidates(
+    x = x,
+    y = y,
+    type = type,
+    count_type = count_type,
+    dissimilarity = dissimilarity,
+    view = view,
+    anchor_model_id = anchor_model_id,
+    anchor_species = anchor_species,
+    include_hulls = include_hulls,
+    ...
+  )
 }
 
 

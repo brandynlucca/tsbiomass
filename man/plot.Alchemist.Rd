@@ -2,17 +2,31 @@
 % Please edit documentation in R/alchemist_s7.R
 \name{plot.Alchemist}
 \alias{plot.Alchemist}
+\alias{.plot_alchemist}
 \title{Plot an \code{Alchemist}}
+\usage{
+.plot_alchemist(
+  x,
+  y = NULL,
+  type = c("ordination", "trait_importance", "admissibility"),
+  view = NULL,
+  include_hulls = TRUE,
+  ...
+)
+}
 \arguments{
 \item{x}{An \link{Alchemist} object.}
 
 \item{y}{Unused.}
 
 \item{type}{Figure family to draw. \code{"ordination"} requires a prior call to
-\code{\link[=run_ordination]{run_ordination()}}; \code{"trait_importance"} requires \code{\link[=distill_traits]{distill_traits()}}.}
+\code{\link[=run_ordination]{run_ordination()}}; \code{"trait_importance"} requires \code{\link[=distill_traits]{distill_traits()}};
+\code{"admissibility"} requires \code{\link[=screen_admissibility]{screen_admissibility()}}.}
 
-\item{view}{Secondary plot selector for \code{type = "ordination"}. One of
-\code{"clusters"}, \code{"cluster_hulls"}, \code{"vectors"}, or \code{"centers"}.}
+\item{view}{Secondary plot selector for \code{type = "ordination"} or
+\code{type = "admissibility"}. One of \code{"clusters"}, \code{"cluster_hulls"},
+\code{"vectors"}, or \code{"centers"} for ordination; one of \code{"gate_composition"}
+or \code{"overlap_profile"} for admissibility.}
 
 \item{include_hulls}{Logical. When \code{TRUE} (default) and hull data are
 available, \code{view = NULL} defaults to \code{"cluster_hulls"} for \code{type = "ordination"}.}

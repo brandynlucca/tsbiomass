@@ -37,8 +37,9 @@ PolicyLearner <- S7::new_class(
   validator = function(self) {
     tryCatch(
       {
-        if (!(inherits(self@selector, "S7_object") && exists("PolicySelector", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(self@selector, PolicySelector), error = function(e) FALSE)))) {
-          return("`selector` must be a `PolicySelector` object.")
+        if (!is.null(self@selector) &&
+            !(inherits(self@selector, "S7_object") && exists("PolicySelector", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(self@selector, PolicySelector), error = function(e) FALSE)))) {
+          return("`selector` must be a `PolicySelector` object or NULL.")
         }
         if (!is.list(self@config)) {
           return("`config` must be a list.")
@@ -86,13 +87,31 @@ policy_learner_rebuild <- function(object,
                                    crossfit = object@crossfit,
                                    fitted_model = object@fitted_model,
                                    calibration = object@calibration) {
+  # If a full PolicySelector is supplied, extract its config and benchmark data
+  # rather than storing the full object. This keeps the learner slim.
+  if (!is.null(selector) &&
+      inherits(selector, "S7_object") &&
+      isTRUE(tryCatch(S7::S7_inherits(selector, PolicySelector), error = function(e) FALSE))) {
+    selector_config <- tryCatch(
+      policy_selector_config_data(selector@config),
+      error = function(e) list()
+    )
+    config <- merge_cfg(selector_config, config)
+    if (is.null(crossfit$species_block_perf) || nrow(crossfit$species_block_perf %||% tibble::tibble()) == 0) {
+      crossfit$species_block_perf <- tryCatch(
+        tibble::as_tibble(selector@benchmark$species_block_perf %||% tibble::tibble()),
+        error = function(e) tibble::tibble()
+      )
+    }
+    selector <- NULL
+  }
   PolicyLearner(
-    selector = selector,
-    config = config,
+    selector      = selector,
+    config        = config,
     training_data = tibble::as_tibble(training_data),
-    crossfit = crossfit,
-    fitted_model = fitted_model,
-    calibration = calibration
+    crossfit      = crossfit,
+    fitted_model  = fitted_model,
+    calibration   = calibration
   )
 }
 
@@ -119,13 +138,26 @@ create_policy_learner <- function(selector,
     stop("'selector' must be a `PolicySelector` object.", call. = FALSE)
   }
 
+  # Extract only what is needed from the selector rather than storing the full
+  # object. The selector can be 200+ MB; the learner only needs the config and
+  # the species-block performance table (for meta-policy training).
+  selector_config <- tryCatch(
+    policy_selector_config_data(selector@config),
+    error = function(e) list()
+  )
+  merged_config <- merge_cfg(selector_config, policy_selector_config_data(config))
+  species_block_perf <- tryCatch(
+    tibble::as_tibble(selector@benchmark$species_block_perf %||% tibble::tibble()),
+    error = function(e) tibble::tibble()
+  )
+
   PolicyLearner(
-    selector = selector,
-    config = policy_selector_config_data(config),
+    selector      = NULL,
+    config        = merged_config,
     training_data = tibble::tibble(),
-    crossfit = list(),
-    fitted_model = list(),
-    calibration = list()
+    crossfit      = list(species_block_perf = species_block_perf),
+    fitted_model  = list(),
+    calibration   = list()
   )
 }
 
@@ -155,12 +187,11 @@ as_policy_learner <- function(selector,
 #' @keywords internal
 policy_learner_config <- function(object,
                                   config = NULL) {
+  # selector@config is merged into object@config at construction time, so we
+  # no longer need to access the selector here.
   cfg <- merge_cfg(
     default_config(use_canonical_names = TRUE),
-    merge_cfg(
-      object@selector@config,
-      merge_cfg(object@config, policy_selector_config_data(config))
-    )
+    merge_cfg(object@config, policy_selector_config_data(config))
   )
   cfg$metalearner <- normalize_metalearner_section(cfg$metalearner %||% list())
   cfg
@@ -174,18 +205,18 @@ policy_learner_config <- function(object,
 #'
 #' @keywords internal
 policy_learner_species_perf <- function(object) {
-  if (length(object@selector@benchmark) == 0) {
-    stop("No benchmark results are stored on this `PolicySelector`.", call. = FALSE)
-  }
-  benchmark_obj <- object@selector@benchmark
-  perf_tbl <- tibble::as_tibble(benchmark_obj$species_block_perf %||% tibble::tibble())
+  # species_block_perf is extracted from the selector at construction time and
+  # stored in the crossfit list so the full selector need not be retained.
+  perf_tbl <- tibble::as_tibble(
+    object@crossfit$species_block_perf %||% tibble::tibble()
+  )
   if (nrow(perf_tbl) == 0) {
     stop(
-      "The attached `PolicySelector` does not contain species-block benchmark rows.",
+      "No species-block benchmark rows are stored on this `PolicyLearner`. ",
+      "Re-create the learner from the `PolicySelector` using `as_policy_learner()`.",
       call. = FALSE
     )
   }
-
   perf_tbl
 }
 
@@ -407,6 +438,7 @@ S7::method(crossfit, PolicyLearner) <- function(object,
     config = cfg,
     training_data = training_data,
     crossfit = list(
+      species_block_perf = object@crossfit$species_block_perf,
       result = crossfit_obj,
       outcome_col = outcome_col,
       outcome_clip_quantile = outcome_clip_quantile,
@@ -571,6 +603,325 @@ S7::method(fit, PolicyLearner) <- function(object,
   )
 }
 
+policy_learner_anchor_lookup <- function(tbl) {
+  tbl <- tibble::as_tibble(tbl)
+  if (nrow(tbl) == 0) {
+    return(tibble::tibble(
+      anchor_model_id = character(),
+      anchor_species = character(),
+      anchor_family = character()
+    ))
+  }
+
+  tibble::tibble(
+    anchor_model_id = if ("anchor_model_id" %in% names(tbl)) as.character(tbl$anchor_model_id) else rep(NA_character_, nrow(tbl)),
+    anchor_species = if ("anchor_species" %in% names(tbl)) as.character(tbl$anchor_species) else rep(NA_character_, nrow(tbl)),
+    anchor_family = if ("anchor_family" %in% names(tbl)) as.character(tbl$anchor_family) else rep(NA_character_, nrow(tbl))
+  ) |>
+    dplyr::filter(
+      !is.na(anchor_model_id) | !is.na(anchor_species) | !is.na(anchor_family)
+    ) |>
+    dplyr::distinct()
+}
+
+policy_learner_prepare_context <- function(tbl,
+                                           anchor_lookup = NULL) {
+  out <- tibble::as_tibble(tbl)
+  if (nrow(out) == 0) {
+    return(out)
+  }
+
+  if (!"anchor_model_id" %in% names(out)) {
+    out$anchor_model_id <- NA_character_
+  }
+  if (!"anchor_species" %in% names(out)) {
+    out$anchor_species <- NA_character_
+  }
+  if (!"anchor_family" %in% names(out)) {
+    out$anchor_family <- NA_character_
+  }
+  out$anchor_model_id <- as.character(out$anchor_model_id)
+  out$anchor_species <- as.character(out$anchor_species)
+  out$anchor_family <- as.character(out$anchor_family)
+
+  anchor_lookup <- tibble::as_tibble(anchor_lookup %||% tibble::tibble())
+  if (nrow(anchor_lookup) > 0) {
+    anchor_lookup <- anchor_lookup |>
+      dplyr::mutate(
+        anchor_model_id = as.character(anchor_model_id),
+        anchor_species = as.character(anchor_species),
+        anchor_family = as.character(anchor_family)
+      )
+    if ("anchor_model_id" %in% names(out)) {
+      out <- out |>
+        dplyr::left_join(
+          anchor_lookup |>
+            dplyr::select(anchor_model_id, lookup_anchor_species = anchor_species, lookup_anchor_family = anchor_family) |>
+            dplyr::distinct(),
+          by = "anchor_model_id"
+        ) |>
+        dplyr::mutate(
+          anchor_species = dplyr::coalesce(anchor_species, lookup_anchor_species),
+          anchor_family = dplyr::coalesce(anchor_family, lookup_anchor_family)
+        ) |>
+        dplyr::select(-dplyr::any_of(c("lookup_anchor_species", "lookup_anchor_family")))
+    }
+    if ("anchor_species" %in% names(out)) {
+      out <- out |>
+        dplyr::left_join(
+          anchor_lookup |>
+            dplyr::select(anchor_species, lookup_anchor_family_by_species = anchor_family) |>
+            dplyr::filter(!is.na(anchor_species), !is.na(lookup_anchor_family_by_species)) |>
+            dplyr::distinct(),
+          by = "anchor_species"
+        ) |>
+        dplyr::mutate(
+          anchor_family = dplyr::coalesce(anchor_family, lookup_anchor_family_by_species)
+        ) |>
+        dplyr::select(-dplyr::any_of("lookup_anchor_family_by_species"))
+    }
+  }
+
+  if ("policy" %in% names(out)) {
+    out$policy <- as.character(out$policy)
+  } else {
+    out$policy <- NA_character_
+  }
+  if ("equation_branch_filter" %in% names(out)) {
+    out$equation_branch_filter <- standardize_branches(out)
+  } else {
+    out$equation_branch_filter <- NA_character_
+  }
+  if ("post_selection_support_bin" %in% names(out)) {
+    out$post_selection_support_bin <- as.character(out$post_selection_support_bin)
+  } else {
+    out$post_selection_support_bin <- NA_character_
+  }
+  if (!"candidate_pool" %in% names(out)) {
+    out$candidate_pool <- NA_character_
+  } else {
+    out$candidate_pool <- as.character(out$candidate_pool)
+  }
+  if (!"aggregation_method" %in% names(out)) {
+    out$aggregation_method <- NA_character_
+  } else {
+    out$aggregation_method <- as.character(out$aggregation_method)
+  }
+  if (!"policy_family" %in% names(out)) {
+    out$policy_family <- NA_character_
+  } else {
+    out$policy_family <- as.character(out$policy_family)
+  }
+  if (!"local_weighted_mean_combined_distance" %in% names(out)) {
+    out$local_weighted_mean_combined_distance <- NA_real_
+  }
+  if (!"local_min_combined_distance" %in% names(out)) {
+    out$local_min_combined_distance <- NA_real_
+  }
+  if (!"local_effective_support" %in% names(out)) {
+    out$local_effective_support <- NA_real_
+  }
+
+  out$specificity_rank <- policy_specificity_rank(
+    policy = out$policy,
+    candidate_pool = out$candidate_pool,
+    aggregation_method = out$aggregation_method,
+    policy_family = out$policy_family
+  )
+
+  out
+}
+
+policy_learner_select_calibration_rows <- function(tbl,
+                                                   max_selection_tolerance) {
+  tbl <- policy_learner_prepare_context(tbl)
+  if (nrow(tbl) == 0) {
+    return(tbl)
+  }
+
+  tbl$anchor_selection_local_distance <- dplyr::coalesce(
+    tbl$local_weighted_mean_combined_distance,
+    tbl$local_min_combined_distance
+  )
+
+  tbl |>
+    dplyr::filter(selection_valid, is.finite(.meta_predicted_score)) |>
+    dplyr::group_by(anchor_model_id, anchor_species) |>
+    dplyr::filter(
+      .meta_predicted_score <= min(.meta_predicted_score, na.rm = TRUE) + max_selection_tolerance
+    ) |>
+    dplyr::arrange(
+      .meta_predicted_score,
+      anchor_selection_local_distance,
+      dplyr::desc(local_effective_support),
+      specificity_rank,
+      policy,
+      equation_branch_filter,
+      .by_group = TRUE
+    ) |>
+    dplyr::slice(1) |>
+    dplyr::ungroup()
+}
+
+policy_learner_lookup_specs <- function() {
+  list(
+    species_policy_branch = c("anchor_species", "policy", "equation_branch_filter"),
+    species_policy = c("anchor_species", "policy"),
+    species_branch = c("anchor_species", "equation_branch_filter"),
+    species = c("anchor_species"),
+    family_policy_branch = c("anchor_family", "policy", "equation_branch_filter"),
+    family_policy = c("anchor_family", "policy"),
+    family_branch = c("anchor_family", "equation_branch_filter"),
+    family = c("anchor_family"),
+    policy_branch = c("policy", "equation_branch_filter"),
+    policy = c("policy"),
+    branch = c("equation_branch_filter")
+  )
+}
+
+policy_learner_summarize_lookup_table <- function(tbl,
+                                                  group_cols,
+                                                  value_col,
+                                                  alpha,
+                                                  source_label) {
+  tbl <- tibble::as_tibble(tbl)
+  if (nrow(tbl) == 0 || !value_col %in% names(tbl) || !all(group_cols %in% names(tbl))) {
+    return(tibble::tibble())
+  }
+
+  value_vec <- suppressWarnings(as.numeric(tbl[[value_col]]))
+  tbl[[value_col]] <- value_vec
+  tbl <- tbl |>
+    dplyr::filter(is.finite(.data[[value_col]]))
+  if (nrow(tbl) == 0) {
+    return(tibble::tibble())
+  }
+
+  tbl |>
+    dplyr::group_by(dplyr::across(dplyr::all_of(group_cols))) |>
+    dplyr::summarise(
+      n_scores = dplyr::n(),
+      .cal_value = post_selection_quantile(.data[[value_col]], alpha = alpha),
+      .groups = "drop"
+    ) |>
+    dplyr::mutate(.cal_source = source_label)
+}
+
+policy_learner_build_local_lookup <- function(tbl,
+                                              value_col,
+                                              alpha,
+                                              global_default = NA_real_) {
+  valid <- policy_learner_prepare_context(tbl)
+  if (!value_col %in% names(valid)) {
+    return(list(
+      global_value = suppressWarnings(as.numeric(global_default)),
+      tables = list(),
+      anchor_lookup = policy_learner_anchor_lookup(valid)
+    ))
+  }
+
+  valid[[value_col]] <- suppressWarnings(as.numeric(valid[[value_col]]))
+  valid <- valid |>
+    dplyr::filter(is.finite(.data[[value_col]]))
+
+  global_value <- if (nrow(valid) > 0) {
+    post_selection_quantile(valid[[value_col]], alpha = alpha)
+  } else {
+    NA_real_
+  }
+  if (!is.finite(global_value)) {
+    global_value <- suppressWarnings(as.numeric(global_default))
+  }
+
+  lookup_specs <- policy_learner_lookup_specs()
+  lookup_tables <- purrr::imap(
+    lookup_specs,
+    function(group_cols, source_label) {
+      policy_learner_summarize_lookup_table(
+        tbl = valid,
+        group_cols = group_cols,
+        value_col = value_col,
+        alpha = alpha,
+        source_label = source_label
+      )
+    }
+  )
+
+  list(
+    global_value = global_value,
+    tables = lookup_tables,
+    anchor_lookup = policy_learner_anchor_lookup(valid)
+  )
+}
+
+policy_learner_apply_local_lookup <- function(tbl,
+                                              lookup,
+                                              value_col,
+                                              source_col,
+                                              n_col) {
+  out <- policy_learner_prepare_context(
+    tbl,
+    anchor_lookup = lookup$anchor_lookup %||% NULL
+  )
+  if (nrow(out) == 0) {
+    return(out)
+  }
+
+  lookup_specs <- policy_learner_lookup_specs()
+  used_specs <- character(0)
+  for (spec_name in names(lookup_specs)) {
+    join_tbl <- tibble::as_tibble((lookup$tables %||% list())[[spec_name]] %||% tibble::tibble())
+    if (nrow(join_tbl) == 0) {
+      next
+    }
+    by_cols <- lookup_specs[[spec_name]]
+    if (!all(by_cols %in% names(out)) || !all(by_cols %in% names(join_tbl))) {
+      next
+    }
+    temp_value_col <- paste0(".", value_col, "__", spec_name)
+    temp_source_col <- paste0(".", source_col, "__", spec_name)
+    temp_n_col <- paste0(".", n_col, "__", spec_name)
+    names(join_tbl)[names(join_tbl) == ".cal_value"] <- temp_value_col
+    names(join_tbl)[names(join_tbl) == ".cal_source"] <- temp_source_col
+    names(join_tbl)[names(join_tbl) == "n_scores"] <- temp_n_col
+    out <- dplyr::left_join(out, join_tbl, by = by_cols)
+    used_specs <- c(used_specs, spec_name)
+  }
+
+  default_value <- suppressWarnings(as.numeric(lookup$global_value %||% NA_real_))
+  out[[value_col]] <- rep(default_value, nrow(out))
+  out[[source_col]] <- rep("global", nrow(out))
+  out[[n_col]] <- rep(NA_real_, nrow(out))
+
+  for (spec_name in rev(used_specs)) {
+    temp_value_col <- paste0(".", value_col, "__", spec_name)
+    temp_source_col <- paste0(".", source_col, "__", spec_name)
+    temp_n_col <- paste0(".", n_col, "__", spec_name)
+    temp_value <- suppressWarnings(as.numeric(out[[temp_value_col]]))
+    keep <- is.finite(temp_value)
+    if (!any(keep)) {
+      next
+    }
+    out[[value_col]][keep] <- temp_value[keep]
+    out[[source_col]][keep] <- as.character(out[[temp_source_col]][keep])
+    out[[n_col]][keep] <- suppressWarnings(as.numeric(out[[temp_n_col]][keep]))
+  }
+
+  drop_cols <- unlist(lapply(used_specs, function(spec_name) {
+    c(
+      paste0(".", value_col, "__", spec_name),
+      paste0(".", source_col, "__", spec_name),
+      paste0(".", n_col, "__", spec_name)
+    )
+  }), use.names = FALSE)
+  if (length(drop_cols) > 0) {
+    out <- out |>
+      dplyr::select(-dplyr::any_of(drop_cols))
+  }
+
+  out
+}
+
 #' Calibrate `PolicyLearner` uncertainty
 #'
 #' @name calibrate_uncertainty.PolicyLearner
@@ -621,6 +972,11 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   if (!outcome_col %in% names(predictions)) {
     stop(sprintf("Outcome column '%s' was not found in cross-fit predictions.", outcome_col), call. = FALSE)
   }
+  calibration_outcome_col <- if (".outcome" %in% names(predictions)) {
+    ".outcome"
+  } else {
+    outcome_col
+  }
 
   if ("n_valid_models" %in% names(predictions)) {
     predictions$selection_valid <- is.finite(predictions$n_valid_models) &
@@ -636,6 +992,17 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     max_selection_tolerance %||%
       policy_selector_config_value(cfg, "max_selection_tolerance", sections = c("metalearner", "policy_learner"))
   )
+  score_tolerance_floor <- as.numeric(
+    policy_selector_config_value(
+      cfg,
+      "score_equivalence_tolerance",
+      sections = c("selection", "policy", "metalearner", "policy_learner")
+    ) %||% 0.25
+  )
+  if (!is.finite(score_tolerance_floor)) {
+    score_tolerance_floor <- 0.25
+  }
+  max_selection_tolerance <- max(max_selection_tolerance, score_tolerance_floor, na.rm = TRUE)
   n_bins <- as.integer(
     n_bins %||%
       policy_selector_config_value(cfg, "n_bins", sections = c("selection", "post_selection_conformal", "metalearner"))
@@ -645,14 +1012,12 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     "support_bin_labels",
     sections = c("selection", "post_selection_conformal", "metalearner")
   )
-  meta_selected <- predictions |>
-    dplyr::filter(selection_valid, is.finite(.meta_predicted_score)) |>
-    dplyr::group_by(anchor_model_id, anchor_species) |>
-    dplyr::filter(
-      .meta_predicted_score <= min(.meta_predicted_score, na.rm = TRUE) + max_selection_tolerance
-    ) |>
-    dplyr::ungroup() |>
-    dplyr::arrange(anchor_species, anchor_model_id, .meta_predicted_score, policy)
+  predictions <- policy_learner_prepare_context(predictions)
+  anchor_lookup <- policy_learner_anchor_lookup(predictions)
+  meta_selected <- policy_learner_select_calibration_rows(
+    tbl = predictions,
+    max_selection_tolerance = max_selection_tolerance
+  )
 
   # Calibration only makes sense if cross-fitting produced at least one
   # usable selected row after the score-minimization step.
@@ -673,6 +1038,14 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     n_bins = n_bins,
     labels = support_bin_labels
   )
+  predictions <- policy_learner_prepare_context(
+    predictions,
+    anchor_lookup = anchor_lookup
+  )
+  meta_selected <- policy_learner_prepare_context(
+    meta_selected,
+    anchor_lookup = anchor_lookup
+  )
   meta_support_cutpoints <- unique(stats::quantile(
     meta_selected$post_selection_support_score,
     probs = seq(0, 1, length.out = as.integer(n_bins) + 1L),
@@ -682,13 +1055,13 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   ))
 
   meta_summary <- meta_selected |>
-    dplyr::filter(is.finite(.data[[outcome_col]])) |>
+    dplyr::filter(is.finite(.data[[calibration_outcome_col]])) |>
     dplyr::summarise(
       n_selected_rows = dplyr::n(),
       n_anchor_models = dplyr::n_distinct(anchor_model_id),
       n_species = dplyr::n_distinct(anchor_species),
-      median_outcome = stats::median(.data[[outcome_col]], na.rm = TRUE),
-      mean_outcome = mean(.data[[outcome_col]], na.rm = TRUE),
+      median_outcome = stats::median(.data[[calibration_outcome_col]], na.rm = TRUE),
+      mean_outcome = mean(.data[[calibration_outcome_col]], na.rm = TRUE),
       median_predicted_score = stats::median(.meta_predicted_score, na.rm = TRUE),
       mean_predicted_score = mean(.meta_predicted_score, na.rm = TRUE),
       .groups = "drop"
@@ -699,17 +1072,17 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     policy_selector_config_value(cfg, "alpha", sections = c("selection", "post_selection_conformal", "metalearner"))
 
   meta_calibration <- meta_selected |>
-    dplyr::filter(is.finite(.data[[outcome_col]])) |>
+    dplyr::filter(is.finite(.data[[calibration_outcome_col]])) |>
     dplyr::transmute(
-      selected_score_abs_log = .data[[outcome_col]],
+      selected_score_abs_log = .data[[calibration_outcome_col]],
       post_selection_support_bin,
       n_selected_rows = 1L
     )
   meta_simultaneous_calibration <- meta_selected |>
-    dplyr::filter(is.finite(.data[[outcome_col]])) |>
+    dplyr::filter(is.finite(.data[[calibration_outcome_col]])) |>
     dplyr::group_by(anchor_species) |>
     dplyr::summarise(
-      selected_score_abs_log = max(.data[[outcome_col]], na.rm = TRUE),
+      selected_score_abs_log = max(.data[[calibration_outcome_col]], na.rm = TRUE),
       n_selected_rows = dplyr::n(),
       .groups = "drop"
     )
@@ -720,6 +1093,20 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   meta_q_simultaneous_global <- post_selection_quantile(
     meta_simultaneous_calibration$selected_score_abs_log,
     alpha = alpha
+  )
+  meta_local_q_lookup <- policy_learner_build_local_lookup(
+    tbl = predictions |>
+      dplyr::filter(selection_valid),
+    value_col = calibration_outcome_col,
+    alpha = alpha,
+    global_default = meta_q_global
+  )
+  meta_selected_local_q <- policy_learner_apply_local_lookup(
+    tbl = meta_selected,
+    lookup = meta_local_q_lookup,
+    value_col = "selected_q_abs_log_local",
+    source_col = "selected_q_abs_log_source",
+    n_col = "selected_q_abs_log_n"
   )
 
   bin_alpha <- bin_alpha %||%
@@ -753,13 +1140,13 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       interval_log_width = dplyr::if_else(is.finite(q_abs_log), 2 * q_abs_log, NA_real_)
     )
 
-  meta_calibration_coverage <- meta_selected |>
-    dplyr::filter(is.finite(.data[[outcome_col]])) |>
+  meta_calibration_coverage <- meta_selected_local_q |>
+    dplyr::filter(is.finite(.data[[calibration_outcome_col]])) |>
     dplyr::mutate(
-      q_abs_log = meta_q_global,
-      q_simultaneous_abs_log = meta_q_simultaneous_global,
-      marginal_covered = .data[[outcome_col]] <= q_abs_log,
-      simultaneous_covered = .data[[outcome_col]] <= q_simultaneous_abs_log
+      q_abs_log = dplyr::coalesce(selected_q_abs_log_local, meta_q_global),
+      q_simultaneous_abs_log = pmax(q_abs_log, meta_q_simultaneous_global, na.rm = TRUE),
+      marginal_covered = .data[[calibration_outcome_col]] <= q_abs_log,
+      simultaneous_covered = .data[[calibration_outcome_col]] <= q_simultaneous_abs_log
     ) |>
     dplyr::summarise(
       n_selected_rows = dplyr::n(),
@@ -768,7 +1155,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       simultaneous_species_max_q_abs_log = dplyr::first(q_simultaneous_abs_log),
       empirical_row_coverage = mean(marginal_covered, na.rm = TRUE),
       empirical_row_coverage_under_simultaneous_interval = mean(simultaneous_covered, na.rm = TRUE),
-      median_abs_log_error = stats::median(.data[[outcome_col]], na.rm = TRUE),
+      median_abs_log_error = stats::median(.data[[calibration_outcome_col]], na.rm = TRUE),
       median_interval_log_width = stats::median(2 * q_abs_log, na.rm = TRUE),
       .groups = "drop"
     )
@@ -807,7 +1194,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
         method = method_now,
         seed = crossfit_obj$seed %||% policy_selector_config_value(cfg, "seed", sections = c("metalearner", "policy_learner")),
         feature_cols = width_feature_cols,
-        outcome_col = outcome_col,
+        outcome_col = calibration_outcome_col,
         outcome_clip_quantile = crossfit_obj$outcome_clip_quantile %||% NULL,
         outcome_transform = crossfit_obj$outcome_transform %||% policy_selector_config_value(cfg, "outcome_transform", sections = c("metalearner", "policy_learner")),
         lambda_rule = crossfit_obj$lambda_rule %||% policy_selector_config_value(cfg, "lambda_rule", sections = c("metalearner", "policy_learner")),
@@ -822,7 +1209,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
 
       width_training <- prepare_meta_policy_data(
         policy_perf = meta_selected,
-        outcome_col = outcome_col,
+        outcome_col = calibration_outcome_col,
         feature_cols = width_feature_cols,
         outcome_clip_quantile = crossfit_obj$outcome_clip_quantile %||% NULL
       )
@@ -841,8 +1228,8 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       )
 
       width_predictions <- tibble::as_tibble(width_crossfit_result$predictions %||% tibble::tibble())
-      if (!outcome_col %in% names(width_predictions) && ".outcome" %in% names(width_predictions)) {
-        width_predictions[[outcome_col]] <- width_predictions$.outcome
+      if (!calibration_outcome_col %in% names(width_predictions) && ".outcome" %in% names(width_predictions)) {
+        width_predictions[[calibration_outcome_col]] <- width_predictions$.outcome
       }
       width_predictions <- width_predictions |>
         dplyr::mutate(
@@ -968,13 +1355,17 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
 
   width_calibration <- width_selected |>
     dplyr::filter(
-      is.finite(.data[[outcome_col]]),
+      is.finite(.data[[calibration_outcome_col]]),
       is.finite(.width_predicted_q_abs_log),
       .width_predicted_q_abs_log > 0
     ) |>
     dplyr::transmute(
+      anchor_model_id = as.character(anchor_model_id),
       anchor_species,
-      selected_score_abs_log = .data[[outcome_col]],
+      anchor_family = if ("anchor_family" %in% names(width_selected)) as.character(anchor_family) else rep(NA_character_, dplyr::n()),
+      policy = if ("policy" %in% names(width_selected)) as.character(policy) else rep(NA_character_, dplyr::n()),
+      equation_branch_filter = if ("equation_branch_filter" %in% names(width_selected)) as.character(equation_branch_filter) else rep(NA_character_, dplyr::n()),
+      selected_score_abs_log = .data[[calibration_outcome_col]],
       predicted_width_abs_log = .width_predicted_q_abs_log,
       width_ratio = selected_score_abs_log / predicted_width_abs_log
     )
@@ -990,15 +1381,32 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       .groups = "drop"
     ) |>
     dplyr::pull(width_ratio) |>
-    post_selection_quantile(alpha = alpha)
+  post_selection_quantile(alpha = alpha)
+  width_local_lookup <- policy_learner_build_local_lookup(
+    tbl = width_calibration,
+    value_col = "width_ratio",
+    alpha = alpha,
+    global_default = width_factor_global
+  )
+  width_selected_local <- policy_learner_apply_local_lookup(
+    tbl = width_selected,
+    lookup = width_local_lookup,
+    value_col = "width_ratio_factor_local",
+    source_col = "width_ratio_factor_source",
+    n_col = "width_ratio_factor_n"
+  )
 
-  width_coverage <- width_selected |>
-    dplyr::filter(is.finite(.data[[outcome_col]]), is.finite(.width_predicted_q_abs_log)) |>
+  width_coverage <- width_selected_local |>
+    dplyr::filter(is.finite(.data[[calibration_outcome_col]]), is.finite(.width_predicted_q_abs_log)) |>
     dplyr::mutate(
-      learned_q_abs_log = .width_predicted_q_abs_log * width_factor_global,
-      learned_q_simultaneous_abs_log = .width_predicted_q_abs_log * width_factor_simultaneous_global,
-      marginal_covered = .data[[outcome_col]] <= learned_q_abs_log,
-      simultaneous_covered = .data[[outcome_col]] <= learned_q_simultaneous_abs_log
+      learned_q_abs_log = .width_predicted_q_abs_log * dplyr::coalesce(width_ratio_factor_local, width_factor_global),
+      learned_q_simultaneous_abs_log = .width_predicted_q_abs_log * pmax(
+        dplyr::coalesce(width_ratio_factor_local, width_factor_global),
+        width_factor_simultaneous_global,
+        na.rm = TRUE
+      ),
+      marginal_covered = .data[[calibration_outcome_col]] <= learned_q_abs_log,
+      simultaneous_covered = .data[[calibration_outcome_col]] <= learned_q_simultaneous_abs_log
     ) |>
     dplyr::summarise(
       n_selected_rows = dplyr::n(),
@@ -1007,7 +1415,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       simultaneous_conformal_factor = width_factor_simultaneous_global,
       empirical_row_coverage = mean(marginal_covered, na.rm = TRUE),
       empirical_row_coverage_under_simultaneous_interval = mean(simultaneous_covered, na.rm = TRUE),
-      median_abs_log_error = stats::median(.data[[outcome_col]], na.rm = TRUE),
+      median_abs_log_error = stats::median(.data[[calibration_outcome_col]], na.rm = TRUE),
       median_interval_log_width = stats::median(2 * learned_q_abs_log, na.rm = TRUE),
       .groups = "drop"
     )
@@ -1020,12 +1428,14 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       predictions = predictions,
       selected = meta_selected,
       summary = meta_summary,
+      anchor_lookup = anchor_lookup,
       support_cutpoints = meta_support_cutpoints,
       q_global = meta_q_global,
       q_simultaneous_global = meta_q_simultaneous_global,
       bin_quantiles = meta_bin_quantiles,
+      local_q_lookup = meta_local_q_lookup,
       coverage = meta_calibration_coverage,
-      width_predictions = tibble::as_tibble(width_selected),
+      width_predictions = tibble::as_tibble(width_selected_local),
       width_feature_cols = width_feature_cols,
       width_model = width_model,
       width_crossfit = width_crossfit,
@@ -1040,11 +1450,13 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       uncertainty_fit_error = width_fit_error,
       uncertainty_warning = width_warning,
       uncertainty_method = width_method,
+      local_width_lookup = width_local_lookup,
       width_factor_global = width_factor_global,
       width_factor_simultaneous_global = width_factor_simultaneous_global,
       width_coverage = width_coverage,
       uncertainty_coverage = width_coverage,
-      outcome_col = outcome_col,
+      outcome_col = calibration_outcome_col,
+      raw_outcome_col = outcome_col,
       max_selection_tolerance = max_selection_tolerance,
       use_support_bin_intervals = policy_selector_config_value(
         cfg,
@@ -1088,12 +1500,10 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
 #' @param max_selection_tolerance Optional numeric tie tolerance for retaining
 #'   score-minimizing rows within an anchor.
 #'
-#' @return A scored tibble.
-#' @name predict.PolicyLearner
-S7::method(predict_generic, PolicyLearner) <- function(object,
-                                                       new_policy_tbl,
-                                                       use_support_bin_intervals = NULL,
-                                                       max_selection_tolerance = NULL) {
+.predict_policy_learner <- function(object,
+                                    new_policy_tbl,
+                                    use_support_bin_intervals = NULL,
+                                    max_selection_tolerance = NULL) {
   cfg <- policy_learner_config(object)
   if (length(object@fitted_model) == 0 ||
     !inherits((object@fitted_model)$model %||% NULL, "tsb_meta_policy_learner")) {
@@ -1132,6 +1542,10 @@ S7::method(predict_generic, PolicyLearner) <- function(object,
       policy_selector_config_value(cfg, "n_bins", sections = c("selection", "post_selection_conformal", "metalearner")),
     labels = cal_obj$support_bin_labels %||% NULL
   )
+  scored <- policy_learner_prepare_context(
+    scored,
+    anchor_lookup = cal_obj$anchor_lookup %||% NULL
+  )
 
   scored <- scored |>
     dplyr::left_join(
@@ -1162,6 +1576,9 @@ S7::method(predict_generic, PolicyLearner) <- function(object,
   if (!"local_min_combined_distance" %in% names(scored)) {
     scored$local_min_combined_distance <- NA_real_
   }
+  if (!"q_abs_log_structural" %in% names(scored)) {
+    scored$q_abs_log_structural <- 0
+  }
 
   width_model_now <- cal_obj$width_model$model %||% NULL
   if (inherits(width_model_now, "tsb_meta_policy_learner")) {
@@ -1173,6 +1590,28 @@ S7::method(predict_generic, PolicyLearner) <- function(object,
     meta_width_source <- cal_obj$uncertainty_prediction_source %||% cal_obj$width_prediction_source %||% "point_score_fallback"
   }
   meta_uncertainty_warning_value <- cal_obj$uncertainty_warning %||% cal_obj$width_warning %||% NA_character_
+  scored <- policy_learner_apply_local_lookup(
+    tbl = scored,
+    lookup = cal_obj$local_q_lookup %||% list(
+      global_value = cal_obj$q_global %||% NA_real_,
+      tables = list(),
+      anchor_lookup = cal_obj$anchor_lookup %||% NULL
+    ),
+    value_col = "meta_q_abs_log_local",
+    source_col = "meta_q_abs_log_source",
+    n_col = "meta_q_abs_log_n_scores"
+  )
+  scored <- policy_learner_apply_local_lookup(
+    tbl = scored,
+    lookup = cal_obj$local_width_lookup %||% list(
+      global_value = cal_obj$width_factor_global %||% 1,
+      tables = list(),
+      anchor_lookup = cal_obj$anchor_lookup %||% NULL
+    ),
+    value_col = "meta_q_abs_log_conformal_factor",
+    source_col = "meta_q_abs_log_factor_source",
+    n_col = "meta_q_abs_log_factor_n_scores"
+  )
 
   # Compute the anchor-level minimum predicted score once, then join it back so
   # groups with no valid predictions stay explicit and do not trigger empty-set
@@ -1205,53 +1644,85 @@ S7::method(predict_generic, PolicyLearner) <- function(object,
   local_distance_tolerance <- as.numeric(
     policy_selector_config_value(cfg, "local_distance_tolerance", sections = c("selection", "policy"))
   )
+  if (!is.finite(uncertainty_absolute_tolerance)) {
+    uncertainty_absolute_tolerance <- 0
+  }
+  if (!is.finite(max_selection_tolerance)) {
+    max_selection_tolerance <- 0
+  }
+  score_equivalence_tolerance <- as.numeric(
+    policy_selector_config_value(
+      cfg,
+      "score_equivalence_tolerance",
+      sections = c("selection", "policy", "metalearner", "policy_learner")
+    ) %||% 0.25
+  )
+  if (!is.finite(score_equivalence_tolerance)) {
+    score_equivalence_tolerance <- 0.25
+  }
+  score_selection_tolerance <- max(
+    max_selection_tolerance,
+    uncertainty_absolute_tolerance,
+    score_equivalence_tolerance,
+    na.rm = TRUE
+  )
   scored <- scored |>
     dplyr::left_join(min_score_tbl, by = c("anchor_model_id", "anchor_species")) |>
     dplyr::group_by(anchor_model_id, anchor_species) |>
     dplyr::mutate(
       meta_policy_rank = dplyr::min_rank(.meta_predicted_score),
-      meta_q_abs_log = if (isTRUE(use_support_bin_intervals)) {
-        dplyr::coalesce(meta_q_abs_log, cal_obj$q_global)
-      } else {
-        rep(cal_obj$q_global, dplyr::n())
-      },
+      meta_q_abs_log = dplyr::coalesce(
+        meta_q_abs_log_local,
+        if (isTRUE(use_support_bin_intervals)) meta_q_abs_log else rep(NA_real_, dplyr::n()),
+        cal_obj$q_global
+      ),
       meta_q_abs_log_width = dplyr::if_else(
         is.finite(.width_predicted_q_abs_log) & .width_predicted_q_abs_log > 0,
         .width_predicted_q_abs_log,
         pmax(.meta_predicted_score, 0)
       ),
-      meta_uncertainty_source = dplyr::if_else(
-        nzchar(meta_width_source),
-        meta_width_source,
-        "point_score_fallback"
+      meta_q_abs_log_conformal_factor = dplyr::coalesce(meta_q_abs_log_conformal_factor, cal_obj$width_factor_global, 1),
+      meta_q_abs_log_width_total = meta_q_abs_log_width * meta_q_abs_log_conformal_factor,
+      meta_interval_calibration = dplyr::if_else(
+        is.finite(meta_q_abs_log),
+        paste0("direct_", meta_q_abs_log_source),
+        paste0(
+          "width_",
+          dplyr::coalesce(meta_q_abs_log_factor_source, meta_width_source, "point_score_fallback")
+        )
       ),
-      meta_uncertainty_fallback = meta_uncertainty_source == "point_score_fallback",
+      meta_uncertainty_source = meta_interval_calibration,
+      meta_uncertainty_fallback = !startsWith(meta_interval_calibration, "direct_"),
       meta_uncertainty_warning = rep(as.character(meta_uncertainty_warning_value), dplyr::n()),
-      meta_q_abs_log_conformal_factor = dplyr::coalesce(cal_obj$width_factor_global, 1),
       meta_q_abs_log_simultaneous_factor = dplyr::coalesce(
         cal_obj$width_factor_simultaneous_global,
         meta_q_abs_log_conformal_factor
       ),
       # Preserve the earlier diagnostic columns, but make them reflect the new
       # conditional-width decomposition rather than a hand-built score penalty.
-      meta_q_abs_log_calibration = meta_q_abs_log_width,
+      meta_q_abs_log_calibration = meta_q_abs_log,
       meta_q_abs_log_score = dplyr::if_else(
         is.finite(.meta_predicted_score) & .meta_predicted_score > 0,
         .meta_predicted_score,
         0
       ),
-      meta_interval_calibration = dplyr::if_else(
-        nzchar(meta_width_source),
-        meta_width_source,
-        "point_score_fallback"
-      ),
       meta_q_abs_log_simultaneous = dplyr::coalesce(
         meta_q_abs_log_simultaneous,
-        cal_obj$q_simultaneous_global
+        pmax(meta_q_abs_log, cal_obj$q_simultaneous_global, na.rm = TRUE)
       ),
-      meta_q_abs_log_simultaneous_calibration = meta_q_abs_log_width,
-      meta_q_abs_log_total = meta_q_abs_log_width * meta_q_abs_log_conformal_factor,
-      meta_q_abs_log_simultaneous_total = meta_q_abs_log_width * meta_q_abs_log_simultaneous_factor,
+      meta_q_abs_log_simultaneous_calibration = meta_q_abs_log_simultaneous,
+      meta_q_abs_log_total = dplyr::coalesce(
+        meta_q_abs_log,
+        meta_q_abs_log_width_total
+      ),
+      meta_q_abs_log_simultaneous_total = pmax(
+        meta_q_abs_log_total,
+        dplyr::coalesce(
+          meta_q_abs_log_simultaneous,
+          meta_q_abs_log_width * meta_q_abs_log_simultaneous_factor
+        ),
+        na.rm = TRUE
+      ),
       meta_simultaneous_interval_factor = dplyr::if_else(
         is.finite(meta_q_abs_log_simultaneous_total),
         exp(meta_q_abs_log_simultaneous_total),
@@ -1269,7 +1740,8 @@ S7::method(predict_generic, PolicyLearner) <- function(object,
       ),
       meta_post_selection_interval_log_width = dplyr::if_else(
         is.finite(meta_q_abs_log_total),
-        2 * meta_q_abs_log_total,
+        2 * sqrt(meta_q_abs_log_total^2 +
+                   dplyr::coalesce(q_abs_log_structural, 0)^2),
         NA_real_
       ),
       meta_interval_factor = dplyr::if_else(
@@ -1289,11 +1761,24 @@ S7::method(predict_generic, PolicyLearner) <- function(object,
       .score_screen = valid_prediction &
         is.finite(.meta_predicted_score) &
         is.finite(.meta_min_predicted_score) &
-        .meta_predicted_score <= .meta_min_predicted_score + max_selection_tolerance
+        .meta_predicted_score <= .meta_min_predicted_score + score_selection_tolerance
     ) |>
     dplyr::mutate(
+      .meta_min_specificity_rank = {
+        specificity_values <- specificity_rank[.score_screen & is.finite(specificity_rank)]
+        if (length(specificity_values) == 0) {
+          NA_real_
+        } else {
+          min(specificity_values)
+        }
+      },
+      .specificity_screen = .score_screen &
+        (
+          !is.finite(.meta_min_specificity_rank) |
+            (is.finite(specificity_rank) & specificity_rank <= .meta_min_specificity_rank)
+        ),
       .meta_min_uncertainty_width = {
-        width_values <- meta_post_selection_interval_log_width[.score_screen & is.finite(meta_post_selection_interval_log_width)]
+        width_values <- meta_post_selection_interval_log_width[.specificity_screen & is.finite(meta_post_selection_interval_log_width)]
         if (length(width_values) == 0) {
           NA_real_
         } else {
@@ -1311,7 +1796,7 @@ S7::method(predict_generic, PolicyLearner) <- function(object,
         ),
         NA_real_
       ),
-      .uncertainty_screen = .score_screen &
+      .uncertainty_screen = .specificity_screen &
         is.finite(meta_post_selection_interval_log_width) &
         is.finite(.meta_uncertainty_threshold) &
         meta_post_selection_interval_log_width <= .meta_uncertainty_threshold
@@ -1328,9 +1813,18 @@ S7::method(predict_generic, PolicyLearner) <- function(object,
         }
       }
     ) |>
+    dplyr::arrange(
+      specificity_rank,
+      meta_post_selection_interval_log_width,
+      anchor_selection_local_distance,
+      dplyr::desc(local_effective_support),
+      .meta_predicted_score,
+      policy,
+      .by_group = TRUE
+    ) |>
     dplyr::mutate(
       is_selected = {
-        if (isTRUE(any(.uncertainty_screen, na.rm = TRUE))) {
+        pool <- if (isTRUE(any(.uncertainty_screen, na.rm = TRUE))) {
           .uncertainty_screen &
             (
               !is.finite(.meta_min_local_distance) |
@@ -1342,9 +1836,15 @@ S7::method(predict_generic, PolicyLearner) <- function(object,
         } else {
           .score_screen
         }
+        idx <- which(pool)
+        out <- rep(FALSE, dplyr::n())
+        if (length(idx) > 0L) {
+          out[[idx[[1]]]] <- TRUE
+        }
+        out
       },
       anchor_selection_min_validation_error = .meta_min_predicted_score,
-      anchor_selection_validation_threshold = .meta_min_predicted_score + max_selection_tolerance,
+      anchor_selection_validation_threshold = .meta_min_predicted_score + score_selection_tolerance,
       anchor_selection_min_uncertainty_width = .meta_min_uncertainty_width,
       anchor_selection_uncertainty_threshold = .meta_uncertainty_threshold
     ) |>
@@ -1352,6 +1852,8 @@ S7::method(predict_generic, PolicyLearner) <- function(object,
     dplyr::select(-dplyr::any_of(c(
       ".meta_min_predicted_score",
       ".score_screen",
+      ".meta_min_specificity_rank",
+      ".specificity_screen",
       ".meta_min_uncertainty_width",
       ".meta_uncertainty_threshold",
       ".uncertainty_screen",
@@ -1359,13 +1861,49 @@ S7::method(predict_generic, PolicyLearner) <- function(object,
     ))) |>
     dplyr::arrange(
       anchor_species,
-      .meta_predicted_score,
       meta_post_selection_interval_log_width,
       anchor_selection_local_distance,
+      specificity_rank,
+      dplyr::desc(local_effective_support),
+      .meta_predicted_score,
       policy
     )
 
   scored
+}
+
+#' @return A scored tibble.
+#' @name predict.PolicyLearner
+S7::method(predict_generic, PolicyLearner) <- .predict_policy_learner
+
+methods::setMethod(
+  "predict",
+  signature(object = "tsbiomass::PolicyLearner"),
+  function(object,
+           new_policy_tbl,
+           use_support_bin_intervals = NULL,
+           max_selection_tolerance = NULL,
+           ...) {
+    .predict_policy_learner(
+      object = object,
+      new_policy_tbl = new_policy_tbl,
+      use_support_bin_intervals = use_support_bin_intervals,
+      max_selection_tolerance = max_selection_tolerance
+      )
+    }
+  )
+
+`predict.tsbiomass::PolicyLearner` <- function(object,
+                                               new_policy_tbl,
+                                               use_support_bin_intervals = NULL,
+                                               max_selection_tolerance = NULL,
+                                               ...) {
+  .predict_policy_learner(
+    object = object,
+    new_policy_tbl = new_policy_tbl,
+    use_support_bin_intervals = use_support_bin_intervals,
+    max_selection_tolerance = max_selection_tolerance
+  )
 }
 
 #' Plot a `PolicyLearner`
@@ -1405,22 +1943,22 @@ S7::method(predict_generic, PolicyLearner) <- function(object,
 #' plot(learner, type = "calibration_curve", outcome = "raw")
 #' plot(learner, type = "residuals", view = "by_policy", outcome = "raw")
 #' }
-S7::method(plot_generic, PolicyLearner) <- function(x,
-                                                    y = NULL,
-                                                    type = c(
-                                                      "predicted_vs_observed",
-                                                      "calibration_curve",
-                                                      "residuals",
-                                                      "score_by_policy",
-                                                      "support_bin_error",
-                                                      "selected_policy_counts",
-                                                      "recommendation_stability"
-                                                    ),
-                                                    view = NULL,
-                                                    outcome = c("modeled", "raw"),
-                                                    rows = c("all", "selected"),
-                                                    n_bins = 10L,
-                                                    ...) {
+.plot_policy_learner <- function(x,
+                                 y = NULL,
+                                 type = c(
+                                   "predicted_vs_observed",
+                                   "calibration_curve",
+                                   "residuals",
+                                   "score_by_policy",
+                                   "support_bin_error",
+                                   "selected_policy_counts",
+                                   "recommendation_stability"
+                                 ),
+                                 view = NULL,
+                                 outcome = c("modeled", "raw"),
+                                 rows = c("all", "selected"),
+                                 n_bins = 10L,
+                                 ...) {
   type <- match.arg(type)
   outcome <- match.arg(outcome)
   rows <- match.arg(rows)
@@ -1915,8 +2453,14 @@ S7::method(plot_generic, PolicyLearner) <- function(x,
       title = "Recommendation stability by species",
       subtitle = "Range shows margin over the next-most-frequent competing policy."
     ) +
-    ggplot2::theme_minimal(base_size = 11) +
+  ggplot2::theme_minimal(base_size = 11) +
     ggplot2::theme(panel.grid.major.y = ggplot2::element_blank())
+}
+
+S7::method(plot_generic, PolicyLearner) <- .plot_policy_learner
+
+`plot.tsbiomass::PolicyLearner` <- function(x, y = NULL, ...) {
+  .plot_policy_learner(x, y, ...)
 }
 
 #' Print a `PolicyLearner`

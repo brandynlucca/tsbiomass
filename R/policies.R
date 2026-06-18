@@ -1832,7 +1832,14 @@ policy_structural_rows <- function(rows,
     )
   }
 
-  if ("w_adm" %in% names(source_rows) && any(is.finite(source_rows$w_adm) & source_rows$w_adm > 0)) {
+  # Equal-weight aggregation methods give every donor the same contribution to
+  # the policy prediction, so the structural spread must also use equal weights.
+  # Weighting by w_adm here would concentrate mass on high-admissibility donors
+  # and artificially deflate structural_q for diverse unweighted pools.
+  equal_weight_agg_methods <- c("arithmetic_mean", "equal_weight_mean", "source_cell_mean", "median")
+  if (method_name %in% equal_weight_agg_methods) {
+    source_rows$.structural_weight <- 1
+  } else if ("w_adm" %in% names(source_rows) && any(is.finite(source_rows$w_adm) & source_rows$w_adm > 0)) {
     source_rows$.structural_weight <- dplyr::if_else(
       is.finite(source_rows$w_adm) & source_rows$w_adm > 0,
       source_rows$w_adm,
@@ -2221,12 +2228,15 @@ policy_structural_summary <- function(rows,
     rep(NA_real_, n_valid)
   }
   donor_multiplier <- suppressWarnings(as.numeric(keep_rows$biomass_multiplier_if_replace %||% rep(NA_real_, n_valid)))
-  policy_multiplier <- pred_scalar("multiplier_pred")
-  log_multiplier_abs_dev <- if (is.finite(policy_multiplier) && policy_multiplier > 0) {
-    abs(log(donor_multiplier) - log(policy_multiplier))
-  } else {
-    rep(NA_real_, n_valid)
-  }
+  # Deviation from anchor truth (1.0), not from the policy mean.
+  # For a single-donor same-species strategy biomass_multiplier_if_replace ≈ 1.0
+  # so this is ≈ 0. For diverse cross-taxon donors it is large regardless of pool
+  # size, which correctly penalises broad ensemble strategies.
+  log_multiplier_abs_dev <- ifelse(
+    is.finite(donor_multiplier) & donor_multiplier > 0,
+    abs(log(donor_multiplier)),
+    NA_real_
+  )
 
   curve_rmse <- vapply(
     seq_len(n_valid),
@@ -2253,8 +2263,16 @@ policy_structural_summary <- function(rows,
   log_multiplier_q <- weighted_quantile(log_multiplier_abs_dev, weights, probs = c(0.50, 0.90))
   log_sigma_q <- weighted_quantile(log_sigma_abs_dev, weights, probs = c(0.50, 0.90))
   curve_q <- weighted_quantile(curve_rmse, weights, probs = c(0.50, 0.90))
-  structural_q <- if (is.finite(log_multiplier_q[[2]]) || is.finite(log_sigma_q[[2]])) {
-    sqrt(dplyr::coalesce(log_multiplier_q[[2]], 0)^2 + dplyr::coalesce(log_sigma_q[[2]], 0)^2)
+  # structural_q = 90th-percentile of |log(biomass_multiplier_if_replace)| weighted by
+  # donor contributions. Deviation of each donor from the anchor's own truth (ref = 1.0).
+  # Do NOT RSS with log_sigma_q — biomass_multiplier_if_replace = sigma_donor/sigma_anchor
+  # already captures the same sigma deviation in log space; combining would double-count.
+  structural_q <- if (is.finite(log_multiplier_q[[2]])) {
+    log_multiplier_q[[2]]
+  } else if (is.finite(log_sigma_q[[2]])) {
+    log_sigma_q[[2]]
+  } else if (is.finite(curve_q[[2]])) {
+    (curve_q[[2]] * log(10)) / 10
   } else {
     NA_real_
   }
