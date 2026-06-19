@@ -1635,17 +1635,25 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       cal_obj$max_selection_tolerance %||%
       policy_selector_config_value(cfg, "max_selection_tolerance", sections = c("metalearner", "policy_learner"))
   )
-  uncertainty_relative_tolerance <- as.numeric(
-    policy_selector_config_value(cfg, "uncertainty_relative_tolerance", sections = c("selection", "policy"))
+  uncertainty_rule <- normalize_uncertainty_rule(
+    policy_selector_config_value(cfg, "uncertainty_rule", sections = c("selection", "policy")) %||% "tolerance"
   )
-  uncertainty_absolute_tolerance <- as.numeric(
-    policy_selector_config_value(cfg, "uncertainty_absolute_tolerance", sections = c("selection", "policy"))
+  u_tol_rel <- as.numeric(
+    policy_selector_config_value(cfg, "u_tol_rel", sections = c("selection", "policy")) %||%
+      policy_selector_config_value(cfg, "uncertainty_relative_tolerance", sections = c("selection", "policy"))
+  )
+  u_tol_abs <- as.numeric(
+    policy_selector_config_value(cfg, "u_tol_abs", sections = c("selection", "policy")) %||%
+      policy_selector_config_value(cfg, "uncertainty_absolute_tolerance", sections = c("selection", "policy"))
   )
   local_distance_tolerance <- as.numeric(
     policy_selector_config_value(cfg, "local_distance_tolerance", sections = c("selection", "policy"))
   )
-  if (!is.finite(uncertainty_absolute_tolerance)) {
-    uncertainty_absolute_tolerance <- 0
+  if (!is.finite(u_tol_abs)) {
+    u_tol_abs <- 0
+  }
+  if (!is.finite(u_tol_rel)) {
+    u_tol_rel <- 0
   }
   if (!is.finite(max_selection_tolerance)) {
     max_selection_tolerance <- 0
@@ -1662,7 +1670,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   }
   score_selection_tolerance <- max(
     max_selection_tolerance,
-    uncertainty_absolute_tolerance,
+    u_tol_abs,
     score_equivalence_tolerance,
     na.rm = TRUE
   )
@@ -1789,10 +1797,11 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     dplyr::mutate(
       .meta_uncertainty_threshold = dplyr::if_else(
         is.finite(.meta_min_uncertainty_width),
-        .meta_min_uncertainty_width + max(
-          uncertainty_absolute_tolerance,
-          abs(.meta_min_uncertainty_width) * uncertainty_relative_tolerance,
-          na.rm = TRUE
+        uncertainty_width_threshold(
+          min_width = .meta_min_uncertainty_width,
+          uncertainty_rule = uncertainty_rule,
+          u_tol_abs = u_tol_abs,
+          u_tol_rel = u_tol_rel
         ),
         NA_real_
       ),

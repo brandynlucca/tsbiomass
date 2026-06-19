@@ -84,6 +84,56 @@ policy_specificity_rank <- function(policy,
   pool_rank * 100L + aggregation_rank * 10L + family_penalty
 }
 
+normalize_uncertainty_rule <- function(x, default = "tolerance") {
+  rule <- stringr::str_to_lower(stringr::str_squish(as.character(x %||% default)[[1]] %||% default))
+  if (!nzchar(rule) || is.na(rule)) {
+    rule <- default
+  }
+  if (identical(rule, "minimum_width")) {
+    rule <- "min"
+  }
+  if (identical(rule, "within_width_tolerance")) {
+    rule <- "tolerance"
+  }
+  if (!rule %in% c("min", "tolerance")) {
+    stop(
+      "Selection field 'uncertainty_rule' must be one of: 'min', 'tolerance'.",
+      call. = FALSE
+    )
+  }
+  rule
+}
+
+uncertainty_width_threshold <- function(min_width,
+                                        uncertainty_rule = "tolerance",
+                                        u_tol_abs = 0.05,
+                                        u_tol_rel = 0.25) {
+  uncertainty_rule <- normalize_uncertainty_rule(uncertainty_rule)
+  u_tol_abs <- suppressWarnings(as.numeric(u_tol_abs)[[1]])
+  u_tol_rel <- suppressWarnings(as.numeric(u_tol_rel)[[1]])
+  if (!is.finite(u_tol_abs)) {
+    u_tol_abs <- 0
+  }
+  if (!is.finite(u_tol_rel)) {
+    u_tol_rel <- 0
+  }
+  min_width <- suppressWarnings(as.numeric(min_width))
+  out <- rep(NA_real_, length(min_width))
+  finite_idx <- is.finite(min_width)
+  if (!any(finite_idx)) {
+    return(out)
+  }
+  if (identical(uncertainty_rule, "min")) {
+    out[finite_idx] <- min_width[finite_idx]
+    return(out)
+  }
+  out[finite_idx] <- min_width[finite_idx] + pmax(
+    u_tol_abs,
+    abs(min_width[finite_idx]) * u_tol_rel
+  )
+  out
+}
+
 first_non_missing_character <- function(x) {
   x <- stringr::str_squish(as.character(x))
   x <- x[!is.na(x) & nzchar(x)]
@@ -202,10 +252,13 @@ add_policy_intervals <- function(policy_tbl,
 #' Select anchor-facing policies from calibrated policy predictions
 #'
 #' @param policy_tbl Anchor-policy prediction table.
-#' @param uncertainty_relative_tolerance Relative width tolerance around the
-#'   minimum calibrated interval width after empirical-score screening.
-#' @param uncertainty_absolute_tolerance Absolute log-width tolerance around the
-#'   minimum calibrated interval width after empirical-score screening.
+#' @param uncertainty_rule Final uncertainty-screening rule. Use `"min"` for
+#'   strict minimum calibrated width or `"tolerance"` to retain policies within
+#'   an absolute/relative width band around that minimum.
+#' @param u_tol_rel Relative width tolerance around the minimum calibrated
+#'   interval width after empirical-score screening.
+#' @param u_tol_abs Absolute log-width tolerance around the minimum calibrated
+#'   interval width after empirical-score screening.
 #' @param local_distance_tolerance Absolute tolerance for retaining local
 #'   support-distance ties after empirical-score and uncertainty screening.
 #'
@@ -226,12 +279,25 @@ add_policy_intervals <- function(policy_tbl,
 #' selected$selected_policy
 #' @export
 select_anchor_policies <- function(policy_tbl,
-                                   uncertainty_relative_tolerance = 0.25,
-                                   uncertainty_absolute_tolerance = 0.05,
-                                   local_distance_tolerance = 1e-12) {
+                                   uncertainty_rule = "tolerance",
+                                   u_tol_rel = 0.25,
+                                   u_tol_abs = 0.05,
+                                   local_distance_tolerance = 1e-12,
+                                   uncertainty_relative_tolerance = NULL,
+                                   uncertainty_absolute_tolerance = NULL) {
   policy_tbl <- tibble::as_tibble(policy_tbl)
   if (nrow(policy_tbl) == 0) {
     return(policy_tbl)
+  }
+
+  uncertainty_rule <- normalize_uncertainty_rule(uncertainty_rule)
+  legacy_u_tol_rel <- suppressWarnings(as.numeric(uncertainty_relative_tolerance))
+  if (length(legacy_u_tol_rel) >= 1L && is.finite(legacy_u_tol_rel[[1]])) {
+    u_tol_rel <- legacy_u_tol_rel[[1]]
+  }
+  legacy_u_tol_abs <- suppressWarnings(as.numeric(uncertainty_absolute_tolerance))
+  if (length(legacy_u_tol_abs) >= 1L && is.finite(legacy_u_tol_abs[[1]])) {
+    u_tol_abs <- legacy_u_tol_abs[[1]]
   }
 
   if (!"valid_prediction" %in% names(policy_tbl)) {
@@ -381,7 +447,7 @@ select_anchor_policies <- function(policy_tbl,
   if (is.finite(min_validation_error)) {
     best_score_rows <- score_ranked |>
       dplyr::filter(
-        anchor_selection_validation_error <= min_validation_error + as.numeric(uncertainty_absolute_tolerance)
+        anchor_selection_validation_error <= min_validation_error + as.numeric(u_tol_abs)
       )
   } else {
     best_score_rows <- score_ranked
@@ -401,10 +467,11 @@ select_anchor_policies <- function(policy_tbl,
     return(candidate_tbl[0, , drop = FALSE])
   }
 
-  width_threshold <- min_width + max(
-    as.numeric(uncertainty_absolute_tolerance),
-    abs(min_width) * as.numeric(uncertainty_relative_tolerance),
-    na.rm = TRUE
+  width_threshold <- uncertainty_width_threshold(
+    min_width = min_width,
+    uncertainty_rule = uncertainty_rule,
+    u_tol_abs = u_tol_abs,
+    u_tol_rel = u_tol_rel
   )
 
   near_min_uncertainty <- best_score_rows |>

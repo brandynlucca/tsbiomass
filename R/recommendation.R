@@ -1398,8 +1398,9 @@ recommend_ts_model <- function(target_species,
   min_source_cells_ensemble <- selection_config$min_source_cells_ensemble %||% 2L
   max_interval_factor <- selection_config$max_interval_factor %||% Inf
   practical_error_tolerance <- selection_config$practical_error_tolerance %||% 0.05
-  uncertainty_relative_tolerance <- selection_config$uncertainty_relative_tolerance %||% 0.10
-  uncertainty_absolute_tolerance <- selection_config$uncertainty_absolute_tolerance %||% 0.05
+  uncertainty_rule <- normalize_uncertainty_rule(selection_config$uncertainty_rule %||% "tolerance")
+  u_tol_rel <- selection_config$u_tol_rel %||% selection_config$uncertainty_relative_tolerance %||% 0.25
+  u_tol_abs <- selection_config$u_tol_abs %||% selection_config$uncertainty_absolute_tolerance %||% 0.05
   dominance_tolerance <- selection_config$dominance_tolerance %||% list()
 
   ranked <- ranked |>
@@ -1459,10 +1460,11 @@ recommend_ts_model <- function(target_species,
       }
       if (any(is.finite(candidates$q_abs_log_total))) {
         best_q <- min(candidates$q_abs_log_total, na.rm = TRUE)
-        q_threshold <- best_q + max(
-          uncertainty_absolute_tolerance,
-          abs(best_q) * uncertainty_relative_tolerance,
-          na.rm = TRUE
+        q_threshold <- uncertainty_width_threshold(
+          min_width = best_q,
+          uncertainty_rule = uncertainty_rule,
+          u_tol_abs = u_tol_abs,
+          u_tol_rel = u_tol_rel
         )
         candidates <- candidates |>
           dplyr::filter(

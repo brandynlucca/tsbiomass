@@ -99,6 +99,88 @@ test_that("predict returns PolicyPredictions and summary helpers use selector st
   expect_true(all(c("anchor_model_id", "selected_policy", "bootstrap_median_rank") %in% names(audit)))
 })
 
+test_that("cached anchor admissibility is returned even when selector config is populated", {
+  candidates <- set_reference_anchors(make_candidates(), selector = list(regional_body = "SWFSC"))
+  anchor_ids <- as.character(candidates@reference_anchors$model_id_chr)
+  cached_admissibility <- list(
+    anchors = stats::setNames(
+      lapply(anchor_ids, function(anchor_id) {
+        list(evaluation = list(anchor_id = anchor_id, cached = TRUE))
+      }),
+      anchor_ids
+    )
+  )
+  candidates <- candidates_with_admissibility(candidates, cached_admissibility)
+  selector <- make_selector(candidates = candidates)
+
+  anchor_row <- selector@candidates@reference_anchors[1, , drop = FALSE]
+  cached_eval <- policy_selector_cached_anchor_evaluation(
+    object = selector,
+    anchor_row = anchor_row,
+    config_supplied = FALSE
+  )
+
+  expect_true(is.list(cached_eval))
+  expect_true(isTRUE(cached_eval$cached))
+  expect_equal(cached_eval$anchor_id, as.character(anchor_row$model_id_chr[[1]]))
+})
+
+test_that("predict reuses cached anchor admissibility instead of rescreening donors", {
+  candidates <- set_reference_anchors(make_candidates(), selector = list(regional_body = "SWFSC"))
+  anchor_ids <- as.character(candidates@reference_anchors$model_id_chr)
+  cached_admissibility <- list(
+    anchors = stats::setNames(
+      lapply(anchor_ids, function(anchor_id) {
+        list(evaluation = list(anchor_id = anchor_id, cached = TRUE))
+      }),
+      anchor_ids
+    )
+  )
+  candidates <- candidates_with_admissibility(candidates, cached_admissibility)
+  selector <- make_selector(
+    candidates = candidates,
+    benchmark = list(policy_perf = minimal_policy_performance()),
+    uncertainty = minimal_uncertainty(),
+    selection = list(final_ref = minimal_selection_ref())
+  )
+
+  testthat::local_mocked_bindings(
+    screen_one_anchor_admissibility = function(...) {
+      stop("predict() should reuse cached anchor admissibility here")
+    },
+    evaluate_policies = function(eval_obj, ...) {
+      tibble::tibble(
+        policy = c("same_species_closest", "same_genus_weighted"),
+        equation_branch_filter = "all",
+        multiplier_pred = c(1.10, 1.30),
+        cached_anchor_id = eval_obj$anchor_id %||% NA_character_
+      )
+    },
+    summarize_evaluation = function(eval_obj, ...) {
+      tibble::tibble(
+        consensus_multiplier = 1.20,
+        local_support_mass = 0.80,
+        local_effective_support = 3.00,
+        cached_anchor_id = eval_obj$anchor_id %||% NA_character_
+      )
+    },
+    .package = "tsbiomass"
+  )
+
+  predictions <- predict(selector)
+
+  expect_true(S7::S7_inherits(predictions, PolicyPredictions))
+  expect_false(any(is.na(predictions@intervals$cached_anchor_id)))
+  expect_setequal(
+    unique(predictions@intervals$cached_anchor_id),
+    anchor_ids
+  )
+  expect_setequal(
+    unique(predictions@consensus$cached_anchor_id),
+    anchor_ids
+  )
+})
+
 test_that("Referee consumes PolicyPredictions after selector prediction", {
   candidates <- set_reference_anchors(
     make_candidates(admissibility = list(all_scores = minimal_admissibility_scores())),

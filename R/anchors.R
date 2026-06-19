@@ -766,33 +766,14 @@ summarize_selected_ts_calibration <- function(ts_error,
   } else {
     rep(NA_character_, nrow(selected_tbl))
   }
-  selected_support_bins <- if ("post_selection_support_bin" %in% names(selected_tbl)) {
-    as.character(selected_tbl$post_selection_support_bin)
-  } else {
-    rep(NA_character_, nrow(selected_tbl))
-  }
   selected_keys <- selected_tbl |>
     dplyr::transmute(
-      anchor_model_id = as.character(anchor_model_id),
-      selected_anchor_species = if ("anchor_species" %in% names(selected_tbl)) {
-        as.character(anchor_species)
-      } else {
-        rep(NA_character_, dplyr::n())
-      },
-      selected_anchor_family = if ("anchor_family" %in% names(selected_tbl)) {
-        as.character(anchor_family)
-      } else {
-        rep(NA_character_, dplyr::n())
-      },
       policy = selected_policy_values,
-      equation_branch_filter = selected_branches(selected_tbl),
-      post_selection_support_bin = selected_support_bins
+      equation_branch_filter = selected_branches(selected_tbl)
     ) |>
     dplyr::filter(
-      !is.na(anchor_model_id),
       !is.na(policy),
-      !is.na(equation_branch_filter),
-      !is.na(post_selection_support_bin)
+      !is.na(equation_branch_filter)
     ) |>
     dplyr::distinct()
   if (nrow(selected_keys) == 0) {
@@ -804,15 +785,12 @@ summarize_selected_ts_calibration <- function(ts_error,
   selected_ts <- selected_ts |>
     dplyr::mutate(
       anchor_model_id = as.character(anchor_model_id),
-      anchor_species = if ("anchor_species" %in% names(selected_ts)) as.character(anchor_species) else rep(NA_character_, dplyr::n())
+      anchor_species = if ("anchor_species" %in% names(selected_ts)) as.character(anchor_species) else rep(NA_character_, dplyr::n()),
+      anchor_family = if ("anchor_family" %in% names(selected_ts)) as.character(anchor_family) else rep(NA_character_, dplyr::n())
     ) |>
     dplyr::inner_join(
       selected_keys,
-      by = c("anchor_model_id", "policy", "equation_branch_filter")
-    ) |>
-    dplyr::mutate(
-      anchor_species = dplyr::coalesce(selected_anchor_species, anchor_species),
-      anchor_family = selected_anchor_family
+      by = c("policy", "equation_branch_filter")
     )
   if (nrow(selected_ts) == 0) {
     return(tibble::tibble())
@@ -1540,25 +1518,42 @@ selection_competition_pool <- function(policy_tbl,
     return(tibble::tibble())
   }
 
-  uncertainty_relative_tolerance <- suppressWarnings(as.numeric(
+  uncertainty_rule <- normalize_uncertainty_rule(
     policy_selector_config_value(
       config,
-      "uncertainty_relative_tolerance",
+      "uncertainty_rule",
       sections = c("selection", "policy")
-    ) %||% NA_real_
+    ) %||% "tolerance"
+  )
+  u_tol_rel <- suppressWarnings(as.numeric(
+    policy_selector_config_value(
+      config,
+      "u_tol_rel",
+      sections = c("selection", "policy")
+    ) %||%
+      policy_selector_config_value(
+        config,
+        "uncertainty_relative_tolerance",
+        sections = c("selection", "policy")
+      ) %||% NA_real_
   ))
-  if (!is.finite(uncertainty_relative_tolerance)) {
-    uncertainty_relative_tolerance <- 0.25
+  if (!is.finite(u_tol_rel)) {
+    u_tol_rel <- 0.25
   }
-  uncertainty_absolute_tolerance <- suppressWarnings(as.numeric(
+  u_tol_abs <- suppressWarnings(as.numeric(
     policy_selector_config_value(
       config,
-      "uncertainty_absolute_tolerance",
+      "u_tol_abs",
       sections = c("selection", "policy")
-    ) %||% NA_real_
+    ) %||%
+      policy_selector_config_value(
+        config,
+        "uncertainty_absolute_tolerance",
+        sections = c("selection", "policy")
+      ) %||% NA_real_
   ))
-  if (!is.finite(uncertainty_absolute_tolerance)) {
-    uncertainty_absolute_tolerance <- 0.05
+  if (!is.finite(u_tol_abs)) {
+    u_tol_abs <- 0.05
   }
 
   validation_error <- dplyr::coalesce(
@@ -1640,7 +1635,7 @@ selection_competition_pool <- function(policy_tbl,
   }
 
   score_pool <- pool |>
-    dplyr::filter(.validation_error <= min_validation_error + uncertainty_absolute_tolerance)
+    dplyr::filter(.validation_error <= min_validation_error + u_tol_abs)
   if (nrow(score_pool) == 0) {
     score_pool <- pool |>
       dplyr::filter(.validation_error <= min_validation_error + 1e-12)
@@ -1669,10 +1664,11 @@ selection_competition_pool <- function(policy_tbl,
     if (!is.finite(min_width)) {
       return(score_pool[0, , drop = FALSE])
     }
-    width_threshold <- min_width + max(
-      uncertainty_absolute_tolerance,
-      abs(min_width) * uncertainty_relative_tolerance,
-      na.rm = TRUE
+    width_threshold <- uncertainty_width_threshold(
+      min_width = min_width,
+      uncertainty_rule = uncertainty_rule,
+      u_tol_abs = u_tol_abs,
+      u_tol_rel = u_tol_rel
     )
   }
 

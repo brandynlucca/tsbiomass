@@ -15,7 +15,8 @@ execution:
 
 cache:
   folder: cache
-  refresh: true
+  # refresh: true
+  refresh: false
 
 data:
   - id: study_metadata
@@ -197,7 +198,7 @@ admissibility:
       mode: overlap
       min: 0.01
     frequency:
-      mode: none
+      mode: overlap
       gap: 60
   key_metadata_max: 0.75
   progress: true
@@ -209,8 +210,9 @@ selection:
   one_se_multiplier: 1
   equivalence_tolerance: 0.05
   n_boot: 1000
-  uncertainty_relative_tolerance: 0.25
-  uncertainty_absolute_tolerance: 0.05
+  uncertainty_rule: tolerance
+  u_tol_rel: 0.25
+  u_tol_abs: 0.05
   local_distance_tolerance: 1.0e-12
   conformal_alpha: 0.1
   bin_alpha: 0.1
@@ -244,7 +246,7 @@ metalearner:
   outcome_transform: log1p
   lambda_rule: lambda.1se
   metalearner_loss: squared_error
-  max_selection_tolerance: 1.0e-12
+  max_selection_tolerance: 0.1
   progress: true
   method_settings:
     glmnet:

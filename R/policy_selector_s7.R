@@ -451,7 +451,6 @@ policy_selector_cached_anchor_evaluation <- function(object,
                                                      anchor_row,
                                                      config_supplied) {
   if (isTRUE(config_supplied) ||
-    length(object@config) > 0 ||
     length(object@candidates@admissibility) == 0) {
     return(NULL)
   }
@@ -927,11 +926,21 @@ S7::method(select_policies, PolicySelector) <- function(object,
     cfg, "structural_uncertainty_weight",
     sections = c("policy", "selection")
   ) %||% 1
-  uncertainty_relative_tolerance <- policy_selector_config_value(
+  uncertainty_rule <- normalize_uncertainty_rule(policy_selector_config_value(
+    cfg, "uncertainty_rule",
+    sections = c("selection", "policy")
+  ) %||% "tolerance")
+  u_tol_rel <- policy_selector_config_value(
+    cfg, "u_tol_rel",
+    sections = c("selection", "policy")
+  ) %||% policy_selector_config_value(
     cfg, "uncertainty_relative_tolerance",
     sections = c("selection", "policy")
   ) %||% 0.25
-  uncertainty_absolute_tolerance <- policy_selector_config_value(
+  u_tol_abs <- policy_selector_config_value(
+    cfg, "u_tol_abs",
+    sections = c("selection", "policy")
+  ) %||% policy_selector_config_value(
     cfg, "uncertainty_absolute_tolerance",
     sections = c("selection", "policy")
   ) %||% 0.05
@@ -1044,8 +1053,9 @@ S7::method(select_policies, PolicySelector) <- function(object,
       }
       selected_row <- select_anchor_policies(
         policy_tbl = policy_tbl,
-        uncertainty_relative_tolerance = uncertainty_relative_tolerance,
-        uncertainty_absolute_tolerance = uncertainty_absolute_tolerance,
+        uncertainty_rule = uncertainty_rule,
+        u_tol_rel = u_tol_rel,
+        u_tol_abs = u_tol_abs,
         local_distance_tolerance = local_distance_tolerance
       ) |>
         dplyr::mutate(

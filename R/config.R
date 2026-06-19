@@ -1411,6 +1411,9 @@ default_config <- function(input_file = "input.xlsx",
       equivalence_tolerance = 0.05,
       n_boot = 500L,
       seed = NULL,
+      uncertainty_rule = "tolerance",
+      u_tol_rel = 0.25,
+      u_tol_abs = 0.05,
       uncertainty_relative_tolerance = 0.25,
       uncertainty_absolute_tolerance = 0.05,
       local_distance_tolerance = 1e-12,
@@ -2311,6 +2314,8 @@ validate_selection_section <- function(selection_section) {
 
   numeric_fields <- c(
     "tolerance", "one_se_multiplier", "equivalence_tolerance", "n_boot", "seed",
+    "u_tol_rel",
+    "u_tol_abs",
     "uncertainty_relative_tolerance",
     "uncertainty_absolute_tolerance",
     "local_distance_tolerance"
@@ -2322,6 +2327,15 @@ validate_selection_section <- function(selection_section) {
     }
     if (!is.numeric(field_value) || length(field_value) != 1 || !is.finite(field_value) || field_value < 0) {
       stop(sprintf("Selection field '%s' must be one finite numeric value >= 0.", field_name), call. = FALSE)
+    }
+  }
+  if (!is.null(selection_section$uncertainty_rule)) {
+    rule <- normalize_uncertainty_rule(selection_section$uncertainty_rule)
+    if (!rule %in% c("min", "tolerance")) {
+      stop(
+        "Selection field 'uncertainty_rule' must be one of: 'min', 'tolerance'.",
+        call. = FALSE
+      )
     }
   }
   for (field_name in c("conformal_alpha", "bin_alpha")) {
