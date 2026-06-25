@@ -1401,6 +1401,7 @@ recommend_ts_model <- function(target_species,
   uncertainty_rule <- normalize_uncertainty_rule(selection_config$uncertainty_rule %||% "tolerance")
   u_tol_rel <- selection_config$u_tol_rel %||% selection_config$uncertainty_relative_tolerance %||% 0.25
   u_tol_abs <- selection_config$u_tol_abs %||% selection_config$uncertainty_absolute_tolerance %||% 0.05
+  one_se_multiplier <- selection_config$one_se_multiplier %||% 1
   dominance_tolerance <- selection_config$dominance_tolerance %||% list()
 
   ranked <- ranked |>
@@ -1464,7 +1465,9 @@ recommend_ts_model <- function(target_species,
           min_width = best_q,
           uncertainty_rule = uncertainty_rule,
           u_tol_abs = u_tol_abs,
-          u_tol_rel = u_tol_rel
+          u_tol_rel = u_tol_rel,
+          width_se = uncertainty_width_se(candidates$q_abs_log_total),
+          one_se_multiplier = one_se_multiplier
         )
         candidates <- candidates |>
           dplyr::filter(

@@ -135,6 +135,73 @@ default_meta_policy_features <- function(tbl) {
   )]
 }
 
+#' Remove policy-identity and post-hoc leakage fields from meta-policy features
+#'
+#' The score learner is meant to estimate anchor-conditional multiplier
+#' replacement error from realized donor geometry, support, and benchmarked
+#' behavior. It should not be allowed to memorize broad policy-class priors or
+#' borrow direct uncertainty-width quantities that turn the score model into a
+#' disguised interval selector.
+#'
+#' @param feature_cols Character vector of proposed feature columns.
+#'
+#' @return Character vector.
+#' @keywords internal
+sanitize_meta_policy_feature_cols <- function(feature_cols) {
+  feature_cols <- unique(as.character(feature_cols %||% character()))
+  drop_cols <- c(
+    "policy",
+    "policy_base",
+    "policy_display",
+    "candidate_pool",
+    "aggregation_method",
+    "policy_family",
+    "candidate_pool_definition",
+    "aggregation_definition",
+    "plain_language_definition",
+    "specificity_rank",
+    "acceptable_global",
+    "acceptable_bootstrap",
+    "bootstrap_prob_best",
+    "bootstrap_prob_within_threshold",
+    "bootstrap_median_rank",
+    "best_mean_species_median_abs_log",
+    "one_se_threshold",
+    "species_block_median_abs_log_error",
+    "mean_species_median_abs_log",
+    "median_abs_log",
+    "policy_slope_len",
+    "policy_slope_len_se",
+    "policy_slope_len_lo_95",
+    "policy_slope_len_hi_95",
+    "policy_intercept_len",
+    "policy_intercept_len_se",
+    "policy_intercept_len_lo_95",
+    "policy_intercept_len_hi_95",
+    "policy_sigma_bs_mean",
+    "policy_is_constructed_ensemble",
+    "q_abs_log",
+    "q_abs_log_conformal",
+    "q_abs_log_total",
+    "q_abs_log_structural",
+    "n",
+    "uncertainty_cost_log_width",
+    "interval_log_width",
+    "multiplier_interval_width",
+    "multiplier_interval_score",
+    "coefficient_slope_q95",
+    "coefficient_intercept_q95",
+    "coefficient_stability_n",
+    "selected_policy",
+    "selected_policy_display",
+    "selection_tier",
+    "meta_post_selection_multiplier_lo",
+    "meta_post_selection_multiplier_hi",
+    "meta_post_selection_interval_log_width"
+  )
+  setdiff(feature_cols, drop_cols)
+}
+
 #' Normalize meta-policy feature columns into a reusable blueprint
 #'
 #' @param data Input training or prediction table.
@@ -391,6 +458,18 @@ default_meta_policy_method_settings <- function() {
       standardize = TRUE,
       type_measure = "mae"
     ),
+    quantreg = list(
+      tau = 0.50,
+      fit_method = "fn",
+      variants = list(
+        q75 = list(
+          tau = 0.75
+        ),
+        q90 = list(
+          tau = 0.90
+        )
+      )
+    ),
     gam = list(
       fit_method = "REML",
       select_terms = TRUE
@@ -504,6 +583,7 @@ meta_policy_method_catalog <- function(method_settings = NULL) {
     glmnet_ridge = list(family = "glmnet", variant = NULL),
     glmnet_lasso = list(family = "glmnet", variant = NULL),
     glmnet_elasticnet = list(family = "glmnet", variant = NULL),
+    quantreg = list(family = "quantreg", variant = NULL),
     glm = list(family = "glm", variant = NULL),
     gam = list(family = "gam", variant = NULL),
     rpart = list(family = "rpart", variant = NULL),
@@ -527,12 +607,14 @@ meta_policy_method_catalog <- function(method_settings = NULL) {
     invisible(NULL)
   }
 
-  for (family_name in c("rpart", "ranger", "xgboost")) {
+  for (family_name in c("quantreg", "rpart", "ranger", "xgboost")) {
     add_variant_specs(family_name)
   }
 
   default_super_methods <- c(
     "glm",
+    if ("quantreg_q75" %in% names(specs)) "quantreg_q75" else "quantreg",
+    if ("quantreg_q90" %in% names(specs)) "quantreg_q90" else "quantreg",
     "gam",
     "glmnet_ridge",
     "glmnet_lasso",
@@ -600,6 +682,13 @@ meta_policy_method_arguments <- function(method,
 
   if (identical(method_spec$family, "glmnet")) {
     return(effective_family_settings("glmnet"))
+  }
+  if (identical(method_spec$family, "quantreg")) {
+    quantreg_cfg <- effective_family_settings("quantreg")
+    return(compact_nulls(list(
+      tau = as.numeric(quantreg_cfg$tau %||% 0.50),
+      method = as.character(quantreg_cfg$fit_method %||% "fn")
+    )))
   }
   if (identical(method_spec$family, "gam")) {
     gam_cfg <- effective_family_settings("gam")
@@ -1104,6 +1193,7 @@ prepare_meta_policy_data <- function(policy_perf,
 
   feature_cols <- feature_cols %||% default_meta_policy_features(policy_perf)
   feature_cols <- intersect(feature_cols, names(policy_perf))
+  feature_cols <- sanitize_meta_policy_feature_cols(feature_cols)
   if (length(feature_cols) == 0) {
     stop("No usable meta-policy feature columns were supplied.", call. = FALSE)
   }
@@ -1124,7 +1214,7 @@ prepare_meta_policy_data <- function(policy_perf,
     }
   }
 
-  outcome_clip_quantile <- suppressWarnings(as.numeric(outcome_clip_quantile)[[1]])
+  outcome_clip_quantile <- suppressWarnings(as.numeric(outcome_clip_quantile %||% NA_real_)[[1]])
   if (is.finite(outcome_clip_quantile) && outcome_clip_quantile > 0 && outcome_clip_quantile < 1) {
     outcome_cap <- suppressWarnings(stats::quantile(
       out$.outcome_raw,
@@ -1214,6 +1304,7 @@ fit_meta_policy_learner <- function(training_data,
 
   feature_cols <- feature_cols %||% default_meta_policy_features(training_data)
   feature_cols <- intersect(feature_cols, names(training_data))
+  feature_cols <- sanitize_meta_policy_feature_cols(feature_cols)
   if (length(feature_cols) == 0) {
     stop("No usable feature columns were supplied.", call. = FALSE)
   }
@@ -1322,6 +1413,45 @@ fit_meta_policy_learner <- function(training_data,
     response = ".outcome_model"
   )
 
+  if (identical(method_spec$family, "quantreg")) {
+    mm <- meta_policy_model_matrix(model_frame)
+    qr_now <- qr(mm$x)
+    keep_idx <- seq_len(qr_now$rank)
+    if (length(keep_idx) == 0L) {
+      stop("No non-collinear quantile-regression columns remained after preprocessing.", call. = FALSE)
+    }
+    x_fit <- mm$x[, qr_now$pivot[keep_idx], drop = FALSE]
+    fit <- suppressWarnings(
+      quantreg::rq.fit(
+        x = x_fit,
+        y = y,
+        tau = as.numeric(fit_arguments$tau %||% 0.50),
+        method = fit_arguments$method %||% "fn",
+        ...
+      )
+    )
+    return(structure(
+      list(
+        fit = fit,
+        method = method,
+        method_family = method_spec$family,
+        method_variant = method_spec$variant,
+        method_settings = method_settings,
+        method_arguments = fit_arguments,
+        feature_cols = feature_cols,
+        blueprint = prep$blueprint,
+        dropped_model_cols = dropped_model_cols,
+        terms = mm$terms,
+        x_columns = colnames(x_fit),
+        outcome_transform = outcome_transform,
+        prediction_cap = meta_policy_prediction_cap(training_data$.outcome),
+        training_n = nrow(model_frame),
+        model_matrix_ncol = ncol(x_fit)
+      ),
+      class = "tsb_meta_policy_learner"
+    ))
+  }
+
   if (identical(method_spec$family, "xgboost")) {
     mm <- meta_policy_model_matrix(model_frame)
     dtrain <- xgboost::xgb.DMatrix(data = mm$x, label = y)
@@ -1356,6 +1486,12 @@ fit_meta_policy_learner <- function(training_data,
   }
 
   fit <- switch(method_spec$family,
+    quantreg = quantreg::rq(
+      formula_now,
+      data = model_data,
+      tau = as.numeric(fit_arguments$tau %||% 0.50),
+      ...
+    ),
     glm = stats::glm(formula_now, data = model_data, family = stats::gaussian()),
     gam = mgcv::gam(
       formula_now,
@@ -1460,7 +1596,7 @@ predict_meta_policy_score <- function(object,
     }, numeric(nrow(new_policy_tbl)))
     pred <- as.numeric(pred_mat %*% object$weights[colnames(pred_mat)])
     pred <- pmin(pmax(0, pred), object$prediction_cap %||% Inf)
-  } else if (identical(method_family, "glmnet") || identical(method_family, "xgboost")) {
+  } else if (identical(method_family, "glmnet") || identical(method_family, "xgboost") || identical(method_family, "quantreg")) {
     prep <- meta_policy_blueprint(
       prediction_tbl,
       object$feature_cols,
@@ -1474,6 +1610,10 @@ predict_meta_policy_score <- function(object,
     )
     pred <- if (identical(method_family, "glmnet")) {
       as.numeric(stats::predict(object$fit, newx = mm$x, s = object$lambda))
+    } else if (identical(method_family, "quantreg")) {
+      coef_now <- suppressWarnings(as.numeric(object$fit$coefficients %||% object$fit$coef))
+      coef_now[!is.finite(coef_now)] <- 0
+      as.numeric(mm$x %*% coef_now)
     } else {
       as.numeric(stats::predict(object$fit, newdata = xgboost::xgb.DMatrix(mm$x)))
     }

@@ -287,7 +287,13 @@ selected_branches <- function(data) {
   out <- tibble::as_tibble(data)
 
   if ("selected_equation_branch_filter" %in% names(out)) {
-    return(standardize_branches(out, branch_col = "selected_equation_branch_filter"))
+    selected_vals <- as.character(out$selected_equation_branch_filter)
+    if ("equation_branch_filter" %in% names(out)) {
+      branch_vals <- as.character(out$equation_branch_filter)
+      selected_vals[is.na(selected_vals) | !nzchar(selected_vals)] <- branch_vals[is.na(selected_vals) | !nzchar(selected_vals)]
+    }
+    selected_vals[is.na(selected_vals) | !nzchar(selected_vals)] <- "all"
+    return(normalize_policy_equation_branch_filters(selected_vals))
   }
   if ("equation_branch_filter" %in% names(out)) {
     return(standardize_branches(out, branch_col = "equation_branch_filter"))
@@ -387,23 +393,29 @@ resolve_policy_display_names <- function(tbl) {
 #' @keywords internal
 resolve_selected_policy_names <- function(tbl) {
   out <- tibble::as_tibble(tbl)
+  branch_vals <- if ("selected_equation_branch_filter" %in% names(out)) {
+    standardize_branches(out, branch_col = "selected_equation_branch_filter")
+  } else {
+    standardize_branches(out)
+  }
+  branch_defs <- read_policy_registry()$policy_branches %||% list()
+  branch_tags <- stats::setNames(
+    vapply(branch_defs, function(x) as.character(x$display_tag %||% x$key %||% NA_character_), character(1)),
+    vapply(branch_defs, function(x) as.character(x$key %||% NA_character_), character(1))
+  )
+  branch_labs <- unname(branch_tags[branch_vals])
+  branch_labs[is.na(branch_labs) | !nzchar(branch_labs)] <- branch_vals[is.na(branch_labs) | !nzchar(branch_labs)]
   if ("selected_policy_display" %in% names(out)) {
     display_vals <- as.character(out$selected_policy_display)
     if (all(!is.na(display_vals) & nzchar(display_vals))) {
+      needs_branch <- !grepl("\\s*\\[[^]]+\\]$", display_vals)
+      if (any(needs_branch, na.rm = TRUE)) {
+        display_vals[needs_branch] <- paste0(display_vals[needs_branch], " [", branch_labs[needs_branch], "]")
+      }
       return(display_vals)
     }
   }
   if (all(c("candidate_pool", "aggregation_method") %in% names(out))) {
-    branch_vals <- if ("selected_equation_branch_filter" %in% names(out)) {
-      standardize_branches(out, branch_col = "selected_equation_branch_filter")
-    } else {
-      standardize_branches(out)
-    }
-    branch_defs <- read_policy_registry()$policy_branches %||% list()
-    branch_tags <- stats::setNames(
-      vapply(branch_defs, function(x) as.character(x$display_tag %||% x$key %||% NA_character_), character(1)),
-      vapply(branch_defs, function(x) as.character(x$key %||% NA_character_), character(1))
-    )
     pool_vals <- dplyr::recode(
       as.character(out$candidate_pool),
       all_admissible = "All-models",
@@ -440,11 +452,6 @@ resolve_selected_policy_names <- function(tbl) {
   }
 
   if ("selected_policy" %in% names(out)) {
-    branch_vals <- if ("selected_equation_branch_filter" %in% names(out)) {
-      standardize_branches(out, branch_col = "selected_equation_branch_filter")
-    } else {
-      standardize_branches(out)
-    }
     return(policy_display_label(canonical_policy_name(as.character(out$selected_policy)), branch_vals))
   }
 
@@ -549,7 +556,24 @@ initialize_parallel_cluster <- function(workers,
           suppressPackageStartupMessages(library(graphics))
           suppressPackageStartupMessages(library(stats))
           suppressPackageStartupMessages(library(methods))
-          if (requireNamespace(package_name, quietly = TRUE)) {
+          # PSOCK workers on Windows must load the live source tree when the
+          # parent session is running from devtools/pkgload. Otherwise workers
+          # silently fall back to an older installed copy that does not contain
+          # the current learner registry, which then breaks parallel cross-fit
+          # for newly added super-learner methods.
+          if (is.character(package_dir) &&
+            length(package_dir) == 1 &&
+            nzchar(package_dir) &&
+            file.exists(file.path(package_dir, "DESCRIPTION")) &&
+            requireNamespace("pkgload", quietly = TRUE)) {
+            pkgload::load_all(
+              path = package_dir,
+              quiet = TRUE,
+              helpers = FALSE,
+              attach_testthat = FALSE,
+              export_all = TRUE
+            )
+          } else if (requireNamespace(package_name, quietly = TRUE)) {
             suppressPackageStartupMessages(
               library(package_name, character.only = TRUE)
             )

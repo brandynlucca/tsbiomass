@@ -450,8 +450,7 @@ policy_selector_reference_anchors <- function(object,
 policy_selector_cached_anchor_evaluation <- function(object,
                                                      anchor_row,
                                                      config_supplied) {
-  if (isTRUE(config_supplied) ||
-    length(object@candidates@admissibility) == 0) {
+  if (length(object@candidates@admissibility) == 0) {
     return(NULL)
   }
   if (!is.list((object@candidates@admissibility)$anchors %||% NULL)) {
@@ -465,6 +464,58 @@ policy_selector_cached_anchor_evaluation <- function(object,
   }
 
   ((object@candidates@admissibility)$anchors[[anchor_id]])$evaluation %||% NULL
+}
+
+canonicalize_equivalent_policy_rows <- function(policy_tbl) {
+  policy_tbl <- standardize_policies(policy_tbl)
+  if (nrow(policy_tbl) == 0L ||
+      !"realized_donor_fingerprint" %in% names(policy_tbl) ||
+      !"multiplier_pred" %in% names(policy_tbl) ||
+      !"policy_slope_len" %in% names(policy_tbl) ||
+      !"policy_intercept_len" %in% names(policy_tbl)) {
+    return(policy_tbl)
+  }
+
+  if (!"specificity_rank" %in% names(policy_tbl)) {
+    candidate_pool_values <- if ("candidate_pool" %in% names(policy_tbl)) policy_tbl$candidate_pool else NULL
+    aggregation_values <- if ("aggregation_method" %in% names(policy_tbl)) policy_tbl$aggregation_method else NULL
+    policy_family_values <- if ("policy_family" %in% names(policy_tbl)) policy_tbl$policy_family else NULL
+    branch_values <- if ("equation_branch_filter" %in% names(policy_tbl)) policy_tbl$equation_branch_filter else NULL
+    policy_tbl$specificity_rank <- policy_specificity_rank(
+      policy = policy_tbl$policy,
+      candidate_pool = candidate_pool_values,
+      aggregation_method = aggregation_values,
+      policy_family = policy_family_values,
+      equation_branch_filter = branch_values
+    )
+  }
+
+  policy_tbl |>
+    dplyr::mutate(
+      .dedupe_multiplier = signif(suppressWarnings(as.numeric(multiplier_pred)), 12),
+      .dedupe_slope = signif(suppressWarnings(as.numeric(policy_slope_len)), 12),
+      .dedupe_intercept = signif(suppressWarnings(as.numeric(policy_intercept_len)), 12)
+    ) |>
+    dplyr::group_by(
+      anchor_model_id,
+      equation_branch_filter,
+      realized_donor_fingerprint,
+      .dedupe_multiplier,
+      .dedupe_slope,
+      .dedupe_intercept
+    ) |>
+    dplyr::arrange(
+      specificity_rank,
+      policy,
+      .by_group = TRUE
+    ) |>
+    dplyr::slice(1) |>
+    dplyr::ungroup() |>
+    dplyr::select(-dplyr::any_of(c(
+      ".dedupe_multiplier",
+      ".dedupe_slope",
+      ".dedupe_intercept"
+    )))
 }
 
 #' Benchmark a `PolicySelector`
@@ -727,6 +778,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
 
   selection_obj <- run_policy_selection(
     species_performance_table = species_performance_table %||% benchmark_obj$species_block_perf %||% tibble::tibble(),
+    candidate_models = object@candidates@candidate_models %||% tibble::tibble(),
     config = selection_cfg,
     cache_path = cache_path,
     refresh = refresh,
@@ -829,6 +881,16 @@ S7::method(select_policies, PolicySelector) <- function(object,
   }
   anchors_tbl <- policy_selector_reference_anchors(object, reference_anchors)
   active_policies <- policy_selector_active_policies(cfg, policies)
+  if (is.null(policies) &&
+    inherits(learner, "S7_object") &&
+    exists("PolicyLearner", inherits = TRUE) &&
+    isTRUE(tryCatch(S7::S7_inherits(learner, PolicyLearner), error = function(e) FALSE))) {
+    # The meta-learner should score the full benchmarked policy set by default.
+    # Keeping the prediction pass pinned to `cfg$policies$active` silently drops
+    # benchmarked policy families and can leave anchors with no non-empty donor
+    # pool even though valid broad policies exist in the benchmark tables.
+    active_policies <- NULL
+  }
   ordination_context <- if (length(object@candidates@ordination) == 0) {
     list(model_scores = NULL, species_lookup = NULL)
   } else {
@@ -842,6 +904,22 @@ S7::method(select_policies, PolicySelector) <- function(object,
   anchor_config <- policy_selector_anchor_config(object, config = cfg)
   conf_tbl <- tibble::as_tibble(uncertainty_obj$conf_cal %||% tibble::tibble())
   select_tbl <- tibble::as_tibble(selection_obj$final_ref %||% tibble::tibble())
+  benchmark_policy_tbl <- tibble::as_tibble((object@benchmark)$policy_perf %||% tibble::tibble())
+  if (nrow(select_tbl) == 0L &&
+      nrow(tibble::as_tibble((object@benchmark)$species_block_perf %||% tibble::tibble())) > 0L) {
+    # Older selector checkpoints can reach prediction with uncertainty already
+    # calibrated but without a persisted global selection summary. Rebuild the
+    # benchmark-derived selection reference table on demand so anchor-time
+    # scoring still has access to the one-SE acceptability and bootstrap
+    # stability diagnostics.
+    selection_obj <- run_policy_selection(
+      species_performance_table = tibble::as_tibble((object@benchmark)$species_block_perf %||% tibble::tibble()),
+      candidate_models = object@candidates@candidate_models %||% tibble::tibble(),
+      config = cfg,
+      progress = FALSE
+    )
+    select_tbl <- tibble::as_tibble(selection_obj$final_ref %||% tibble::tibble())
+  }
   infer_policy_bases <- function(tbl) {
     tbl <- tibble::as_tibble(tbl)
     if ("policy_base" %in% names(tbl)) {
@@ -860,20 +938,45 @@ S7::method(select_policies, PolicySelector) <- function(object,
     tbl <- tibble::as_tibble(tbl)
     unique(standardize_branches(tbl))
   }
-  if (is.null(active_policies) || length(active_policies) == 0) {
-    active_policies <- infer_policy_bases(select_tbl)
-    if (is.null(policy_params$equation_branch_filters) && nrow(select_tbl) > 0) {
-      policy_params$equation_branch_filters <- infer_branch_filters(select_tbl)
+  if (inherits(learner, "S7_object") &&
+    exists("PolicyLearner", inherits = TRUE) &&
+    isTRUE(tryCatch(S7::S7_inherits(learner, PolicyLearner), error = function(e) FALSE))) {
+    # The meta-learner must score every benchmarked policy that could plausibly
+    # produce a donor set for the anchor. Restricting prediction to the
+    # deterministic `final_ref` subset can silently drop broad policy families
+    # and leave some anchors with only zero-donor rows.
+    if ((is.null(active_policies) || length(active_policies) == 0) &&
+      length(object@benchmark) > 0) {
+      active_policies <- infer_policy_bases((object@benchmark)$policy_perf %||% tibble::tibble())
+      if (is.null(policy_params$equation_branch_filters) &&
+        nrow((object@benchmark)$policy_perf %||% tibble::tibble()) > 0) {
+        policy_params$equation_branch_filters <- infer_branch_filters(
+          (object@benchmark)$policy_perf %||% tibble::tibble()
+        )
+      }
     }
-  }
-  if ((is.null(active_policies) || length(active_policies) == 0) &&
-    length(object@benchmark) > 0) {
-    active_policies <- infer_policy_bases((object@benchmark)$policy_perf %||% tibble::tibble())
-    if (is.null(policy_params$equation_branch_filters) &&
-      nrow((object@benchmark)$policy_perf %||% tibble::tibble()) > 0) {
-      policy_params$equation_branch_filters <- infer_branch_filters(
-        (object@benchmark)$policy_perf %||% tibble::tibble()
-      )
+    if (is.null(active_policies) || length(active_policies) == 0) {
+      active_policies <- infer_policy_bases(select_tbl)
+      if (is.null(policy_params$equation_branch_filters) && nrow(select_tbl) > 0) {
+        policy_params$equation_branch_filters <- infer_branch_filters(select_tbl)
+      }
+    }
+  } else {
+    if (is.null(active_policies) || length(active_policies) == 0) {
+      active_policies <- infer_policy_bases(select_tbl)
+      if (is.null(policy_params$equation_branch_filters) && nrow(select_tbl) > 0) {
+        policy_params$equation_branch_filters <- infer_branch_filters(select_tbl)
+      }
+    }
+    if ((is.null(active_policies) || length(active_policies) == 0) &&
+      length(object@benchmark) > 0) {
+      active_policies <- infer_policy_bases((object@benchmark)$policy_perf %||% tibble::tibble())
+      if (is.null(policy_params$equation_branch_filters) &&
+        nrow((object@benchmark)$policy_perf %||% tibble::tibble()) > 0) {
+        policy_params$equation_branch_filters <- infer_branch_filters(
+          (object@benchmark)$policy_perf %||% tibble::tibble()
+        )
+      }
     }
   }
   active_policies <- active_policies[!is.na(active_policies) & nzchar(active_policies)]
@@ -904,10 +1007,14 @@ S7::method(select_policies, PolicySelector) <- function(object,
       "acceptable_global",
       "equivalent_to_best_global",
       "paired_mean_diff_to_best",
+      "best_mean_species_median_abs_log",
       "one_se_threshold",
       "bootstrap_prob_within_threshold",
       "bootstrap_prob_best",
       "bootstrap_median_rank",
+      "coefficient_slope_q95",
+      "coefficient_intercept_q95",
+      "coefficient_stability_n",
       "specificity_rank",
       "equivalence_class_id",
       "equivalence_class_size",
@@ -922,6 +1029,47 @@ S7::method(select_policies, PolicySelector) <- function(object,
   } else {
     tibble::tibble()
   }
+  learner_meta_ref_tbl <- if ((inherits(learner, "S7_object") &&
+      exists("PolicyLearner", inherits = TRUE) &&
+      isTRUE(tryCatch(S7::S7_inherits(learner, PolicyLearner), error = function(e) FALSE)))) {
+    benchmark_species_perf <- tryCatch(
+      policy_learner_species_perf(learner),
+      error = function(e) tibble::tibble()
+    )
+    benchmark_species_perf <- tryCatch(
+      augment_species_block_meta_features(benchmark_species_perf),
+      error = function(e) tibble::as_tibble(benchmark_species_perf)
+    )
+    meta_cols <- intersect(
+      c(
+        "policy",
+        "equation_branch_filter",
+        "anchor_species",
+        "n_valid_folds",
+        "prop_valid_folds",
+        "policy_loco_mean_abs_log",
+        "policy_loco_sd_abs_log",
+        "policy_loco_q75_abs_log",
+        "policy_loco_q90_abs_log"
+      ),
+      names(benchmark_species_perf)
+    )
+    if (all(c("policy", "equation_branch_filter", "anchor_species") %in% meta_cols)) {
+      benchmark_species_perf |>
+        standardize_policies() |>
+        dplyr::select(dplyr::all_of(meta_cols)) |>
+        dplyr::distinct()
+    } else {
+      tibble::tibble()
+    }
+  } else {
+    tibble::tibble()
+  }
+  coefficient_ref_tbl <- policy_coefficient_stability_summary(
+    species_performance_table = benchmark_policy_tbl,
+    candidate_models = object@candidates@candidate_models %||% tibble::tibble(),
+    level = 0.95
+  )
   structural_uncertainty_weight <- policy_selector_config_value(
     cfg, "structural_uncertainty_weight",
     sections = c("policy", "selection")
@@ -944,6 +1092,10 @@ S7::method(select_policies, PolicySelector) <- function(object,
     cfg, "uncertainty_absolute_tolerance",
     sections = c("selection", "policy")
   ) %||% 0.05
+  one_se_multiplier <- policy_selector_config_value(
+    cfg, "one_se_multiplier",
+    sections = c("selection", "policy")
+  ) %||% 1
   local_distance_tolerance <- policy_selector_config_value(
     cfg, "local_distance_tolerance",
     sections = c("selection", "policy")
@@ -989,7 +1141,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
       eval_obj <- screen_one_anchor_admissibility(
         anchor_row = anchor_row,
         candidate_models = object@candidates,
-        config = anchor_config,
+        config = cfg,
         registry_path = registry_path
       )
     }
@@ -1034,6 +1186,51 @@ S7::method(select_policies, PolicySelector) <- function(object,
       policy_tbl <- policy_tbl |>
         dplyr::left_join(select_ref_tbl, by = c("policy", "equation_branch_filter"))
     }
+    if (nrow(learner_meta_ref_tbl) > 0) {
+      # Reattach the same species-specific policy-fragility summaries used to
+      # train the meta-learner so anchor-time scoring does not fall back to
+      # median-imputed defaults for fold validity and leave-current-species-out
+      # policy error history.
+      policy_tbl <- policy_tbl |>
+        dplyr::left_join(
+          learner_meta_ref_tbl,
+          by = c("policy", "equation_branch_filter", "anchor_species")
+        )
+    }
+    if (nrow(coefficient_ref_tbl) > 0) {
+      policy_tbl <- policy_tbl |>
+        dplyr::left_join(
+          coefficient_ref_tbl,
+          by = c("policy", "equation_branch_filter"),
+          suffix = c("", ".coefref")
+        )
+      if (!"coefficient_slope_q95.coefref" %in% names(policy_tbl)) {
+        policy_tbl$coefficient_slope_q95.coefref <- NA_real_
+      }
+      if (!"coefficient_intercept_q95.coefref" %in% names(policy_tbl)) {
+        policy_tbl$coefficient_intercept_q95.coefref <- NA_real_
+      }
+      if (!"coefficient_stability_n.coefref" %in% names(policy_tbl)) {
+        policy_tbl$coefficient_stability_n.coefref <- NA_real_
+      }
+      policy_tbl <- policy_tbl |>
+        dplyr::mutate(
+          coefficient_slope_q95 = dplyr::coalesce(coefficient_slope_q95, coefficient_slope_q95.coefref),
+          coefficient_intercept_q95 = dplyr::coalesce(coefficient_intercept_q95, coefficient_intercept_q95.coefref),
+          coefficient_stability_n = dplyr::coalesce(coefficient_stability_n, coefficient_stability_n.coefref)
+        ) |>
+        dplyr::select(-dplyr::any_of(c(
+          "coefficient_slope_q95.coefref",
+          "coefficient_intercept_q95.coefref",
+          "coefficient_stability_n.coefref"
+        )))
+    }
+    # Collapse exact donor-equivalent candidates before scoring or selection.
+    # When multiple policy labels resolve to the same realized donor set and
+    # therefore the same predicted multiplier/coefficients for this anchor,
+    # keep only the most specific representation instead of letting broader
+    # aliases compete as distinct options.
+    policy_tbl <- canonicalize_equivalent_policy_rows(policy_tbl)
 
     # Either keep the deterministic globally screened policy row, or hand the
     # anchor-policy table to the meta-policy learner and retain the learner's
@@ -1056,6 +1253,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
         uncertainty_rule = uncertainty_rule,
         u_tol_rel = u_tol_rel,
         u_tol_abs = u_tol_abs,
+        one_se_multiplier = one_se_multiplier,
         local_distance_tolerance = local_distance_tolerance
       ) |>
         dplyr::mutate(
@@ -1092,6 +1290,10 @@ S7::method(select_policies, PolicySelector) <- function(object,
     all_policy_intervals[[length(all_policy_intervals) + 1]] <- policy_tbl
     selected_policy_rows[[length(selected_policy_rows) + 1]] <- selected_row
     consensus_multiplier_rows[[length(consensus_multiplier_rows) + 1]] <- consensus_row
+    report_progress(
+      progress,
+      "[Predict]   Completed [", i, "/", n_anchors, "] ", anchor_species, " (", anchor_id, ")"
+    )
   }
 
   report_progress(progress, "[Predict] Completed predictions for ", n_anchors, " anchor", if (n_anchors != 1L) "s" else "", ".")

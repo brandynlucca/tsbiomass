@@ -150,6 +150,56 @@ create_policy_learner <- function(selector,
     tibble::as_tibble(selector@benchmark$species_block_perf %||% tibble::tibble()),
     error = function(e) tibble::tibble()
   )
+  if (nrow(species_block_perf) > 0) {
+    # Attach fold-validity and leave-current-species-out policy summaries once
+    # before learner fitting so the meta-learner can penalize fragile policy
+    # classes without recomputing these summaries in every cross-fit call.
+    species_block_perf <- augment_species_block_meta_features(species_block_perf)
+
+    # Augment the stored benchmark rows with a multiplier-domain interval loss
+    # before any learner fitting happens. This keeps policy selection in the
+    # biomass-multiplier domain and directly penalizes broad policies whose
+    # intervals widen under donor averaging.
+    benchmark_conf_tbl <- tryCatch(
+      tibble::as_tibble(selector@uncertainty$conf_cal %||% tibble::tibble()),
+      error = function(e) tibble::tibble()
+    )
+    structural_uncertainty_weight <- policy_selector_config_value(
+      merged_config,
+      "structural_uncertainty_weight",
+      sections = c("policy", "selection")
+    ) %||% 1
+    interval_alpha <- policy_selector_config_value(
+      merged_config,
+      "alpha",
+      sections = c("selection", "post_selection_conformal", "uncertainty", "policy")
+    ) %||% 0.10
+    species_block_perf <- augment_benchmark_multiplier_interval_scores(
+      perf_tbl = species_block_perf,
+      conf_tbl = benchmark_conf_tbl,
+      structural_uncertainty_weight = structural_uncertainty_weight,
+      alpha = interval_alpha
+    )
+
+    coefficient_diag <- tryCatch(
+      policy_coefficient_stability_summary(
+        species_performance_table = species_block_perf,
+        candidate_models = selector@candidates@candidate_models %||% tibble::tibble(),
+        level = 0.95
+      ),
+      error = function(e) tibble::tibble()
+    )
+    if (nrow(coefficient_diag) > 0) {
+      species_block_perf <- species_block_perf |>
+        dplyr::left_join(
+          coefficient_diag,
+          by = intersect(
+            c("policy", "equation_branch_filter"),
+            intersect(names(species_block_perf), names(coefficient_diag))
+          )
+        )
+    }
+  }
 
   PolicyLearner(
     selector      = NULL,
@@ -220,6 +270,171 @@ policy_learner_species_perf <- function(object) {
   perf_tbl
 }
 
+#' Attach multiplier-domain interval losses to benchmark policy rows
+#'
+#' Builds benchmark multiplier intervals from the stored conformal radius and
+#' structural spread, then evaluates each benchmark row against the known
+#' reference multiplier of 1. The resulting interval score stays entirely in the
+#' biomass-multiplier domain and penalizes broad ensemble policies when their
+#' interval width expands even if the center error shrinks under averaging.
+#'
+#' The score is computed on the log-multiplier scale rather than on the raw
+#' multiplier scale. This keeps the training target numerically stable when a
+#' benchmark interval spans several orders of magnitude, while preserving the
+#' exact inferential target of whether the multiplier interval covers the true
+#' value of 1.
+#'
+#' @param perf_tbl Benchmark policy-performance table.
+#' @param conf_tbl Policy-level conformal calibration table.
+#' @param structural_uncertainty_weight Numeric scalar applied to structural
+#'   spread in [add_policy_intervals()].
+#' @param alpha Miscoverage level used for the interval-score penalty.
+#'
+#' @return A tibble with multiplier interval diagnostics added.
+#'
+#' @keywords internal
+augment_benchmark_multiplier_interval_scores <- function(perf_tbl,
+                                                         conf_tbl,
+                                                         structural_uncertainty_weight = 1,
+                                                         alpha = 0.10) {
+  perf_tbl <- standardize_policies(tibble::as_tibble(perf_tbl))
+  conf_tbl <- standardize_policies(tibble::as_tibble(conf_tbl))
+  if (nrow(perf_tbl) == 0) {
+    return(perf_tbl)
+  }
+
+  alpha <- suppressWarnings(as.numeric(alpha)[[1]])
+  if (!is.finite(alpha) || alpha <= 0 || alpha >= 1) {
+    alpha <- 0.10
+  }
+
+  # Join the benchmark rows to the policy-level conformal radius once, then
+  # rebuild the benchmark multiplier intervals using the same helper that the
+  # anchor-facing selector uses downstream.
+  conf_join <- intersect(
+    c("policy", "equation_branch_filter", "q_abs_log", "n", "median_abs_log"),
+    names(conf_tbl)
+  )
+  if (all(c("policy", "equation_branch_filter", "q_abs_log") %in% conf_join)) {
+    perf_tbl <- perf_tbl |>
+      dplyr::left_join(
+        conf_tbl |>
+          dplyr::select(dplyr::all_of(conf_join)),
+        by = c("policy", "equation_branch_filter")
+      )
+  } else if (!"q_abs_log" %in% names(perf_tbl)) {
+    perf_tbl$q_abs_log <- NA_real_
+  }
+
+  perf_tbl <- add_policy_intervals(
+    policy_tbl = perf_tbl,
+    structural_uncertainty_weight = structural_uncertainty_weight
+  )
+
+  # The true benchmark multiplier is 1, so the natural interval-scoring target
+  # is 0 on the log-multiplier scale.
+  log_truth <- 0
+  log_lo <- dplyr::if_else(
+    is.finite(perf_tbl$multiplier_lo) & perf_tbl$multiplier_lo > 0,
+    log(perf_tbl$multiplier_lo),
+    NA_real_
+  )
+  log_hi <- dplyr::if_else(
+    is.finite(perf_tbl$multiplier_hi) & perf_tbl$multiplier_hi > 0,
+    log(perf_tbl$multiplier_hi),
+    NA_real_
+  )
+  lower_miss_log <- pmax(log_lo - log_truth, 0)
+  upper_miss_log <- pmax(log_truth - log_hi, 0)
+
+  perf_tbl$multiplier_interval_width <- dplyr::if_else(
+    is.finite(perf_tbl$interval_log_width),
+    pmax(perf_tbl$interval_log_width, 0),
+    NA_real_
+  )
+  perf_tbl$multiplier_interval_score <- dplyr::if_else(
+    perf_tbl$valid_prediction &
+      is.finite(log_lo) &
+      is.finite(log_hi),
+    perf_tbl$multiplier_interval_width +
+      (2 / alpha) * (lower_miss_log + upper_miss_log),
+    NA_real_
+  )
+
+  perf_tbl
+}
+
+#' Resolve the selection-outcome column for the meta-policy learner
+#'
+#' @param policy_perf Benchmark policy-performance table.
+#' @param cfg Config list.
+#' @param outcome_col Optional explicit override.
+#'
+#' @return Character scalar naming the selection outcome column.
+#'
+#' @keywords internal
+policy_learner_selection_outcome_col <- function(policy_perf,
+                                                 cfg,
+                                                 outcome_col = NULL) {
+  explicit_outcome_col <- outcome_col %||%
+    policy_selector_config_value(
+      cfg,
+      "selection_outcome_col",
+      sections = c("metalearner", "policy_learner")
+    )
+
+  if (!is.null(explicit_outcome_col) &&
+      nzchar(as.character(explicit_outcome_col[[1]]))) {
+    return(as.character(explicit_outcome_col[[1]]))
+  }
+
+  # The selector must learn anchor-level replacement accuracy, not a composite
+  # target that already bakes strategy-level interval width into the outcome.
+  # Width enters only after the 1-SE score gate, so default back to the pure
+  # multiplier-center error unless the config explicitly overrides it.
+  if ("error_abs_log" %in% names(policy_perf)) {
+    return("error_abs_log")
+  }
+
+  "error_abs_log"
+}
+
+#' Resolve the uncertainty-calibration outcome column for the policy learner
+#'
+#' @param predictions Cross-fit prediction table.
+#' @param cfg Config list.
+#' @param crossfit_obj Stored cross-fit bundle.
+#' @param outcome_col Optional explicit override.
+#'
+#' @return Character scalar naming the uncertainty-calibration outcome column.
+#'
+#' @keywords internal
+policy_learner_uncertainty_outcome_col <- function(predictions,
+                                                   cfg,
+                                                   crossfit_obj,
+                                                   outcome_col = NULL) {
+  predictions <- tibble::as_tibble(predictions)
+  outcome_col <- outcome_col %||%
+    policy_selector_config_value(cfg, "uncertainty_outcome_col", sections = c("metalearner", "policy_learner")) %||%
+    "error_abs_log"
+
+  outcome_col <- as.character(outcome_col[[1]])
+  if (outcome_col %in% names(predictions)) {
+    return(outcome_col)
+  }
+  if ("error_abs_log" %in% names(predictions)) {
+    return("error_abs_log")
+  }
+  if (!is.null(crossfit_obj$outcome_col) && crossfit_obj$outcome_col %in% names(predictions)) {
+    return(crossfit_obj$outcome_col)
+  }
+  if (".outcome" %in% names(predictions)) {
+    return(".outcome")
+  }
+
+  outcome_col
+}
+
 #' Resolve meta-policy feature columns
 #'
 #' @param cfg Config list.
@@ -235,11 +450,12 @@ policy_learner_feature_cols <- function(cfg,
     sections = c("metalearner", "policy_learner")
   )
   if (is.null(feature_cols)) {
-    return(NULL)
+    feature_cols <- default_meta_policy_features(policy_perf)
+  } else {
+    feature_cols <- as.character(unlist(feature_cols, use.names = FALSE))
+    feature_cols <- intersect(unique(feature_cols[!is.na(feature_cols) & nzchar(feature_cols)]), names(policy_perf))
   }
-
-  feature_cols <- as.character(unlist(feature_cols, use.names = FALSE))
-  intersect(unique(feature_cols[!is.na(feature_cols) & nzchar(feature_cols)]), names(policy_perf))
+  sanitize_meta_policy_feature_cols(feature_cols)
 }
 
 #' Test whether one column is eligible as a default policy-uncertainty feature
@@ -247,7 +463,10 @@ policy_learner_feature_cols <- function(cfg,
 #' The uncertainty learner should rely on the unified distance summaries rather
 #' than decomposed taxonomic, overlap, or component-distance columns. This keeps
 #' the conditional uncertainty model aligned with the package's single combined
-#' distance concept instead of re-injecting lower-level pieces by hand.
+#' distance concept instead of re-injecting lower-level pieces by hand. It also
+#' keeps the width model anchored to continuous local geometry/support signals
+#' rather than sparse categorical policy labels that can destabilize the
+#' post-selection interval scale.
 #'
 #' @param name Column name.
 #' @param x Column vector.
@@ -262,6 +481,9 @@ is_default_policy_uncertainty_feature <- function(name,
   }
 
   name_lower <- tolower(name)
+  if (is.character(x) || is.factor(x)) {
+    return(FALSE)
+  }
   if (grepl("taxonomic", name_lower) ||
     grepl("overlap", name_lower) ||
     grepl("species_distance", name_lower) ||
@@ -351,8 +573,11 @@ S7::method(crossfit, PolicyLearner) <- function(object,
   # Resolve the learner controls once so the training-frame preparation and
   # the fold fit both use one coherent config snapshot.
   feature_cols <- feature_cols %||% policy_learner_feature_cols(cfg, policy_perf)
-  outcome_col <- outcome_col %||%
-    policy_selector_config_value(cfg, "outcome_col", sections = c("metalearner", "policy_learner"))
+  outcome_col <- policy_learner_selection_outcome_col(
+    policy_perf = policy_perf,
+    cfg = cfg,
+    outcome_col = outcome_col
+  )
   outcome_clip_quantile <- policy_selector_config_value(
     cfg,
     "outcome_clip_quantile",
@@ -441,6 +666,12 @@ S7::method(crossfit, PolicyLearner) <- function(object,
       species_block_perf = object@crossfit$species_block_perf,
       result = crossfit_obj,
       outcome_col = outcome_col,
+      uncertainty_outcome_col = policy_learner_uncertainty_outcome_col(
+        predictions = tibble::as_tibble(crossfit_obj$predictions %||% tibble::tibble()),
+        cfg = cfg,
+        crossfit_obj = crossfit_obj,
+        outcome_col = NULL
+      ),
       outcome_clip_quantile = outcome_clip_quantile,
       outcome_clip_cap = crossfit_obj$outcome_clip_cap %||% attr(training_data, "outcome_clip_cap"),
       feature_cols = feature_cols,
@@ -502,8 +733,11 @@ S7::method(fit, PolicyLearner) <- function(object,
   policy_perf <- policy_learner_species_perf(object)
   crossfit_obj <- object@crossfit
   feature_cols <- feature_cols %||% crossfit_obj$feature_cols %||% policy_learner_feature_cols(cfg, policy_perf)
-  outcome_col <- crossfit_obj$outcome_col %||%
-    policy_selector_config_value(cfg, "outcome_col", sections = c("metalearner", "policy_learner"))
+  outcome_col <- policy_learner_selection_outcome_col(
+    policy_perf = policy_perf,
+    cfg = cfg,
+    outcome_col = crossfit_obj$outcome_col
+  )
   outcome_clip_quantile <- crossfit_obj$outcome_clip_quantile %||%
     policy_selector_config_value(cfg, "outcome_clip_quantile", sections = c("metalearner", "policy_learner"))
   group_col <- crossfit_obj$group_col %||%
@@ -547,17 +781,46 @@ S7::method(fit, PolicyLearner) <- function(object,
       outcome_clip_quantile = outcome_clip_quantile
     )
   }
-  if (group_col %in% names(policy_perf)) {
-    group_map <- tibble::as_tibble(policy_perf) |>
-      dplyr::select(
-        dplyr::any_of(c("anchor_model_id", "policy", "equation_branch_filter")),
-        .split_group = dplyr::all_of(group_col)
-      ) |>
-      dplyr::distinct()
-    join_keys <- intersect(names(group_map), names(training_data))
-    if (length(join_keys) > 0) {
-      training_data <- training_data |>
-        dplyr::left_join(group_map, by = join_keys)
+  # Restore the grouping column without duplicating the training table.
+  # The prepared selector frame already carries anchor-level identifiers such as
+  # `anchor_species`; when that grouping column is present we can assign
+  # `.split_group` directly. Joining only on `policy` + branch explodes the
+  # training table and silently turns one benchmark row into many duplicates.
+  if (!".split_group" %in% names(training_data)) {
+    if (group_col %in% names(training_data)) {
+      training_data$.split_group <- training_data[[group_col]]
+    } else if (group_col %in% names(policy_perf)) {
+      group_map <- tibble::as_tibble(policy_perf) |>
+        dplyr::select(
+          dplyr::any_of(c(
+            "anchor_model_id",
+            "anchor_species",
+            "reference_anchor_model_id",
+            "reference_anchor_species",
+            "policy",
+            "equation_branch_filter"
+          )),
+          .split_group = dplyr::all_of(group_col)
+        ) |>
+        dplyr::distinct()
+
+      preferred_keys <- c(
+        "anchor_model_id",
+        "reference_anchor_model_id",
+        "anchor_species",
+        "reference_anchor_species",
+        "policy",
+        "equation_branch_filter"
+      )
+      join_keys <- preferred_keys[
+        preferred_keys %in% names(group_map) &
+          preferred_keys %in% names(training_data)
+      ]
+
+      if (length(join_keys) > 0) {
+        training_data <- training_data |>
+          dplyr::left_join(group_map, by = join_keys)
+      }
     }
   }
 
@@ -726,14 +989,16 @@ policy_learner_prepare_context <- function(tbl,
     policy = out$policy,
     candidate_pool = out$candidate_pool,
     aggregation_method = out$aggregation_method,
-    policy_family = out$policy_family
+    policy_family = out$policy_family,
+    equation_branch_filter = out$equation_branch_filter %||% NULL
   )
 
   out
 }
 
 policy_learner_select_calibration_rows <- function(tbl,
-                                                   max_selection_tolerance) {
+                                                   max_selection_tolerance = NULL,
+                                                   one_se_multiplier = 1) {
   tbl <- policy_learner_prepare_context(tbl)
   if (nrow(tbl) == 0) {
     return(tbl)
@@ -743,18 +1008,44 @@ policy_learner_select_calibration_rows <- function(tbl,
     tbl$local_weighted_mean_combined_distance,
     tbl$local_min_combined_distance
   )
+  has_benchmark_slack <- all(
+    c("one_se_threshold", "best_mean_species_median_abs_log") %in% names(tbl)
+  )
+  if (!has_benchmark_slack) {
+    tbl$one_se_threshold <- NA_real_
+    tbl$best_mean_species_median_abs_log <- NA_real_
+  }
 
   tbl |>
     dplyr::filter(selection_valid, is.finite(.meta_predicted_score)) |>
     dplyr::group_by(anchor_model_id, anchor_species) |>
+    dplyr::mutate(
+      .meta_score_min = min(.meta_predicted_score, na.rm = TRUE),
+      .meta_benchmark_score_slack = if (has_benchmark_slack) {
+        suppressWarnings(
+          min(one_se_threshold - best_mean_species_median_abs_log, na.rm = TRUE)
+        )
+      } else {
+        0
+      },
+      .meta_benchmark_score_slack = dplyr::if_else(
+        is.finite(.meta_benchmark_score_slack),
+        .meta_benchmark_score_slack,
+        0
+      ),
+      .meta_score_threshold = if (is.finite(max_selection_tolerance)) {
+        .meta_score_min + pmax(0, max_selection_tolerance)
+      } else {
+        # Match the anchor-level selector by reusing the leave-one-species-out
+        # benchmark one-standard-error slack on the meta-score scale.
+        .meta_score_min + pmax(0, one_se_multiplier * .meta_benchmark_score_slack)
+      }
+    ) |>
     dplyr::filter(
-      .meta_predicted_score <= min(.meta_predicted_score, na.rm = TRUE) + max_selection_tolerance
+      .meta_predicted_score <= .meta_score_threshold
     ) |>
     dplyr::arrange(
       .meta_predicted_score,
-      anchor_selection_local_distance,
-      dplyr::desc(local_effective_support),
-      specificity_rank,
       policy,
       equation_branch_filter,
       .by_group = TRUE
@@ -767,14 +1058,14 @@ policy_learner_lookup_specs <- function() {
   list(
     species_policy_branch = c("anchor_species", "policy", "equation_branch_filter"),
     species_policy = c("anchor_species", "policy"),
+    policy_branch = c("policy", "equation_branch_filter"),
+    policy = c("policy"),
     species_branch = c("anchor_species", "equation_branch_filter"),
     species = c("anchor_species"),
     family_policy_branch = c("anchor_family", "policy", "equation_branch_filter"),
     family_policy = c("anchor_family", "policy"),
     family_branch = c("anchor_family", "equation_branch_filter"),
     family = c("anchor_family"),
-    policy_branch = c("policy", "equation_branch_filter"),
-    policy = c("policy"),
     branch = c("equation_branch_filter")
   )
 }
@@ -957,6 +1248,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     stop("No cross-fit results are stored on this `PolicyLearner`.", call. = FALSE)
   }
   crossfit_obj <- object@crossfit
+  cal_obj <- object@calibration %||% list()
   # Pull the saved cross-fit predictions and calibration controls before
   # reducing them to the score-minimizing rows used for post-selection
   # conformal calibration.
@@ -964,8 +1256,12 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     policy_selector_config_value(cfg, "progress", sections = c("metalearner", "selection", "post_selection_conformal", "policy_learner"))
   report_progress(progress, "Calibrating learner uncertainty.")
   predictions <- tibble::as_tibble(predictions %||% crossfit_obj$result$predictions %||% tibble::tibble())
-  outcome_col <- outcome_col %||% crossfit_obj$outcome_col %||%
-    policy_selector_config_value(cfg, "outcome_col", sections = c("metalearner", "policy_learner"))
+  outcome_col <- policy_learner_uncertainty_outcome_col(
+    predictions = predictions,
+    cfg = cfg,
+    crossfit_obj = crossfit_obj,
+    outcome_col = outcome_col %||% crossfit_obj$uncertainty_outcome_col %||% NULL
+  )
   if (!outcome_col %in% names(predictions) && ".outcome" %in% names(predictions)) {
     predictions[[outcome_col]] <- predictions$.outcome
   }
@@ -990,19 +1286,15 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
 
   max_selection_tolerance <- as.numeric(
     max_selection_tolerance %||%
+      cal_obj$max_selection_tolerance %||%
       policy_selector_config_value(cfg, "max_selection_tolerance", sections = c("metalearner", "policy_learner"))
   )
-  score_tolerance_floor <- as.numeric(
-    policy_selector_config_value(
-      cfg,
-      "score_equivalence_tolerance",
-      sections = c("selection", "policy", "metalearner", "policy_learner")
-    ) %||% 0.25
+  one_se_multiplier <- as.numeric(
+    policy_selector_config_value(cfg, "one_se_multiplier", sections = c("selection", "policy")) %||% 1
   )
-  if (!is.finite(score_tolerance_floor)) {
-    score_tolerance_floor <- 0.25
+  if (!is.finite(one_se_multiplier)) {
+    one_se_multiplier <- 1
   }
-  max_selection_tolerance <- max(max_selection_tolerance, score_tolerance_floor, na.rm = TRUE)
   n_bins <- as.integer(
     n_bins %||%
       policy_selector_config_value(cfg, "n_bins", sections = c("selection", "post_selection_conformal", "metalearner"))
@@ -1016,7 +1308,8 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   anchor_lookup <- policy_learner_anchor_lookup(predictions)
   meta_selected <- policy_learner_select_calibration_rows(
     tbl = predictions,
-    max_selection_tolerance = max_selection_tolerance
+    max_selection_tolerance = if (is.finite(max_selection_tolerance)) max_selection_tolerance else NULL,
+    one_se_multiplier = one_se_multiplier
   )
 
   # Calibration only makes sense if cross-fitting produced at least one
@@ -1094,20 +1387,17 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     meta_simultaneous_calibration$selected_score_abs_log,
     alpha = alpha
   )
-  meta_local_q_lookup <- policy_learner_build_local_lookup(
-    tbl = predictions |>
-      dplyr::filter(selection_valid),
-    value_col = calibration_outcome_col,
-    alpha = alpha,
-    global_default = meta_q_global
-  )
-  meta_selected_local_q <- policy_learner_apply_local_lookup(
-    tbl = meta_selected,
-    lookup = meta_local_q_lookup,
-    value_col = "selected_q_abs_log_local",
-    source_col = "selected_q_abs_log_source",
-    n_col = "selected_q_abs_log_n"
-  )
+  # The multiplier-interval calibration now uses one global conformalized scale
+  # model rather than a nested lookup chain. Keep the selected-row table in
+  # place for downstream summaries, but do not build policy/family/branch
+  # lookup buckets for anchor-time fallback.
+  meta_local_q_lookup <- NULL
+  meta_selected_local_q <- meta_selected |>
+    dplyr::mutate(
+      selected_q_abs_log_local = NA_real_,
+      selected_q_abs_log_source = NA_character_,
+      selected_q_abs_log_n = NA_real_
+    )
 
   bin_alpha <- bin_alpha %||%
     policy_selector_config_value(cfg, "bin_alpha", sections = c("selection", "post_selection_conformal", "metalearner")) %||%
@@ -1140,25 +1430,16 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       interval_log_width = dplyr::if_else(is.finite(q_abs_log), 2 * q_abs_log, NA_real_)
     )
 
-  meta_calibration_coverage <- meta_selected_local_q |>
-    dplyr::filter(is.finite(.data[[calibration_outcome_col]])) |>
-    dplyr::mutate(
-      q_abs_log = dplyr::coalesce(selected_q_abs_log_local, meta_q_global),
-      q_simultaneous_abs_log = pmax(q_abs_log, meta_q_simultaneous_global, na.rm = TRUE),
-      marginal_covered = .data[[calibration_outcome_col]] <= q_abs_log,
-      simultaneous_covered = .data[[calibration_outcome_col]] <= q_simultaneous_abs_log
-    ) |>
-    dplyr::summarise(
-      n_selected_rows = dplyr::n(),
-      n_calibration_species = dplyr::n_distinct(anchor_species),
-      marginal_q_abs_log = dplyr::first(q_abs_log),
-      simultaneous_species_max_q_abs_log = dplyr::first(q_simultaneous_abs_log),
-      empirical_row_coverage = mean(marginal_covered, na.rm = TRUE),
-      empirical_row_coverage_under_simultaneous_interval = mean(simultaneous_covered, na.rm = TRUE),
-      median_abs_log_error = stats::median(.data[[calibration_outcome_col]], na.rm = TRUE),
-      median_interval_log_width = stats::median(2 * q_abs_log, na.rm = TRUE),
-      .groups = "drop"
-    )
+  meta_calibration_coverage <- tibble::tibble(
+    n_selected_rows = nrow(meta_selected),
+    n_calibration_species = dplyr::n_distinct(meta_selected$anchor_species),
+    marginal_q_abs_log = meta_q_global,
+    simultaneous_species_max_q_abs_log = meta_q_simultaneous_global,
+    empirical_row_coverage = NA_real_,
+    empirical_row_coverage_under_simultaneous_interval = NA_real_,
+    median_abs_log_error = stats::median(meta_selected[[calibration_outcome_col]], na.rm = TRUE),
+    median_interval_log_width = if (is.finite(meta_q_global)) 2 * meta_q_global else NA_real_
+  )
 
   width_feature_cols <- policy_learner_uncertainty_feature_cols(cfg, meta_selected)
   width_method <- policy_selector_config_value(
@@ -1180,7 +1461,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
 
   width_crossfit <- list()
   width_model <- list()
-  width_prediction_source <- "point_score_fallback"
+  width_prediction_source <- NA_character_
   width_fit_error <- NULL
   width_warning <- NULL
   width_selected <- meta_selected
@@ -1203,7 +1484,11 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
         super_methods = crossfit_obj$selection_super_methods,
         metalearner_loss = crossfit_obj$metalearner_loss %||% policy_selector_config_value(cfg, "metalearner_loss", sections = c("metalearner", "policy_learner")),
         method_settings = method_settings,
-        workers = policy_selector_config_value(cfg, "workers", sections = c("metalearner", "policy_learner")),
+        # Keep the uncertainty-width fit in-process. On the current Windows
+        # development path, PSOCK workers do not inherit the freshly loaded
+        # custom learner registry, which causes a silent fallback away from the
+        # learned width model and explodes the multiplier intervals.
+        workers = 1L,
         progress = progress
       )
 
@@ -1317,21 +1602,26 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
         sprintf("%s: %s", names(width_errors), unname(width_errors)),
         collapse = " | "
       )
-      width_warning <- sprintf(
-        paste(
-          "The conditional-uncertainty learner could not be fit with method '%s'.",
-          "Falling back to point-score-scaled uncertainty.",
-          "Reason: %s"
+      stop(
+        sprintf(
+          paste(
+            "The conditional-uncertainty learner could not be fit with method '%s'.",
+            "Uncertainty calibration now hard-fails instead of falling back.",
+            "Reason: %s"
+          ),
+          width_method,
+          width_fit_error
         ),
-        width_method,
-        width_fit_error
+        call. = FALSE
       )
     }
   } else {
-    width_fit_error <- "No uncertainty feature columns were available."
-    width_warning <- paste(
-      "No conditional-uncertainty feature columns were available.",
-      "Falling back to point-score-scaled uncertainty."
+    stop(
+      paste(
+        "No conditional-uncertainty feature columns were available.",
+        "Uncertainty calibration now hard-fails instead of falling back."
+      ),
+      call. = FALSE
     )
   }
 
@@ -1340,7 +1630,10 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   }
 
   if (!".width_predicted_q_abs_log" %in% names(width_selected)) {
-    width_selected$.width_predicted_q_abs_log <- pmax(width_selected$.meta_predicted_score, 0)
+    stop(
+      "Conditional-uncertainty calibration did not produce '.width_predicted_q_abs_log'.",
+      call. = FALSE
+    )
   }
 
   width_selected <- width_selected |>
@@ -1349,7 +1642,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       .width_predicted_q_abs_log = dplyr::if_else(
         is.finite(.width_predicted_q_abs_log) & .width_predicted_q_abs_log > 0,
         .width_predicted_q_abs_log,
-        pmax(suppressWarnings(as.numeric(.meta_predicted_score)), sqrt(.Machine$double.eps))
+        NA_real_
       )
     )
 
@@ -1382,26 +1675,20 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     ) |>
     dplyr::pull(width_ratio) |>
   post_selection_quantile(alpha = alpha)
-  width_local_lookup <- policy_learner_build_local_lookup(
-    tbl = width_calibration,
-    value_col = "width_ratio",
-    alpha = alpha,
-    global_default = width_factor_global
-  )
-  width_selected_local <- policy_learner_apply_local_lookup(
-    tbl = width_selected,
-    lookup = width_local_lookup,
-    value_col = "width_ratio_factor_local",
-    source_col = "width_ratio_factor_source",
-    n_col = "width_ratio_factor_n"
-  )
+  width_local_lookup <- NULL
+  width_selected_local <- width_selected |>
+    dplyr::mutate(
+      width_ratio_factor_local = width_factor_global,
+      width_ratio_factor_source = "global_scale_conformal",
+      width_ratio_factor_n = nrow(width_calibration)
+    )
 
   width_coverage <- width_selected_local |>
     dplyr::filter(is.finite(.data[[calibration_outcome_col]]), is.finite(.width_predicted_q_abs_log)) |>
     dplyr::mutate(
-      learned_q_abs_log = .width_predicted_q_abs_log * dplyr::coalesce(width_ratio_factor_local, width_factor_global),
+      learned_q_abs_log = .width_predicted_q_abs_log * width_factor_global,
       learned_q_simultaneous_abs_log = .width_predicted_q_abs_log * pmax(
-        dplyr::coalesce(width_ratio_factor_local, width_factor_global),
+        width_factor_global,
         width_factor_simultaneous_global,
         na.rm = TRUE
       ),
@@ -1535,34 +1822,45 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     }
   }
 
-  scored <- assign_post_selection_support_bins(
-    scored,
-    cutpoints = cal_obj$support_cutpoints %||% NULL,
-    n_bins = cal_obj$n_bins %||%
-      policy_selector_config_value(cfg, "n_bins", sections = c("selection", "post_selection_conformal", "metalearner")),
-    labels = cal_obj$support_bin_labels %||% NULL
-  )
+  if (isTRUE(use_support_bin_intervals)) {
+    scored <- assign_post_selection_support_bins(
+      scored,
+      cutpoints = cal_obj$support_cutpoints %||% NULL,
+      n_bins = cal_obj$n_bins %||%
+        policy_selector_config_value(cfg, "n_bins", sections = c("selection", "post_selection_conformal", "metalearner")),
+      labels = cal_obj$support_bin_labels %||% NULL
+    )
+  } else {
+    scored$post_selection_support_score <- NA_real_
+    scored$post_selection_support_bin <- NA_character_
+    scored$post_selection_support_label <- NA_character_
+  }
   scored <- policy_learner_prepare_context(
     scored,
     anchor_lookup = cal_obj$anchor_lookup %||% NULL
   )
 
-  scored <- scored |>
-    dplyr::left_join(
-      tibble::as_tibble(cal_obj$bin_quantiles %||% tibble::tibble()) |>
-        dplyr::select(
-          dplyr::any_of(c(
-            "post_selection_support_bin",
-            "q_abs_log",
-            "simultaneous_species_max_q_abs_log"
-          ))
-        ) |>
-        dplyr::rename(
-          meta_q_abs_log = q_abs_log,
-          meta_q_abs_log_simultaneous = simultaneous_species_max_q_abs_log
-        ),
-      by = "post_selection_support_bin"
-    )
+  if (isTRUE(use_support_bin_intervals)) {
+    scored <- scored |>
+      dplyr::left_join(
+        tibble::as_tibble(cal_obj$bin_quantiles %||% tibble::tibble()) |>
+          dplyr::select(
+            dplyr::any_of(c(
+              "post_selection_support_bin",
+              "q_abs_log",
+              "simultaneous_species_max_q_abs_log"
+            ))
+          ) |>
+          dplyr::rename(
+            meta_q_abs_log = q_abs_log,
+            meta_q_abs_log_simultaneous = simultaneous_species_max_q_abs_log
+          ),
+        by = "post_selection_support_bin"
+      )
+  } else {
+    scored$meta_q_abs_log <- NA_real_
+    scored$meta_q_abs_log_simultaneous <- NA_real_
+  }
 
   # Keep the prediction interface table-first rather than requiring that every
   # caller pre-join presentation labels. When no explicit display label is
@@ -1579,6 +1877,12 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   if (!"q_abs_log_structural" %in% names(scored)) {
     scored$q_abs_log_structural <- 0
   }
+  if (!"coefficient_slope_q95" %in% names(scored)) {
+    scored$coefficient_slope_q95 <- NA_real_
+  }
+  if (!"coefficient_intercept_q95" %in% names(scored)) {
+    scored$coefficient_intercept_q95 <- NA_real_
+  }
 
   width_model_now <- cal_obj$width_model$model %||% NULL
   if (inherits(width_model_now, "tsb_meta_policy_learner")) {
@@ -1586,31 +1890,26 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     scored$.width_predicted_q_abs_log <- pmax(width_scored$.meta_predicted_score, 0)
     meta_width_source <- cal_obj$uncertainty_prediction_source %||% cal_obj$width_prediction_source %||% "learned_conditional_width"
   } else {
-    scored$.width_predicted_q_abs_log <- pmax(scored$.meta_predicted_score, 0)
-    meta_width_source <- cal_obj$uncertainty_prediction_source %||% cal_obj$width_prediction_source %||% "point_score_fallback"
+    stop(
+      paste(
+        "Conditional-uncertainty prediction requires a fitted width learner.",
+        "The calibration object did not contain one, so prediction is aborted instead of falling back."
+      ),
+      call. = FALSE
+    )
   }
   meta_uncertainty_warning_value <- cal_obj$uncertainty_warning %||% cal_obj$width_warning %||% NA_character_
-  scored <- policy_learner_apply_local_lookup(
-    tbl = scored,
-    lookup = cal_obj$local_q_lookup %||% list(
-      global_value = cal_obj$q_global %||% NA_real_,
-      tables = list(),
-      anchor_lookup = cal_obj$anchor_lookup %||% NULL
-    ),
-    value_col = "meta_q_abs_log_local",
-    source_col = "meta_q_abs_log_source",
-    n_col = "meta_q_abs_log_n_scores"
+  scored$meta_q_abs_log_local <- NA_real_
+  scored$meta_q_abs_log_source <- NA_character_
+  scored$meta_q_abs_log_n_scores <- NA_real_
+  scored$meta_q_abs_log_conformal_factor <- rep(
+    suppressWarnings(as.numeric(cal_obj$width_factor_global %||% 1)),
+    nrow(scored)
   )
-  scored <- policy_learner_apply_local_lookup(
-    tbl = scored,
-    lookup = cal_obj$local_width_lookup %||% list(
-      global_value = cal_obj$width_factor_global %||% 1,
-      tables = list(),
-      anchor_lookup = cal_obj$anchor_lookup %||% NULL
-    ),
-    value_col = "meta_q_abs_log_conformal_factor",
-    source_col = "meta_q_abs_log_factor_source",
-    n_col = "meta_q_abs_log_factor_n_scores"
+  scored$meta_q_abs_log_factor_source <- rep("global_scale_conformal", nrow(scored))
+  scored$meta_q_abs_log_factor_n_scores <- rep(
+    suppressWarnings(as.numeric(nrow(tibble::as_tibble(cal_obj$selected %||% tibble::tibble())))),
+    nrow(scored)
   )
 
   # Compute the anchor-level minimum predicted score once, then join it back so
@@ -1632,11 +1931,13 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
 
   max_selection_tolerance <- as.numeric(
     max_selection_tolerance %||%
-      cal_obj$max_selection_tolerance %||%
       policy_selector_config_value(cfg, "max_selection_tolerance", sections = c("metalearner", "policy_learner"))
   )
   uncertainty_rule <- normalize_uncertainty_rule(
     policy_selector_config_value(cfg, "uncertainty_rule", sections = c("selection", "policy")) %||% "tolerance"
+  )
+  one_se_multiplier <- as.numeric(
+    policy_selector_config_value(cfg, "one_se_multiplier", sections = c("selection", "policy")) %||% 1
   )
   u_tol_rel <- as.numeric(
     policy_selector_config_value(cfg, "u_tol_rel", sections = c("selection", "policy")) %||%
@@ -1655,35 +1956,14 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   if (!is.finite(u_tol_rel)) {
     u_tol_rel <- 0
   }
-  if (!is.finite(max_selection_tolerance)) {
-    max_selection_tolerance <- 0
+  if (!is.finite(one_se_multiplier)) {
+    one_se_multiplier <- 1
   }
-  score_equivalence_tolerance <- as.numeric(
-    policy_selector_config_value(
-      cfg,
-      "score_equivalence_tolerance",
-      sections = c("selection", "policy", "metalearner", "policy_learner")
-    ) %||% 0.25
-  )
-  if (!is.finite(score_equivalence_tolerance)) {
-    score_equivalence_tolerance <- 0.25
-  }
-  score_selection_tolerance <- max(
-    max_selection_tolerance,
-    u_tol_abs,
-    score_equivalence_tolerance,
-    na.rm = TRUE
-  )
   scored <- scored |>
     dplyr::left_join(min_score_tbl, by = c("anchor_model_id", "anchor_species")) |>
     dplyr::group_by(anchor_model_id, anchor_species) |>
     dplyr::mutate(
       meta_policy_rank = dplyr::min_rank(.meta_predicted_score),
-      meta_q_abs_log = dplyr::coalesce(
-        meta_q_abs_log_local,
-        if (isTRUE(use_support_bin_intervals)) meta_q_abs_log else rep(NA_real_, dplyr::n()),
-        cal_obj$q_global
-      ),
       meta_q_abs_log_width = dplyr::if_else(
         is.finite(.width_predicted_q_abs_log) & .width_predicted_q_abs_log > 0,
         .width_predicted_q_abs_log,
@@ -1691,16 +1971,13 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       ),
       meta_q_abs_log_conformal_factor = dplyr::coalesce(meta_q_abs_log_conformal_factor, cal_obj$width_factor_global, 1),
       meta_q_abs_log_width_total = meta_q_abs_log_width * meta_q_abs_log_conformal_factor,
-      meta_interval_calibration = dplyr::if_else(
-        is.finite(meta_q_abs_log),
-        paste0("direct_", meta_q_abs_log_source),
-        paste0(
-          "width_",
-          dplyr::coalesce(meta_q_abs_log_factor_source, meta_width_source, "point_score_fallback")
-        )
+      meta_q_abs_log = meta_q_abs_log_width_total,
+      meta_interval_calibration = paste0(
+        "global_scale_",
+        dplyr::coalesce(meta_q_abs_log_factor_source, meta_width_source, "learned_conditional_width")
       ),
       meta_uncertainty_source = meta_interval_calibration,
-      meta_uncertainty_fallback = !startsWith(meta_interval_calibration, "direct_"),
+      meta_uncertainty_fallback = FALSE,
       meta_uncertainty_warning = rep(as.character(meta_uncertainty_warning_value), dplyr::n()),
       meta_q_abs_log_simultaneous_factor = dplyr::coalesce(
         cal_obj$width_factor_simultaneous_global,
@@ -1708,7 +1985,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       ),
       # Preserve the earlier diagnostic columns, but make them reflect the new
       # conditional-width decomposition rather than a hand-built score penalty.
-      meta_q_abs_log_calibration = meta_q_abs_log,
+      meta_q_abs_log_calibration = meta_q_abs_log_width_total,
       meta_q_abs_log_score = dplyr::if_else(
         is.finite(.meta_predicted_score) & .meta_predicted_score > 0,
         .meta_predicted_score,
@@ -1716,19 +1993,13 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       ),
       meta_q_abs_log_simultaneous = dplyr::coalesce(
         meta_q_abs_log_simultaneous,
-        pmax(meta_q_abs_log, cal_obj$q_simultaneous_global, na.rm = TRUE)
+        meta_q_abs_log_width * meta_q_abs_log_simultaneous_factor
       ),
       meta_q_abs_log_simultaneous_calibration = meta_q_abs_log_simultaneous,
-      meta_q_abs_log_total = dplyr::coalesce(
-        meta_q_abs_log,
-        meta_q_abs_log_width_total
-      ),
+      meta_q_abs_log_total = meta_q_abs_log_width_total,
       meta_q_abs_log_simultaneous_total = pmax(
-        meta_q_abs_log_total,
-        dplyr::coalesce(
-          meta_q_abs_log_simultaneous,
-          meta_q_abs_log_width * meta_q_abs_log_simultaneous_factor
-        ),
+        meta_q_abs_log_width_total,
+        dplyr::coalesce(meta_q_abs_log_simultaneous, meta_q_abs_log_width * meta_q_abs_log_simultaneous_factor),
         na.rm = TRUE
       ),
       meta_simultaneous_interval_factor = dplyr::if_else(
@@ -1765,115 +2036,91 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       ),
       selection_tier = "meta_policy_lexicographic_selection"
     ) |>
-    dplyr::mutate(
-      .score_screen = valid_prediction &
-        is.finite(.meta_predicted_score) &
-        is.finite(.meta_min_predicted_score) &
-        .meta_predicted_score <= .meta_min_predicted_score + score_selection_tolerance
-    ) |>
-    dplyr::mutate(
-      .meta_min_specificity_rank = {
-        specificity_values <- specificity_rank[.score_screen & is.finite(specificity_rank)]
-        if (length(specificity_values) == 0) {
-          NA_real_
-        } else {
-          min(specificity_values)
-        }
-      },
-      .specificity_screen = .score_screen &
-        (
-          !is.finite(.meta_min_specificity_rank) |
-            (is.finite(specificity_rank) & specificity_rank <= .meta_min_specificity_rank)
-        ),
-      .meta_min_uncertainty_width = {
-        width_values <- meta_post_selection_interval_log_width[.specificity_screen & is.finite(meta_post_selection_interval_log_width)]
-        if (length(width_values) == 0) {
-          NA_real_
-        } else {
-          min(width_values)
-        }
-      }
-    ) |>
-    dplyr::mutate(
-      .meta_uncertainty_threshold = dplyr::if_else(
-        is.finite(.meta_min_uncertainty_width),
-        uncertainty_width_threshold(
-          min_width = .meta_min_uncertainty_width,
-          uncertainty_rule = uncertainty_rule,
-          u_tol_abs = u_tol_abs,
-          u_tol_rel = u_tol_rel
-        ),
-        NA_real_
-      ),
-      .uncertainty_screen = .specificity_screen &
-        is.finite(meta_post_selection_interval_log_width) &
-        is.finite(.meta_uncertainty_threshold) &
-        meta_post_selection_interval_log_width <= .meta_uncertainty_threshold
-    ) |>
-    dplyr::mutate(
-      .meta_min_local_distance = {
-        distance_values <- anchor_selection_local_distance[
-          .uncertainty_screen & is.finite(anchor_selection_local_distance)
-        ]
-        if (length(distance_values) == 0) {
-          NA_real_
-        } else {
-          min(distance_values)
-        }
-      }
-    ) |>
-    dplyr::arrange(
-      specificity_rank,
-      meta_post_selection_interval_log_width,
-      anchor_selection_local_distance,
-      dplyr::desc(local_effective_support),
-      .meta_predicted_score,
-      policy,
-      .by_group = TRUE
-    ) |>
-    dplyr::mutate(
-      is_selected = {
-        pool <- if (isTRUE(any(.uncertainty_screen, na.rm = TRUE))) {
-          .uncertainty_screen &
-            (
-              !is.finite(.meta_min_local_distance) |
-                (
-                  is.finite(anchor_selection_local_distance) &
-                    anchor_selection_local_distance <= .meta_min_local_distance + local_distance_tolerance
-                )
-            )
-        } else {
-          .score_screen
-        }
-        idx <- which(pool)
-        out <- rep(FALSE, dplyr::n())
-        if (length(idx) > 0L) {
-          out[[idx[[1]]]] <- TRUE
-        }
-        out
-      },
-      anchor_selection_min_validation_error = .meta_min_predicted_score,
-      anchor_selection_validation_threshold = .meta_min_predicted_score + score_selection_tolerance,
-      anchor_selection_min_uncertainty_width = .meta_min_uncertainty_width,
-      anchor_selection_uncertainty_threshold = .meta_uncertainty_threshold
-    ) |>
     dplyr::ungroup() |>
+    dplyr::mutate(
+      .policy_row_id = seq_len(dplyr::n()),
+      meta_policy_predicted_score = .meta_predicted_score,
+      uncertainty_cost_log_width = meta_post_selection_interval_log_width,
+      uncertainty_eligible = dplyr::coalesce(valid_prediction, FALSE) &
+        is.finite(meta_post_selection_interval_log_width) &
+        meta_post_selection_interval_log_width > 0
+    )
+
+  selected_rows <- scored |>
+    dplyr::group_split(anchor_model_id, anchor_species, .keep = TRUE) |>
+    purrr::map_dfr(function(.x) {
+      select_anchor_policies(
+        policy_tbl = .x,
+        uncertainty_rule = uncertainty_rule,
+        u_tol_rel = u_tol_rel,
+        u_tol_abs = u_tol_abs,
+        one_se_multiplier = one_se_multiplier,
+        local_distance_tolerance = local_distance_tolerance
+      ) |>
+        dplyr::mutate(
+          selected_policy_display = dplyr::coalesce(selected_policy_display, policy_display, selected_policy),
+          selection_tier = dplyr::coalesce(selection_tier, "meta_policy_lexicographic_selection")
+        ) |>
+        dplyr::select(
+          anchor_model_id,
+          anchor_species,
+          .policy_row_id,
+          selected_policy,
+          selected_policy_display,
+          selection_tier,
+          anchor_selection_min_validation_error,
+          anchor_selection_validation_threshold,
+          anchor_selection_min_uncertainty_width,
+          anchor_selection_uncertainty_threshold
+        )
+    })
+
+  selection_diag <- selected_rows |>
+    dplyr::select(
+      anchor_model_id,
+      anchor_species,
+      anchor_selection_min_validation_error,
+      anchor_selection_validation_threshold,
+      anchor_selection_min_uncertainty_width,
+      anchor_selection_uncertainty_threshold
+    ) |>
+    dplyr::distinct()
+
+  scored <- scored |>
+    dplyr::left_join(
+      selected_rows |>
+        dplyr::select(
+          .policy_row_id,
+          .selected_policy = selected_policy,
+          .selected_policy_display = selected_policy_display,
+          .selected_selection_tier = selection_tier
+        ) |>
+        dplyr::mutate(is_selected = TRUE),
+      by = ".policy_row_id"
+    ) |>
+    dplyr::left_join(
+      selection_diag,
+      by = c("anchor_model_id", "anchor_species")
+    ) |>
+    dplyr::mutate(
+      is_selected = dplyr::coalesce(is_selected, FALSE),
+      selected_policy = dplyr::if_else(is_selected, dplyr::coalesce(.selected_policy, policy), NA_character_),
+      selected_policy_display = dplyr::if_else(
+        is_selected,
+        dplyr::coalesce(.selected_policy_display, policy_display, policy),
+        NA_character_
+      ),
+      selection_tier = dplyr::coalesce(.selected_selection_tier, selection_tier, "meta_policy_lexicographic_selection")
+    ) |>
     dplyr::select(-dplyr::any_of(c(
+      ".policy_row_id",
       ".meta_min_predicted_score",
-      ".score_screen",
-      ".meta_min_specificity_rank",
-      ".specificity_screen",
-      ".meta_min_uncertainty_width",
-      ".meta_uncertainty_threshold",
-      ".uncertainty_screen",
-      ".meta_min_local_distance"
+      ".selected_policy",
+      ".selected_policy_display",
+      ".selected_selection_tier"
     ))) |>
     dplyr::arrange(
       anchor_species,
-      meta_post_selection_interval_log_width,
-      anchor_selection_local_distance,
-      specificity_rank,
-      dplyr::desc(local_effective_support),
       .meta_predicted_score,
       policy
     )

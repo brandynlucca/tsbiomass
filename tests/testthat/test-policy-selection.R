@@ -148,7 +148,7 @@ test_that("summarize_selected_coefficient_calibration recovers coefficients from
   expect_equal(out$intercept_resid, c(-1, -4))
 })
 
-test_that("select_coefficient_residual_pool falls back to a broader supported pool when the specific pool is too small", {
+test_that("select_coefficient_residual_pool stays within the selected policy and branch", {
   coefficient_calibration <- tibble::tibble(
     anchor_model_id = as.character(seq_len(5)),
     anchor_species = c("Alpha alpha", "Gamma gamma", "Delta delta", "Epsilon eps", "Zeta zeta"),
@@ -174,9 +174,7 @@ test_that("select_coefficient_residual_pool falls back to a broader supported po
     min_rows = 4L
   )
 
-  expect_equal(nrow(pool), 5)
-  expect_true(all(is.finite(pool$slope_resid)))
-  expect_true(all(is.finite(pool$intercept_resid)))
+  expect_equal(nrow(pool), 0L)
 })
 
 test_that("conditional coefficient intervals lock the slope for fixed20 policies", {

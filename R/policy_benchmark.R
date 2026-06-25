@@ -293,6 +293,11 @@ build_ts_errors <- function(anchor_row,
       equation_branch_filter = as.character(policy_tbl$equation_branch_filter[[i]]),
       policy_slope_len = suppressWarnings(as.numeric(policy_tbl$policy_slope_len[[i]])),
       policy_intercept_len = suppressWarnings(as.numeric(policy_tbl$policy_intercept_len[[i]])),
+      local_min_combined_distance = suppressWarnings(as.numeric(policy_tbl$local_min_combined_distance[[i]] %||% NA_real_)),
+      local_weighted_mean_combined_distance = suppressWarnings(as.numeric(policy_tbl$local_weighted_mean_combined_distance[[i]] %||% NA_real_)),
+      local_effective_support = suppressWarnings(as.numeric(policy_tbl$local_effective_support[[i]] %||% NA_real_)),
+      local_mean_length_overlap = suppressWarnings(as.numeric(policy_tbl$local_mean_length_overlap[[i]] %||% NA_real_)),
+      local_mean_depth_overlap = suppressWarnings(as.numeric(policy_tbl$local_mean_depth_overlap[[i]] %||% NA_real_)),
       u = u_grid,
       length_cm = eval_lengths,
       ts_obs = ts_obs,
@@ -542,6 +547,12 @@ benchmark_one_anchor <- function(anchor_row,
       dplyr::mutate(validation_scheme = scheme) |>
       dplyr::select(dplyr::any_of(c(
         "anchor_model_id", "policy", "equation_branch_filter",
+        "policy_slope_len", "policy_intercept_len",
+        "local_min_combined_distance",
+        "local_weighted_mean_combined_distance",
+        "local_effective_support",
+        "local_mean_length_overlap",
+        "local_mean_depth_overlap",
         "validation_scheme", "u", "ts_error", "log_sigma_residual"
       )))
   } else {

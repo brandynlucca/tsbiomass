@@ -213,7 +213,7 @@ admissibility_key_metadata_cols <- function(config = NULL) {
   min_length_overlap <- suppressWarnings(as.numeric(cfg$min_length_overlap_fraction %||% NA_real_))
   min_depth_overlap <- suppressWarnings(as.numeric(cfg$min_depth_overlap_fraction %||% NA_real_))
   frequency_mode <- stringr::str_to_lower(
-    stringr::str_squish(as.character(cfg$frequency_coherence_mode %||% "none"))
+    stringr::str_squish(as.character(cfg$frequency_coherence_mode %||% "overlap"))
   )[[1]]
 
   if (is.finite(min_length_overlap)) {
@@ -263,7 +263,7 @@ admissibility_bundle_is_current <- function(admissibility_bundle,
   }
 
   freq_mode <- stringr::str_to_lower(
-    stringr::str_squish(as.character(cfg$frequency_coherence_mode %||% "none"))
+    stringr::str_squish(as.character(cfg$frequency_coherence_mode %||% "overlap"))
   )[[1]]
   if (!identical(freq_mode, "none")) {
     if (!"gate_frequency" %in% names(scores_tbl) ||
@@ -800,7 +800,7 @@ apply_anchor_gates <- function(candidate_models,
     fail_reason <- paste0("trait_mismatch:", trait_name)
 
     if (identical(trait_name, "frequency")) {
-      freq_mode <- stringr::str_to_lower(stringr::str_squish(as.character(config$frequency_coherence_mode %||% "none")))[[1]]
+      freq_mode <- stringr::str_to_lower(stringr::str_squish(as.character(config$frequency_coherence_mode %||% "overlap")))[[1]]
       candidate_freq <- suppressWarnings(as.numeric(out[[trait_name]]))
       anchor_freq <- suppressWarnings(as.numeric(anchor_row[[trait_name]][[1]]))
       if (identical(freq_mode, "none")) {
@@ -857,7 +857,7 @@ apply_anchor_gates <- function(candidate_models,
     out$gate_trait_frequency
   } else {
     freq_mode <- stringr::str_to_lower(
-      stringr::str_squish(as.character(config$frequency_coherence_mode %||% "none"))
+      stringr::str_squish(as.character(config$frequency_coherence_mode %||% "overlap"))
     )[[1]]
     freq_col <- anchor_field(config, "frequency")
     gate_pass <- if (identical(freq_mode, "none")) rep(TRUE, nrow(out)) else rep(FALSE, nrow(out))

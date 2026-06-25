@@ -2092,6 +2092,20 @@ policy_support_summary <- function(rows,
   } else {
     numeric(0)
   }
+  donor_id_col <- if ("model_id_chr" %in% names(keep_rows)) {
+    "model_id_chr"
+  } else if ("model_id" %in% names(keep_rows)) {
+    "model_id"
+  } else {
+    NA_character_
+  }
+  donor_fingerprint <- if (is.na(donor_id_col)) {
+    NA_character_
+  } else {
+    donor_ids <- sort(unique(as.character(keep_rows[[donor_id_col]])))
+    donor_ids <- donor_ids[!is.na(donor_ids) & nzchar(donor_ids)]
+    if (length(donor_ids) == 0L) NA_character_ else paste(donor_ids, collapse = "|")
+  }
   effective_n <- if (length(weights) == 0) {
     NA_real_
   } else {
@@ -2111,7 +2125,9 @@ policy_support_summary <- function(rows,
     local_mean_length_overlap = weighted_mean_col("length_overlap_fraction"),
     local_mean_depth_overlap = weighted_mean_col("depth_overlap_fraction"),
     local_effective_support = effective_n,
-    local_max_weight = if (length(weights) == 0) NA_real_ else max(weights, na.rm = TRUE)
+    local_max_weight = if (length(weights) == 0) NA_real_ else max(weights, na.rm = TRUE),
+    realized_n_unique_donors = if (is.na(donor_id_col)) NA_integer_ else as.integer(length(unique(as.character(keep_rows[[donor_id_col]])))),
+    realized_donor_fingerprint = donor_fingerprint
   )
   overlap_cols <- grep("^overlap_", names(keep_rows), value = TRUE)
   overlap_cols <- overlap_cols[!endsWith(overlap_cols, "_type")]
@@ -2678,7 +2694,13 @@ evaluate_policies <- function(eval_obj,
           plain_language_definition = as.character(policy_def$plain_language_definition %||% NA_character_)[[1]]
         ),
         pred,
-        policy_support_summary(donor_rows, policy_def)
+        policy_support_summary(donor_rows, policy_def),
+        policy_structural_summary(
+          rows = donor_rows,
+          policy_def = policy_def,
+          pred = as.data.frame(pred),
+          anchor_pdf = eval_obj$anchor_pdf
+        )
       )
     }
     rows_list[[pi]] <- dplyr::bind_rows(branch_list)

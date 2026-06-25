@@ -210,7 +210,11 @@ selection:
   one_se_multiplier: 1
   equivalence_tolerance: 0.05
   n_boot: 1000
-  uncertainty_rule: tolerance
+  # uncertainty_rule:
+  #   tolerance - keep widths within max(u_tol_abs, u_tol_rel * u_min)
+  #   one_se    - keep widths within one standard error of the minimum width
+  #   min       - keep only the strict minimum width
+  uncertainty_rule: one_se
   u_tol_rel: 0.25
   u_tol_abs: 0.05
   local_distance_tolerance: 1.0e-12
@@ -230,6 +234,8 @@ metalearner:
   # `ranger`, `xgboost`) or named family variants exposed below.
   selection_super_methods:
     - glm
+    - quantreg_q75
+    - quantreg_q90
     - glmnet_ridge
     - glmnet_lasso
     - glmnet_elasticnet
@@ -242,16 +248,24 @@ metalearner:
   inner_folds: 3
   workers: 8
   outcome_col: error_abs_log
-  outcome_clip_quantile: 0.99
+  outcome_clip_quantile: 1
   outcome_transform: log1p
   lambda_rule: lambda.1se
   metalearner_loss: squared_error
-  max_selection_tolerance: 0.1
+  # Optional explicit override for the learner's score-retention band.
+  # Leave unset to use the one-standard-error rule.
+  # max_selection_tolerance:
   progress: true
   method_settings:
     glmnet:
       standardize: true
       type_measure: mae
+    quantreg:
+      variants:
+        q75:
+          tau: 0.75
+        q90:
+          tau: 0.90
     gam:
       fit_method: REML
       select_terms: true

@@ -676,7 +676,7 @@ normalize_similarity_config_shape <- function(config) {
   admissibility$study_traits <- admissibility$study_traits %||% character(0)
   admissibility$length_mode <- admissibility$length_mode %||% admissibility_length_cfg$mode %||% similarity$length_mode %||% "overlap"
   admissibility$depth_mode <- admissibility$depth_mode %||% admissibility_depth_cfg$mode %||% similarity$depth_mode %||% "overlap"
-  admissibility$frequency_mode <- admissibility$frequency_mode %||% admissibility_frequency_cfg$mode %||% "none"
+  admissibility$frequency_mode <- admissibility$frequency_mode %||% admissibility_frequency_cfg$mode %||% similarity$frequency_mode %||% "overlap"
   admissibility$length_overlap_min <- admissibility$length_overlap_min %||% admissibility_length_cfg$min %||% NULL
   admissibility$depth_overlap_min <- admissibility$depth_overlap_min %||% admissibility_depth_cfg$min %||% NULL
   admissibility$frequency_gap <- admissibility$frequency_gap %||% admissibility_frequency_cfg$gap %||% similarity$frequency_gap %||% NULL
@@ -2331,9 +2331,9 @@ validate_selection_section <- function(selection_section) {
   }
   if (!is.null(selection_section$uncertainty_rule)) {
     rule <- normalize_uncertainty_rule(selection_section$uncertainty_rule)
-    if (!rule %in% c("min", "tolerance")) {
+    if (!rule %in% c("min", "tolerance", "one_se")) {
       stop(
-        "Selection field 'uncertainty_rule' must be one of: 'min', 'tolerance'.",
+        "Selection field 'uncertainty_rule' must be one of: 'min', 'tolerance', 'one_se'.",
         call. = FALSE
       )
     }
@@ -2526,7 +2526,7 @@ validate_metalearner_method_settings <- function(method_settings) {
     stop("Metalearner field 'method_settings' must be a named list.", call. = FALSE)
   }
 
-  allowed_sections <- c("glmnet", "gam", "rpart", "ranger", "xgboost")
+  allowed_sections <- c("glmnet", "quantreg", "gam", "rpart", "ranger", "xgboost")
   bad_sections <- setdiff(names(method_settings), allowed_sections)
   if (length(bad_sections) > 0) {
     stop(
@@ -2608,6 +2608,34 @@ validate_metalearner_method_settings <- function(method_settings) {
       (!is.logical(settings$select_terms) || length(settings$select_terms) != 1 || is.na(settings$select_terms))) {
       stop(sprintf("Metalearner field '%s.select_terms' must be TRUE or FALSE.", field_label), call. = FALSE)
     }
+  }
+
+  validate_quantreg_settings <- function(settings, field_label) {
+    if (!is.list(settings)) {
+      stop(sprintf("Metalearner field '%s' must be a named list.", field_label), call. = FALSE)
+    }
+    if (!is.null(settings$tau)) {
+      tau_now <- suppressWarnings(as.numeric(settings$tau)[[1]])
+      if (!is.finite(tau_now) || tau_now <= 0 || tau_now >= 1) {
+        stop(
+          sprintf("Metalearner field '%s.tau' must be one finite number strictly between 0 and 1.", field_label),
+          call. = FALSE
+        )
+      }
+    }
+    if (!is.null(settings$fit_method)) {
+      fit_method <- stringr::str_squish(as.character(settings$fit_method))
+      if (length(fit_method) != 1 || !fit_method %in% c("br", "fn", "fnb", "pfn")) {
+        stop(
+          sprintf(
+            "Metalearner field '%s.fit_method' must be one of: br, fn, fnb, pfn.",
+            field_label
+          ),
+          call. = FALSE
+        )
+      }
+    }
+    validate_variant_block(settings, field_label, validate_quantreg_settings)
   }
 
   validate_rpart_settings <- function(settings, field_label) {
@@ -2704,6 +2732,7 @@ validate_metalearner_method_settings <- function(method_settings) {
     validate_variant_block(settings, field_label, validate_xgboost_settings)
   }
 
+  validate_quantreg_settings(method_settings$quantreg %||% list(), "method_settings.quantreg")
   validate_glmnet_settings(method_settings$glmnet %||% list(), "method_settings.glmnet")
   validate_gam_settings(method_settings$gam %||% list(), "method_settings.gam")
   validate_rpart_settings(method_settings$rpart %||% list(), "method_settings.rpart")

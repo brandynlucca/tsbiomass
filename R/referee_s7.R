@@ -910,7 +910,8 @@ build_surrogate_rules <- function(object,
 #' @keywords internal
 build_referee_scorecard <- function(object,
                                     predictions,
-                                    allow_partial = FALSE) {
+                                    allow_partial = FALSE,
+                                    progress = NULL) {
   selector <- object@selector
   predictions <- predictions %||% object@predictions
   if (is.null(predictions) ||
@@ -936,12 +937,55 @@ build_referee_scorecard <- function(object,
   } else {
     tibble::tibble()
   }
-  benchmark_ts_error <- tibble::as_tibble((selector@benchmark)$policy_ts_error %||% tibble::tibble())
-  ts_calibration_source <- dplyr::bind_rows(
-    tibble::as_tibble(selected_tbl),
-    tibble::as_tibble(learner_selected_calibration)
-  ) |>
+  selected_policy_keys <- selected_tbl |>
+    dplyr::transmute(
+      policy = dplyr::coalesce(
+        if ("selected_policy" %in% names(selected_tbl)) as.character(selected_policy) else NA_character_,
+        if ("policy" %in% names(selected_tbl)) as.character(policy) else NA_character_
+      ),
+      equation_branch_filter = dplyr::coalesce(
+        if ("selected_equation_branch_filter" %in% names(selected_tbl)) as.character(selected_equation_branch_filter) else NA_character_,
+        if ("equation_branch_filter" %in% names(selected_tbl)) as.character(equation_branch_filter) else NA_character_
+      )
+    ) |>
+    dplyr::filter(!is.na(policy), !is.na(equation_branch_filter)) |>
     dplyr::distinct()
+  benchmark_ts_error <- tibble::as_tibble((selector@benchmark)$policy_ts_error %||% tibble::tibble())
+  benchmark_policy_perf <- tibble::as_tibble((selector@benchmark)$policy_perf %||% tibble::tibble())
+  if (nrow(selected_policy_keys) > 0 && nrow(benchmark_ts_error) > 0) {
+    benchmark_ts_error <- standardize_policies(benchmark_ts_error)
+    benchmark_ts_error$policy <- resolve_policy_names(benchmark_ts_error)
+    benchmark_ts_error <- benchmark_ts_error |>
+      dplyr::inner_join(
+        selected_policy_keys,
+        by = c("policy", "equation_branch_filter")
+      )
+  }
+  benchmark_ts_error <- enrich_ts_calibration_locality(
+    ts_calibration = benchmark_ts_error,
+    policy_perf = benchmark_policy_perf
+  )
+  benchmark_selected_calibration <- tibble::tibble()
+  report_progress(progress, "[Referee] Preparing calibration sources...")
+  if (nrow(selected_tbl) == 0 && nrow(learner_selected_calibration) == 0) {
+    report_progress(progress, "[Referee] Deriving fallback benchmark-selected calibration...")
+    benchmark_selected_calibration <- derive_benchmark_selected_calibration(
+      policy_perf = benchmark_policy_perf,
+      config = policy_cfg,
+      learner = object@learner
+    )
+  }
+  ts_calibration_source <- if (nrow(selected_tbl) > 0) {
+    tibble::as_tibble(selected_tbl)
+  } else if (nrow(learner_selected_calibration) > 0) {
+    tibble::as_tibble(learner_selected_calibration)
+  } else if (nrow(benchmark_selected_calibration) > 0) {
+    tibble::as_tibble(benchmark_selected_calibration)
+  } else {
+    tibble::as_tibble(intervals_tbl)
+  } |>
+    dplyr::distinct()
+  report_progress(progress, "[Referee] Summarizing selected-row TS calibration...")
   selected_ts_calibration <- if (nrow(ts_calibration_source) > 0 && nrow(benchmark_ts_error) > 0) {
     summarize_selected_ts_calibration(
       ts_error = benchmark_ts_error,
@@ -950,10 +994,15 @@ build_referee_scorecard <- function(object,
   } else {
     tibble::tibble()
   }
-  coefficient_calibration_source <- dplyr::bind_rows(
-    tibble::as_tibble(selected_tbl),
+  coefficient_calibration_source <- if (nrow(selected_tbl) > 0) {
+    tibble::as_tibble(selected_tbl)
+  } else if (nrow(learner_selected_calibration) > 0) {
     tibble::as_tibble(learner_selected_calibration)
-  ) |>
+  } else if (nrow(benchmark_selected_calibration) > 0) {
+    tibble::as_tibble(benchmark_selected_calibration)
+  } else {
+    tibble::as_tibble(intervals_tbl)
+  } |>
     dplyr::distinct()
   if (
     !all(c("policy_slope_len", "policy_intercept_len") %in% names(coefficient_calibration_source)) ||
@@ -964,11 +1013,12 @@ build_referee_scorecard <- function(object,
   ) {
     coefficient_calibration_source <- selected_tbl
   }
+  report_progress(progress, "[Referee] Summarizing selected-row coefficient calibration...")
   selected_coefficient_calibration <- if (nrow(coefficient_calibration_source) > 0) {
     summarize_selected_coefficient_calibration(
       selected_tbl = coefficient_calibration_source,
       candidate_models = candidate_models,
-      ts_error = benchmark_ts_error
+      ts_error = benchmark_policy_perf
     )
   } else {
     tibble::tibble()
@@ -1036,6 +1086,7 @@ build_referee_scorecard <- function(object,
       dplyr::select(-dplyr::any_of(c("is_selected.x", "is_selected.y")))
   }
 
+  report_progress(progress, "[Referee] Reconstructing selected-row coefficient intervals...")
   selected_tbl <- augment_policy_coefficient_intervals(
     policy_tbl = selected_tbl,
     candidate_models = candidate_models,
@@ -1047,6 +1098,7 @@ build_referee_scorecard <- function(object,
     model_scores = ordination_scores,
     species_lookup = ordination_species_lookup
   )
+  report_progress(progress, "[Referee] Reconstructing selected-row conditional coefficient intervals...")
   selected_tbl <- augment_policy_conditional_coefficient_intervals(
     policy_tbl = selected_tbl,
     candidate_models = candidate_models,
@@ -1057,91 +1109,28 @@ build_referee_scorecard <- function(object,
     model_scores = ordination_scores,
     species_lookup = ordination_species_lookup
   )
-  if (nrow(selected_tbl) > 0 && nrow(selected_ts_calibration) > 0) {
-    selected_tbl <- purrr::map_dfr(seq_len(nrow(selected_tbl)), function(i) {
-      row_now <- selected_tbl[i, , drop = FALSE]
-      cal_now <- anchor_local_log_sigma_calibration(
-        row_now = row_now,
-        ts_calibration = selected_ts_calibration,
-        candidate_models = candidate_models
-      )
-      if (is.null(cal_now) || !is.finite(cal_now$q95) || cal_now$q95 <= 0) {
-        return(row_now)
-      }
-      q95_now <- cal_now$q95
-      q99_now <- if (is.finite(cal_now$q99) && cal_now$q99 >= q95_now) {
-        cal_now$q99
-      } else {
-        q95_now * stats::qnorm(0.995) / stats::qnorm(0.975)
-      }
-      multiplier_pred_now <- suppressWarnings(as.numeric(row_now$multiplier_pred[[1]] %||% NA_real_))
-      row_now$q_abs_log <- q95_now
-      row_now$q_abs_log_conformal <- q95_now
-      row_now$q_abs_log_total <- q95_now
-      row_now$interval_log_width <- 2 * q95_now
-      row_now$uncertainty_cost_log_width <- 2 * q95_now
-      row_now$meta_q_abs_log <- q95_now
-      row_now$meta_q_abs_log_local <- q95_now
-      row_now$meta_q_abs_log_total <- q95_now
-      row_now$meta_q_abs_log_simultaneous_total <- q99_now
-      row_now$meta_post_selection_interval_log_width <- 2 * q95_now
-      row_now$meta_interval_calibration <- "anchor_ts_curve"
-      row_now$meta_uncertainty_source <- "anchor_ts_curve"
-      row_now$meta_uncertainty_fallback <- FALSE
-      row_now$meta_q_abs_log_source <- "anchor_ts_curve"
-      row_now$meta_q_abs_log_factor_source <- "anchor_ts_curve"
-      row_now$meta_q_abs_log_conformal_factor <- 1
-      if (is.finite(multiplier_pred_now) && multiplier_pred_now > 0) {
-        row_now$multiplier_lo <- multiplier_pred_now * exp(-q95_now)
-        row_now$multiplier_hi <- multiplier_pred_now * exp(q95_now)
-        row_now$meta_post_selection_multiplier_lo <- multiplier_pred_now * exp(-q95_now)
-        row_now$meta_post_selection_multiplier_hi <- multiplier_pred_now * exp(q95_now)
-      }
-      row_now
-    })
-    selected_tbl <- augment_policy_coefficient_intervals(
-      policy_tbl = selected_tbl,
-      candidate_models = candidate_models,
-      anchor_scores = anchor_scores,
-      competition_policy_tbl = intervals_tbl,
-      ts_calibration = selected_ts_calibration,
-      coefficient_calibration = selected_coefficient_calibration,
-      config = policy_cfg,
-      model_scores = ordination_scores,
-      species_lookup = ordination_species_lookup
-    )
-    selected_tbl <- augment_policy_conditional_coefficient_intervals(
-      policy_tbl = selected_tbl,
-      candidate_models = candidate_models,
-      anchor_scores = anchor_scores,
-      ts_calibration = selected_ts_calibration,
-      coefficient_calibration = selected_coefficient_calibration,
-      config = policy_cfg,
-      model_scores = ordination_scores,
-      species_lookup = ordination_species_lookup
-    )
-  }
   selected_tbl <- augment_anchor_length_context(
     policy_tbl = selected_tbl,
     candidate_models = candidate_models
   )
-  intervals_tbl <- augment_policy_coefficient_intervals(
-    policy_tbl = intervals_tbl,
-    candidate_models = candidate_models,
-    anchor_scores = anchor_scores,
-    competition_policy_tbl = intervals_tbl,
-    ts_calibration = selected_ts_calibration,
-    coefficient_calibration = selected_coefficient_calibration,
-    config = policy_cfg,
-    model_scores = ordination_scores,
-    species_lookup = ordination_species_lookup,
-    length_grid_n = 200L
-  )
+  selected_tbl$multiplier_lo <- suppressWarnings(as.numeric(scorecard_pick(
+    selected_tbl,
+    c("meta_post_selection_multiplier_lo", "multiplier_lo")
+  )))
+  selected_tbl$multiplier_hi <- suppressWarnings(as.numeric(scorecard_pick(
+    selected_tbl,
+    c("meta_post_selection_multiplier_hi", "multiplier_hi")
+  )))
+  selected_tbl$interval_log_width <- suppressWarnings(as.numeric(scorecard_pick(
+    selected_tbl,
+    c("meta_post_selection_interval_log_width", "interval_log_width")
+  )))
   intervals_tbl <- augment_anchor_length_context(
     policy_tbl = intervals_tbl,
     candidate_models = candidate_models,
     length_grid_n = 200L
   )
+  report_progress(progress, "[Referee] Reconstructing selected-row TS envelopes...")
   ts_panel_tbl <- if (all(c("policy_slope_len", "policy_intercept_len") %in% names(selected_tbl))) {
     build_ts_conformal_panel_data(
       selected_tbl = selected_tbl,
@@ -1149,9 +1138,11 @@ build_referee_scorecard <- function(object,
       coefficient_calibration = selected_coefficient_calibration,
       candidate_models = candidate_models,
       anchor_scores = anchor_scores,
+      competition_policy_tbl = intervals_tbl,
       config = policy_cfg,
       model_scores = ordination_scores,
-      species_lookup = ordination_species_lookup
+      species_lookup = ordination_species_lookup,
+      progress = progress
     )
   } else {
     tibble::tibble()
@@ -1263,6 +1254,7 @@ build_referee_scorecard <- function(object,
     ),
     allow_partial = allow_partial
   )
+  report_progress(progress, "[Referee] Assembling plot/report tables...")
   surrogate_rules_result <- referee_component(
     "surrogate_rules",
     build_surrogate_rules(
@@ -1357,7 +1349,8 @@ build_referee_scorecard <- function(object,
       predictions = prediction_bundle
     ),
     predictions = prediction_bundle,
-    allow_partial = allow_partial
+    allow_partial = allow_partial,
+    progress = progress
   )
   report_progress(progress, "[Referee] Scorecard complete.")
   sc
@@ -1395,6 +1388,107 @@ methods::setMethod(
     allow_partial = allow_partial,
     progress = progress
   )
+}
+
+derive_benchmark_selected_calibration <- function(policy_perf,
+                                                  config = NULL,
+                                                  learner = NULL) {
+  policy_perf <- tibble::as_tibble(policy_perf)
+  if (nrow(policy_perf) == 0) {
+    return(tibble::tibble())
+  }
+  if (!all(c("anchor_model_id", "anchor_species") %in% names(policy_perf))) {
+    return(tibble::tibble())
+  }
+
+  scalar_num <- function(x, default = NA_real_) {
+    y <- suppressWarnings(as.numeric(x))
+    if (length(y) == 0L) {
+      return(default)
+    }
+    y[[1]]
+  }
+
+  uncertainty_rule <- normalize_uncertainty_rule(
+    policy_selector_config_value(config, "uncertainty_rule", sections = c("selection", "policy")) %||% "tolerance"
+  )
+  one_se_multiplier <- scalar_num(
+    policy_selector_config_value(config, "one_se_multiplier", sections = c("selection", "policy")) %||% 1
+  )
+  u_tol_rel <- scalar_num(
+    policy_selector_config_value(config, "u_tol_rel", sections = c("selection", "policy")) %||%
+      policy_selector_config_value(config, "uncertainty_relative_tolerance", sections = c("selection", "policy"))
+  )
+  u_tol_abs <- scalar_num(
+    policy_selector_config_value(config, "u_tol_abs", sections = c("selection", "policy")) %||%
+      policy_selector_config_value(config, "uncertainty_absolute_tolerance", sections = c("selection", "policy"))
+  )
+  local_distance_tolerance <- scalar_num(
+    policy_selector_config_value(config, "local_distance_tolerance", sections = c("selection", "policy"))
+  )
+  if (!is.finite(one_se_multiplier)) {
+    one_se_multiplier <- 1
+  }
+  if (!is.finite(u_tol_rel)) {
+    u_tol_rel <- 0
+  }
+  if (!is.finite(u_tol_abs)) {
+    u_tol_abs <- 0
+  }
+  has_learner <- inherits(learner, "S7_object") &&
+    exists("PolicyLearner", inherits = TRUE) &&
+    isTRUE(tryCatch(S7::S7_inherits(learner, PolicyLearner), error = function(e) FALSE))
+
+  policy_perf |>
+    dplyr::group_split(anchor_model_id, anchor_species, .keep = TRUE) |>
+    purrr::map_dfr(function(.x) {
+      selected_row <- if (has_learner) {
+        predicted <- tryCatch(
+          stats::predict(
+            learner,
+            .x,
+            use_support_bin_intervals = FALSE
+          ),
+          error = function(e) NULL
+        )
+        if (is.null(predicted)) {
+          tibble::tibble()
+        } else {
+          tibble::as_tibble(predicted) |>
+            dplyr::filter(dplyr::coalesce(valid_prediction, FALSE), dplyr::coalesce(is_selected, FALSE))
+        }
+      } else {
+        tibble::tibble()
+      }
+
+      if (nrow(selected_row) == 0) {
+        selected_row <- select_anchor_policies(
+          policy_tbl = .x,
+          uncertainty_rule = uncertainty_rule,
+          u_tol_rel = u_tol_rel,
+          u_tol_abs = u_tol_abs,
+          one_se_multiplier = one_se_multiplier,
+          local_distance_tolerance = local_distance_tolerance
+        )
+      }
+
+      selected_row |>
+        dplyr::mutate(
+          selected_policy = dplyr::coalesce(
+            if ("selected_policy" %in% names(selected_row)) as.character(selected_policy) else NA_character_,
+            if ("policy" %in% names(selected_row)) as.character(policy) else NA_character_
+          ),
+          selected_equation_branch_filter = dplyr::coalesce(
+            if ("selected_equation_branch_filter" %in% names(selected_row)) as.character(selected_equation_branch_filter) else NA_character_,
+            if ("equation_branch_filter" %in% names(selected_row)) as.character(equation_branch_filter) else NA_character_
+          )
+        )
+    }) |>
+    dplyr::filter(
+      !is.na(anchor_model_id),
+      !is.na(selected_policy),
+      !is.na(selected_equation_branch_filter)
+    )
 }
 
 #' Collapse one `Scorecard` to a console summary
@@ -1637,15 +1731,19 @@ S7::method(show_generic, Referee) <- function(object) {
     } else {
       "Selected policy"
     }
+    curve_tbl$ts_center <- dplyr::coalesce(
+      if ("ts_center" %in% names(curve_tbl)) suppressWarnings(as.numeric(curve_tbl$ts_center)) else rep(NA_real_, nrow(curve_tbl)),
+      suppressWarnings(as.numeric(curve_tbl$ts_pred))
+    )
     band_tbl <- dplyr::bind_rows(
       curve_tbl |>
-        dplyr::transmute(length_cm, ts_anchor, ts_top_candidate, ts_pred, band = "99%", ymin = ts_lo_99, ymax = ts_hi_99),
+        dplyr::transmute(length_cm, ts_anchor, ts_top_candidate, ts_center, band = "99%", ymin = ts_lo_99, ymax = ts_hi_99),
       curve_tbl |>
-        dplyr::transmute(length_cm, ts_anchor, ts_top_candidate, ts_pred, band = "95%", ymin = ts_lo_95, ymax = ts_hi_95),
+        dplyr::transmute(length_cm, ts_anchor, ts_top_candidate, ts_center, band = "95%", ymin = ts_lo_95, ymax = ts_hi_95),
       curve_tbl |>
-        dplyr::transmute(length_cm, ts_anchor, ts_top_candidate, ts_pred, band = "90%", ymin = ts_lo_90, ymax = ts_hi_90),
+        dplyr::transmute(length_cm, ts_anchor, ts_top_candidate, ts_center, band = "90%", ymin = ts_lo_90, ymax = ts_hi_90),
       curve_tbl |>
-        dplyr::transmute(length_cm, ts_anchor, ts_top_candidate, ts_pred, band = "80%", ymin = ts_lo_80, ymax = ts_hi_80)
+        dplyr::transmute(length_cm, ts_anchor, ts_top_candidate, ts_center, band = "80%", ymin = ts_lo_80, ymax = ts_hi_80)
     )
     return(plot_ts_bands(
       band_tbl = band_tbl,
@@ -1671,6 +1769,25 @@ S7::method(show_generic, Referee) <- function(object) {
     }
 
     plot_df$selected_policy_display <- resolve_selected_policy_names(plot_df)
+    branch_display <- {
+      branch_vals <- dplyr::coalesce(
+        if ("selected_equation_branch_filter" %in% names(plot_df)) as.character(plot_df$selected_equation_branch_filter) else rep(NA_character_, nrow(plot_df)),
+        if ("equation_branch_filter" %in% names(plot_df)) as.character(plot_df$equation_branch_filter) else rep(NA_character_, nrow(plot_df))
+      )
+      branch_defs <- read_policy_registry()$policy_branches %||% list()
+      branch_tags <- stats::setNames(
+        vapply(branch_defs, function(x) as.character(x$display_tag %||% x$key %||% NA_character_), character(1)),
+        vapply(branch_defs, function(x) as.character(x$key %||% NA_character_), character(1))
+      )
+      branch_labs <- unname(branch_tags[branch_vals])
+      branch_labs[is.na(branch_labs) | !nzchar(branch_labs)] <- branch_vals[is.na(branch_labs) | !nzchar(branch_labs)]
+      branch_labs
+    }
+    plot_df$selected_policy_display <- ifelse(
+      grepl("\\s*\\[[^]]+\\]$", plot_df$selected_policy_display),
+      plot_df$selected_policy_display,
+      paste0(plot_df$selected_policy_display, " [", branch_display, "]")
+    )
     plot_df$multiplier_lo <- dplyr::coalesce(
       if ("meta_post_selection_multiplier_lo" %in% names(plot_df)) as.numeric(plot_df$meta_post_selection_multiplier_lo) else rep(NA_real_, nrow(plot_df)),
       if ("multiplier_lo" %in% names(plot_df)) as.numeric(plot_df$multiplier_lo) else rep(NA_real_, nrow(plot_df))
@@ -1679,13 +1796,6 @@ S7::method(show_generic, Referee) <- function(object) {
       if ("meta_post_selection_multiplier_hi" %in% names(plot_df)) as.numeric(plot_df$meta_post_selection_multiplier_hi) else rep(NA_real_, nrow(plot_df)),
       if ("multiplier_hi" %in% names(plot_df)) as.numeric(plot_df$multiplier_hi) else rep(NA_real_, nrow(plot_df))
     )
-    plot_df$support_tier <- if ("post_selection_support_label" %in% names(plot_df)) {
-      as.character(plot_df$post_selection_support_label)
-    } else if ("post_selection_support_bin" %in% names(plot_df)) {
-      as.character(plot_df$post_selection_support_bin)
-    } else {
-      rep("not_available", nrow(plot_df))
-    }
     plot_df <- plot_df |>
       dplyr::filter(
         !is.na(anchor_species),
@@ -1720,19 +1830,17 @@ S7::method(show_generic, Referee) <- function(object) {
           y = multiplier_pred,
           x = anchor_label,
           ymin = multiplier_lo,
-          ymax = multiplier_hi,
-          colour = support_tier
+          ymax = multiplier_hi
         )
       ) +
         ggplot2::geom_hline(yintercept = 1, linetype = "dashed", colour = "grey45") +
-        ggplot2::geom_errorbar(width = 0.22, linewidth = 0.75, alpha = 0.85) +
-        ggplot2::geom_point(size = 2.5) +
+        ggplot2::geom_errorbar(width = 0.22, linewidth = 0.75, alpha = 0.85, colour = "#7a7a7a") +
+        ggplot2::geom_point(size = 2.5, colour = "#7a7a7a") +
         ggplot2::scale_y_log10(labels = scales::label_number(accuracy = 0.01)) +
         ggplot2::coord_flip() +
         ggplot2::labs(
           y = "Biomass multiplier relative to reference anchor",
           x = NULL,
-          colour = "Support tier",
           title = "Meta-policy selected biomass multipliers",
           subtitle = "Intervals are calibrated from cross-fitted meta-policy selected residuals."
         ) +

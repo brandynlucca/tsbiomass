@@ -99,7 +99,7 @@ test_that("predict returns PolicyPredictions and summary helpers use selector st
   expect_true(all(c("anchor_model_id", "selected_policy", "bootstrap_median_rank") %in% names(audit)))
 })
 
-test_that("cached anchor admissibility is returned even when selector config is populated", {
+test_that("cached anchor admissibility is returned even when config is supplied", {
   candidates <- set_reference_anchors(make_candidates(), selector = list(regional_body = "SWFSC"))
   anchor_ids <- as.character(candidates@reference_anchors$model_id_chr)
   cached_admissibility <- list(
@@ -117,7 +117,7 @@ test_that("cached anchor admissibility is returned even when selector config is 
   cached_eval <- policy_selector_cached_anchor_evaluation(
     object = selector,
     anchor_row = anchor_row,
-    config_supplied = FALSE
+    config_supplied = TRUE
   )
 
   expect_true(is.list(cached_eval))
@@ -179,6 +179,61 @@ test_that("predict reuses cached anchor admissibility instead of rescreening don
     unique(predictions@consensus$cached_anchor_id),
     anchor_ids
   )
+})
+
+test_that("predict with config overrides still reuses cached anchor admissibility", {
+  candidates <- set_reference_anchors(make_candidates(), selector = list(regional_body = "SWFSC"))
+  anchor_ids <- as.character(candidates@reference_anchors$model_id_chr)
+  cached_admissibility <- list(
+    anchors = stats::setNames(
+      lapply(anchor_ids, function(anchor_id) {
+        list(evaluation = list(anchor_id = anchor_id, cached = TRUE))
+      }),
+      anchor_ids
+    )
+  )
+  candidates <- candidates_with_admissibility(candidates, cached_admissibility)
+  selector <- make_selector(
+    candidates = candidates,
+    benchmark = list(policy_perf = minimal_policy_performance()),
+    uncertainty = minimal_uncertainty(),
+    selection = list(final_ref = minimal_selection_ref())
+  )
+
+  cfg_override <- list(
+    selection = list(
+      uncertainty_rule = "one_se"
+    )
+  )
+
+  testthat::local_mocked_bindings(
+    screen_one_anchor_admissibility = function(...) {
+      stop("predict() should not rescreen donors when only selection config changes")
+    },
+    evaluate_policies = function(eval_obj, ...) {
+      tibble::tibble(
+        policy = c("same_species_closest", "same_genus_weighted"),
+        equation_branch_filter = "all",
+        multiplier_pred = c(1.10, 1.30),
+        cached_anchor_id = eval_obj$anchor_id %||% NA_character_
+      )
+    },
+    summarize_evaluation = function(eval_obj, ...) {
+      tibble::tibble(
+        consensus_multiplier = 1.20,
+        local_support_mass = 0.80,
+        local_effective_support = 3.00,
+        cached_anchor_id = eval_obj$anchor_id %||% NA_character_
+      )
+    },
+    .package = "tsbiomass"
+  )
+
+  predictions <- predict(selector, config = cfg_override)
+
+  expect_true(S7::S7_inherits(predictions, PolicyPredictions))
+  expect_false(any(is.na(predictions@intervals$cached_anchor_id)))
+  expect_setequal(unique(predictions@intervals$cached_anchor_id), anchor_ids)
 })
 
 test_that("Referee consumes PolicyPredictions after selector prediction", {
@@ -389,6 +444,27 @@ test_that("deterministic selection prefers empirical benchmark score before widt
 
   expect_equal(selected$selected_policy[[1]], "slightly_wider_but_better")
   expect_true(grepl("^benchmark_screened_", selected$selection_tier[[1]]))
+})
+
+test_that("deterministic selection uses coefficient stability after score and width", {
+  selected <- select_anchor_policies(tibble::tibble(
+    policy = c("free_slope_unstable", "fixed_slope_stable"),
+    equation_branch_filter = c("free_slope_only", "fixed20_only"),
+    multiplier_pred = c(1.10, 1.12),
+    valid_prediction = c(TRUE, TRUE),
+    selection_valid = c(TRUE, TRUE),
+    uncertainty_eligible = c(TRUE, TRUE),
+    uncertainty_cost_log_width = c(0.20, 0.20),
+    mean_species_median_abs_log = c(0.08, 0.08),
+    local_weighted_mean_combined_distance = c(0.05, 0.05),
+    local_effective_support = c(3, 3),
+    acceptable_global = c(TRUE, TRUE),
+    equivalent_to_best_global = c(TRUE, TRUE),
+    coefficient_slope_q95 = c(18, 4),
+    coefficient_intercept_q95 = c(20, 6)
+  ))
+
+  expect_equal(selected$selected_policy[[1]], "fixed_slope_stable")
 })
 
 test_that("recommendation overlap support summary respects configured traits", {

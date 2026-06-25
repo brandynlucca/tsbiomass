@@ -326,9 +326,17 @@ plot_ts_bands <- function(band_tbl,
   # top-candidate curves from the precomputed summary tables.
   band_df <- tibble::as_tibble(band_tbl)
   curve_df <- tibble::as_tibble(curve_tbl)
+  if ("ts_center" %in% names(curve_df)) {
+    curve_df$ts_panel_center <- dplyr::coalesce(
+      suppressWarnings(as.numeric(curve_df$ts_center)),
+      suppressWarnings(as.numeric(curve_df$ts_pred))
+    )
+  } else {
+    curve_df$ts_panel_center <- suppressWarnings(as.numeric(curve_df$ts_pred))
+  }
   if (nrow(band_df) == 0 || nrow(curve_df) == 0 ||
     !all(c("length_cm", "ymin", "ymax", "band") %in% names(band_df)) ||
-    !all(c("length_cm", "ts_anchor", "ts_pred") %in% names(curve_df))) {
+    !all(c("length_cm", "ts_anchor", "ts_panel_center") %in% names(curve_df))) {
     return(ggplot2::ggplot() + ggplot2::labs(x = "Length (cm)", y = "TS (dB re 1 m^2)") + ggplot2::theme_minimal(base_size = 11))
   }
   p <- ggplot2::ggplot() +
@@ -338,12 +346,12 @@ plot_ts_bands <- function(band_tbl,
       alpha = 0.28
     ) +
     ggplot2::scale_fill_manual(
-      values = c("99%" = "#dadaeb", "95%" = "#bcbddc", "90%" = "#9e9ac8", "80%" = "#756bb1"),
+      values = c("99%" = "#eef2f7", "95%" = "#d9e0ea", "90%" = "#bcc7d6", "80%" = "#96a6bc"),
       name = "Prediction band"
     ) +
     ggplot2::geom_line(
       data = curve_df,
-      ggplot2::aes(x = length_cm, y = ts_pred, colour = "Selected policy", linetype = "Selected policy"),
+      ggplot2::aes(x = length_cm, y = ts_panel_center, colour = "Selected policy", linetype = "Selected policy"),
       linewidth = 0.95
     )
   if (isTRUE(show_top_candidate) && "ts_top_candidate" %in% names(curve_df)) {
@@ -2837,25 +2845,104 @@ plot_ts_panel <- function(curve_tbl,
       ggplot2::ggplot() + ggplot2::labs(x = "Length (cm)", y = "TS (dB re 1 m^2)") + ggplot2::theme_minimal(base_size = 11)
     )
   }
+  curve_tbl$ts_panel_center <- dplyr::coalesce(
+    if ("ts_center" %in% names(curve_tbl)) suppressWarnings(as.numeric(curve_tbl$ts_center)) else rep(NA_real_, nrow(curve_tbl)),
+    suppressWarnings(as.numeric(curve_tbl$ts_pred))
+  )
 
-  # Reshape the stored ribbon bounds into one long band table so the four
-  # conformal intervals can be drawn as stacked ribbons.
+  # Draw non-overlapping shells for the nested intervals. This avoids the
+  # misleading mixed colours produced by stacking translucent full ribbons.
   band_tbl <- dplyr::bind_rows(
     curve_tbl |>
-      dplyr::transmute(!!reference_col := .data[[reference_col]], length_cm, ts_pred, ts_anchor, band = "99%", ymin = ts_lo_99, ymax = ts_hi_99),
+      dplyr::transmute(
+        !!reference_col := .data[[reference_col]],
+        length_cm,
+        band = "99%",
+        shell = "lower",
+        ymin = ts_lo_99,
+        ymax = ts_lo_95
+      ),
     curve_tbl |>
-      dplyr::transmute(!!reference_col := .data[[reference_col]], length_cm, ts_pred, ts_anchor, band = "95%", ymin = ts_lo_95, ymax = ts_hi_95),
+      dplyr::transmute(
+        !!reference_col := .data[[reference_col]],
+        length_cm,
+        band = "99%",
+        shell = "upper",
+        ymin = ts_hi_95,
+        ymax = ts_hi_99
+      ),
     curve_tbl |>
-      dplyr::transmute(!!reference_col := .data[[reference_col]], length_cm, ts_pred, ts_anchor, band = "90%", ymin = ts_lo_90, ymax = ts_hi_90),
+      dplyr::transmute(
+        !!reference_col := .data[[reference_col]],
+        length_cm,
+        band = "95%",
+        shell = "lower",
+        ymin = ts_lo_95,
+        ymax = ts_lo_90
+      ),
     curve_tbl |>
-      dplyr::transmute(!!reference_col := .data[[reference_col]], length_cm, ts_pred, ts_anchor, band = "80%", ymin = ts_lo_80, ymax = ts_hi_80)
+      dplyr::transmute(
+        !!reference_col := .data[[reference_col]],
+        length_cm,
+        band = "95%",
+        shell = "upper",
+        ymin = ts_hi_90,
+        ymax = ts_hi_95
+      ),
+    curve_tbl |>
+      dplyr::transmute(
+        !!reference_col := .data[[reference_col]],
+        length_cm,
+        band = "90%",
+        shell = "lower",
+        ymin = ts_lo_90,
+        ymax = ts_lo_80
+      ),
+    curve_tbl |>
+      dplyr::transmute(
+        !!reference_col := .data[[reference_col]],
+        length_cm,
+        band = "90%",
+        shell = "upper",
+        ymin = ts_hi_80,
+        ymax = ts_hi_90
+      ),
+    curve_tbl |>
+      dplyr::transmute(
+        !!reference_col := .data[[reference_col]],
+        length_cm,
+        band = "80%",
+        shell = "center",
+        ymin = ts_lo_80,
+        ymax = ts_hi_80
+      )
   ) |>
+    dplyr::filter(is.finite(ymin), is.finite(ymax), ymax > ymin) |>
     dplyr::mutate(band = factor(band, levels = c("99%", "95%", "90%", "80%")))
 
   p <- ggplot2::ggplot() +
-    ggplot2::geom_ribbon(data = band_tbl, ggplot2::aes(x = length_cm, ymin = ymin, ymax = ymax, fill = band), alpha = 0.28) +
-    ggplot2::scale_fill_manual(values = c("99%" = "#dadaeb", "95%" = "#bcbddc", "90%" = "#9e9ac8", "80%" = "#756bb1"), name = "Prediction band") +
-    ggplot2::geom_line(data = curve_tbl, ggplot2::aes(x = length_cm, y = ts_pred, colour = "Selected policy", linetype = "Selected policy"), linewidth = 0.85)
+    ggplot2::geom_ribbon(
+      data = band_tbl,
+      ggplot2::aes(
+        x = length_cm,
+        ymin = ymin,
+        ymax = ymax,
+        fill = band,
+        group = interaction(.data[[reference_col]], band, shell)
+      ),
+      alpha = 1,
+      colour = NA
+    ) +
+    ggplot2::scale_fill_manual(
+      values = c(
+        "99%" = "#eef2f7",
+        "95%" = "#d9e0ea",
+        "90%" = "#bcc7d6",
+        "80%" = "#96a6bc"
+      ),
+      name = "Prediction band"
+    ) +
+    ggplot2::geom_line(data = curve_tbl, ggplot2::aes(x = length_cm, y = ts_panel_center, colour = "Selected policy", linetype = "Selected policy"), linewidth = 0.85)
   if (isTRUE(show_top_candidate) && "ts_top_candidate" %in% names(curve_tbl)) {
     p <- p +
       ggplot2::geom_line(
@@ -2880,7 +2967,7 @@ plot_ts_panel <- function(curve_tbl,
       linewidth = 0.75
     )
   colour_values <- c(
-    "Selected policy" = "#2166ac",
+    "Selected policy" = "#0057b8",
     "Anchor" = "#1b1b1b"
   )
   linetype_values <- c(
@@ -2913,6 +3000,16 @@ plot_ts_panel <- function(curve_tbl,
 #' @export
 plot_policy_coefficients <- function(coefficient_tbl) {
   plot_df <- tibble::as_tibble(coefficient_tbl)
+  center_interval <- function(estimate, lo, hi) {
+    estimate <- suppressWarnings(as.numeric(estimate))
+    lo <- suppressWarnings(as.numeric(lo))
+    hi <- suppressWarnings(as.numeric(hi))
+    radius <- pmax(abs(estimate - lo), abs(hi - estimate), na.rm = TRUE)
+    list(
+      lo = estimate - radius,
+      hi = estimate + radius
+    )
+  }
   resolve_one <- function(df, candidates) {
     for (nm in candidates) {
       if (nm %in% names(df)) {
@@ -2926,6 +3023,16 @@ plot_policy_coefficients <- function(coefficient_tbl) {
   }
   plot_df$estimate_slope <- resolve_one(plot_df, c("policy_slope_len"))
   plot_df$estimate_intercept <- resolve_one(plot_df, c("policy_intercept_len"))
+  post_slope_bounds <- center_interval(
+    estimate = plot_df$estimate_slope,
+    lo = resolve_one(plot_df, c("policy_slope_len_lo_95", "policy_slope_len_lo_95.x", "policy_slope_len_lo_95.y")),
+    hi = resolve_one(plot_df, c("policy_slope_len_hi_95", "policy_slope_len_hi_95.x", "policy_slope_len_hi_95.y"))
+  )
+  post_intercept_bounds <- center_interval(
+    estimate = plot_df$estimate_intercept,
+    lo = resolve_one(plot_df, c("policy_intercept_len_lo_95", "policy_intercept_len_lo_95.x", "policy_intercept_len_lo_95.y")),
+    hi = resolve_one(plot_df, c("policy_intercept_len_hi_95", "policy_intercept_len_hi_95.x", "policy_intercept_len_hi_95.y"))
+  )
   post_df <- dplyr::bind_rows(
     plot_df |>
       dplyr::transmute(
@@ -2933,8 +3040,8 @@ plot_policy_coefficients <- function(coefficient_tbl) {
         layer = "Post-selection",
         parameter = "Slope",
         estimate = estimate_slope,
-        lo = resolve_one(plot_df, c("policy_slope_len_lo_95", "policy_slope_len_lo_95.x", "policy_slope_len_lo_95.y")),
-        hi = resolve_one(plot_df, c("policy_slope_len_hi_95", "policy_slope_len_hi_95.x", "policy_slope_len_hi_95.y"))
+        lo = post_slope_bounds$lo,
+        hi = post_slope_bounds$hi
       ),
     plot_df |>
       dplyr::transmute(
@@ -2942,8 +3049,8 @@ plot_policy_coefficients <- function(coefficient_tbl) {
         layer = "Post-selection",
         parameter = "Intercept",
         estimate = estimate_intercept,
-        lo = resolve_one(plot_df, c("policy_intercept_len_lo_95", "policy_intercept_len_lo_95.x", "policy_intercept_len_lo_95.y")),
-        hi = resolve_one(plot_df, c("policy_intercept_len_hi_95", "policy_intercept_len_hi_95.x", "policy_intercept_len_hi_95.y"))
+        lo = post_intercept_bounds$lo,
+        hi = post_intercept_bounds$hi
       )
   )
   conditional_available <- all(c(
@@ -2953,6 +3060,16 @@ plot_policy_coefficients <- function(coefficient_tbl) {
     "conditional_policy_intercept_len_hi_95"
   ) %in% names(plot_df))
   conditional_df <- if (isTRUE(conditional_available)) {
+    conditional_slope_bounds <- center_interval(
+      estimate = plot_df$estimate_slope,
+      lo = plot_df$conditional_policy_slope_len_lo_95,
+      hi = plot_df$conditional_policy_slope_len_hi_95
+    )
+    conditional_intercept_bounds <- center_interval(
+      estimate = plot_df$estimate_intercept,
+      lo = plot_df$conditional_policy_intercept_len_lo_95,
+      hi = plot_df$conditional_policy_intercept_len_hi_95
+    )
     dplyr::bind_rows(
       plot_df |>
         dplyr::transmute(
@@ -2960,8 +3077,8 @@ plot_policy_coefficients <- function(coefficient_tbl) {
           layer = "Conditional on selected policy",
           parameter = "Slope",
           estimate = estimate_slope,
-          lo = conditional_policy_slope_len_lo_95,
-          hi = conditional_policy_slope_len_hi_95
+          lo = conditional_slope_bounds$lo,
+          hi = conditional_slope_bounds$hi
         ),
       plot_df |>
         dplyr::transmute(
@@ -2969,8 +3086,8 @@ plot_policy_coefficients <- function(coefficient_tbl) {
           layer = "Conditional on selected policy",
           parameter = "Intercept",
           estimate = estimate_intercept,
-          lo = conditional_policy_intercept_len_lo_95,
-          hi = conditional_policy_intercept_len_hi_95
+          lo = conditional_intercept_bounds$lo,
+          hi = conditional_intercept_bounds$hi
         )
     )
   } else {
@@ -3000,7 +3117,7 @@ plot_policy_coefficients <- function(coefficient_tbl) {
     ggplot2::labs(
       x = "Coefficient value",
       y = NULL,
-      caption = "Conditional bars hold the selected policy fixed. Post-selection bars add policy ambiguity. Both are marginal 95% intervals; joint slope-intercept uncertainty is stored in the covariance and should not be sampled independently."
+      caption = "Conditional bars hold the selected policy fixed. Post-selection bars add policy ambiguity. Displayed intervals are centered on the plotted coefficient estimate. Joint slope-intercept uncertainty is stored in the covariance and should not be sampled independently."
     ) +
     ggplot2::theme_minimal(base_size = 11)
 }

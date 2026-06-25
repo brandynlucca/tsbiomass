@@ -386,6 +386,7 @@ run_nested_policy_fold <- function(task,
         uncertainty_rule = normalize_uncertainty_rule(selection_config$uncertainty_rule %||% "tolerance"),
         u_tol_rel = selection_config$u_tol_rel %||% selection_config$uncertainty_relative_tolerance %||% 0.25,
         u_tol_abs = selection_config$u_tol_abs %||% selection_config$uncertainty_absolute_tolerance %||% 0.05,
+        one_se_multiplier = selection_config$one_se_multiplier %||% 1,
         local_distance_tolerance = selection_config$local_distance_tolerance %||% 1e-12
       ) |>
       dplyr::transmute(
