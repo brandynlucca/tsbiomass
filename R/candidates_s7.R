@@ -1286,6 +1286,7 @@ candidates_from_yaml <- function(path,
 #' @return Invisibly returns `x`.
 #'
 #' @keywords internal
+#' @export
 S7::method(print_generic, Candidates) <- function(x, ...) {
   cat("Candidates\n")
   cat("  study_rows: ", nrow(x@study_db), "\n", sep = "")
@@ -1936,5 +1937,4 @@ methods::setMethod(
     ...
   )
 }
-
 

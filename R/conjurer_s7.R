@@ -868,6 +868,7 @@ conjurer_summarize_draws <- function(selected_draws,
 #'
 #' @return An updated [Conjurer] object.
 #' @name simulate.Conjurer
+#' @export
 S7::method(simulate_generic, Conjurer) <- function(object,
                                                    traits = NULL,
                                                    n_draws = NULL,
@@ -1011,6 +1012,7 @@ conjurer_top_signal <- function(summary_tbl,
 #' @return Invisibly returns `x`.
 #'
 #' @keywords internal
+#' @export
 S7::method(print_generic, Conjurer) <- function(x, ...) {
   cfg <- tryCatch(conjurer_analysis_config(x), error = function(e) NULL)
   configured_draws <- suppressWarnings(as.integer(cfg$n_draws %||% NA_integer_))
@@ -1081,5 +1083,4 @@ S7::method(show_generic, Conjurer) <- function(object) {
   print(object)
   invisible(object)
 }
-
 

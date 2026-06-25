@@ -902,7 +902,13 @@ select_anchor_policies <- function(policy_tbl,
   selected <- selected |>
     dplyr::arrange(
       anchor_selection_validation_error,
-      bootstrap_median_rank
+      uncertainty_cost_log_width,
+      coefficient_slope_q95,
+      coefficient_intercept_q95,
+      anchor_selection_local_distance,
+      specificity_rank,
+      bootstrap_median_rank,
+      policy
     )
 
   selected |>

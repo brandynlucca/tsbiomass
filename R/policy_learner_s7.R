@@ -1602,27 +1602,29 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
         sprintf("%s: %s", names(width_errors), unname(width_errors)),
         collapse = " | "
       )
-      stop(
-        sprintf(
-          paste(
-            "The conditional-uncertainty learner could not be fit with method '%s'.",
-            "Uncertainty calibration now hard-fails instead of falling back.",
-            "Reason: %s"
-          ),
-          width_method,
-          width_fit_error
+      width_warning <- sprintf(
+        paste(
+          "Falling back to point-score-scaled uncertainty because the conditional-uncertainty learner",
+          "could not be fit with method '%s'. Reason: %s"
         ),
-        call. = FALSE
+        width_method,
+        width_fit_error
       )
+      width_selected <- meta_selected |>
+        dplyr::mutate(.width_predicted_q_abs_log = pmax(.meta_predicted_score, 0))
+      width_model <- list(model = NULL, feature_cols = width_feature_cols, method = width_method)
+      width_prediction_source <- "point_score_fallback"
     }
   } else {
-    stop(
-      paste(
-        "No conditional-uncertainty feature columns were available.",
-        "Uncertainty calibration now hard-fails instead of falling back."
-      ),
-      call. = FALSE
+    width_fit_error <- "No conditional-uncertainty feature columns were available."
+    width_warning <- paste(
+      "Falling back to point-score-scaled uncertainty because no",
+      "conditional-uncertainty feature columns were available."
     )
+    width_selected <- meta_selected |>
+      dplyr::mutate(.width_predicted_q_abs_log = pmax(.meta_predicted_score, 0))
+    width_model <- list(model = NULL, feature_cols = width_feature_cols, method = width_method)
+    width_prediction_source <- "point_score_fallback"
   }
 
   if (!is.null(width_warning)) {
@@ -1890,13 +1892,10 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     scored$.width_predicted_q_abs_log <- pmax(width_scored$.meta_predicted_score, 0)
     meta_width_source <- cal_obj$uncertainty_prediction_source %||% cal_obj$width_prediction_source %||% "learned_conditional_width"
   } else {
-    stop(
-      paste(
-        "Conditional-uncertainty prediction requires a fitted width learner.",
-        "The calibration object did not contain one, so prediction is aborted instead of falling back."
-      ),
-      call. = FALSE
-    )
+    scored$.width_predicted_q_abs_log <- pmax(scored$.meta_predicted_score, 0)
+    meta_width_source <- cal_obj$uncertainty_prediction_source %||%
+      cal_obj$width_prediction_source %||%
+      "point_score_fallback"
   }
   meta_uncertainty_warning_value <- cal_obj$uncertainty_warning %||% cal_obj$width_warning %||% NA_character_
   scored$meta_q_abs_log_local <- NA_real_
@@ -1973,11 +1972,11 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       meta_q_abs_log_width_total = meta_q_abs_log_width * meta_q_abs_log_conformal_factor,
       meta_q_abs_log = meta_q_abs_log_width_total,
       meta_interval_calibration = paste0(
-        "global_scale_",
+        "direct_",
         dplyr::coalesce(meta_q_abs_log_factor_source, meta_width_source, "learned_conditional_width")
       ),
       meta_uncertainty_source = meta_interval_calibration,
-      meta_uncertainty_fallback = FALSE,
+      meta_uncertainty_fallback = identical(meta_width_source, "point_score_fallback"),
       meta_uncertainty_warning = rep(as.character(meta_uncertainty_warning_value), dplyr::n()),
       meta_q_abs_log_simultaneous_factor = dplyr::coalesce(
         cal_obj$width_factor_simultaneous_global,
@@ -2754,5 +2753,3 @@ S7::method(show_generic, PolicyLearner) <- function(object) {
   print(object)
   invisible(object)
 }
-
-

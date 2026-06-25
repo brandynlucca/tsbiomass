@@ -221,6 +221,7 @@ policy_simulator_anchor_config <- function(object,
 #'
 #' @return An updated [PolicySimulator] object.
 #' @name simulate.PolicySimulator
+#' @export
 S7::method(simulate_generic, PolicySimulator) <- function(object,
                                                           sensitivity_specs = NULL,
                                                           baseline_obj = NULL,
@@ -507,5 +508,4 @@ S7::method(plot_generic, PolicySimulator) <- .plot_policy_simulator
 `plot.tsbiomass::PolicySimulator` <- function(x, y = NULL, ...) {
   .plot_policy_simulator(x, y, ...)
 }
-
 

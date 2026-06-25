@@ -2436,7 +2436,9 @@ build_anchor_specific_ts_width_curve <- function(ts_rows,
 
 select_ts_calibration_curve <- function(ts_calibration,
                                         row_now,
-                                        target_u = seq(0, 1, length.out = 400L),
+                                        target_u = NULL,
+                                        min_u = NULL,
+                                        min_avg_scores_per_u = NULL,
                                         min_anchor_neighbors = 10L) {
   # Restrict the calibration pool to the selected policy and branch, then fit
   # one locality-conditioned residual-scale model on that full pool. The
@@ -2469,6 +2471,20 @@ select_ts_calibration_curve <- function(ts_calibration,
   if (nrow(pool_now) == 0 || dplyr::n_distinct(pool_now$anchor_model_id) < 2L) {
     return(tibble::tibble())
   }
+  legacy_grid <- is.null(target_u) && (!is.null(min_u) || !is.null(min_avg_scores_per_u))
+  if (legacy_grid) {
+    curve_now <- collapse_local_ts_calibration_pool(
+      pool_now = pool_now,
+      row_now = row_now,
+      min_u = min_u %||% 1L,
+      min_avg_scores_per_u = min_avg_scores_per_u %||% 1,
+      min_anchor_neighbors = min_anchor_neighbors
+    )
+    if (nrow(curve_now) > 0) {
+      return(curve_now)
+    }
+  }
+  target_u <- target_u %||% seq(0, 1, length.out = 400L)
   curve_now <- build_anchor_specific_ts_width_curve(
     ts_rows = pool_now,
     row_now = row_now,
@@ -2479,6 +2495,114 @@ select_ts_calibration_curve <- function(ts_calibration,
   }
 
   curve_now
+}
+
+collapse_local_ts_calibration_pool <- function(pool_now,
+                                               row_now,
+                                               min_u = 1L,
+                                               min_avg_scores_per_u = 1,
+                                               min_anchor_neighbors = 10L) {
+  pool_now <- tibble::as_tibble(pool_now)
+  row_now <- tibble::as_tibble(row_now)
+  if (!all(c("anchor_model_id", "u", "ts_error", "log_sigma_residual") %in% names(pool_now))) {
+    return(tibble::tibble())
+  }
+  target_distance <- suppressWarnings(as.numeric(
+    row_now$anchor_selection_local_distance[[1]] %||%
+      row_now$local_min_combined_distance[[1]] %||%
+      row_now$local_weighted_mean_combined_distance[[1]] %||%
+      NA_real_
+  ))
+  if (is.finite(target_distance) && "local_min_combined_distance" %in% names(pool_now)) {
+    min_anchor_neighbors <- suppressWarnings(as.integer(min_anchor_neighbors %||% 10L))
+    if (!is.finite(min_anchor_neighbors) || min_anchor_neighbors < 1L) {
+      min_anchor_neighbors <- 1L
+    }
+    anchor_locality <- pool_now |>
+      dplyr::mutate(
+        anchor_model_id = as.character(anchor_model_id),
+        .local_distance = suppressWarnings(as.numeric(local_min_combined_distance))
+      ) |>
+      dplyr::filter(!is.na(anchor_model_id), nzchar(anchor_model_id), is.finite(.local_distance)) |>
+      dplyr::group_by(anchor_model_id) |>
+      dplyr::summarise(.local_distance = stats::median(.local_distance, na.rm = TRUE), .groups = "drop") |>
+      dplyr::arrange(abs(.local_distance - target_distance), anchor_model_id)
+    keep_ids <- head(anchor_locality$anchor_model_id, min_anchor_neighbors)
+    if (length(keep_ids) > 0) {
+      pool_now <- pool_now |>
+        dplyr::filter(as.character(anchor_model_id) %in% keep_ids)
+    }
+  }
+  min_u <- suppressWarnings(as.integer(min_u %||% 1L))
+  min_avg_scores_per_u <- suppressWarnings(as.numeric(min_avg_scores_per_u %||% 1))
+  if (!is.finite(min_u) || min_u < 1L) {
+    min_u <- 1L
+  }
+  if (!is.finite(min_avg_scores_per_u) || min_avg_scores_per_u < 1) {
+    min_avg_scores_per_u <- 1
+  }
+  curve_now <- pool_now |>
+    dplyr::mutate(
+      anchor_model_id = as.character(anchor_model_id),
+      u = suppressWarnings(as.numeric(u)),
+      ts_error = suppressWarnings(as.numeric(ts_error)),
+      log_sigma_residual = suppressWarnings(as.numeric(log_sigma_residual))
+    ) |>
+    dplyr::filter(
+      !is.na(anchor_model_id),
+      nzchar(anchor_model_id),
+      is.finite(u),
+      is.finite(ts_error),
+      is.finite(log_sigma_residual)
+    ) |>
+    dplyr::group_by(u) |>
+    dplyr::summarise(
+      n = dplyr::n(),
+      ts_anchor_n = dplyr::n_distinct(anchor_model_id),
+      ts_score_n = dplyr::n(),
+      sigma_anchor_n = dplyr::n_distinct(anchor_model_id),
+      sigma_score_n = dplyr::n(),
+      median_ts_error = stats::median(ts_error, na.rm = TRUE),
+      q10_ts_error = stats::quantile(ts_error, 0.10, na.rm = TRUE, names = FALSE, type = 8),
+      q90_ts_error = stats::quantile(ts_error, 0.90, na.rm = TRUE, names = FALSE, type = 8),
+      q05_ts_error = stats::quantile(ts_error, 0.05, na.rm = TRUE, names = FALSE, type = 8),
+      q95_ts_error = stats::quantile(ts_error, 0.95, na.rm = TRUE, names = FALSE, type = 8),
+      q025_ts_error = stats::quantile(ts_error, 0.025, na.rm = TRUE, names = FALSE, type = 8),
+      q975_ts_error = stats::quantile(ts_error, 0.975, na.rm = TRUE, names = FALSE, type = 8),
+      q005_ts_error = stats::quantile(ts_error, 0.005, na.rm = TRUE, names = FALSE, type = 8),
+      q995_ts_error = stats::quantile(ts_error, 0.995, na.rm = TRUE, names = FALSE, type = 8),
+      q80_ts_abs_dev = stats::quantile(abs(ts_error - stats::median(ts_error, na.rm = TRUE)), 0.80, na.rm = TRUE, names = FALSE, type = 8),
+      q90_ts_abs_dev = stats::quantile(abs(ts_error - stats::median(ts_error, na.rm = TRUE)), 0.90, na.rm = TRUE, names = FALSE, type = 8),
+      q95_ts_abs_dev = stats::quantile(abs(ts_error - stats::median(ts_error, na.rm = TRUE)), 0.95, na.rm = TRUE, names = FALSE, type = 8),
+      q99_ts_abs_dev = stats::quantile(abs(ts_error - stats::median(ts_error, na.rm = TRUE)), 0.99, na.rm = TRUE, names = FALSE, type = 8),
+      median_log_sigma_residual = stats::median(log_sigma_residual, na.rm = TRUE),
+      q80_log_sigma_abs_dev = stats::quantile(abs(log_sigma_residual), 0.80, na.rm = TRUE, names = FALSE, type = 8),
+      q90_log_sigma_abs_dev = stats::quantile(abs(log_sigma_residual), 0.90, na.rm = TRUE, names = FALSE, type = 8),
+      q95_log_sigma_abs_dev = stats::quantile(abs(log_sigma_residual), 0.95, na.rm = TRUE, names = FALSE, type = 8),
+      q99_log_sigma_abs_dev = stats::quantile(abs(log_sigma_residual), 0.99, na.rm = TRUE, names = FALSE, type = 8),
+      q10_log_sigma_residual = stats::quantile(log_sigma_residual, 0.10, na.rm = TRUE, names = FALSE, type = 8),
+      q90_log_sigma_residual = stats::quantile(log_sigma_residual, 0.90, na.rm = TRUE, names = FALSE, type = 8),
+      q05_log_sigma_residual = stats::quantile(log_sigma_residual, 0.05, na.rm = TRUE, names = FALSE, type = 8),
+      q95_log_sigma_residual = stats::quantile(log_sigma_residual, 0.95, na.rm = TRUE, names = FALSE, type = 8),
+      q025_log_sigma_residual = stats::quantile(log_sigma_residual, 0.025, na.rm = TRUE, names = FALSE, type = 8),
+      q975_log_sigma_residual = stats::quantile(log_sigma_residual, 0.975, na.rm = TRUE, names = FALSE, type = 8),
+      q005_log_sigma_residual = stats::quantile(log_sigma_residual, 0.005, na.rm = TRUE, names = FALSE, type = 8),
+      q995_log_sigma_residual = stats::quantile(log_sigma_residual, 0.995, na.rm = TRUE, names = FALSE, type = 8),
+      .groups = "drop"
+    ) |>
+    dplyr::filter(n >= min_avg_scores_per_u) |>
+    dplyr::arrange(u)
+  if (nrow(curve_now) < min_u) {
+    return(tibble::tibble())
+  }
+  curve_now |>
+    dplyr::mutate(
+      q80_ts_abs_raw = q80_ts_abs_dev,
+      q90_ts_abs_raw = q90_ts_abs_dev,
+      q95_ts_abs_raw = q95_ts_abs_dev,
+      q99_ts_abs_raw = q99_ts_abs_dev,
+      log_sigma_scale_fit = q90_log_sigma_abs_dev
+    )
 }
 
 anchor_local_log_sigma_calibration <- function(row_now,
@@ -4802,5 +4926,4 @@ run_anchor_conformal <- function(policy_perf,
 
   result
 }
-
 

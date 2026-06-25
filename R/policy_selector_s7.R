@@ -1383,6 +1383,7 @@ methods::setMethod(
 #' @return Invisibly returns `x`.
 #'
 #' @keywords internal
+#' @export
 S7::method(print_generic, PolicySelector) <- function(x, ...) {
   benchmark_rows <- nrow(tibble::as_tibble((x@benchmark)$policy_perf %||% tibble::tibble()))
   uncertainty_rows <- nrow(tibble::as_tibble((x@uncertainty)$conf_cal %||% tibble::tibble()))
@@ -1558,5 +1559,4 @@ S7::method(plot_generic, PolicyPredictions) <- .plot_policy_predictions
 `plot.tsbiomass::PolicyPredictions` <- function(x, y = NULL, ...) {
   .plot_policy_predictions(x, y, ...)
 }
-
 

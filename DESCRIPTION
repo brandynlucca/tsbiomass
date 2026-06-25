@@ -16,12 +16,14 @@ Imports:
     ape,
     cluster,
     dplyr,
+    forcats,
     fs,
     ggplot2,
     glmnet,
     ggrepel,
     janitor,
     jsonlite,
+    methods,
     mgcv,
     nnls,
     purrr,
@@ -30,6 +32,7 @@ Imports:
     ranger,
     rpart,
     rotl,
+    scales,
     scico,
     stringr,
     tibble,
@@ -40,6 +43,7 @@ Imports:
     yaml
 Suggests:
     knitr,
+    pkgload,
     rmarkdown,
     testthat (>= 3.0.0)
 VignetteBuilder: knitr

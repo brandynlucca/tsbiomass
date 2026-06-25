@@ -27,7 +27,6 @@
 #'   similarity = list(
 #'     alpha = 0.8,
 #'     kernel_scale = 4,
-#'     key_metadata_max = 0.25,
 #'     core_weight_cutoff = 0.8,
 #'     conformal_alpha = 0.1,
 #'     species_traits = list(genus = 2, family = 1),
@@ -37,6 +36,9 @@
 #'       depth = list(mode = "overlap", weight = 3, min = 0.25),
 #'       frequency = list(mode = "overlap", weight = 2, gap = 60)
 #'     )
+#'   ),
+#'   admissibility = list(
+#'     key_metadata_max = 0.25
 #'   ),
 #'   policies = list(
 #'     active = "all_models_weighted"
@@ -240,7 +242,6 @@ S7::S4_register(Configurer)
 #'   similarity = list(
 #'     alpha = 0.8,
 #'     kernel_scale = 4,
-#'     key_metadata_max = 0.25,
 #'     core_weight_cutoff = 0.8,
 #'     conformal_alpha = 0.1,
 #'     species_traits = list(genus = 2, family = 1),
@@ -250,6 +251,9 @@ S7::S4_register(Configurer)
 #'       depth = list(mode = "overlap", weight = 3, min = 0.25),
 #'       frequency = list(mode = "overlap", weight = 2, gap = 60)
 #'     )
+#'   ),
+#'   admissibility = list(
+#'     key_metadata_max = 0.25
 #'   ),
 #'   policies = list(
 #'     active = "all_models_weighted"
@@ -470,5 +474,4 @@ as_configurer <- function(config,
     policy_path = policy_path
   )
 }
-
 
