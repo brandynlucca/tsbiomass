@@ -500,7 +500,10 @@ test_that("Scorecard and Configurer show compact console summaries", {
   expect_true(any(grepl("selected_rows:", scorecard_output, fixed = TRUE)))
   expect_false(any(grepl("@selected", scorecard_output, fixed = TRUE)))
 
-  cfg_path <- file.path(pkgload::pkg_path(), "inst", "templates", "swfscfish_config.yaml")
+  cfg_path <- system.file("templates", "swfscfish_config.yaml", package = "tsbiomass")
+  if (!nzchar(cfg_path)) {
+    cfg_path <- file.path(pkgload::pkg_path(), "inst", "templates", "swfscfish_config.yaml")
+  }
   cfg <- as_configurer(read_config(
     cfg_path,
     base_dir = dirname(cfg_path)
@@ -510,5 +513,4 @@ test_that("Scorecard and Configurer show compact console summaries", {
   expect_true(any(grepl("species_traits:", cfg_output, fixed = TRUE)))
   expect_false(any(grepl("@data", cfg_output, fixed = TRUE)))
 })
-
 

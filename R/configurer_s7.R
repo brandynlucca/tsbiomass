@@ -32,16 +32,21 @@
 #'     species_traits = list(genus = 2, family = 1),
 #'     study_traits = list(frequency = 1, fao_area = 1),
 #'     coherence = list(
-#'       length = list(mode = "overlap", weight = 2, min = 0.25),
-#'       depth = list(mode = "overlap", weight = 3, min = 0.25),
+#'       length = list(mode = "overlap", weight = 2),
+#'       depth = list(mode = "overlap", weight = 3),
 #'       frequency = list(mode = "overlap", weight = 2, gap = 60)
 #'     )
 #'   ),
 #'   admissibility = list(
-#'     key_metadata_max = 0.25
+#'     key_metadata_max = 0.25,
+#'     coherence = list(
+#'       length = list(mode = "overlap", min = 0.25),
+#'       depth = list(mode = "overlap", min = 0.25),
+#'       frequency = list(mode = "overlap")
+#'     )
 #'   ),
 #'   policies = list(
-#'     active = "all_models_weighted"
+#'     active = "same_species_closest"
 #'   ),
 #'   metalearner = list(
 #'     selection_method = "glm"
@@ -54,6 +59,8 @@
 #' }
 #'
 #' @name Configurer-class
+#' @aliases Configurer
+#' @usage NULL
 NULL
 
 validate_extra_config_sections <- function(config) {
@@ -182,7 +189,6 @@ normalize_explicit_config <- function(config,
 }
 
 #' @export
-#' @rdname Configurer-class
 Configurer <- S7::new_class(
   "Configurer",
   properties = list(
@@ -247,16 +253,21 @@ S7::S4_register(Configurer)
 #'     species_traits = list(genus = 2, family = 1),
 #'     study_traits = list(frequency = 1, fao_area = 1),
 #'     coherence = list(
-#'       length = list(mode = "overlap", weight = 2, min = 0.25),
-#'       depth = list(mode = "overlap", weight = 3, min = 0.25),
+#'       length = list(mode = "overlap", weight = 2),
+#'       depth = list(mode = "overlap", weight = 3),
 #'       frequency = list(mode = "overlap", weight = 2, gap = 60)
 #'     )
 #'   ),
 #'   admissibility = list(
-#'     key_metadata_max = 0.25
+#'     key_metadata_max = 0.25,
+#'     coherence = list(
+#'       length = list(mode = "overlap", min = 0.25),
+#'       depth = list(mode = "overlap", min = 0.25),
+#'       frequency = list(mode = "overlap")
+#'     )
 #'   ),
 #'   policies = list(
-#'     active = "all_models_weighted"
+#'     active = "same_species_closest"
 #'   ),
 #'   metalearner = list(
 #'     selection_method = "glm"
@@ -411,6 +422,7 @@ configurer_console_summary <- function(x) {
 #' Print a `Configurer`
 #'
 #' @name print.Configurer
+#' @usage NULL
 #'
 #' @param x A [Configurer] object.
 #' @param ... Unused.
@@ -425,6 +437,7 @@ S7::method(print_generic, Configurer) <- function(x, ...) {
 #' Show a `Configurer`
 #'
 #' @name show.Configurer
+#' @usage NULL
 #'
 #' @param object A [Configurer] object.
 #'
@@ -474,4 +487,3 @@ as_configurer <- function(config,
     policy_path = policy_path
   )
 }
-

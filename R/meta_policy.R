@@ -851,7 +851,7 @@ fit_meta_policy_base_safely <- function(training_data,
 #' learner on the full training split and predicts on the test split one at a
 #' time, accumulating a weighted average before freeing each model. This keeps
 #' at most one fitted base learner in memory per worker at any instant, avoiding
-#' the ~11× model accumulation that causes the RAM spike during parallel
+#' the ~11x model accumulation that causes the RAM spike during parallel
 #' crossfit.
 #'
 #' @param train_data Model-ready training split for this fold.
@@ -1026,7 +1026,7 @@ fit_meta_policy_super_learner <- function(training_data,
   methods <- available_meta_policy_super_methods(super_methods, method_settings = method_settings)
   n_methods <- length(methods)
 
-  # Strip context/anchor columns before inner-fold loop — only feature_cols +
+  # Strip context/anchor columns before inner-fold loop - only feature_cols +
   # .outcome + .split_group are needed, and every train_idx/valid_idx subset
   # copies the full data frame.
   keep_cols <- unique(c(feature_cols, ".outcome", ".split_group"))
@@ -1170,6 +1170,8 @@ fit_meta_policy_super_learner <- function(training_data,
 #' @param policy_perf Policy-performance table.
 #' @param outcome_col Outcome column to model.
 #' @param feature_cols Optional feature columns. `NULL` uses defaults.
+#' @param outcome_clip_quantile Optional upper quantile used to clip extreme
+#'   outcomes during training-data preparation.
 #'
 #' @return A tibble with model-ready features and `.outcome`.
 #'
@@ -1679,6 +1681,8 @@ predict_meta_policy_score <- function(object,
 #' @param seed Integer seed.
 #' @param feature_cols Optional feature columns.
 #' @param outcome_col Outcome column to model.
+#' @param outcome_clip_quantile Optional upper quantile used to clip extreme
+#'   outcomes before fitting.
 #' @param outcome_transform Outcome transform used during training.
 #' @param lambda_rule Regularization rule for glmnet-based learners.
 #' @param alpha Optional elastic-net mixing parameter.
@@ -1794,7 +1798,7 @@ crossfit_meta_policy_learner <- function(policy_perf,
 
   # run_fold_split receives a pre-sliced list(train, test, fold_id). Using the
   # streaming path for super_learner avoids accumulating all 11 base learner
-  # model objects simultaneously — only one model at a time is held in RAM.
+  # model objects simultaneously - only one model at a time is held in RAM.
   run_fold_split <- function(fold_split) {
     f     <- fold_split$fold_id
     train <- fold_split$train
@@ -1802,7 +1806,11 @@ crossfit_meta_policy_learner <- function(policy_perf,
     if (nrow(train) == 0 || nrow(test) == 0) return(tibble::tibble())
     outer_seed <- if (is.null(seed)) NULL else as.integer(seed) + f
     if (is_super) {
-      preds <- tsbiomass:::stream_outer_fold_super_learner_predictions(
+      stream_outer_fold_super_learner_predictions <- getFromNamespace(
+        "stream_outer_fold_super_learner_predictions",
+        "tsbiomass"
+      )
+      preds <- stream_outer_fold_super_learner_predictions(
         train_data        = train,
         test_data         = test,
         feature_cols      = feature_cols,
@@ -1816,7 +1824,9 @@ crossfit_meta_policy_learner <- function(policy_perf,
         progress          = FALSE
       )
     } else {
-      learner <- tsbiomass:::fit_meta_policy_learner(
+      fit_meta_policy_learner <- getFromNamespace("fit_meta_policy_learner", "tsbiomass")
+      predict_meta_policy_score <- getFromNamespace("predict_meta_policy_score", "tsbiomass")
+      learner <- fit_meta_policy_learner(
         training_data     = train,
         method            = method,
         feature_cols      = feature_cols,
@@ -1829,16 +1839,16 @@ crossfit_meta_policy_learner <- function(policy_perf,
         seed              = outer_seed,
         method_settings   = method_settings
       )
-      preds <- tsbiomass:::predict_meta_policy_score(learner, test)
+      preds <- predict_meta_policy_score(learner, test)
     }
     preds |> dplyr::mutate(fold_id = f)
   }
 
   # Replace the closure's captured environment with a minimal set of scalars.
-  # Without this, run_fold_split's environment includes fold_splits (10 × data_all
+  # Without this, run_fold_split's environment includes fold_splits (10 x data_all
   # in size) and that entire object is serialised into every PSOCK worker when
   # clusterExport sends the function. Workers receive their fold_split as an
-  # argument from parLapplyLB — they do not need the full list in their namespace.
+  # argument from parLapplyLB - they do not need the full list in their namespace.
   environment(run_fold_split) <- list2env(
     list(
       is_super          = is_super,
@@ -1961,5 +1971,3 @@ summarize_meta_policy_predictions <- function(predictions,
   }
   out
 }
-
-

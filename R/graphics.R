@@ -313,6 +313,8 @@ plot_top_models <- function(top_tbl,
 #' @param curve_tbl TS summary curve table.
 #' @param anchor_label Anchor label used in the title.
 #' @param policy_label Selected policy label used in the subtitle.
+#' @param show_top_candidate Logical scalar controlling whether the top
+#'   candidate curve is drawn when available.
 #'
 #' @return A ggplot object.
 #'
@@ -509,6 +511,7 @@ plot_slope_support <- function(support_tbl) {
 #' @param reference_col Reference-flag column.
 #' @param species_col Species-label column.
 #' @param common_col Optional common-name column.
+#' @param colorbar_name Legend title for the cluster color scale.
 #'
 #' @return A ggplot object.
 #'
@@ -2649,7 +2652,7 @@ plot_anchor_summary <- function(integrated_tbl,
 
 #' Plot FAO study distribution map
 #'
-#' @param source_data Model metadata table.
+#' @param model_data Model metadata table.
 #' @param count_type The type of count to distribute across FAO major regions.
 #' This can either be 'studies' for the number of studies, or 'models' for the
 #' number of models.
@@ -2814,6 +2817,8 @@ plot_area_distribution <- function(model_data,
 #'
 #' @param curve_tbl Combined per-reference TS ribbon table.
 #' @param reference_col Facet-label column.
+#' @param show_top_candidate Logical scalar controlling whether the top
+#'   candidate curve is drawn when available.
 #'
 #' @return A ggplot object.
 #'
@@ -4307,6 +4312,4 @@ plot_biological_leverage <- function(profile_tbl,
     ) +
     ggplot2::theme_minimal(base_size = 12)
 }
-
-
 

@@ -309,6 +309,7 @@ recommendation_branch_filter <- function(rows,
 #' @keywords internal
 recommendation_candidate_pool <- function(admissible_rows,
                                           all_rows,
+                                          policy_def,
                                           policy_params = list(),
                                           ordination_info = NULL) {
   pool <- if (isTRUE(policy_def$requires_admissible)) admissible_rows else all_rows
@@ -439,10 +440,10 @@ recommendation_overlap_support_summary <- function(rows,
 
 #' Summarize donor support for one recommendation policy
 #'
-#' @param rows Donor rows retained for the policy.
+#' @param rows Donor equation rows.
 #' @param policy_def One-row recommendation policy definition.
 #' @param equation_branch Standardized equation branch label.
-#' @param eq One-row aggregated policy equation from
+#' @param pred One-row aggregated policy equation from
 #'   [recommendation_aggregate_equation()].
 #' @param anchor_pdf Anchor length-density support from the admissibility step.
 #' @param config Optional similarity/policy config used to define which overlap
@@ -609,6 +610,7 @@ evaluate_recommendation_policies <- function(eval_obj,
       donors <- recommendation_candidate_pool(
         admissible_rows = branch_adm,
         all_rows = branch_all,
+        policy_def = policy_def,
         policy_params = policy_params,
         ordination_info = ordination_info
       )
@@ -709,7 +711,7 @@ recommendation_support_component <- function(x,
 #'
 #' @param tbl Recommendation policy rows.
 #'
-#' @return Numeric vector in approximately `[0, 1]`; larger values indicate
+#' @return Numeric vector approximately between 0 and 1; larger values indicate
 #'   stronger transfer support.
 #' @export
 recommendation_local_support_score <- function(tbl) {
@@ -1339,6 +1341,7 @@ recommend_ts_model <- function(target_species,
       donors <- recommendation_candidate_pool(
         admissible_rows = branch_adm,
         all_rows = branch_all,
+        policy_def = policy_def,
         policy_params = list(),
         ordination_info = NULL
       )
@@ -1553,5 +1556,3 @@ summarize_recommendation_diagnostics <- function(recommendation) {
       dplyr::arrange(best_rank)
   )
 }
-
-

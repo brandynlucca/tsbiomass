@@ -57,6 +57,12 @@ post_selection_support_score <- function(tbl) {
     col_or_na("n_valid_models"),
     col_or_na("n_models")
   )
+  if (any(is.finite(effective_support))) {
+    score <- dplyr::percent_rank(log1p(effective_support))
+    score[!is.finite(score)] <- NA_real_
+    return(score)
+  }
+
   n_valid <- dplyr::coalesce(
     col_or_na("n_valid_models"),
     col_or_na("n_models")
@@ -190,5 +196,4 @@ assign_post_selection_support_bins <- function(tbl,
   tbl$post_selection_support_bin <- bin
   label_post_selection_support_bins(tbl, labels = labels, n_bins = n_bins)
 }
-
 

@@ -4,6 +4,14 @@
 #' policies have nearly identical benchmark error.
 #'
 #' @param policy Character vector of policy names.
+#' @param candidate_pool Optional candidate-pool labels used to refine
+#'   specificity ties.
+#' @param aggregation_method Optional aggregation-method labels used to refine
+#'   specificity ties.
+#' @param policy_family Optional policy-family labels used to refine
+#'   specificity ties.
+#' @param equation_branch_filter Optional equation-branch filters used to
+#'   refine specificity ties.
 #'
 #' @return Integer vector.
 #'
@@ -445,8 +453,8 @@ first_non_missing_character <- function(x) {
 #' operational interval combines the conformal log-radius (`q_col`) and the
 #' donor structural spread (`local_structural_q_abs_log`) in quadrature:
 #' `q_total = sqrt(q_conformal^2 + (weight * q_structural)^2)`.
-#' Structural spread — the 90th-percentile weighted deviation of donor
-#' log-backscatter values from the policy prediction — penalises strategies
+#' Structural spread - the 90th-percentile weighted deviation of donor
+#' log-backscatter values from the policy prediction - penalises strategies
 #' that rely on heterogeneous donor pools (e.g. ocean-basin means), ensuring
 #' that narrower, more homogeneous donor sets are preferred when their
 #' conformal error is similar.
@@ -555,8 +563,13 @@ add_policy_intervals <- function(policy_tbl,
 #'   interval width after empirical-score screening.
 #' @param u_tol_abs Absolute log-width tolerance around the minimum calibrated
 #'   interval width after empirical-score screening.
+#' @param score_tol_abs Optional absolute benchmark-score tolerance.
+#' @param one_se_multiplier Multiplier applied to one-standard-error selection
+#'   thresholds.
 #' @param local_distance_tolerance Absolute tolerance for retaining local
 #'   support-distance ties after empirical-score and uncertainty screening.
+#' @param uncertainty_relative_tolerance Legacy alias for `u_tol_rel`.
+#' @param uncertainty_absolute_tolerance Legacy alias for `u_tol_abs`.
 #'
 #' @return A tibble of selected policy rows.
 #'
@@ -988,10 +1001,15 @@ species_performance <- function(species_performance_table) {
 #' comparison table using a one-standard-error rule plus bootstrap stability.
 #'
 #' @param species_performance_table Species-block benchmark table.
-#' @param tolerance Optional tolerance value retained in the output for
-#'   reference.
+#' @param candidate_models Optional candidate-model metadata used to enrich
+#'   policy labels.
+#' @param one_se_multiplier Multiplier applied to one-standard-error
+#'   thresholds.
+#' @param equivalence_tolerance Practical equivalence tolerance used by paired
+#'   comparisons.
 #' @param n_boot Number of bootstrap resamples across species.
 #' @param seed Integer bootstrap seed.
+#' @param progress Logical scalar controlling stage messages.
 #'
 #' @return A tibble.
 #'
@@ -1226,6 +1244,7 @@ build_selection_table <- function(species_performance_table,
 #'   difference.
 #' @param n_boot Number of paired bootstrap resamples across species.
 #' @param seed Integer bootstrap seed.
+#' @param progress Logical scalar controlling stage messages.
 #'
 #' @return A list with `pairs` and `best_flags`.
 #'
@@ -1612,10 +1631,13 @@ build_equivalence_sets <- function(select_ref,
 #' and equivalence-class table from the species-block benchmark results.
 #'
 #' @param species_performance_table Species-block benchmark table.
+#' @param candidate_models Optional candidate-model metadata used to enrich
+#'   policy labels.
 #' @param config Optional JSON path or list with `tolerance`, `n_boot`, and
 #'   `seed`. A [Configurer] object is also accepted.
 #' @param cache_path Optional `.rds` cache path.
 #' @param refresh Logical scalar. If `TRUE`, ignore any existing cache.
+#' @param progress Logical scalar controlling stage messages.
 #'
 #' @return A list containing the selection table, pairwise equivalence table,
 #'   equivalence-class table, and merged final selection table.

@@ -1304,6 +1304,8 @@ replace_explicit_trait_maps <- function(merged_cfg,
 #'   trait names.
 #' @param policy_path Optional policy-registry path used to derive one default
 #'   active policy.
+#' @param use_canonical_names Logical scalar controlling whether canonical
+#'   config names are used where legacy aliases are otherwise accepted.
 #'
 #' @return A config list.
 #'
@@ -2928,6 +2930,5 @@ validate_weight_map <- function(weight_map,
     )
   }
 }
-
 
 

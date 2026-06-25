@@ -22,10 +22,11 @@
 #' }
 #'
 #' @name Alchemist-class
+#' @usage NULL
 #' @aliases Alchemist
 NULL
 
-# ── Internal predicates ────────────────────────────────────────────────────────
+# - Internal predicates -
 
 .is_alchemist <- function(x) {
   inherits(x, "S7_object") &&
@@ -39,7 +40,7 @@ NULL
     isTRUE(tryCatch(S7::S7_inherits(x, Candidates), error = function(e) FALSE))
 }
 
-# ── Config normalization ───────────────────────────────────────────────────────
+# - Config normalization -
 
 alchemist_config_from_config <- function(source) {
   cfg <- if (.is_candidates_obj(source)) {
@@ -124,9 +125,8 @@ normalize_alchemist_config <- function(config, candidates = NULL) {
   config
 }
 
-# ── Class definition ───────────────────────────────────────────────────────────
+# - Class definition -
 
-#' @rdname Alchemist-class
 #' @export
 Alchemist <- S7::new_class(
   "Alchemist",
@@ -160,7 +160,7 @@ Alchemist <- S7::new_class(
 
 S7::S4_register(Alchemist)
 
-# ── Rebuild helpers ────────────────────────────────────────────────────────────
+# - Rebuild helpers -
 
 alchemist_rebuild <- function(object,
                               candidates      = object@candidates,
@@ -181,7 +181,7 @@ alchemist_rebuild <- function(object,
   )
 }
 
-# ── Constructor ────────────────────────────────────────────────────────────────
+# - Constructor -
 
 #' Build an Alchemist from a Candidates object
 #'
@@ -223,10 +223,10 @@ as_alchemist <- function(candidates, config = NULL, ...) {
   )
 }
 
-# ── Trait normalization and set-expansion helpers ─────────────────────────────
+# - Trait normalization and set-expansion helpers -
 
 # Map raw ocean_basin strings to canonical lowercase basin codes.
-# "North Atlantic Ocean", "Atlantic Ocean", "atlantic" all → "atlantic".
+# "North Atlantic Ocean", "Atlantic Ocean", "atlantic" all map to "atlantic".
 # Values containing no recognized basin keyword become NA.
 # Multiple basins are preserved as ";"-joined codes ("atlantic;pacific").
 normalize_alchemist_ocean_basin <- function(x) {
@@ -283,7 +283,7 @@ expand_multival_col <- function(x, col_fn, tr) {
   stats::setNames(mats, paste0(".dist_", tr, "__", gsub("[^A-Za-z0-9]", "_", all_vals)))
 }
 
-# ── Pair-level training data ───────────────────────────────────────────────────
+# - Pair-level training data -
 
 #' Normalized Gower distance for one trait column
 #'
@@ -381,13 +381,13 @@ alchemist_trait_names <- function(traits, models_df) {
 #'   actual column names in `models_df` (e.g. `c(family="family",
 #'   genus="genus", species="species_name")`). Ordered broadest-to-specific.
 #'
-#' @return Numeric n × n matrix, values in [0, 1], or `NULL` on total failure.
+#' @return Numeric n x n matrix, values between 0 and 1, or `NULL` on total failure.
 #'
 #' @keywords internal
 tax_dist_mat <- function(models_df, tax_col_map) {
   n <- nrow(models_df)
 
-  # ── Primary: Tree-of-Life phylogenetic distances ─────────────────────────────
+  # - Primary: Tree-of-Life phylogenetic distances -
   species_col <- tax_col_map[["species"]] %||% tax_col_map[["species_name"]] %||% NULL
   genus_col   <- tax_col_map[["genus"]]   %||% NULL
 
@@ -403,7 +403,7 @@ tax_dist_mat <- function(models_df, tax_col_map) {
     if (!is.null(phylo_mat)) return(phylo_mat)
   }
 
-  # ── Fallback: rank-based distance ────────────────────────────────────────────
+  # - Fallback: rank-based distance -
   rank_cols <- unname(tax_col_map[tax_col_map %in% names(models_df)])
   n_ranks   <- length(rank_cols)
   if (n_ranks == 0L) return(NULL)
@@ -443,10 +443,10 @@ coherence_mats <- function(models_df, coherence_cfg) {
   freq_mode  <- as.character(coherence_cfg$frequency$mode %||% "none")
 
   # source controls which column(s) back each interval dimension:
-  #   "best"    — study columns if present, species columns as fallback (default)
-  #   "study"   — study-level sampling range only
-  #   "species" — species-level biological range only
-  #   "both"    — compute independently for both; returns two keyed matrices
+  #   "best"    - study columns if present, species columns as fallback (default)
+  #   "study"   - study-level sampling range only
+  #   "species" - species-level biological range only
+  #   "both"    - compute independently for both; returns two keyed matrices
   #               (e.g. length_coherence_study + length_coherence_species)
   len_source <- as.character(coherence_cfg$length$source %||% "best")
   dep_source <- as.character(coherence_cfg$depth$source  %||% "best")
@@ -647,7 +647,7 @@ build_pair_data <- function(models_df,
     )
   }
 
-  # ── Optional phylogenetic/taxonomic distance ──────────────────────────────────
+  # - Optional phylogenetic/taxonomic distance -
   # When enabled, recognized taxonomic rank columns (family, genus, species,
   # etc.) are REPLACED by a single .dist_tax feature. The primary method is the
   # rotl/Tree of Life cophenetic distance; rank-based scoring is the fallback.
@@ -671,7 +671,7 @@ build_pair_data <- function(models_df,
       tax_mat <- tax_dist_mat(models_df, tax_col_map)
       if (!is.null(tax_mat)) {
         trait_mats[[".dist_tax"]] <- tax_mat
-        # Remove individual taxonomic Gower features — they are now redundant
+        # Remove individual taxonomic Gower features - they are now redundant
         drop_cols <- paste0(".dist_", unname(tax_col_map))
         trait_mats <- trait_mats[setdiff(names(trait_mats), drop_cols)]
         report_progress(
@@ -686,7 +686,7 @@ build_pair_data <- function(models_df,
     }
   }
 
-  # ── Coherence features ───────────────────────────────────────────────────────
+  # - Coherence features -
   if (!is.null(coherence_cfg) && length(coherence_cfg) > 0L) {
     report_progress(progress, "  [Alchemist] Computing coherence feature matrices...")
     coh_mats <- coherence_mats(models_df, coherence_cfg)
@@ -827,7 +827,7 @@ build_pair_data <- function(models_df,
   )
 }
 
-# ── Alchemist distance learner ────────────────────────────────────────────────
+# - Alchemist distance learner -
 
 #' Resolve and validate Alchemist base learner method names
 #'
@@ -873,7 +873,7 @@ resolve_learner_methods <- function(methods) {
 
 #' Build a numeric feature matrix from Alchemist training or prediction data
 #'
-#' All Gower distance features are numeric and bounded [0, 1]. Missing values
+#' All Gower distance features are numeric and bounded between 0 and 1. Missing values
 #' are imputed at 0.5 (the Gower midpoint for unknown comparisons).
 #'
 #' @param data Tibble or data frame containing at least the columns named by
@@ -1086,7 +1086,7 @@ predict_base_learner <- function(object, x_new) {
     stop("'object' must be a 'tsb_alchemist_base_learner'.", call. = FALSE)
   }
   df_new <- as.data.frame(x_new)
-  # Use getFromNamespace throughout to bypass S3 dispatch — on PSOCK workers
+  # Use getFromNamespace throughout to bypass S3 dispatch - on PSOCK workers
   # imported packages are loaded as namespaces but not attached, so
   # stats::predict cannot find their S3 methods via global dispatch.
   switch(
@@ -1330,7 +1330,7 @@ fit_super_learner <- function(training_data,
       report_progress(
         progress,
         "[Alchemist]   Method failed (excluded from ensemble): ", r$method,
-        if (!is.null(r$error)) paste0(" — ", r$error) else ""
+        if (!is.null(r$error)) paste0(" - ", r$error) else ""
       )
     }
   }
@@ -1556,7 +1556,7 @@ fit_mahalanobis <- function(training_data, feature_cols,
   )
 }
 
-# ── forge_distances ────────────────────────────────────────────────────────────
+# - forge_distances -
 
 S7::method(forge_distances, Alchemist) <- function(object,
                                                    progress     = NULL,
@@ -1661,7 +1661,7 @@ S7::method(forge_distances, Alchemist) <- function(object,
     )
   }
 
-  # Reconstruct N×N matrix: use OOF predictions for honest distance estimates
+  # Reconstruct NxN matrix: use OOF predictions for honest distance estimates
   report_progress(
     progress,
     "[Alchemist] Stage 3/4: Reconstructing ", n_models, "x", n_models,
@@ -1740,20 +1740,20 @@ S7::method(forge_distances, Alchemist) <- function(object,
   alchemist_rebuild(object, learner = sl_fit)
 }
 
-# ── distill_traits helpers ────────────────────────────────────────────────────
+# - distill_traits helpers -
 
 #' Evaluate kernel-weighted sigma RMSE from predicted pairwise distances
 #'
-#' Reconstructs an n×n distance matrix from (donor_idx, anchor_idx, dist_vec)
+#' Reconstructs an nxn distance matrix from (donor_idx, anchor_idx, dist_vec)
 #' triplets, then computes the log sigma RMSE of the kernel-weighted ensemble
-#' sigma prediction — the same objective used by [score_similarity_basis()] in
+#' sigma prediction - the same objective used by [score_similarity_basis()] in
 #' the similarity tuning step.
 #'
 #' @param anchor_idx Integer vector of anchor indices (column into sigma matrix).
 #' @param donor_idx Integer vector of donor indices (row into sigma matrix).
 #' @param dist_vec Numeric vector of predicted distances, aligned with the index
 #'   vectors.
-#' @param donor_sigma_mat n×n matrix; `[i, j]` = sigma of donor equation i
+#' @param donor_sigma_mat nxn matrix; `[i, j]` = sigma of donor equation i
 #'   evaluated at anchor j's length PDF.
 #' @param target_sigma Length-n numeric vector of each model's own sigma.
 #' @param scale Positive numeric kernel bandwidth. Distances are fed into
@@ -1805,7 +1805,7 @@ eval_sigma_rmse <- function(anchor_idx, donor_idx, dist_vec,
 #' @param anchor_idx Integer vector of anchor indices from `pair_data$.anchor_idx`.
 #' @param donor_idx Integer vector of donor indices from `pair_data$.donor_idx`.
 #' @param sl_fit A `"SuperLearner"` or `"Mahalanobis"` learner object.
-#' @param donor_sigma_mat n×n donor sigma matrix from [build_pair_data()].
+#' @param donor_sigma_mat nxn donor sigma matrix from [build_pair_data()].
 #' @param target_sigma Length-n target sigma vector.
 #' @param baseline_sigma_rmse Scalar baseline sigma RMSE with no feature zeroed.
 #' @param scale Kernel bandwidth passed to [eval_sigma_rmse()].
@@ -1863,7 +1863,7 @@ dropout_trait_group <- function(fcs, trait_name, pair_data, anchor_idx, donor_id
   )
 }
 
-# ── distill_traits ─────────────────────────────────────────────────────────────
+# - distill_traits -
 
 S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
                                                    workers = NULL, progress = NULL, ...) {
@@ -1878,7 +1878,7 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
   target_sigma    <- object@distance_matrix$target_sigma
   if (is.null(donor_sigma_mat) || is.null(target_sigma)) {
     stop(
-      "`donor_sigma_matrix` not found in distance_matrix — re-run `forge_distances()`.",
+      "`donor_sigma_matrix` not found in distance_matrix - re-run `forge_distances()`.",
       call. = FALSE
     )
   }
@@ -1971,7 +1971,8 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
   importance_rows <- if (!is.null(cl)) {
     parallel::parLapplyLB(cl, trait_names_ordered, fun = function(trait_name) {
       fcs <- trait_groups[[trait_name]]
-      tsbiomass:::dropout_trait_group(
+      dropout_trait_group <- getFromNamespace("dropout_trait_group", "tsbiomass")
+      dropout_trait_group(
         fcs                 = fcs,
         trait_name          = trait_name,
         pair_data           = pair_data,
@@ -2038,7 +2039,7 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
   )
 }
 
-# ── run_ordination dispatch ────────────────────────────────────────────────────
+# - run_ordination dispatch -
 
 #' @keywords internal
 .run_ordination_alchemist <- function(alchemist,
@@ -2094,10 +2095,10 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
   # Instead, add the per-model scalar columns that drive each configured
   # coherence dimension so they appear as continuous vectors in the ordination.
   # The set of columns depends on the `source` field in each coherence dimension:
-  #   "best"    — whichever of study/species is available (study preferred)
-  #   "study"   — study-level columns only
-  #   "species" — species-level columns only
-  #   "both"    — all available columns from both sources
+  #   "best"    - whichever of study/species is available (study preferred)
+  #   "study"   - study-level columns only
+  #   "species" - species-level columns only
+  #   "both"    - all available columns from both sources
   coherence_cfg    <- config$coherence %||% list()
   coh_cols_for_dim <- function(mode, source, study_cols, sp_cols) {
     if (identical(as.character(mode %||% "none"), "none")) return(character(0))
@@ -2196,7 +2197,7 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
   alchemist_rebuild(alchemist, ordination = ordination)
 }
 
-# ── screen_admissibility dispatch ──────────────────────────────────────────────
+# - screen_admissibility dispatch -
 
 #' @keywords internal
 .screen_admissibility_alchemist <- function(alchemist,
@@ -2242,7 +2243,7 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
   alchemist_rebuild(alchemist, admissibility = admissibility_result)
 }
 
-# ── as_selector ────────────────────────────────────────────────────────────────
+# - as_selector -
 
 #' Coerce a staged object to a PolicySelector
 #'
@@ -2293,7 +2294,7 @@ as_selector <- function(object, config = NULL, ...) {
   stop("'object' must be a `Candidates` or `Alchemist`.", call. = FALSE)
 }
 
-# ── print / show ───────────────────────────────────────────────────────────────
+# - print / show -
 
 S7::method(print_generic, Alchemist) <- function(x, ...) {
   cat("Alchemist\n")
@@ -2313,7 +2314,7 @@ S7::method(show_generic, Alchemist) <- function(object) {
   invisible(object)
 }
 
-# ── plot dispatch ──────────────────────────────────────────────────────────────
+# - plot dispatch -
 
 #' Plot an `Alchemist`
 #'

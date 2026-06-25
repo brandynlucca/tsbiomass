@@ -26,10 +26,10 @@
 #' }
 #'
 #' @name Conjurer-class
+#' @usage NULL
 #' @aliases Conjurer
 NULL
 
-#' @rdname Conjurer-class
 Conjurer <- S7::new_class(
   "Conjurer",
   properties = list(
@@ -423,9 +423,6 @@ conjurer_prepare_draw_candidates <- function(candidates,
   out
 }
 
-#' Build one predictor wrapper for imputed draws
-#'
-#' @param selector A [PolicySelector] object.
 #' Build one imputation distance matrix for a target trait
 #'
 #' @param object A [Conjurer] object.
@@ -868,15 +865,14 @@ conjurer_summarize_draws <- function(selected_draws,
 #'
 #' @return An updated [Conjurer] object.
 #' @name simulate.Conjurer
-#' @export
-S7::method(simulate_generic, Conjurer) <- function(object,
-                                                   traits = NULL,
-                                                   n_draws = NULL,
-                                                   config = NULL,
-                                                   seed = NULL,
-                                                   progress = NULL,
-                                                   registry_path = NULL,
-                                                   policy_path = NULL) {
+.simulate_conjurer <- function(object,
+                               traits = NULL,
+                               n_draws = NULL,
+                               config = NULL,
+                               seed = NULL,
+                               progress = NULL,
+                               registry_path = NULL,
+                               policy_path = NULL) {
   cfg <- conjurer_analysis_config(object, config)
   traits <- conjurer_trait_columns(object, traits = traits, config = config)
   n_draws <- n_draws %||% cfg$n_draws
@@ -962,6 +958,11 @@ S7::method(simulate_generic, Conjurer) <- function(object,
   )
 }
 
+S7::method(simulate_generic, Conjurer) <- .simulate_conjurer
+
+#' @export
+`simulate.tsbiomass::Conjurer` <- .simulate_conjurer
+
 #' Resolve one top `Conjurer` signal for display
 #'
 #' @param summary_tbl Summary tibble.
@@ -1005,6 +1006,7 @@ conjurer_top_signal <- function(summary_tbl,
 #' Print a `Conjurer`
 #'
 #' @name print.Conjurer
+#' @usage NULL
 #'
 #' @param x A [Conjurer] object.
 #' @param ... Unused.
@@ -1072,6 +1074,7 @@ S7::method(print_generic, Conjurer) <- function(x, ...) {
 #' Show a `Conjurer`
 #'
 #' @name show.Conjurer
+#' @usage NULL
 #'
 #' @param object A [Conjurer] object.
 #'
@@ -1083,4 +1086,3 @@ S7::method(show_generic, Conjurer) <- function(object) {
   print(object)
   invisible(object)
 }
-

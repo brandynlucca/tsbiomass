@@ -8,6 +8,7 @@
 #'
 #' @return An updated staged staged object.
 #'
+#' @importFrom methods setMethod show
 #' @export
 benchmark <- S7::new_generic("benchmark", "object")
 
@@ -100,17 +101,13 @@ forge_distances <- S7::new_generic("forge_distances", "object")
 #'
 #' Computes sigma dropout sensitivity for each trait from the fitted distance
 #' learner. Dropout sensitivity zeros one feature at a time, re-predicts
-#' pairwise distances, and measures the change in kernel-weighted sigma RMSE —
+#' pairwise distances, and measures the change in kernel-weighted sigma RMSE -
 #' the same objective minimised by the empirical similarity tuning step.
 #'
 #' @param object An [Alchemist] object with `@learner` populated.
-#' @param kernel_scale Numeric. Bandwidth multiplier: `w = exp(-d / (median(d) * kernel_scale))`.
-#'   Default `1` gives weight `exp(-1) ≈ 0.37` at the median distance.
 #' @param ... Method-specific arguments.
 #'
 #' @return An updated [Alchemist] object with `@trait_importance` populated.
 #'
 #' @export
 distill_traits <- S7::new_generic("distill_traits", "object")
-
-

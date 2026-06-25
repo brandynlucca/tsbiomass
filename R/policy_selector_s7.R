@@ -25,6 +25,7 @@
 #' }
 #'
 #' @name PolicySelector-class
+#' @usage NULL
 #' @aliases PolicySelector
 NULL
 
@@ -43,10 +44,10 @@ NULL
 #' }
 #'
 #' @name PolicyPredictions-class
+#' @usage NULL
 #' @aliases PolicyPredictions
 NULL
 
-#' @rdname PolicyPredictions-class
 PolicyPredictions <- S7::new_class(
   "PolicyPredictions",
   properties = list(
@@ -75,7 +76,6 @@ PolicyPredictions <- S7::new_class(
 
 S7::S4_register(PolicyPredictions)
 
-#' @rdname PolicySelector-class
 PolicySelector <- S7::new_class(
   "PolicySelector",
   properties = list(
@@ -521,6 +521,7 @@ canonicalize_equivalent_policy_rows <- function(policy_tbl) {
 #' Benchmark a `PolicySelector`
 #'
 #' @name benchmark.PolicySelector
+#' @usage NULL
 #'
 #' @param object A [PolicySelector] object.
 #' @param policies Optional character vector of policy names.
@@ -656,6 +657,7 @@ S7::method(benchmark, PolicySelector) <- function(object,
 #' Calibrate `PolicySelector` uncertainty
 #'
 #' @name calibrate_uncertainty.PolicySelector
+#' @usage NULL
 #'
 #' @param object A [PolicySelector] object.
 #' @param alpha Optional conformal alpha.
@@ -731,6 +733,7 @@ S7::method(calibrate_uncertainty, PolicySelector) <- function(object,
 #' Select policies from a `PolicySelector`
 #'
 #' @name select_policies.PolicySelector
+#' @usage NULL
 #'
 #' @param object A [PolicySelector] object.
 #' @param species_performance_table Optional species-block performance table
@@ -838,6 +841,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
 #'   learner-backed selection path.
 #' @param reuse_admissibility Logical scalar. If `TRUE`, reuse admissibility
 #'   results already stored on the selector's [Candidates] object.
+#' @param progress Optional logical scalar controlling stage messages.
 #'
 .predict_policy_selector <- function(object,
                                      reference_anchors = NULL,
@@ -1305,8 +1309,11 @@ S7::method(select_policies, PolicySelector) <- function(object,
   )
 }
 
+#' Predict selected policy intervals
+#'
 #' @return A [PolicyPredictions] object.
 #' @name predict.PolicySelector
+#' @usage NULL
 S7::method(predict_generic, PolicySelector) <- .predict_policy_selector
 
 methods::setMethod(
@@ -1376,6 +1383,7 @@ methods::setMethod(
 #' Print a `PolicySelector`
 #'
 #' @name print.PolicySelector
+#' @usage NULL
 #'
 #' @param x A [PolicySelector] object.
 #' @param ... Unused.
@@ -1401,6 +1409,7 @@ S7::method(print_generic, PolicySelector) <- function(x, ...) {
 #' Show a `PolicySelector`
 #'
 #' @name show.PolicySelector
+#' @usage NULL
 #'
 #' @param object A [PolicySelector] object.
 #'
@@ -1415,6 +1424,7 @@ S7::method(show_generic, PolicySelector) <- function(object) {
 #' Print a `PolicyPredictions`
 #'
 #' @name print.PolicyPredictions
+#' @usage NULL
 #'
 #' @param x A [PolicyPredictions] object.
 #' @param ... Unused.
@@ -1433,6 +1443,7 @@ S7::method(print_generic, PolicyPredictions) <- function(x, ...) {
 #' Show a `PolicyPredictions`
 #'
 #' @name show.PolicyPredictions
+#' @usage NULL
 #'
 #' @param object A [PolicyPredictions] object.
 #'
@@ -1559,4 +1570,3 @@ S7::method(plot_generic, PolicyPredictions) <- .plot_policy_predictions
 `plot.tsbiomass::PolicyPredictions` <- function(x, y = NULL, ...) {
   .plot_policy_predictions(x, y, ...)
 }
-

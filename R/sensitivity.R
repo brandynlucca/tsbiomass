@@ -215,8 +215,7 @@ run_sensitivity_tests <- function(sensitivity_specs,
 #' outputs into one scenario-level manifest table.
 #'
 #' @param sensitivity_specs Named scenario-specification list.
-#' @param sensitivity_map Named scenario benchmark map.
-#' @param config Optional JSON path or list with sensitivity settings.
+#' @param ... Method-specific arguments.
 #'
 #' @return A tibble.
 #'
@@ -233,6 +232,10 @@ build_sensitivity_table <- S7::new_generic("build_sensitivity_table", "sensitivi
 #' Build a scenario manifest from named sensitivity scenario lists
 #'
 #' @name build_sensitivity_table.default
+#' @usage NULL
+#' @param sensitivity_specs Named scenario-specification list.
+#' @param sensitivity_map Named scenario benchmark map.
+#' @param config Optional JSON path or list with sensitivity settings.
 S7::method(build_sensitivity_table, S7::class_any) <- function(sensitivity_specs,
                                                                sensitivity_map,
                                                                config = NULL) {
@@ -296,6 +299,7 @@ S7::method(build_sensitivity_table, S7::class_any) <- function(sensitivity_specs
 #' Build a scenario manifest from a [PolicySimulator]
 #'
 #' @name build_sensitivity_table.PolicySimulator
+#' @usage NULL
 S7::method(build_sensitivity_table, PolicySimulator) <- function(sensitivity_specs,
                                                                  sensitivity_map = NULL,
                                                                  config = NULL) {
@@ -318,7 +322,9 @@ S7::method(build_sensitivity_table, PolicySimulator) <- function(sensitivity_spe
 #' Binds selection, pairwise equivalence, equivalence-class, and conformal
 #' tables across all scenario benchmark objects.
 #'
-#' @param sensitivity_map Named scenario benchmark map.
+#' @param sensitivity_map Named scenario benchmark map or a
+#'   [PolicySimulator] object.
+#' @param ... Method-specific arguments.
 #'
 #' @return A list of bound tibbles.
 #'
@@ -335,6 +341,8 @@ bind_sensitivity_data <- S7::new_generic("bind_sensitivity_data", "sensitivity_m
 #' Bind scenario benchmark tables from a named scenario-result map
 #'
 #' @name bind_sensitivity_data.default
+#' @usage NULL
+#' @param sensitivity_map Named scenario benchmark map.
 S7::method(bind_sensitivity_data, S7::class_any) <- function(sensitivity_map) {
   # Bind the benchmark reference tables across scenarios while keeping the
   # scenario name as the leading key column.
@@ -365,6 +373,7 @@ S7::method(bind_sensitivity_data, S7::class_any) <- function(sensitivity_map) {
 #' Bind scenario benchmark tables from a [PolicySimulator]
 #'
 #' @name bind_sensitivity_data.PolicySimulator
+#' @usage NULL
 S7::method(bind_sensitivity_data, PolicySimulator) <- function(sensitivity_map) {
   if (length(sensitivity_map@tables) > 0) {
     return(sensitivity_map@tables)
@@ -1044,5 +1053,4 @@ run_policy_sensitivity_reference <- function(candidate_models,
     equivalence_classes = selection_obj$equiv_sets
   )
 }
-
 

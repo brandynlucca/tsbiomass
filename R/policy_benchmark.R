@@ -178,10 +178,7 @@ ts_from_length <- function(slope,
 #' Build one policy TS-error table
 #'
 #' @param anchor_row One-row anchor table.
-#' @param eval_obj Anchor evaluation object.
 #' @param policy_tbl Policy table for the anchor.
-#' @param ordination_info Optional ordination-context list.
-#' @param curve_fun Policy-curve prediction function.
 #' @param config Benchmark config list.
 #'
 #' @return A tibble.
@@ -635,6 +632,9 @@ bind_best_policy_rows <- function(perf_tbl) {
 #'   policies.
 #' @param reference_ids Optional vector of reference-model IDs used only to
 #'   annotate the output tables.
+#' @param policies Optional character vector of policy names to evaluate.
+#' @param policy_params Optional named list of per-policy parameter overrides.
+#' @param policy_path Optional policy-registry path.
 #' @param config Optional JSON path or list with benchmark/admissibility
 #'   settings.
 #' @param include_ts_error Logical scalar. If `TRUE`, compute the relative-length
@@ -648,6 +648,8 @@ bind_best_policy_rows <- function(perf_tbl) {
 #' @param refresh Logical scalar. If `TRUE`, ignore any existing cache.
 #' @param progress Logical scalar. If `TRUE`, emit lightweight progress updates
 #'   during the anchor loop.
+#' @param group_block_col Optional grouping column for group-block validation.
+#' @param group_block_label Label used for group-block validation outputs.
 #' @param registry_path Optional path to the trait-registry JSON.
 #'
 #' @return A list containing full-pool and leave-one-species-out benchmark
@@ -1183,9 +1185,13 @@ run_policy_benchmark <- function(candidate_models,
         as.list(ids),
         function(i) {
           {
+            screen_one_anchor_admissibility <- getFromNamespace("screen_one_anchor_admissibility", "tsbiomass")
+            resolve_ordination_info <- getFromNamespace("resolve_ordination_info", "tsbiomass")
+            benchmark_one_anchor <- getFromNamespace("benchmark_one_anchor", "tsbiomass")
+            evaluate_policies <- getFromNamespace("evaluate_policies", "tsbiomass")
             anchor_row <- candidate_models[i, , drop = FALSE]
             adm_result <- tryCatch(
-              list(obj = tsbiomass:::screen_one_anchor_admissibility(
+              list(obj = screen_one_anchor_admissibility(
                 anchor_row = anchor_row,
                 candidate_models = candidate_models,
                 config = config_values,
@@ -1203,7 +1209,7 @@ run_policy_benchmark <- function(candidate_models,
               ))
             }
             base_eval_obj <- adm_result$obj
-            ordination_info_now <- tsbiomass:::resolve_ordination_info(
+            ordination_info_now <- resolve_ordination_info(
               anchor_row = anchor_row,
               model_scores = model_scores,
               species_lookup = species_lookup,
@@ -1211,10 +1217,10 @@ run_policy_benchmark <- function(candidate_models,
             )
 
             bench_obj <- if (isTRUE(run_pseudo_anchor)) {
-              tsbiomass:::benchmark_one_anchor(
+              benchmark_one_anchor(
                 anchor_row = anchor_row,
                 candidate_models = candidate_models,
-                policy_fun = tsbiomass:::evaluate_policies,
+                policy_fun = evaluate_policies,
                 curve_fun = if (isTRUE(include_ts_error)) curve_fun else NULL,
                 model_scores = model_scores,
                 species_lookup = species_lookup,
@@ -1237,10 +1243,10 @@ run_policy_benchmark <- function(candidate_models,
             }
 
             sb_obj <- if (isTRUE(run_species_block)) {
-              tsbiomass:::benchmark_one_anchor(
+              benchmark_one_anchor(
                 anchor_row = anchor_row,
                 candidate_models = candidate_models,
-                policy_fun = tsbiomass:::evaluate_policies,
+                policy_fun = evaluate_policies,
                 curve_fun = NULL,
                 model_scores = model_scores,
                 species_lookup = species_lookup,
@@ -1264,10 +1270,10 @@ run_policy_benchmark <- function(candidate_models,
 
             gb_obj <- NULL
             if (isTRUE(run_group_block)) {
-              gb_obj <- tsbiomass:::benchmark_one_anchor(
+              gb_obj <- benchmark_one_anchor(
                 anchor_row = anchor_row,
                 candidate_models = candidate_models,
-                policy_fun = tsbiomass:::evaluate_policies,
+                policy_fun = evaluate_policies,
                 curve_fun = NULL,
                 model_scores = model_scores,
                 species_lookup = species_lookup,
@@ -1398,5 +1404,3 @@ run_policy_benchmark <- function(candidate_models,
 
   result
 }
-
-

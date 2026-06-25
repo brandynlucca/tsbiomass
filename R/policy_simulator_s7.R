@@ -23,10 +23,10 @@
 #' }
 #'
 #' @name PolicySimulator-class
+#' @usage NULL
 #' @aliases PolicySimulator
 NULL
 
-#' @rdname PolicySimulator-class
 PolicySimulator <- S7::new_class(
   "PolicySimulator",
   properties = list(
@@ -199,42 +199,20 @@ policy_simulator_anchor_config <- function(object,
 #' @param progress Logical scalar.
 #'
 #' @return An updated [PolicySimulator] object.
-#'
-#' Simulate policy sensitivity scenarios from a PolicySimulator
-#'
-#' Re-runs the policy benchmark across configured sensitivity scenarios and
-#' stores the resulting manifest and bound scenario tables on the object.
-#'
-#' @param object A [PolicySimulator] object.
-#' @param sensitivity_specs Optional explicit scenario specification list.
-#' @param baseline_obj Optional baseline benchmark bundle.
-#' @param policies Optional policy override.
-#' @param reference_ids Optional reference-anchor id override.
-#' @param benchmark_args Optional additional benchmark arguments.
-#' @param workers Optional worker override.
-#' @param package_dir Optional package source directory for worker bootstrap.
-#' @param registry_path Optional trait-registry path.
-#' @param config Optional config override.
-#' @param cache_path Optional cache path.
-#' @param refresh Logical scalar.
-#' @param progress Logical scalar.
-#'
-#' @return An updated [PolicySimulator] object.
 #' @name simulate.PolicySimulator
-#' @export
-S7::method(simulate_generic, PolicySimulator) <- function(object,
-                                                          sensitivity_specs = NULL,
-                                                          baseline_obj = NULL,
-                                                          policies = NULL,
-                                                          reference_ids = NULL,
-                                                          benchmark_args = list(),
-                                                          workers = NULL,
-                                                          package_dir = NULL,
-                                                          registry_path = NULL,
-                                                          config = NULL,
-                                                          cache_path = NULL,
-                                                          refresh = NULL,
-                                                          progress = NULL) {
+.simulate_policy_simulator <- function(object,
+                                       sensitivity_specs = NULL,
+                                       baseline_obj = NULL,
+                                       policies = NULL,
+                                       reference_ids = NULL,
+                                       benchmark_args = list(),
+                                       workers = NULL,
+                                       package_dir = NULL,
+                                       registry_path = NULL,
+                                       config = NULL,
+                                       cache_path = NULL,
+                                       refresh = NULL,
+                                       progress = NULL) {
   cfg <- merge_cfg(
     object@selector@config,
     merge_cfg(object@config, policy_selector_config_data(config))
@@ -276,7 +254,15 @@ S7::method(simulate_generic, PolicySimulator) <- function(object,
     }
 
     ordination_obj <- selector@candidates@ordination
-    baseline_predictions <- stats::predict(selector, reuse_admissibility = TRUE)
+    anchor_selected <- selector@selection$anchor_selected %||%
+      selector@selection$selections %||%
+      tibble::tibble()
+    if (nrow(tibble::as_tibble(anchor_selected)) == 0) {
+      anchor_selected <- tryCatch(
+        stats::predict(selector, reuse_admissibility = TRUE)@selections,
+        error = function(e) tibble::tibble()
+      )
+    }
     list(
       ord_ctx = list(
         model_scores = ordination_obj$model$model_scores %||% NULL,
@@ -287,7 +273,7 @@ S7::method(simulate_generic, PolicySimulator) <- function(object,
       species_block_perf = selector@benchmark$species_block_perf %||% tibble::tibble(),
       conf_cal = selector@uncertainty$conf_cal %||% tibble::tibble(),
       selection_ref = selector@selection$final_ref %||% tibble::tibble(),
-      anchor_selected = baseline_predictions@selections %||% tibble::tibble(),
+      anchor_selected = anchor_selected,
       equivalence_pairs = selector@selection$equiv_ref$pairs %||% tibble::tibble(),
       equivalence_classes = selector@selection$equiv_sets %||% tibble::tibble()
     )
@@ -357,9 +343,15 @@ S7::method(simulate_generic, PolicySimulator) <- function(object,
   )
 }
 
+S7::method(simulate_generic, PolicySimulator) <- .simulate_policy_simulator
+
+#' @export
+`simulate.tsbiomass::PolicySimulator` <- .simulate_policy_simulator
+
 #' Print a `PolicySimulator`
 #'
 #' @name print.PolicySimulator
+#' @usage NULL
 #'
 #' @param x A [PolicySimulator] object.
 #' @param ... Unused.
@@ -379,6 +371,7 @@ S7::method(print_generic, PolicySimulator) <- function(x, ...) {
 #' Show a `PolicySimulator`
 #'
 #' @name show.PolicySimulator
+#' @usage NULL
 #'
 #' @param object A [PolicySimulator] object.
 #'
@@ -508,4 +501,3 @@ S7::method(plot_generic, PolicySimulator) <- .plot_policy_simulator
 `plot.tsbiomass::PolicySimulator` <- function(x, y = NULL, ...) {
   .plot_policy_simulator(x, y, ...)
 }
-

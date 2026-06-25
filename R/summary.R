@@ -1,6 +1,7 @@
 #' Add key-metadata missingness for a [Candidates] object
 #'
 #' @name screen_missing_metadata.Candidates
+#' @usage NULL
 #'
 #' @keywords internal
 S7::method(screen_missing_metadata, Candidates) <- function(candidate_models,
@@ -18,6 +19,7 @@ S7::method(screen_missing_metadata, Candidates) <- function(candidate_models,
 #' Add key-metadata missingness for a [PolicySelector] object
 #'
 #' @name screen_missing_metadata.PolicySelector
+#' @usage NULL
 #'
 #' @keywords internal
 S7::method(screen_missing_metadata, PolicySelector) <- function(candidate_models,
@@ -33,9 +35,9 @@ S7::method(screen_missing_metadata, PolicySelector) <- function(candidate_models
 
 #' Build a species-block coverage table
 #'
-#' @param pseudo_sum Pseudo-anchor conformal summary list.
-#' @param species_sum Species-block conformal summary list.
-#' @param bench_label Species-block benchmark label.
+#' @param pseudo_sum Pseudo-anchor conformal summary list or a
+#'   [PolicySelector] object.
+#' @param ... Method-specific arguments.
 #'
 #' @return A tibble.
 #'
@@ -50,6 +52,10 @@ build_species_coverage <- S7::new_generic("build_species_coverage", "pseudo_sum"
 #' Build a species-block coverage table from conformal summary lists
 #'
 #' @name build_species_coverage.default
+#' @usage NULL
+#' @param pseudo_sum Pseudo-anchor conformal summary list.
+#' @param species_sum Species-block conformal summary list.
+#' @param bench_label Species-block benchmark label.
 S7::method(build_species_coverage, S7::class_any) <- function(pseudo_sum,
                                                               species_sum,
                                                               bench_label = "species_block") {
@@ -67,6 +73,7 @@ S7::method(build_species_coverage, S7::class_any) <- function(pseudo_sum,
 #' Build a species-block coverage table from a [PolicySelector]
 #'
 #' @name build_species_coverage.PolicySelector
+#' @usage NULL
 S7::method(build_species_coverage, PolicySelector) <- function(pseudo_sum,
                                                                species_sum = NULL,
                                                                bench_label = "species_block") {
@@ -89,14 +96,9 @@ S7::method(build_species_coverage, PolicySelector) <- function(pseudo_sum,
 #' Joins selected-policy intervals to global benchmark and conformal coverage
 #' summaries, and optionally appends sensitivity-drift diagnostics.
 #'
-#' @param sel_tbl Selected-policy interval table.
-#' @param select_ref Policy-selection reference table.
-#' @param cover_tbl Policy-level coverage summary table.
-#' @param sens_detail Optional sensitivity-detail table.
-#' @param sens_tbl Optional full policy-sensitivity table.
-#' @param baseline_label Baseline scenario label.
-#' @param selector Optional [PolicySelector] object used when `sel_tbl` is a
-#'   [PolicyPredictions] object.
+#' @param sel_tbl Selected-policy interval table or a [PolicyPredictions]
+#'   object.
+#' @param ... Method-specific arguments.
 #'
 #' @return A tibble.
 #'
@@ -112,6 +114,15 @@ build_anchor_audit <- S7::new_generic("build_anchor_audit", "sel_tbl")
 #' Build an anchor support audit from selected-policy interval tables
 #'
 #' @name build_anchor_audit.default
+#' @usage NULL
+#' @param sel_tbl Selected-policy interval table.
+#' @param select_ref Policy-selection reference table.
+#' @param cover_tbl Policy-level coverage summary table.
+#' @param sens_detail Optional sensitivity-detail table.
+#' @param sens_tbl Optional full policy-sensitivity table.
+#' @param baseline_label Baseline scenario label.
+#' @param selector Optional [PolicySelector] object used when `sel_tbl` is a
+#'   [PolicyPredictions] object.
 S7::method(build_anchor_audit, S7::class_any) <- function(sel_tbl,
                                                           select_ref,
                                                           cover_tbl,
@@ -214,6 +225,7 @@ S7::method(build_anchor_audit, S7::class_any) <- function(sel_tbl,
 #' Build an anchor support audit from a [PolicyPredictions] object
 #'
 #' @name build_anchor_audit.PolicyPredictions
+#' @usage NULL
 S7::method(build_anchor_audit, PolicyPredictions) <- function(sel_tbl,
                                                               select_ref = NULL,
                                                               cover_tbl = NULL,
@@ -253,12 +265,9 @@ S7::method(build_anchor_audit, PolicyPredictions) <- function(sel_tbl,
 #' Computes overall, field-level, and model-level key-field missingness from a
 #' candidate-model table that already contains `key_metadata_missing_fraction`.
 #'
-#' @param candidate_models Candidate-model table.
-#' @param key_cols Character vector of key-field names.
-#' @param threshold Missingness threshold.
-#' @param model_id_col Model identifier column.
-#' @param species_col Species label column.
-#' @param common_col Optional common-name column.
+#' @param candidate_models Candidate-model table, [Candidates] object, or
+#'   [PolicySelector] object.
+#' @param ... Method-specific arguments.
 #'
 #' @return A list of tibbles.
 #'
@@ -273,6 +282,13 @@ summarize_key_missing <- S7::new_generic("summarize_key_missing", "candidate_mod
 #' Summarize key-field missingness for candidate-model tables
 #'
 #' @name summarize_key_missing.default
+#' @usage NULL
+#' @param candidate_models Candidate-model table.
+#' @param key_cols Character vector of key-field names.
+#' @param threshold Missingness threshold.
+#' @param model_id_col Model identifier column.
+#' @param species_col Species label column.
+#' @param common_col Optional common-name column.
 S7::method(summarize_key_missing, S7::class_any) <- function(candidate_models,
                                                              key_cols,
                                                              threshold,
@@ -319,6 +335,7 @@ S7::method(summarize_key_missing, S7::class_any) <- function(candidate_models,
 #' Summarize key-field missingness for a [Candidates] object
 #'
 #' @name summarize_key_missing.Candidates
+#' @usage NULL
 S7::method(summarize_key_missing, Candidates) <- function(candidate_models,
                                                           key_cols = NULL,
                                                           threshold = NA_real_,
@@ -346,6 +363,7 @@ S7::method(summarize_key_missing, Candidates) <- function(candidate_models,
 #' Summarize key-field missingness for a [PolicySelector] object
 #'
 #' @name summarize_key_missing.PolicySelector
+#' @usage NULL
 S7::method(summarize_key_missing, PolicySelector) <- function(candidate_models,
                                                               key_cols = NULL,
                                                               threshold = NULL,
@@ -368,6 +386,7 @@ S7::method(summarize_key_missing, PolicySelector) <- function(candidate_models,
 #' Summarize missingness gate outcomes
 #'
 #' @param adm_tbl Admissibility summary table.
+#' @param ... Method-specific arguments.
 #'
 #' @return A tibble.
 #'
@@ -382,6 +401,8 @@ summarize_missing_gate <- S7::new_generic("summarize_missing_gate", "adm_tbl")
 #' Summarize missingness gate outcomes for admissibility summary tables
 #'
 #' @name summarize_missing_gate.default
+#' @usage NULL
+#' @param adm_tbl Admissibility summary table.
 S7::method(summarize_missing_gate, S7::class_any) <- function(adm_tbl) {
   # Reduce candidate-level or anchor-level admissibility results to the
   # missingness-gate view used in later reporting.
@@ -451,6 +472,7 @@ S7::method(summarize_missing_gate, S7::class_any) <- function(adm_tbl) {
 #' Summarize missingness gate outcomes for a [Candidates] object
 #'
 #' @name summarize_missing_gate.Candidates
+#' @usage NULL
 S7::method(summarize_missing_gate, Candidates) <- function(adm_tbl) {
   scores_tbl <- if (!(inherits(adm_tbl, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(adm_tbl, Candidates), error = function(e) FALSE))) || length(adm_tbl@admissibility) == 0) {
     tibble::tibble()
@@ -469,6 +491,7 @@ S7::method(summarize_missing_gate, Candidates) <- function(adm_tbl) {
 #' Summarize missingness gate outcomes for a [PolicySelector] object
 #'
 #' @name summarize_missing_gate.PolicySelector
+#' @usage NULL
 S7::method(summarize_missing_gate, PolicySelector) <- function(adm_tbl) {
   summarize_missing_gate(adm_tbl@candidates)
 }
@@ -512,7 +535,7 @@ bind_uncertainty_rows <- function(ctx_rows,
 #' @param family_col Column holding family labels.
 #' @param genus_col Column holding genus labels.
 #' @param tax_genus_col Optional taxonomy-derived genus column.
-#' @param common_col Column holding common names.
+#' @param tags_col Column holding tag annotations.
 #' @param freq_col Column holding frequency labels.
 #'
 #' @return A list of slope-summary tibbles.
@@ -838,5 +861,3 @@ build_area_inset_tiles <- function(count_tbl) {
       ymid = (ymin + ymax) / 2
     )
 }
-
-

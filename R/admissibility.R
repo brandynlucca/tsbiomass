@@ -457,7 +457,7 @@ calculate_frequency_gap <- function(candidate_freq,
 #' Appends the fraction of missing selected species/study traits for each model.
 #'
 #' @param candidate_models Candidate-model table.
-#' @param key_cols Character vector of key trait columns.
+#' @param ... Method-specific arguments.
 #'
 #' @return A tibble.
 #'
@@ -467,6 +467,9 @@ screen_missing_metadata <- S7::new_generic("screen_missing_metadata", "candidate
 #' Add key-metadata missingness for tabular candidate-model inputs
 #'
 #' @name screen_missing_metadata.default
+#' @usage NULL
+#' @param candidate_models Candidate-model table.
+#' @param key_cols Character vector of key trait columns.
 #'
 #' @keywords internal
 S7::method(screen_missing_metadata, S7::class_any) <- function(candidate_models,
@@ -1763,7 +1766,7 @@ screen_admissibility <- function(reference_anchors = NULL,
     # (three NxN matrices) and sim_obj per anchor. Both are already on
     # @gower_distances and @similarity_matrix and are never read back from the
     # per-anchor evaluation slot. The model_eval column vectors are shared with
-    # `scored` rather than copied — R's copy-on-modify preserves this sharing
+    # `scored` rather than copied - R's copy-on-modify preserves this sharing
     # both in-process and in saveRDS (which deduplicates shared objects).
     scored_extra_cols <- c(
       "anchor_model_id", "anchor_species",
@@ -1815,5 +1818,3 @@ screen_admissibility <- function(reference_anchors = NULL,
 
   result
 }
-
-

@@ -601,7 +601,7 @@ run_ordination <- function(dist_mat,
     # expand_envfit_multival_traits() produces columns named {trait}__{level};
     # vegan appends the factor level ("0" or "1") to produce centroids like
     # "ocean_basin__atlantic1". Here we:
-    #   1. Drop absence centroids (level == "0") — only "presence" is meaningful
+    #   1. Drop absence centroids (level == "0") - only "presence" is meaningful
     #   2. Set trait  = parent name  (e.g., "ocean_basin")
     #   3. Set level  = child value  (e.g., "atlantic ocean")
     if (nrow(centroids) > 0L) {

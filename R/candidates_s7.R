@@ -35,6 +35,7 @@
 #' }
 #'
 #' @name Candidates-class
+#' @usage NULL
 #' @aliases Candidates
 NULL
 
@@ -928,7 +929,6 @@ build_candidates_payload <- function(spec) {
 }
 
 #' @export
-#' @rdname Candidates-class
 Candidates <- S7::new_class(
   "Candidates",
   properties = list(
@@ -1279,6 +1279,7 @@ candidates_from_yaml <- function(path,
 #' Print a `Candidates`
 #'
 #' @name print.Candidates
+#' @usage NULL
 #'
 #' @param x A [Candidates] object.
 #' @param ... Unused.
@@ -1307,6 +1308,7 @@ S7::method(print_generic, Candidates) <- function(x, ...) {
 #' Show a `Candidates`
 #'
 #' @name show.Candidates
+#' @usage NULL
 #'
 #' @param object A [Candidates] object.
 #'

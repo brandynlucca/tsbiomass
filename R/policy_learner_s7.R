@@ -20,10 +20,10 @@
 #' }
 #'
 #' @name PolicyLearner-class
+#' @usage NULL
 #' @aliases PolicyLearner
 NULL
 
-#' @rdname PolicyLearner-class
 PolicyLearner <- S7::new_class(
   "PolicyLearner",
   properties = list(
@@ -524,6 +524,7 @@ policy_learner_uncertainty_feature_cols <- function(cfg,
 #' Cross-fit a `PolicyLearner`
 #'
 #' @name crossfit.PolicyLearner
+#' @usage NULL
 #'
 #' @param object A [PolicyLearner] object.
 #' @param policy_perf Optional species-block performance table override.
@@ -695,6 +696,7 @@ S7::method(crossfit, PolicyLearner) <- function(object,
 #' Fit a `PolicyLearner`
 #'
 #' @name fit.PolicyLearner
+#' @usage NULL
 #'
 #' @param object A [PolicyLearner] object.
 #' @param training_data Optional prepared learner training table.
@@ -1216,6 +1218,7 @@ policy_learner_apply_local_lookup <- function(tbl,
 #' Calibrate `PolicyLearner` uncertainty
 #'
 #' @name calibrate_uncertainty.PolicyLearner
+#' @usage NULL
 #'
 #' @param object A [PolicyLearner] object.
 #' @param predictions Optional cross-fit prediction table override.
@@ -1803,16 +1806,21 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     stop("No calibration bundle is stored on this `PolicyLearner`.", call. = FALSE)
   }
   cal_obj <- object@calibration
+  support_bin_quantiles <- tibble::as_tibble(cal_obj$bin_quantiles %||% tibble::tibble())
+  has_support_bin_calibration <- nrow(support_bin_quantiles) > 0 &&
+    "q_abs_log" %in% names(support_bin_quantiles)
+  cfg_use_support_bin_intervals <- policy_selector_config_value(
+    cfg,
+    "use_support_bin_intervals",
+    sections = c("selection", "post_selection_conformal", "metalearner", "policy_learner")
+  )
   use_support_bin_intervals <- use_support_bin_intervals %||%
     cal_obj$use_support_bin_intervals %||%
-    policy_selector_config_value(
-      cfg,
-      "use_support_bin_intervals",
-      sections = c("selection", "post_selection_conformal", "metalearner", "policy_learner")
-    ) %||%
-    FALSE
+    (if (has_support_bin_calibration) TRUE else cfg_use_support_bin_intervals %||% FALSE)
 
   scored <- predict_meta_policy_score(fit_obj$model, new_policy_tbl)
+  use_direct_support_bin_intervals <- isTRUE(use_support_bin_intervals) &&
+    has_support_bin_calibration
 
   if (!"valid_prediction" %in% names(scored)) {
     if ("n_valid_models" %in% names(scored)) {
@@ -1963,10 +1971,17 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     dplyr::group_by(anchor_model_id, anchor_species) |>
     dplyr::mutate(
       meta_policy_rank = dplyr::min_rank(.meta_predicted_score),
-      meta_q_abs_log_width = dplyr::if_else(
-        is.finite(.width_predicted_q_abs_log) & .width_predicted_q_abs_log > 0,
-        .width_predicted_q_abs_log,
-        pmax(.meta_predicted_score, 0)
+      meta_q_abs_log_width = dplyr::coalesce(
+        dplyr::if_else(
+          isTRUE(use_direct_support_bin_intervals) & is.finite(meta_q_abs_log) & meta_q_abs_log > 0,
+          meta_q_abs_log,
+          NA_real_
+        ),
+        dplyr::if_else(
+          is.finite(.width_predicted_q_abs_log) & .width_predicted_q_abs_log > 0,
+          .width_predicted_q_abs_log,
+          pmax(.meta_predicted_score, 0)
+        )
       ),
       meta_q_abs_log_conformal_factor = dplyr::coalesce(meta_q_abs_log_conformal_factor, cal_obj$width_factor_global, 1),
       meta_q_abs_log_width_total = meta_q_abs_log_width * meta_q_abs_log_conformal_factor,
@@ -2048,8 +2063,12 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   selected_rows <- scored |>
     dplyr::group_split(anchor_model_id, anchor_species, .keep = TRUE) |>
     purrr::map_dfr(function(.x) {
+      selection_tbl <- .x
+      if (isTRUE(use_direct_support_bin_intervals)) {
+        selection_tbl$.meta_predicted_score <- selection_tbl$uncertainty_cost_log_width
+      }
       select_anchor_policies(
-        policy_tbl = .x,
+        policy_tbl = selection_tbl,
         uncertainty_rule = uncertainty_rule,
         u_tol_rel = u_tol_rel,
         u_tol_abs = u_tol_abs,
@@ -2127,8 +2146,11 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   scored
 }
 
+#' Predict policy transfer scores
+#'
 #' @return A scored tibble.
 #' @name predict.PolicyLearner
+#' @usage NULL
 S7::method(predict_generic, PolicyLearner) <- .predict_policy_learner
 
 methods::setMethod(
@@ -2721,6 +2743,7 @@ S7::method(plot_generic, PolicyLearner) <- .plot_policy_learner
 #' Print a `PolicyLearner`
 #'
 #' @name print.PolicyLearner
+#' @usage NULL
 #'
 #' @param x A [PolicyLearner] object.
 #' @param ... Unused.
@@ -2743,6 +2766,7 @@ S7::method(print_generic, PolicyLearner) <- function(x, ...) {
 #' Show a `PolicyLearner`
 #'
 #' @name show.PolicyLearner
+#' @usage NULL
 #'
 #' @param object A [PolicyLearner] object.
 #'

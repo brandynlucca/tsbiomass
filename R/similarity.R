@@ -855,7 +855,7 @@ normalize_trait_weights <- function(models_tbl,
 #'       species_traits = list(genus = 1, family = 1),
 #'       study_traits = list(frequency = 1, fao_area = 1)
 #'     ),
-#'     policies = list(active = "all_models_weighted")
+#'     policies = list(active = "same_species_closest")
 #'   ))
 #' )
 #'
@@ -1146,8 +1146,8 @@ prepare_similarity_matrix <- function(candidate_models,
 #' Build a phylogenetic distance matrix from a species name vector
 #'
 #' Uses the Open Tree of Life API (`rotl`) to compute cophenetic phylogenetic
-#' distances for a vector of species names, returning a normalised [0, 1]
-#' n × n matrix where `n = length(species_vec)`. Rows with missing or
+#' distances for a vector of species names, returning a normalised 0 to 1
+#' n x n matrix where `n = length(species_vec)`. Rows with missing or
 #' unmatched species names default to distance 1 (maximum dissimilarity).
 #' Returns `NULL` when fewer than two species can be matched, so the caller
 #' can apply a rank-based fallback.
@@ -1158,7 +1158,7 @@ prepare_similarity_matrix <- function(candidate_models,
 #' @param genus_vec Optional character vector of genus names, same length as
 #'   `species_vec`.
 #'
-#' @return Numeric n × n matrix in [0, 1], or `NULL` on failure.
+#' @return Numeric n x n matrix with values between 0 and 1, or `NULL` on failure.
 #'
 #' @keywords internal
 build_phylo_dist_from_species <- function(species_vec, genus_vec = NULL) {
@@ -4082,6 +4082,7 @@ summarize_similarity_tuning_strata <- function(anchor_rows,
 #'   `NULL`, a config-supplied value is used when present.
 #' @param max_models_per_species Maximum number of retained tuning models per
 #'   species. When `NULL`, a config-supplied value is used when present.
+#' @param n_resamples Optional number of resampled tuning subsets.
 #' @param seed Optional integer seed. When `NULL`, a config-supplied value is
 #'   used when present; otherwise one is generated and returned in the output
 #'   object.
@@ -4131,7 +4132,7 @@ summarize_similarity_tuning_strata <- function(anchor_rows,
 #'     species_traits = list(genus = 1, family = 1),
 #'     study_traits = list(frequency = 1, fao_area = 1)
 #'   ),
-#'   policies = list(active = "all_models_weighted")
+#'   policies = list(active = "same_species_closest")
 #' ))
 #'
 #' tune_obj <- tune_similarity_matrix(
@@ -4801,5 +4802,3 @@ tune_similarity_resamples <- function(candidate_models,
 
   result
 }
-
-

@@ -37,6 +37,7 @@
 #' }
 #'
 #' @name Referee-class
+#' @usage NULL
 #' @aliases Referee
 NULL
 
@@ -53,10 +54,10 @@ NULL
 #' }
 #'
 #' @name Scorecard-class
+#' @usage NULL
 #' @aliases Scorecard
 NULL
 
-#' @rdname Scorecard-class
 Scorecard <- S7::new_class(
   "Scorecard",
   properties = list(
@@ -144,7 +145,6 @@ empty_scorecard <- function() {
   )
 }
 
-#' @rdname Referee-class
 Referee <- S7::new_class(
   "Referee",
   properties = list(
@@ -1323,6 +1323,7 @@ build_referee_scorecard <- function(object,
 #'   stored predictions are used, or they are generated from the selector.
 #' @param allow_partial Logical scalar. If `TRUE`, flagged partial scorecards are
 #'   allowed when non-critical report components fail.
+#' @param progress Optional logical scalar controlling stage messages.
 #'
 .predict_referee <- function(object,
                              predictions = NULL,
@@ -1356,8 +1357,11 @@ build_referee_scorecard <- function(object,
   sc
 }
 
+#' Predict a referee scorecard
+#'
 #' @return A populated [Scorecard].
 #' @name predict.Referee
+#' @usage NULL
 S7::method(predict_generic, Referee) <- .predict_referee
 
 methods::setMethod(
@@ -1566,6 +1570,7 @@ scorecard_console_summary <- function(x) {
 #' Print a `Scorecard`
 #'
 #' @name print.Scorecard
+#' @usage NULL
 #'
 #' @param x A [Scorecard] object.
 #' @param ... Unused.
@@ -1580,6 +1585,7 @@ S7::method(print_generic, Scorecard) <- function(x, ...) {
 #' Show a `Scorecard`
 #'
 #' @name show.Scorecard
+#' @usage NULL
 #'
 #' @param object A [Scorecard] object.
 #'
@@ -1593,6 +1599,7 @@ S7::method(show_generic, Scorecard) <- function(object) {
 #' Print a `Referee`
 #'
 #' @name print.Referee
+#' @usage NULL
 #'
 #' @param x A [Referee] object.
 #' @param ... Unused.
@@ -1613,6 +1620,7 @@ S7::method(print_generic, Referee) <- function(x, ...) {
 #' Show a `Referee`
 #'
 #' @name show.Referee
+#' @usage NULL
 #'
 #' @param object A [Referee] object.
 #'
@@ -2206,5 +2214,3 @@ S7::method(plot_generic, Referee) <- .plot_referee
 `plot.tsbiomass::Referee` <- function(x, y = NULL, ...) {
   .plot_referee(x, y, ...)
 }
-
-

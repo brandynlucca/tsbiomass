@@ -1,10 +1,20 @@
 # Utility helpers
 
+#' @importFrom rlang .data .env
+NULL
+
+#' @importFrom grDevices chull
+#' @importFrom stats frequency reorder sd setNames
+#' @importFrom utils data getFromNamespace head
+NULL
+
 #' Return a fallback value for `NULL` or empty input
 #'
 #' @param x Primary object.
 #' @param y Fallback object.
 #' @return `x` when present, otherwise `y`.
+#' @name null_coalesce
+#' @aliases %||%
 #' @keywords internal
 `%||%` <- function(x, y) {
   if (is.null(x) || length(x) == 0) y else x
@@ -525,7 +535,7 @@ initialize_parallel_cluster <- function(workers,
   }
 
   # Fork-based clusters on Unix share the parent process memory via
-  # copy-on-write — no serialization, no package loading, near-zero startup.
+  # copy-on-write - no serialization, no package loading, near-zero startup.
   # PSOCK is used on Windows where fork is unavailable.
   # Wrap in tryCatch to fall back gracefully in environments that disable
   # forking (e.g. some RStudio configurations on macOS).
@@ -603,5 +613,3 @@ tsb_cluster_export <- function(cl, varlist, envir = parent.frame()) {
   if (is.null(cl) || identical(attr(cl, "cluster_type"), "fork")) return(invisible(NULL))
   parallel::clusterExport(cl, varlist, envir = envir)
 }
-
-

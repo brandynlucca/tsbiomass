@@ -2245,8 +2245,8 @@ policy_structural_summary <- function(rows,
   }
   donor_multiplier <- suppressWarnings(as.numeric(keep_rows$biomass_multiplier_if_replace %||% rep(NA_real_, n_valid)))
   # Deviation from anchor truth (1.0), not from the policy mean.
-  # For a single-donor same-species strategy biomass_multiplier_if_replace ≈ 1.0
-  # so this is ≈ 0. For diverse cross-taxon donors it is large regardless of pool
+  # For a single-donor same-species strategy biomass_multiplier_if_replace approx. 1.0
+  # so this is approx. 0. For diverse cross-taxon donors it is large regardless of pool
   # size, which correctly penalises broad ensemble strategies.
   log_multiplier_abs_dev <- ifelse(
     is.finite(donor_multiplier) & donor_multiplier > 0,
@@ -2281,7 +2281,7 @@ policy_structural_summary <- function(rows,
   curve_q <- weighted_quantile(curve_rmse, weights, probs = c(0.50, 0.90))
   # structural_q = 90th-percentile of |log(biomass_multiplier_if_replace)| weighted by
   # donor contributions. Deviation of each donor from the anchor's own truth (ref = 1.0).
-  # Do NOT RSS with log_sigma_q — biomass_multiplier_if_replace = sigma_donor/sigma_anchor
+  # Do NOT RSS with log_sigma_q - biomass_multiplier_if_replace = sigma_donor/sigma_anchor
   # already captures the same sigma deviation in log space; combining would double-count.
   structural_q <- if (is.finite(log_multiplier_q[[2]])) {
     log_multiplier_q[[2]]
