@@ -13,6 +13,7 @@
 ^tsbiomass_.*\.tar\.gz$
 ^.Rhistory$
 ^.tmp$
+^.txt$
 ^outputs_swfscfish/.*$
 ^cache/.*$
 ^[0-9]+_R-CMD-check.*[.]txt$

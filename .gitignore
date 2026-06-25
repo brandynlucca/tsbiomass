@@ -11,7 +11,8 @@
 *.shx
 *.xls*
 *_files
-.tmp
+*.tmp
+*.txt
 dev/
 tsbiomass.Rcheck/
 scratch/
