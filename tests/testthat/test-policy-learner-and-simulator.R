@@ -402,5 +402,3 @@ test_that("sensitivity generics return stored simulator outputs directly", {
   expect_equal(build_sensitivity_table(simulator)$scenario[[1]], "baseline")
   expect_equal(bind_sensitivity_data(simulator)$select_ref$policy[[1]], "same_species_closest")
 })
-
-

@@ -224,7 +224,7 @@ minimal_similarity_matrix <- function(candidate_models = minimal_candidate_model
       frequency_coherence = list(method = "overlap", weight = 1)
     ),
     species_profiles = candidate_models |>
-      dplyr::distinct(species_name, genus, family),
+      dplyr::distinct(.data$species_name, .data$genus, .data$family),
     species_matrix_weights = c(genus = 1, family = 0.5),
     study_data = candidate_models |>
       dplyr::select(frequency, fao_area),
@@ -427,7 +427,7 @@ make_candidates <- function(seed_similarity_tuning = TRUE,
                             admissibility = list()) {
   models <- minimal_candidate_models()
   species_db <- models |>
-    dplyr::distinct(species_name, genus, family, order, swimbladder_type, fao_area, ocean_basin)
+    dplyr::distinct(.data$species_name, .data$genus, .data$family, .data$order, .data$swimbladder_type, .data$fao_area, .data$ocean_basin)
 
   Candidates(
     spec = list(
@@ -438,7 +438,7 @@ make_candidates <- function(seed_similarity_tuning = TRUE,
       anchors = list(selector = list(regional_body = "SWFSC"))
     ),
     study_db = models |>
-      dplyr::distinct(species_name, regional_body),
+      dplyr::distinct(.data$species_name, .data$regional_body),
     species_vector = unique(models$species_name),
     source_dbs = list(),
     species_db = species_db,
@@ -476,5 +476,3 @@ make_selector <- function(candidates = make_candidates(),
     selection = selection
   )
 }
-
-

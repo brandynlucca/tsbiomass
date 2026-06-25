@@ -596,5 +596,3 @@ test_that("tune_similarity_matrix accepts Configurer trait maps under equal star
 
   expect_true(S7::S7_inherits(tuned, Candidates))
 })
-
-

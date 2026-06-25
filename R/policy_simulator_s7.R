@@ -454,7 +454,7 @@ S7::method(show_generic, PolicySimulator) <- function(object) {
           prop_display_changed = "Display changed",
           prop_equiv_set_changed = "Equivalent set changed"
         )
-    )
+      )
     return(plot_sensitivity_overview(sensitivity_summary))
   }
 

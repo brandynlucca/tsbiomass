@@ -1051,7 +1051,7 @@ S7::method(print_generic, Conjurer) <- function(x, ...) {
     } else {
       status_tbl <- manifest_tbl |>
         dplyr::count(status, name = "n_traits") |>
-        dplyr::arrange(dplyr::desc(n_traits), status)
+        dplyr::arrange(dplyr::desc(.data$n_traits), status)
       paste0(status_tbl$status, "=", status_tbl$n_traits, collapse = ", ")
     }
   }

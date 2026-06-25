@@ -513,4 +513,3 @@ test_that("Scorecard and Configurer show compact console summaries", {
   expect_true(any(grepl("species_traits:", cfg_output, fixed = TRUE)))
   expect_false(any(grepl("@data", cfg_output, fixed = TRUE)))
 })
-

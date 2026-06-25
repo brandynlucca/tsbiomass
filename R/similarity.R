@@ -1170,58 +1170,74 @@ build_phylo_dist_from_species <- function(species_vec, genus_vec = NULL) {
   sp[has_binomial] <- sp_raw[has_binomial]
 
   if (!is.null(genus_vec)) {
-    genus_now     <- stringr::str_squish(as.character(genus_vec))
+    genus_now <- stringr::str_squish(as.character(genus_vec))
     genus_now[!nzchar(genus_now)] <- NA_character_
-    sp_epithet    <- sp_raw
+    sp_epithet <- sp_raw
     sp_epithet[grepl("\\s+", sp_epithet)] <- NA_character_
-    can_build     <- !is.na(genus_now) & !is.na(sp_epithet)
+    can_build <- !is.na(genus_now) & !is.na(sp_epithet)
     sp[can_build] <- stringr::str_squish(paste(genus_now[can_build], sp_epithet[can_build]))
   }
 
   sp <- stringr::str_to_sentence(sp)
   sp[is.na(sp) | !nzchar(sp)] <- NA_character_
-  if (sum(!is.na(sp)) < 2) return(NULL)
+  if (sum(!is.na(sp)) < 2) {
+    return(NULL)
+  }
 
-  n   <- length(sp)
+  n <- length(sp)
   out <- matrix(1, nrow = n, ncol = n)
   diag(out) <- 0
 
   uniq <- unique(sp[!is.na(sp)])
-  if (length(uniq) < 2) return(out)
+  if (length(uniq) < 2) {
+    return(out)
+  }
 
-  phylo_mat <- tryCatch({
-    tnrs <- suppressWarnings(rotl::tnrs_match_names(uniq, do_approximate_matching = FALSE))
-    matched <- tibble::as_tibble(tnrs) |>
-      dplyr::mutate(search_string = as.character(search_string)) |>
-      dplyr::filter(!is.na(ott_id)) |>
-      dplyr::distinct(search_string, .keep_all = TRUE)
+  phylo_mat <- tryCatch(
+    {
+      tnrs <- suppressWarnings(rotl::tnrs_match_names(uniq, do_approximate_matching = FALSE))
+      matched <- tibble::as_tibble(tnrs) |>
+        dplyr::mutate(search_string = as.character(search_string)) |>
+        dplyr::filter(!is.na(ott_id)) |>
+        dplyr::distinct(.data$search_string, .keep_all = TRUE)
 
-    if (!is.finite(nrow(matched) / length(uniq)) || nrow(matched) / length(uniq) < 0.7) return(NULL)
-    if (nrow(matched) < 2) return(NULL)
+      if (!is.finite(nrow(matched) / length(uniq)) || nrow(matched) / length(uniq) < 0.7) {
+        return(NULL)
+      }
+      if (nrow(matched) < 2) {
+        return(NULL)
+      }
 
-    subtree   <- suppressWarnings(rotl::tol_induced_subtree(ott_ids = matched$ott_id))
-    cophen    <- suppressWarnings(ape::cophenetic.phylo(subtree))
-    cophen_mx <- max(cophen, na.rm = TRUE)
-    if (!is.finite(cophen_mx) || cophen_mx <= 0) cophen_mx <- 1
+      subtree <- suppressWarnings(rotl::tol_induced_subtree(ott_ids = matched$ott_id))
+      cophen <- suppressWarnings(ape::cophenetic.phylo(subtree))
+      cophen_mx <- max(cophen, na.rm = TRUE)
+      if (!is.finite(cophen_mx) || cophen_mx <= 0) cophen_mx <- 1
 
-    labels <- suppressWarnings(rotl::strip_ott_ids(colnames(cophen)))
-    labels <- stringr::str_squish(tolower(gsub("_", " ", labels, fixed = TRUE)))
+      labels <- suppressWarnings(rotl::strip_ott_ids(colnames(cophen)))
+      labels <- stringr::str_squish(tolower(gsub("_", " ", labels, fixed = TRUE)))
 
-    phy <- matrix(1, nrow = length(uniq), ncol = length(uniq), dimnames = list(uniq, uniq))
-    diag(phy) <- 0
-    keep <- labels %in% uniq
-    if (sum(keep) >= 1) {
-      lk <- labels[keep]; ck <- cophen[keep, keep, drop = FALSE]
-      lu <- !duplicated(lk); lk <- lk[lu]; ck <- ck[lu, lu, drop = FALSE]
-      dimnames(ck) <- list(lk, lk)
-      phy[lk, lk] <- ck / cophen_mx
-    }
-    phy
-  }, error = function(e) NULL)
+      phy <- matrix(1, nrow = length(uniq), ncol = length(uniq), dimnames = list(uniq, uniq))
+      diag(phy) <- 0
+      keep <- labels %in% uniq
+      if (sum(keep) >= 1) {
+        lk <- labels[keep]
+        ck <- cophen[keep, keep, drop = FALSE]
+        lu <- !duplicated(lk)
+        lk <- lk[lu]
+        ck <- ck[lu, lu, drop = FALSE]
+        dimnames(ck) <- list(lk, lk)
+        phy[lk, lk] <- ck / cophen_mx
+      }
+      phy
+    },
+    error = function(e) NULL
+  )
 
-  if (is.null(phylo_mat)) return(NULL)
+  if (is.null(phylo_mat)) {
+    return(NULL)
+  }
 
-  out_idx  <- match(tolower(sp), rownames(phylo_mat))
+  out_idx <- match(tolower(sp), rownames(phylo_mat))
   keep_idx <- which(!is.na(out_idx))
   if (length(keep_idx) > 0) {
     out[keep_idx, keep_idx] <- phylo_mat[out_idx[keep_idx], out_idx[keep_idx], drop = FALSE]
@@ -1710,12 +1726,12 @@ build_gower_distances <- function(sim_obj,
   pos_sp <- species_dist_model[is.finite(species_dist_model) & species_dist_model > 0]
   pos_st <- study_dist[is.finite(study_dist) & study_dist > 0]
   species_dist_scale <- if (length(pos_sp) > 0) stats::median(pos_sp) else 1
-  study_dist_scale   <- if (length(pos_st) > 0) stats::median(pos_st) else 1
+  study_dist_scale <- if (length(pos_st) > 0) stats::median(pos_st) else 1
   if (!is.finite(species_dist_scale) || species_dist_scale <= 0) species_dist_scale <- 1
-  if (!is.finite(study_dist_scale)   || study_dist_scale   <= 0) study_dist_scale   <- 1
+  if (!is.finite(study_dist_scale) || study_dist_scale <= 0) study_dist_scale <- 1
 
   species_dist_model <- species_dist_model / species_dist_scale
-  study_dist         <- study_dist         / study_dist_scale
+  study_dist <- study_dist / study_dist_scale
 
   # Combine the rescaled species and study distance blocks with the prepared
   # alpha weight and force zero self-distance on the diagonal.
@@ -3062,7 +3078,7 @@ run_tuning_grid_search <- function(tune_models,
 
     for (lvl in seq_len(levels)) {
       best_now <- current_grid |>
-        dplyr::arrange(rmse, mae, dplyr::desc(n_eval)) |>
+        dplyr::arrange(rmse, mae, dplyr::desc(.data$n_eval)) |>
         dplyr::slice(1)
 
       nearest_values <- function(values,
@@ -3231,7 +3247,7 @@ run_tuning_grid_search <- function(tune_models,
           "."
         )
         current_design <- stage_scores |>
-          dplyr::arrange(rmse, mae, dplyr::desc(n_eval)) |>
+          dplyr::arrange(rmse, mae, dplyr::desc(.data$n_eval)) |>
           dplyr::slice_head(n = survivors_now) |>
           dplyr::select(alpha, kernel_scale, coherence_scale, k_species, k_study, length_weight, depth_weight, frequency_weight) |>
           dplyr::distinct()
@@ -3333,7 +3349,7 @@ run_tuning_grid_search <- function(tune_models,
     out <- apply_coherence_scale(out)
 
     out |>
-      dplyr::distinct(alpha, kernel_scale, coherence_scale, length_weight, depth_weight, frequency_weight, .keep_all = TRUE)
+      dplyr::distinct(.data$alpha, .data$kernel_scale, .data$coherence_scale, .data$length_weight, .data$depth_weight, .data$frequency_weight, .keep_all = TRUE)
   }
 
   design_tbl <- build_search_design(
@@ -3479,8 +3495,8 @@ run_tuning_grid_search <- function(tune_models,
       },
       complexity_penalty =
         (regularization_cfg$alpha %||% 0) * alpha_deviation +
-        (regularization_cfg$kernel_scale %||% 0) * kernel_scale_deviation +
-        (regularization_cfg$coherence_scale %||% 0) * coherence_scale_deviation,
+          (regularization_cfg$kernel_scale %||% 0) * kernel_scale_deviation +
+          (regularization_cfg$coherence_scale %||% 0) * coherence_scale_deviation,
       regularized_objective = rmse +
         complexity_penalty +
         (regularization_cfg$stability %||% 0) * stability_penalty +
@@ -3493,10 +3509,10 @@ run_tuning_grid_search <- function(tune_models,
   best_cfg <- eligible_cfg |>
     # Once candidates are inside the one-standard-error pool, prefer interior,
     # stable settings over edge-hugging minima unless they are materially better.
-    dplyr::arrange(selection_objective, edge_penalty, complexity_penalty, stability_penalty, rmse, mae, dplyr::desc(n_eval), alpha_deviation, kernel_scale_deviation, coherence_scale_deviation, kernel_scale) |>
+    dplyr::arrange(selection_objective, edge_penalty, complexity_penalty, stability_penalty, rmse, mae, dplyr::desc(.data$n_eval), alpha_deviation, kernel_scale_deviation, coherence_scale_deviation, kernel_scale) |>
     dplyr::slice(1)
   response_surface <- eligible_cfg |>
-    dplyr::arrange(selection_objective, edge_penalty, complexity_penalty, stability_penalty, rmse, mae, dplyr::desc(n_eval), alpha_deviation, kernel_scale_deviation, coherence_scale_deviation, kernel_scale)
+    dplyr::arrange(selection_objective, edge_penalty, complexity_penalty, stability_penalty, rmse, mae, dplyr::desc(.data$n_eval), alpha_deviation, kernel_scale_deviation, coherence_scale_deviation, kernel_scale)
   top_candidates <- response_surface |>
     dplyr::slice_head(n = base_sim$config$response_surface_top_n %||% 20L)
 

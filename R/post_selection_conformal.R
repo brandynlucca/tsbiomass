@@ -196,4 +196,3 @@ assign_post_selection_support_bins <- function(tbl,
   tbl$post_selection_support_bin <- bin
   label_post_selection_support_bins(tbl, labels = labels, n_bins = n_bins)
 }
-

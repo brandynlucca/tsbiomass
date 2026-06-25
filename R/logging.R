@@ -11,8 +11,8 @@
 #'
 #' @export
 build_run_logger <- function(log_file = NULL,
-                                  write_log = FALSE,
-                                  append = FALSE) {
+                             write_log = FALSE,
+                             append = FALSE) {
   # Keep file logging optional because the console stream is already the
   # primary console output during command-line execution.
   if (!is.logical(write_log) || length(write_log) != 1 || is.na(write_log)) {
@@ -113,5 +113,3 @@ log_header <- function(logger,
   log_message(logger, "====================================================================", timestamp = FALSE)
   invisible(NULL)
 }
-
-

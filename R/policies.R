@@ -1102,7 +1102,9 @@ canonical_policy_name <- local({
     canon_uniq <- vapply(uniq_vals, function(policy_now) {
       cache_key <- paste0(cache_prefix, policy_now)
       cached <- .cache[[cache_key]]
-      if (!is.null(cached)) return(cached)
+      if (!is.null(cached)) {
+        return(cached)
+      }
       policy_def <- lookup[[policy_now]] %||%
         construct_policy_definition_from_name(policy_now, registry = registry) %||%
         NULL
@@ -1603,7 +1605,9 @@ policy_equation_row <- function(slope,
 #' @keywords internal
 nearest_equation <- function(rows) {
   keep_rows <- valid_equation_rows(rows)
-  if (nrow(keep_rows) == 0) return(policy_equation_row(NA_real_, NA_real_))
+  if (nrow(keep_rows) == 0) {
+    return(policy_equation_row(NA_real_, NA_real_))
+  }
   if ("taxonomic_distance_to_anchor" %in% names(keep_rows)) {
     i <- which.min(keep_rows$combined_distance + keep_rows$taxonomic_distance_to_anchor * 1e-9)
   } else {
@@ -1621,7 +1625,9 @@ nearest_equation <- function(rows) {
 #' @keywords internal
 nearest_trait_gower_equation <- function(rows) {
   keep_rows <- valid_equation_rows(rows)
-  if (nrow(keep_rows) == 0) return(policy_equation_row(NA_real_, NA_real_))
+  if (nrow(keep_rows) == 0) {
+    return(policy_equation_row(NA_real_, NA_real_))
+  }
   if ("trait_gower_distance" %in% names(keep_rows)) {
     ok <- is.finite(keep_rows$trait_gower_distance)
     sub <- if (any(ok)) keep_rows[ok, , drop = FALSE] else keep_rows
@@ -1630,7 +1636,9 @@ nearest_trait_gower_equation <- function(rows) {
     sub <- keep_rows
     i <- which.min(sub$combined_distance)
   }
-  if (length(i) == 0) return(policy_equation_row(NA_real_, NA_real_))
+  if (length(i) == 0) {
+    return(policy_equation_row(NA_real_, NA_real_))
+  }
   policy_equation_row(sub$slope_len[[i]], sub$intercept_len[[i]])
 }
 
@@ -1643,7 +1651,9 @@ nearest_trait_gower_equation <- function(rows) {
 #' @keywords internal
 nearest_taxonomic_equation <- function(rows) {
   keep_rows <- valid_equation_rows(rows)
-  if (nrow(keep_rows) == 0) return(policy_equation_row(NA_real_, NA_real_))
+  if (nrow(keep_rows) == 0) {
+    return(policy_equation_row(NA_real_, NA_real_))
+  }
   if ("taxonomic_distance_to_anchor" %in% names(keep_rows)) {
     ok <- is.finite(keep_rows$taxonomic_distance_to_anchor)
     sub <- if (any(ok)) keep_rows[ok, , drop = FALSE] else keep_rows
@@ -1652,7 +1662,9 @@ nearest_taxonomic_equation <- function(rows) {
     sub <- keep_rows
     i <- which.min(sub$combined_distance)
   }
-  if (length(i) == 0) return(policy_equation_row(NA_real_, NA_real_))
+  if (length(i) == 0) {
+    return(policy_equation_row(NA_real_, NA_real_))
+  }
   policy_equation_row(sub$slope_len[[i]], sub$intercept_len[[i]])
 }
 
@@ -1665,7 +1677,9 @@ nearest_taxonomic_equation <- function(rows) {
 #' @keywords internal
 nearest_species_distance_equation <- function(rows) {
   keep_rows <- valid_equation_rows(rows)
-  if (nrow(keep_rows) == 0) return(policy_equation_row(NA_real_, NA_real_))
+  if (nrow(keep_rows) == 0) {
+    return(policy_equation_row(NA_real_, NA_real_))
+  }
   if ("d_species" %in% names(keep_rows)) {
     ok <- is.finite(keep_rows$d_species)
     sub <- if (any(ok)) keep_rows[ok, , drop = FALSE] else keep_rows
@@ -1674,7 +1688,9 @@ nearest_species_distance_equation <- function(rows) {
     sub <- keep_rows
     i <- which.min(sub$combined_distance)
   }
-  if (length(i) == 0) return(policy_equation_row(NA_real_, NA_real_))
+  if (length(i) == 0) {
+    return(policy_equation_row(NA_real_, NA_real_))
+  }
   policy_equation_row(sub$slope_len[[i]], sub$intercept_len[[i]])
 }
 
@@ -1961,7 +1977,9 @@ policy_summary_rows <- function(rows,
   keep_rows <- valid_equation_rows(rows)
 
   if (method_name %in% c("nearest_by_combined_distance", "nearest")) {
-    if (nrow(keep_rows) == 0) return(keep_rows)
+    if (nrow(keep_rows) == 0) {
+      return(keep_rows)
+    }
     if ("taxonomic_distance_to_anchor" %in% names(keep_rows)) {
       ord <- order(keep_rows$combined_distance, keep_rows$taxonomic_distance_to_anchor, na.last = TRUE)
     } else {
@@ -1971,7 +1989,9 @@ policy_summary_rows <- function(rows,
   }
 
   if (identical(method_name, "nearest_by_trait_gower_distance")) {
-    if (nrow(keep_rows) == 0) return(keep_rows)
+    if (nrow(keep_rows) == 0) {
+      return(keep_rows)
+    }
     if ("trait_gower_distance" %in% names(keep_rows)) {
       ok <- is.finite(keep_rows$trait_gower_distance)
       sub <- if (any(ok)) keep_rows[ok, , drop = FALSE] else keep_rows
@@ -1983,7 +2003,9 @@ policy_summary_rows <- function(rows,
     return(sub[ord[1], , drop = FALSE])
   }
   if (identical(method_name, "nearest_by_taxonomic_distance")) {
-    if (nrow(keep_rows) == 0) return(keep_rows)
+    if (nrow(keep_rows) == 0) {
+      return(keep_rows)
+    }
     if ("taxonomic_distance_to_anchor" %in% names(keep_rows)) {
       ok <- is.finite(keep_rows$taxonomic_distance_to_anchor)
       sub <- if (any(ok)) keep_rows[ok, , drop = FALSE] else keep_rows
@@ -1995,7 +2017,9 @@ policy_summary_rows <- function(rows,
     return(sub[ord[1], , drop = FALSE])
   }
   if (identical(method_name, "nearest_by_species_distance")) {
-    if (nrow(keep_rows) == 0) return(keep_rows)
+    if (nrow(keep_rows) == 0) {
+      return(keep_rows)
+    }
     if ("d_species" %in% names(keep_rows)) {
       ok <- is.finite(keep_rows$d_species)
       sub <- if (any(ok)) keep_rows[ok, , drop = FALSE] else keep_rows
@@ -2009,7 +2033,9 @@ policy_summary_rows <- function(rows,
   if (identical(method_name, "nearest_study_then_model")) {
     group_cols <- study_group_columns(keep_rows)
     if (nrow(keep_rows) == 0 || length(group_cols) == 0) {
-      if (nrow(keep_rows) == 0) return(keep_rows)
+      if (nrow(keep_rows) == 0) {
+        return(keep_rows)
+      }
       ord <- order(keep_rows$combined_distance, na.last = TRUE)
       return(keep_rows[ord[1], , drop = FALSE])
     }
@@ -2139,7 +2165,7 @@ policy_support_summary <- function(rows,
     base_summary <- c(base_summary, overlap_counts)
   }
   if ("slope_len" %in% names(keep_rows)) {
-    base_summary$local_n_slope20     <- as.integer(sum(slope20, na.rm = TRUE))
+    base_summary$local_n_slope20 <- as.integer(sum(slope20, na.rm = TRUE))
     base_summary$local_n_non_slope20 <- as.integer(sum(!slope20, na.rm = TRUE))
   }
   base_summary
@@ -2260,14 +2286,16 @@ policy_structural_summary <- function(rows,
       s <- suppressWarnings(as.numeric(keep_rows$slope_len[[j]]))
       b <- suppressWarnings(as.numeric(keep_rows$intercept_len[[j]]))
       if (!is.finite(s) || !is.finite(b) ||
-          is.null(anchor_pdf) ||
-          !all(c("length_cm", "f_len") %in% names(anchor_pdf))) {
+        is.null(anchor_pdf) ||
+        !all(c("length_cm", "f_len") %in% names(anchor_pdf))) {
         return(NA_real_)
       }
       len <- as.numeric(anchor_pdf$length_cm)
       pdf_w <- as.numeric(anchor_pdf$f_len)
       ok <- is.finite(len) & len > 0 & is.finite(pdf_w) & pdf_w >= 0
-      if (!any(ok) || sum(pdf_w[ok]) <= 0) return(NA_real_)
+      if (!any(ok) || sum(pdf_w[ok]) <= 0) {
+        return(NA_real_)
+      }
       donor_ts <- s * log10(len[ok]) + b
       policy_ts <- policy_slope * log10(len[ok]) + policy_intercept
       w <- pdf_w[ok] / sum(pdf_w[ok])
@@ -2343,12 +2371,14 @@ equal_equation <- function(rows) {
 #' @keywords internal
 random_draw_equation <- function(rows, n_draws = 100L, seed = NULL) {
   keep_rows <- valid_equation_rows(rows)
-  if (nrow(keep_rows) == 0L) return(policy_equation_row(NA_real_, NA_real_))
+  if (nrow(keep_rows) == 0L) {
+    return(policy_equation_row(NA_real_, NA_real_))
+  }
   n_draws <- as.integer(n_draws)
   if (!is.null(seed)) set.seed(seed)
   idx <- sample.int(nrow(keep_rows), size = n_draws, replace = TRUE)
   policy_equation_row(
-    mean(keep_rows$slope_len[idx],     na.rm = TRUE),
+    mean(keep_rows$slope_len[idx], na.rm = TRUE),
     mean(keep_rows$intercept_len[idx], na.rm = TRUE)
   )
 }
@@ -2382,7 +2412,9 @@ equation_sigma_mean <- function(slope,
                                 intercept,
                                 anchor_pdf,
                                 anchor_pdf_precomp = NULL) {
-  if (!is.finite(slope) || !is.finite(intercept)) return(NA_real_)
+  if (!is.finite(slope) || !is.finite(intercept)) {
+    return(NA_real_)
+  }
   if (!is.null(anchor_pdf_precomp)) {
     phi <- 10^((slope * anchor_pdf_precomp$log10_len + intercept) / 10)
     return(sum(phi * anchor_pdf_precomp$f_norm, na.rm = TRUE))
@@ -2622,12 +2654,16 @@ evaluate_policies <- function(eval_obj,
     pdf <- eval_obj$anchor_pdf
     if (!is.null(pdf) && all(c("length_cm", "f_len") %in% names(pdf))) {
       len <- as.numeric(pdf$length_cm)
-      f   <- as.numeric(pdf$f_len)
-      ok  <- is.finite(len) & len > 0 & is.finite(f) & f >= 0
+      f <- as.numeric(pdf$f_len)
+      ok <- is.finite(len) & len > 0 & is.finite(f) & f >= 0
       if (any(ok) && sum(f[ok]) > 0) {
         list(log10_len = log10(len[ok]), f_norm = f[ok] / sum(f[ok]))
-      } else NULL
-    } else NULL
+      } else {
+        NULL
+      }
+    } else {
+      NULL
+    }
   })
 
   # Evaluate each selected policy independently so the returned table is ready
@@ -2766,5 +2802,3 @@ predict_policy_curve <- function(policy,
 
   policy_curve(donor_rows, policy_def, lengths_cm)
 }
-
-

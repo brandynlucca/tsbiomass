@@ -1192,7 +1192,7 @@ finalize_recommendation_selection <- function(selected,
       weighted_mean_combined_distance,
       min_combined_distance,
       recommendation_validation_sort,
-      dplyr::desc(n_independent_source_cells),
+      dplyr::desc(.data$n_independent_source_cells),
       policy,
       equation_branch
     ) |>
@@ -1445,7 +1445,7 @@ recommend_ts_model <- function(target_species,
     dplyr::arrange(
       !selection_eligible,
       dplyr::across(dplyr::all_of(rank_cols)),
-      dplyr::desc(n_independent_source_cells),
+      dplyr::desc(.data$n_independent_source_cells),
       policy,
       equation_branch
     ) |>
@@ -1485,7 +1485,7 @@ recommend_ts_model <- function(target_species,
           weighted_mean_combined_distance,
           min_combined_distance,
           .data[[primary_col[[1]]]],
-          dplyr::desc(n_independent_source_cells),
+          dplyr::desc(.data$n_independent_source_cells),
           policy,
           equation_branch
         )

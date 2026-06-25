@@ -131,12 +131,12 @@ resolve_command_line <- function(arguments = commandArgs(trailingOnly = TRUE),
 #'
 #' @export
 write_config_yaml <- function(path,
-                                overwrite = FALSE,
-                                input_file = "input.xlsx",
-                                output_root = "outputs",
-                                cache_folder = "cache",
-                                registry_path = NULL,
-                                policy_path = NULL) {
+                              overwrite = FALSE,
+                              input_file = "input.xlsx",
+                              output_root = "outputs",
+                              cache_folder = "cache",
+                              registry_path = NULL,
+                              policy_path = NULL) {
   # Materialize a generic config template instead of copying an analysis-
   # specific packaged YAML file.
   if (!is.character(path) || length(path) != 1 || !nzchar(path)) {
@@ -177,8 +177,8 @@ write_config_yaml <- function(path,
 #'
 #' @export
 script_call_from_config <- function(config_path,
-                                 script_name = "swfscfish.R",
-                                 rscript_path = NULL) {
+                                    script_name = "swfscfish.R",
+                                    rscript_path = NULL) {
   # Validate the config YAML before constructing the external call so the
   # shell runner fails early on malformed config files.
   if (is.null(rscript_path)) {
@@ -210,9 +210,9 @@ script_call_from_config <- function(config_path,
 #'
 #' @export
 run_script_from_config <- function(config_path,
-                                script_name = "swfscfish.R",
-                                rscript_path = NULL,
-                                wait = TRUE) {
+                                   script_name = "swfscfish.R",
+                                   rscript_path = NULL,
+                                   wait = TRUE) {
   # Build the validated script call first, then hand it to `system2()` without
   # duplicating the path and config checks here.
   if (!is.logical(wait) || length(wait) != 1 || is.na(wait)) {
@@ -246,5 +246,3 @@ tsb_message <- function(..., timestamp = TRUE, appendLF = TRUE) {
     base::message(paste0(..., collapse = ""), appendLF = appendLF)
   }
 }
-
-

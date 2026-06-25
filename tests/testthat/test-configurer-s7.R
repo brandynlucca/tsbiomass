@@ -212,5 +212,3 @@ test_that("metalearner method_settings are validated at ingestion", {
     read_config(yaml_path, base_dir = tempdir())
   )
 })
-
-

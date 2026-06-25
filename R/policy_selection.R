@@ -193,7 +193,7 @@ augment_species_block_meta_features <- function(species_performance_table) {
   species_tbl$policy <- resolve_policy_names(species_tbl)
   species_tbl <- tibble::as_tibble(species_tbl)
   if (nrow(species_tbl) == 0L ||
-      !all(c("policy", "equation_branch_filter", "anchor_species") %in% names(species_tbl))) {
+    !all(c("policy", "equation_branch_filter", "anchor_species") %in% names(species_tbl))) {
     return(species_tbl)
   }
 
@@ -521,9 +521,9 @@ add_policy_intervals <- function(policy_tbl,
   # homogeneous donors.
   q_total <- sqrt(q_conformal^2 + (structural_uncertainty_weight * q_structural_eff)^2)
 
-  out$q_abs_log_conformal  <- q_conformal
+  out$q_abs_log_conformal <- q_conformal
   out$q_abs_log_structural <- q_structural_raw
-  out$q_abs_log_total      <- q_total
+  out$q_abs_log_total <- q_total
   # Display uses conformal-only q. Structural spread is large for cross-taxa
   # pools and would produce 10,000x display bands that are uninterpretable.
   # q_total (structural + conformal) drives uncertainty_cost_log_width below
@@ -810,8 +810,8 @@ select_anchor_policies <- function(policy_tbl,
   # eliminates anchor-optimal policies that the meta-learner correctly prefers.
   # Mirror the same pattern used for the benchmark_one_se gate below.
   if (!uses_meta_score &&
-      "acceptable_global" %in% names(candidate_tbl) &&
-      any(!is.na(candidate_tbl$acceptable_global))) {
+    "acceptable_global" %in% names(candidate_tbl) &&
+    any(!is.na(candidate_tbl$acceptable_global))) {
     globally_acceptable <- candidate_tbl |>
       dplyr::filter(dplyr::coalesce(acceptable_global, FALSE))
     if (nrow(globally_acceptable) > 0) {
@@ -844,7 +844,7 @@ select_anchor_policies <- function(policy_tbl,
 
     candidate_tbl$anchor_selection_global_screen <-
       is.finite(candidate_tbl$anchor_selection_benchmark_error) &
-      candidate_tbl$anchor_selection_benchmark_error <= benchmark_threshold
+        candidate_tbl$anchor_selection_benchmark_error <= benchmark_threshold
 
     globally_screened <- candidate_tbl |>
       dplyr::filter(anchor_selection_global_screen)
@@ -1113,8 +1113,8 @@ build_selection_table <- function(species_performance_table,
   }
   set.seed(as.integer(seed))
 
-  n_policies_sel <- nrow(dplyr::distinct(species_level, policy, equation_branch_filter))
-  n_species_sel  <- nrow(dplyr::distinct(species_level, anchor_species))
+  n_policies_sel <- nrow(dplyr::distinct(.data$species_level, .data$policy, .data$equation_branch_filter))
+  n_species_sel <- nrow(dplyr::distinct(.data$species_level, .data$anchor_species))
   report_progress(
     progress,
     "[Selection] Bootstrapping ", as.integer(n_boot),
@@ -1147,13 +1147,13 @@ build_selection_table <- function(species_performance_table,
     values_from = species_median_abs_log
   )
   policy_key_order <- setdiff(names(species_wide), "anchor_species")
-  policy_mat   <- as.matrix(species_wide[, policy_key_order, drop = FALSE])
-  n_spp_mat    <- nrow(policy_mat)
-  n_boot_int   <- as.integer(n_boot)
+  policy_mat <- as.matrix(species_wide[, policy_key_order, drop = FALSE])
+  n_spp_mat <- nrow(policy_mat)
+  n_boot_int <- as.integer(n_boot)
 
   # Single bulk sample.int call produces all bootstrap indices; colMeans over
   # the resampled matrix gives bootstrap means for every policy in one pass.
-  boot_idx      <- matrix(sample.int(n_spp_mat, n_spp_mat * n_boot_int, replace = TRUE), nrow = n_spp_mat)
+  boot_idx <- matrix(sample.int(n_spp_mat, n_spp_mat * n_boot_int, replace = TRUE), nrow = n_spp_mat)
   boot_means_mat <- apply(boot_idx, 2, function(idx) {
     colMeans(policy_mat[idx, , drop = FALSE], na.rm = TRUE)
   })
@@ -1162,17 +1162,21 @@ build_selection_table <- function(species_performance_table,
   # boot_sum: per-policy quantiles and threshold probability from matrix rows.
   boot_sum <- dplyr::left_join(
     tibble::tibble(.policy_key = policy_key_order),
-    key_lookup, by = ".policy_key"
+    key_lookup,
+    by = ".policy_key"
   ) |>
     dplyr::mutate(
       bootstrap_mean_q05 = apply(
-        boot_means_mat, 1, stats::quantile, probs = 0.05, na.rm = TRUE, names = FALSE, type = 8
+        boot_means_mat, 1, stats::quantile,
+        probs = 0.05, na.rm = TRUE, names = FALSE, type = 8
       ),
       bootstrap_mean_q50 = apply(
-        boot_means_mat, 1, stats::quantile, probs = 0.50, na.rm = TRUE, names = FALSE, type = 8
+        boot_means_mat, 1, stats::quantile,
+        probs = 0.50, na.rm = TRUE, names = FALSE, type = 8
       ),
       bootstrap_mean_q95 = apply(
-        boot_means_mat, 1, stats::quantile, probs = 0.95, na.rm = TRUE, names = FALSE, type = 8
+        boot_means_mat, 1, stats::quantile,
+        probs = 0.95, na.rm = TRUE, names = FALSE, type = 8
       ),
       bootstrap_prob_within_threshold = rowMeans(boot_means_mat <= threshold, na.rm = TRUE)
     ) |>
@@ -1196,13 +1200,14 @@ build_selection_table <- function(species_performance_table,
     ) |>
     dplyr::pull(specificity_rank)
   secondary_key <- (spec_ranks / (max(spec_ranks, na.rm = TRUE) + 1L)) * 1e-10
-  rank_mat      <- apply(boot_means_mat + secondary_key, 2, rank, ties.method = "first")
+  rank_mat <- apply(boot_means_mat + secondary_key, 2, rank, ties.method = "first")
   boot_rank <- dplyr::left_join(
     tibble::tibble(.policy_key = policy_key_order),
-    key_lookup, by = ".policy_key"
+    key_lookup,
+    by = ".policy_key"
   ) |>
     dplyr::mutate(
-      bootstrap_prob_best   = rowMeans(rank_mat == 1L, na.rm = TRUE),
+      bootstrap_prob_best = rowMeans(rank_mat == 1L, na.rm = TRUE),
       bootstrap_median_rank = apply(rank_mat, 1, stats::median, na.rm = TRUE)
     ) |>
     dplyr::select(-.policy_key)
@@ -1224,8 +1229,8 @@ build_selection_table <- function(species_performance_table,
       equivalence_tolerance = as.numeric(equivalence_tolerance)
     ) |>
     dplyr::arrange(
-      dplyr::desc(acceptable_global),
-      dplyr::desc(acceptable_one_se),
+      dplyr::desc(.data$acceptable_global),
+      dplyr::desc(.data$acceptable_one_se),
       mean_species_median_abs_log,
       specificity_rank,
       policy,
@@ -1277,7 +1282,7 @@ build_equivalence_table <- function(species_performance_table,
   }
 
   policy_nodes <- species_level |>
-    dplyr::distinct(policy, equation_branch_filter) |>
+    dplyr::distinct(.data$policy, .data$equation_branch_filter) |>
     dplyr::arrange(policy, equation_branch_filter)
   policy_keys <- paste(
     as.character(policy_nodes$policy),
@@ -1300,7 +1305,7 @@ build_equivalence_table <- function(species_performance_table,
       names_from = .policy_key,
       values_from = species_median_abs_log
     )
-  eq_wide_mat  <- as.matrix(eq_wide_tbl[, setdiff(names(eq_wide_tbl), "anchor_species"), drop = FALSE])
+  eq_wide_mat <- as.matrix(eq_wide_tbl[, setdiff(names(eq_wide_tbl), "anchor_species"), drop = FALSE])
   n_boot_int_eq <- as.integer(n_boot)
 
   if (nrow(policy_nodes) < 2) {
@@ -1349,10 +1354,10 @@ build_equivalence_table <- function(species_performance_table,
       rhs_branch <- policy_nodes$equation_branch_filter[[rhs_idx]]
 
       # Look up the two policy columns directly from the pre-pivoted matrix.
-      lhs_col     <- eq_wide_mat[, lhs_key]
-      rhs_col     <- eq_wide_mat[, rhs_key]
+      lhs_col <- eq_wide_mat[, lhs_key]
+      rhs_col <- eq_wide_mat[, rhs_key]
       both_finite <- is.finite(lhs_col) & is.finite(rhs_col)
-      n_common    <- sum(both_finite)
+      n_common <- sum(both_finite)
 
       if (n_common == 0L) {
         return(tibble::tibble(
@@ -1375,9 +1380,9 @@ build_equivalence_table <- function(species_performance_table,
       # replicate(n_boot, { sample + mean }) for a ~20-50x speedup per pair.
       diff_vec <- (lhs_col - rhs_col)[both_finite]
       set.seed(as.integer(seed) + sum(utf8ToInt(paste(lhs_key, rhs_key, sep = "|"))))
-      n_d          <- length(diff_vec)
-      boot_idx_eq  <- matrix(sample.int(n_d, n_d * n_boot_int_eq, replace = TRUE), nrow = n_d)
-      boot_means   <- colMeans(matrix(diff_vec[boot_idx_eq], nrow = n_d), na.rm = TRUE)
+      n_d <- length(diff_vec)
+      boot_idx_eq <- matrix(sample.int(n_d, n_d * n_boot_int_eq, replace = TRUE), nrow = n_d)
+      boot_means <- colMeans(matrix(diff_vec[boot_idx_eq], nrow = n_d), na.rm = TRUE)
 
       q025 <- stats::quantile(boot_means, probs = 0.025, na.rm = TRUE, names = FALSE, type = 8)
       q975 <- stats::quantile(boot_means, probs = 0.975, na.rm = TRUE, names = FALSE, type = 8)
@@ -1538,7 +1543,7 @@ build_equivalence_sets <- function(select_ref,
   select_ref <- standardize_policies(select_ref)
   select_ref$policy <- resolve_policy_names(select_ref)
   policy_nodes <- select_ref |>
-    dplyr::distinct(policy, equation_branch_filter) |>
+    dplyr::distinct(.data$policy, .data$equation_branch_filter) |>
     dplyr::arrange(policy, equation_branch_filter)
   if (nrow(policy_nodes) == 0) {
     return(tibble::tibble())

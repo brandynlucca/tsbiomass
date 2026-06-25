@@ -434,21 +434,26 @@ calculate_frequency_gap <- function(candidate_freq,
                                     anchor_freq,
                                     freq_span,
                                     mode = "overlap") {
-  base_dist <- dplyr::case_when(
-    identical(mode, "none") ~ NA_real_,
-    is.finite(candidate_freq) & candidate_freq > 0 &
-      is.finite(anchor_freq) & anchor_freq > 0 ~
-      pmin(abs(log(candidate_freq / anchor_freq)) / freq_span, 1),
-    TRUE ~ NA_real_
-  )
 
+  # Get valid frequencies
+  valid_freqs <- is.finite(candidate_freq) & candidate_freq > 0 & is.finite(anchor_freq) & anchor_freq > 0
+  
+  # Handle literal mode early
+  if (identical(mode, "literal")) {
+    return(
+      if (valid_freqs) {
+        as.numeric(as.integer(round(candidate_freq)) != as.integer(round(anchor_freq)))
+      } else {
+        NA_real_
+      }
+    )
+  }
+
+# Handle standard distance mode
   dplyr::case_when(
-    identical(mode, "literal") &
-      is.finite(candidate_freq) & candidate_freq > 0 &
-      is.finite(anchor_freq) & anchor_freq > 0 ~
-      as.numeric(as.integer(round(candidate_freq)) != as.integer(round(anchor_freq))),
-    !is.finite(base_dist) ~ NA_real_,
-    TRUE ~ base_dist
+    identical(mode, "none") ~ NA_real_,
+    valid_freqs ~ pmin(abs(log(candidate_freq / anchor_freq)) / freq_span, 1),
+    TRUE ~ NA_real_
   )
 }
 
@@ -540,11 +545,7 @@ add_anchor_overlap <- function(candidate_models,
   genus_col <- anchor_field(config, "genus")
   family_col <- anchor_field(config, "family")
   order_col <- anchor_field(config, "order")
-  swim_col <- anchor_field(config, "swimbladder")
-  fao_col <- anchor_field(config, "fao_area")
-  basin_col <- anchor_field(config, "ocean_basin")
-  eq_col <- anchor_field(config, "equation_form")
-  deriv_col <- anchor_field(config, "derivation_type")
+
   len_min_col <- anchor_field(config, "length_min")
   len_max_col <- anchor_field(config, "length_max")
   dep_min_col <- anchor_field(config, "depth_min")
@@ -554,35 +555,6 @@ add_anchor_overlap <- function(candidate_models,
   anchor_genus <- as.character(anchor_row[[genus_col]][[1]])
   anchor_family <- as.character(anchor_row[[family_col]][[1]])
   anchor_order <- as.character(anchor_row[[order_col]][[1]])
-  anchor_swim <- as.character(anchor_row[[swim_col]][[1]])
-  anchor_fao <- as.character(anchor_row[[fao_col]][[1]])
-  anchor_basin <- if (is.character(basin_col) &&
-    length(basin_col) == 1 &&
-    !is.na(basin_col) &&
-    nzchar(basin_col) &&
-    basin_col %in% names(anchor_row)) {
-    as.character(anchor_row[[basin_col]][[1]])
-  } else {
-    NA_character_
-  }
-  anchor_eq <- if (is.character(eq_col) &&
-    length(eq_col) == 1 &&
-    !is.na(eq_col) &&
-    nzchar(eq_col) &&
-    eq_col %in% names(anchor_row)) {
-    as.character(anchor_row[[eq_col]][[1]])
-  } else {
-    NA_character_
-  }
-  anchor_derivation <- if (is.character(deriv_col) &&
-    length(deriv_col) == 1 &&
-    !is.na(deriv_col) &&
-    nzchar(deriv_col) &&
-    deriv_col %in% names(anchor_row)) {
-    as.character(anchor_row[[deriv_col]][[1]])
-  } else {
-    NA_character_
-  }
   anchor_len_min <- anchor_numeric_scalar(anchor_row, len_min_col)
   anchor_len_max <- anchor_numeric_scalar(anchor_row, len_max_col)
   anchor_dep_min <- anchor_numeric_scalar(anchor_row, dep_min_col)
@@ -900,7 +872,7 @@ apply_anchor_gates <- function(candidate_models,
   )
   out$admissible <- with(
     out,
-    gate_not_self & gate_configured_traits & gate_frequency & gate_length_overlap & gate_depth_overlap & gate_missing_key_metadata
+    .data$gate_not_self & .data$gate_configured_traits & .data$gate_frequency & .data$gate_length_overlap & .data$gate_depth_overlap & .data$gate_missing_key_metadata
   )
   out$inadmissible_reason <- trait_reason
   out$inadmissible_reason[!out$gate_not_self] <- "self"
@@ -974,7 +946,7 @@ rank_anchor_models <- function(eval_obj) {
   # Order the admissible weighted set by final admissible weight and expose the
   # key diagnostics used in downstream review tables.
   tibble::as_tibble(eval_obj$admissible_df) |>
-    dplyr::arrange(dplyr::desc(w_adm)) |>
+    dplyr::arrange(dplyr::desc(.data$w_adm)) |>
     dplyr::mutate(rank_by_weight = dplyr::row_number())
 }
 
@@ -1045,8 +1017,8 @@ summarize_gate_counts <- function(scored_df,
   anchor_species <- as.character(anchor_row[[anchor_field(cfg, "species_name")]][[1]])
 
   tibble::as_tibble(scored_df) |>
-    dplyr::mutate(inadmissible_reason = dplyr::coalesce(inadmissible_reason, "admissible")) |>
-    dplyr::count(inadmissible_reason, name = "n_models") |>
+    dplyr::mutate(inadmissible_reason = dplyr::coalesce(.data$inadmissible_reason, "admissible")) |>
+    dplyr::count(.data$inadmissible_reason, name = "n_models") |>
     dplyr::mutate(anchor_model_id = anchor_id, anchor_species = anchor_species)
 }
 
@@ -1063,7 +1035,7 @@ summarize_anchor_pool <- function(scored_df) {
   # Restrict the summary to admissible rows so the output reflects the final
   # candidate pool actually available to downstream decision support.
   out <- tibble::as_tibble(scored_df) |>
-    dplyr::filter(admissible)
+    dplyr::filter(.data$admissible)
 
   if (nrow(out) == 0) {
     return(tibble::tibble(
@@ -1193,7 +1165,7 @@ anchor_backscatter <- function(model_eval,
   # replacement multipliers are expressed relative to the same reference model.
   anchor_sigma <- model_eval |>
     dplyr::filter(.data[[anchor_field(config, "model_id_chr")]] == anchor_id) |>
-    dplyr::pull(sigma_bs_model_mean)
+    dplyr::pull(.data$sigma_bs_model_mean)
 
   if (length(anchor_sigma) == 0) {
     return(NA_real_)
@@ -1256,21 +1228,21 @@ add_anchor_terms <- function(model_eval,
         freq_span = sim_obj$frequency_span,
         mode = config$frequency_coherence_mode %||% "overlap"
       ),
-      kernel_species_term = sim_obj$alpha * sim_obj$k_species * d_species,
-      kernel_study_term = (1 - sim_obj$alpha) * sim_obj$k_study * d_study,
+      kernel_species_term = sim_obj$alpha * sim_obj$k_species * .data$d_species,
+      kernel_study_term = (1 - sim_obj$alpha) * sim_obj$k_study * .data$d_study,
       kernel_length_term = dplyr::if_else(
-        is.finite(length_coherence_distance),
-        config$length_overlap_weight * length_coherence_distance,
+        is.finite(.data$length_coherence_distance),
+        config$length_overlap_weight * .data$length_coherence_distance,
         NA_real_
       ),
       kernel_depth_term = dplyr::if_else(
-        is.finite(depth_coherence_distance),
-        config$depth_overlap_weight * depth_coherence_distance,
+        is.finite(.data$depth_coherence_distance),
+        config$depth_overlap_weight * .data$depth_coherence_distance,
         NA_real_
       ),
       kernel_frequency_term = dplyr::if_else(
-        is.finite(frequency_coherence_distance),
-        config$frequency_coherence_weight * frequency_coherence_distance,
+        is.finite(.data$frequency_coherence_distance),
+        config$frequency_coherence_weight * .data$frequency_coherence_distance,
         NA_real_
       )
     )
@@ -1293,32 +1265,32 @@ weight_anchor_models <- function(model_eval,
   model_eval <- tibble::as_tibble(model_eval) |>
     dplyr::mutate(
       combined_distance = (
-        dplyr::coalesce(sim_obj$alpha * d_species, 0) +
-          dplyr::coalesce((1 - sim_obj$alpha) * d_study, 0) +
-          dplyr::coalesce(config$length_overlap_weight * length_coherence_distance, 0) +
-          dplyr::coalesce(config$depth_overlap_weight * depth_coherence_distance, 0) +
-          dplyr::coalesce(config$frequency_coherence_weight * frequency_coherence_distance, 0)
+        dplyr::coalesce(sim_obj$alpha * .data$d_species, 0) +
+          dplyr::coalesce((1 - sim_obj$alpha) * .data$d_study, 0) +
+          dplyr::coalesce(config$length_overlap_weight * .data$length_coherence_distance, 0) +
+          dplyr::coalesce(config$depth_overlap_weight * .data$depth_coherence_distance, 0) +
+          dplyr::coalesce(config$frequency_coherence_weight * .data$frequency_coherence_distance, 0)
       ) / (
-        dplyr::if_else(is.finite(d_species), sim_obj$alpha, 0) +
-          dplyr::if_else(is.finite(d_study), 1 - sim_obj$alpha, 0) +
-          dplyr::if_else(is.finite(length_coherence_distance), config$length_overlap_weight, 0) +
-          dplyr::if_else(is.finite(depth_coherence_distance), config$depth_overlap_weight, 0) +
-          dplyr::if_else(is.finite(frequency_coherence_distance), config$frequency_coherence_weight, 0)
+        dplyr::if_else(is.finite(.data$d_species), sim_obj$alpha, 0) +
+          dplyr::if_else(is.finite(.data$d_study), 1 - sim_obj$alpha, 0) +
+          dplyr::if_else(is.finite(.data$length_coherence_distance), config$length_overlap_weight, 0) +
+          dplyr::if_else(is.finite(.data$depth_coherence_distance), config$depth_overlap_weight, 0) +
+          dplyr::if_else(is.finite(.data$frequency_coherence_distance), config$frequency_coherence_weight, 0)
       ),
       trait_gower_distance = (
-        dplyr::coalesce(sim_obj$alpha * d_species, 0) +
-          dplyr::coalesce((1 - sim_obj$alpha) * d_study, 0)
+        dplyr::coalesce(sim_obj$alpha * .data$d_species, 0) +
+          dplyr::coalesce((1 - sim_obj$alpha) * .data$d_study, 0)
       ) / (
-        dplyr::if_else(is.finite(d_species), sim_obj$alpha, 0) +
-          dplyr::if_else(is.finite(d_study), 1 - sim_obj$alpha, 0)
+        dplyr::if_else(is.finite(.data$d_species), sim_obj$alpha, 0) +
+          dplyr::if_else(is.finite(.data$d_study), 1 - sim_obj$alpha, 0)
       ),
       w_combined_raw = exp(
         -(
-          dplyr::coalesce(kernel_species_term, 0) +
-            dplyr::coalesce(kernel_study_term, 0) +
-            dplyr::coalesce(kernel_length_term, 0) +
-            dplyr::coalesce(kernel_depth_term, 0) +
-            dplyr::coalesce(kernel_frequency_term, 0)
+          dplyr::coalesce(.data$kernel_species_term, 0) +
+            dplyr::coalesce(.data$kernel_study_term, 0) +
+            dplyr::coalesce(.data$kernel_length_term, 0) +
+            dplyr::coalesce(.data$kernel_depth_term, 0) +
+            dplyr::coalesce(.data$kernel_frequency_term, 0)
         )
       )
     )
@@ -1359,9 +1331,9 @@ build_admissible_pool <- function(model_eval,
   }
 
   admissible_df <- model_eval |>
-    dplyr::filter(admissible, is.finite(w_combined), w_combined > 0, is.finite(biomass_multiplier_if_replace)) |>
+    dplyr::filter(.data$admissible, is.finite(.data$w_combined), .data$w_combined > 0, is.finite(.data$biomass_multiplier_if_replace)) |>
     dplyr::mutate(!!study_cell_col := dplyr::coalesce(.data[[study_cell_col]], .data[[id_chr_col]])) |>
-    dplyr::arrange(dplyr::desc(w_combined))
+    dplyr::arrange(dplyr::desc(.data$w_combined))
 
   if (nrow(admissible_df) == 0) {
     return(
@@ -1379,13 +1351,13 @@ build_admissible_pool <- function(model_eval,
     dplyr::group_by(.data[[study_cell_col]]) |>
     dplyr::mutate(
       study_cell_n_models = dplyr::n(),
-      w_study_adj_raw = w_combined / study_cell_n_models
+      w_study_adj_raw = .data$w_combined / .data$study_cell_n_models
     ) |>
     dplyr::ungroup() |>
-    dplyr::arrange(dplyr::desc(w_study_adj_raw), dplyr::desc(w_combined)) |>
+    dplyr::arrange(dplyr::desc(.data$w_study_adj_raw), dplyr::desc(.data$w_combined)) |>
     dplyr::mutate(
-      w_adm = w_study_adj_raw / sum(w_study_adj_raw, na.rm = TRUE),
-      cumulative_w_adm = cumsum(w_adm)
+      w_adm = .data$w_study_adj_raw / sum(.data$w_study_adj_raw, na.rm = TRUE),
+      cumulative_w_adm = cumsum(.data$w_adm)
     )
 }
 
@@ -1523,8 +1495,8 @@ screen_one_anchor_admissibility <- function(anchor_row,
     dplyr::mutate(
       biomass_multiplier_if_replace = dplyr::if_else(
         is.finite(anchor_sigma) & anchor_sigma > 0 &
-          is.finite(sigma_bs_model_mean) & sigma_bs_model_mean > 0,
-        anchor_sigma / sigma_bs_model_mean,
+          is.finite(.data$sigma_bs_model_mean) & .data$sigma_bs_model_mean > 0,
+        anchor_sigma / .data$sigma_bs_model_mean,
         NA_real_
       )
     ) |>
@@ -1600,11 +1572,11 @@ screen_admissibility <- function(reference_anchors = NULL,
       exists("Alchemist", inherits = TRUE) &&
       isTRUE(tryCatch(S7::S7_inherits(reference_anchors, Alchemist), error = function(e) FALSE))) {
       return(.screen_admissibility_alchemist(
-        alchemist     = reference_anchors,
-        config        = config,
-        cache_path    = cache_path,
-        refresh       = refresh,
-        progress      = progress,
+        alchemist = reference_anchors,
+        config = config,
+        cache_path = cache_path,
+        refresh = refresh,
+        progress = progress,
         registry_path = registry_path
       ))
     }
@@ -1623,11 +1595,11 @@ screen_admissibility <- function(reference_anchors = NULL,
     exists("Alchemist", inherits = TRUE) &&
     isTRUE(tryCatch(S7::S7_inherits(candidate_models, Alchemist), error = function(e) FALSE))) {
     return(.screen_admissibility_alchemist(
-      alchemist     = candidate_models,
-      config        = config,
-      cache_path    = cache_path,
-      refresh       = refresh,
-      progress      = progress,
+      alchemist = candidate_models,
+      config = config,
+      cache_path = cache_path,
+      refresh = refresh,
+      progress = progress,
       registry_path = registry_path
     ))
   }
@@ -1774,7 +1746,7 @@ screen_admissibility <- function(reference_anchors = NULL,
       "w_study_adj_raw", "w_adm", "cumulative_w_adm"
     )
     stored_eval <- list(
-      anchor_pdf   = eval_obj$anchor_pdf,
+      anchor_pdf = eval_obj$anchor_pdf,
       anchor_sigma = eval_obj$anchor_sigma,
       admissible_df = eval_obj$admissible_df,
       model_eval = scored[, !names(scored) %in% scored_extra_cols, drop = FALSE]

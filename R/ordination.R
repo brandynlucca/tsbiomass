@@ -7,7 +7,7 @@ expand_envfit_multival_traits <- function(tbl) {
   for (col in char_cols) {
     x <- tbl[[col]]
     if (!any(grepl(";", x, fixed = TRUE), na.rm = TRUE)) next
-    vals_list  <- strsplit(trimws(as.character(x)), "\\s*;\\s*")
+    vals_list <- strsplit(trimws(as.character(x)), "\\s*;\\s*")
     all_levels <- sort(unique(trimws(unlist(vals_list, use.names = FALSE))))
     all_levels <- all_levels[nzchar(all_levels) & !is.na(all_levels)]
     for (lv in all_levels) {
@@ -123,16 +123,16 @@ run_ordination <- function(dist_mat,
     exists("Alchemist", inherits = TRUE) &&
     isTRUE(tryCatch(S7::S7_inherits(dist_mat, Alchemist), error = function(e) FALSE))) {
     return(.run_ordination_alchemist(
-      alchemist         = dist_mat,
-      nmds_args         = nmds_args,
-      include_loadings  = include_loadings,
+      alchemist = dist_mat,
+      nmds_args = nmds_args,
+      include_loadings = include_loadings,
       include_centroids = include_centroids,
-      envfit_args       = envfit_args,
-      reference_ids     = reference_ids,
-      join_cols         = join_cols,
-      cluster_args      = cluster_args,
-      model_id_col      = model_id_col,
-      progress          = progress
+      envfit_args = envfit_args,
+      reference_ids = reference_ids,
+      join_cols = join_cols,
+      cluster_args = cluster_args,
+      model_id_col = model_id_col,
+      progress = progress
     ))
   }
 
@@ -602,12 +602,12 @@ run_ordination <- function(dist_mat,
     # vegan appends the factor level ("0" or "1") to produce centroids like
     # "ocean_basin__atlantic1". Here we:
     #   1. Drop absence centroids (level == "0") - only "presence" is meaningful
-    #   2. Set trait  = parent name  (e.g., "ocean_basin")
-    #   3. Set level  = child value  (e.g., "atlantic ocean")
+    #   2. Set trait = parent name (e.g., "ocean_basin")
+    #   3. Set level = child value (e.g., "atlantic ocean")
     if (nrow(centroids) > 0L) {
       is_expanded <- grepl("__", centroids$trait, fixed = TRUE)
       if (any(is_expanded)) {
-        centroids   <- centroids[!is_expanded | centroids$level == "1", , drop = FALSE]
+        centroids <- centroids[!is_expanded | centroids$level == "1", , drop = FALSE]
         is_expanded <- grepl("__", centroids$trait, fixed = TRUE)
         centroids$level[is_expanded] <- gsub(
           "_", " ",
@@ -767,7 +767,7 @@ join_ordination_points <- function(ordination_points,
       model_id = as.character(reference_ids),
       is_reference = TRUE
     ) |>
-      dplyr::distinct(model_id, .keep_all = TRUE)
+      dplyr::distinct(.data$model_id, .keep_all = TRUE)
   }
 
   out <- points_df |>
@@ -978,7 +978,7 @@ refine_species_clusters <- function(species_points_df,
 
   out <- tibble::as_tibble(species_points_df) |>
     dplyr::filter(is.finite(MDS1), is.finite(MDS2)) |>
-    dplyr::distinct(.data[[species_col]], .keep_all = TRUE)
+    dplyr::distinct(.data[[.data$species_col]], .keep_all = TRUE)
 
   if (nrow(out) < 3 || !cluster_col %in% names(out)) {
     return(list(points = species_points_df, pairwise_tests = tibble::tibble()))
@@ -1121,7 +1121,7 @@ build_species_lookup <- function(species_points_df,
 
   species_points_df <- tibble::as_tibble(species_points_df) |>
     dplyr::filter(is.finite(MDS1), is.finite(MDS2)) |>
-    dplyr::distinct(.data[[species_col]], .keep_all = TRUE)
+    dplyr::distinct(.data[[.data$species_col]], .keep_all = TRUE)
 
   species_levels <- sort(unique(stats::na.omit(as.character(species_points_df[[species_col]]))))
   lookup <- list()
@@ -1216,5 +1216,3 @@ build_anchor_ordination <- function(anchor_row,
     species_ellipse_ids = species_lookup[[anchor_species]] %||% character(0)
   )
 }
-
-

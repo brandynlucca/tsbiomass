@@ -318,7 +318,7 @@ S7::method(summarize_key_missing, S7::class_any) <- function(candidate_models,
     nonmissing_n = purrr::map_int(key_cols, ~ sum(!is.na(models_tbl[[.x]]))),
     missing_fraction = purrr::map_dbl(key_cols, ~ mean(is.na(models_tbl[[.x]])))
   ) |>
-    dplyr::arrange(dplyr::desc(missing_fraction), field)
+    dplyr::arrange(dplyr::desc(.data$missing_fraction), field)
 
   by_model <- models_tbl |>
     dplyr::select(
@@ -327,7 +327,7 @@ S7::method(summarize_key_missing, S7::class_any) <- function(candidate_models,
       dplyr::any_of(common_col),
       key_metadata_missing_fraction
     ) |>
-    dplyr::arrange(dplyr::desc(key_metadata_missing_fraction), .data[[species_col]], .data[[model_id_col]])
+    dplyr::arrange(dplyr::desc(.data$key_metadata_missing_fraction), .data[[species_col]], .data[[model_id_col]])
 
   list(overall = overall, by_field = by_field, by_model = by_model)
 }
@@ -582,13 +582,15 @@ summarize_slope_effect <- function(candidate_models,
       "general/mixed", "general", "mixed clupeids and smelts"
     )
 
-    genus_chr <- stringr::str_squish(stringr::str_to_lower(dplyr::coalesce(as.character(models_tbl[[genus_col]]), "")))
+    genus_chr   <- stringr::str_squish(stringr::str_to_lower(dplyr::coalesce(as.character(models_tbl[[genus_col]]), "")))
     species_chr <- stringr::str_squish(stringr::str_to_lower(dplyr::coalesce(as.character(models_tbl[[species_col]]), "")))
+
     tags_chr <- if (tags_col %in% names(models_tbl)) {
       stringr::str_squish(stringr::str_to_lower(dplyr::coalesce(as.character(models_tbl[[tags_col]]), "")))
     } else {
       rep("", nrow(models_tbl))
     }
+    
     swim_chr <- if ("swimbladder_type" %in% names(models_tbl)) {
       stringr::str_squish(stringr::str_to_lower(dplyr::coalesce(as.character(models_tbl$swimbladder_type), "")))
     } else {
@@ -596,12 +598,9 @@ summarize_slope_effect <- function(candidate_models,
     }
 
     has_species_identity <- nzchar(genus_chr) & nzchar(species_chr) & !species_chr %in% c("na", "na na")
-    models_tbl[[group_col]] <- dplyr::case_when(
-      species_chr %in% c("", "na", "na na") ~ TRUE,
-      !has_species_identity & tags_chr %in% generic_labels ~ TRUE,
-      !has_species_identity & swim_chr == "general/nonspecific" ~ TRUE,
-      TRUE ~ FALSE
-    )
+    models_tbl[[group_col]] <- (species_chr %in% c("", "na", "na na")) |
+      (!has_species_identity & tags_chr %in% generic_labels) |
+      (!has_species_identity & swim_chr == "general/nonspecific")
   }
 
   # Restrict the analysis to usable non-group equations before classifying the
@@ -644,7 +643,7 @@ summarize_slope_effect <- function(candidate_models,
         TRUE ~ "Other"
       ),
       review_group = factor(
-        review_group,
+        .data$review_group,
         levels = c("Sardines", "Anchovies", "Herrings", "Smelts", "Mackerel", "Other")
       ),
       slope_deviation_from_20 = .data[[slope_col]] - 20,
@@ -661,7 +660,7 @@ summarize_slope_effect <- function(candidate_models,
         TRUE ~ NA_character_
       ),
       original_reference_class = factor(
-        original_reference_class,
+        .data$original_reference_class,
         levels = c("< -2", "-2 to -1", "-1 to 0", "exactly 20", "0 to 1", "1 to 2", "> 2", "weight-referenced")
       ),
       slope_deviation_class = dplyr::case_when(
@@ -693,7 +692,7 @@ summarize_slope_effect <- function(candidate_models,
   study_cell_level <- slope_models |>
     dplyr::group_by(
       .data[[study_cell_col]], .data[[study_ref_col]], .data[[species_col]],
-      review_group, .data[[family_col]], .data[[genus_col]]
+      .data$review_group, .data[[family_col]], .data[[genus_col]]
     ) |>
     dplyr::summarise(
       slope_len_cell = stats::median(.data[[slope_col]], na.rm = TRUE),
@@ -718,12 +717,12 @@ summarize_slope_effect <- function(candidate_models,
         TRUE ~ NA_character_
       ),
       slope_deviation_class = factor(
-        slope_deviation_class,
+        .data$slope_deviation_class,
         levels = c("< -2", "-2 to -1", "-1 to 0", "exactly 20", "0 to 1", "1 to 2", "> 2")
       ),
       slope_support_class = dplyr::case_when(
-        any_fixed_20 | abs(slope_len_cell - 20) < 1e-8 ~ "Exact 20",
-        slope_len_cell >= 18 & slope_len_cell <= 22 ~ "Near 20 (18-22)",
+        any_fixed_20 | abs(.data$slope_len_cell - 20) < 1e-8 ~ "Exact 20",
+        slope_len_cell >= 18 & .data$slope_len_cell <= 22 ~ "Near 20 (18-22)",
         slope_len_cell < 18 ~ "Below 18",
         slope_len_cell > 22 ~ "Above 22",
         TRUE ~ "Other"
@@ -733,20 +732,20 @@ summarize_slope_effect <- function(candidate_models,
   # Summarize the study-cell slopes overall and by review group for later
   # reporting and plotting.
   group_summary <- study_cell_level |>
-    dplyr::group_by(review_group) |>
+    dplyr::group_by(.data$review_group) |>
     dplyr::summarise(
       n_study_cells = dplyr::n(),
       n_species = dplyr::n_distinct(.data[[species_col]]),
-      median_slope = stats::median(slope_len_cell, na.rm = TRUE),
-      mean_slope = mean(slope_len_cell, na.rm = TRUE),
-      q25_slope = stats::quantile(slope_len_cell, 0.25, na.rm = TRUE, names = FALSE, type = 8),
-      q75_slope = stats::quantile(slope_len_cell, 0.75, na.rm = TRUE, names = FALSE, type = 8),
-      prop_exact_20 = mean(slope_support_class == "Exact 20", na.rm = TRUE),
-      prop_near_20 = mean(slope_len_cell >= 18 & slope_len_cell <= 22, na.rm = TRUE),
-      prop_above_22 = mean(slope_len_cell > 22, na.rm = TRUE),
-      prop_below_18 = mean(slope_len_cell < 18, na.rm = TRUE),
-      mean_equation_variants_per_cell = mean(n_equation_forms, na.rm = TRUE),
-      mean_model_variants_per_cell = mean(n_model_variants, na.rm = TRUE),
+      median_slope = stats::median(.data$slope_len_cell, na.rm = TRUE),
+      mean_slope = mean(.data$slope_len_cell, na.rm = TRUE),
+      q25_slope = stats::quantile(.data$slope_len_cell, 0.25, na.rm = TRUE, names = FALSE, type = 8),
+      q75_slope = stats::quantile(.data$slope_len_cell, 0.75, na.rm = TRUE, names = FALSE, type = 8),
+      prop_exact_20 = mean(.data$slope_support_class == "Exact 20", na.rm = TRUE),
+      prop_near_20 = mean(.data$slope_len_cell >= 18 & .data$slope_len_cell <= 22, na.rm = TRUE),
+      prop_above_22 = mean(.data$slope_len_cell > 22, na.rm = TRUE),
+      prop_below_18 = mean(.data$slope_len_cell < 18, na.rm = TRUE),
+      mean_equation_variants_per_cell = mean(.data$n_equation_forms, na.rm = TRUE),
+      mean_model_variants_per_cell = mean(.data$n_model_variants, na.rm = TRUE),
       .groups = "drop"
     )
 
@@ -763,13 +762,13 @@ summarize_slope_effect <- function(candidate_models,
   # Build the support tables used in the stacked support plot and in the
   # weighted deviation analysis.
   support_by_group <- study_cell_level |>
-    dplyr::count(review_group, slope_support_class, name = "n_study_cells") |>
-    dplyr::group_by(review_group) |>
-    dplyr::mutate(prop_study_cells = n_study_cells / sum(n_study_cells)) |>
+    dplyr::count(.data$review_group, .data$slope_support_class, name = "n_study_cells") |>
+    dplyr::group_by(.data$review_group) |>
+    dplyr::mutate(prop_study_cells = .data$n_study_cells / sum(.data$n_study_cells)) |>
     dplyr::ungroup() |>
     dplyr::mutate(
       slope_support_class = factor(
-        slope_support_class,
+        .data$slope_support_class,
         levels = c("Below 18", "Near 20 (18-22)", "Exact 20", "Above 22", "Other")
       )
     )
@@ -778,15 +777,15 @@ summarize_slope_effect <- function(candidate_models,
     dplyr::group_by(.data[[study_cell_col]]) |>
     dplyr::mutate(study_cell_variant_weight = 1 / dplyr::n()) |>
     dplyr::ungroup() |>
-    dplyr::filter(!is.na(original_reference_class)) |>
-    dplyr::group_by(review_group, original_reference_class) |>
+    dplyr::filter(!is.na(.data$original_reference_class)) |>
+    dplyr::group_by(.data$review_group, .data$original_reference_class) |>
     dplyr::summarise(
-      weighted_study_cell_count = sum(study_cell_variant_weight, na.rm = TRUE),
+      weighted_study_cell_count = sum(.data$study_cell_variant_weight, na.rm = TRUE),
       n_model_rows = dplyr::n(),
       .groups = "drop"
     ) |>
-    dplyr::group_by(review_group) |>
-    dplyr::mutate(prop_study_cells = weighted_study_cell_count / sum(weighted_study_cell_count)) |>
+    dplyr::group_by(.data$review_group) |>
+    dplyr::mutate(prop_study_cells = .data$weighted_study_cell_count / sum(.data$weighted_study_cell_count)) |>
     dplyr::ungroup()
 
   list(
@@ -829,9 +828,9 @@ summarize_area_studies <- function(candidate_models,
   models_tbl |>
     dplyr::filter(!is.na(.data[[fao_col]]), as.character(.data[[fao_col]]) != "") |>
     dplyr::mutate(fao_area_chr = as.character(.data[[fao_col]])) |>
-    dplyr::distinct(fao_area_chr, .data[[study_col]]) |>
-    dplyr::count(fao_area_chr, name = "n_studies") |>
-    dplyr::arrange(dplyr::desc(n_studies), fao_area_chr)
+    dplyr::distinct(.data$fao_area_chr, .data[[.data$study_col]]) |>
+    dplyr::count(.data$fao_area_chr, name = "n_studies") |>
+    dplyr::arrange(dplyr::desc(.data$n_studies), .data$fao_area_chr)
 }
 
 #' Build FAO inset tiles
@@ -856,8 +855,8 @@ build_area_inset_tiles <- function(count_tbl) {
   ) |>
     dplyr::left_join(tibble::as_tibble(count_tbl), by = "fao_area_chr") |>
     dplyr::mutate(
-      n_studies = dplyr::coalesce(n_studies, 0L),
-      xmid = (xmin + xmax) / 2,
-      ymid = (ymin + ymax) / 2
+      n_studies = dplyr::coalesce(.data$n_studies, 0L),
+      xmid = (.data$xmin + .data$xmax) / 2,
+      ymid = (.data$ymin + .data$ymax) / 2
     )
 }

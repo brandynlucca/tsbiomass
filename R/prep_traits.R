@@ -641,5 +641,3 @@ convert_to_length_form <- function(tbl) {
 
   tbl
 }
-
-

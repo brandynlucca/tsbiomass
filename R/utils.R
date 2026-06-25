@@ -1,6 +1,6 @@
 # Utility helpers
 
-#' @importFrom rlang .data .env
+#' @importFrom rlang .data .env :=
 NULL
 
 #' @importFrom grDevices chull
@@ -61,8 +61,8 @@ config_data <- function(config) {
 #' @return The resolved value or `NULL`.
 #' @keywords internal
 config_value <- function(config,
-                           key,
-                           sections = character()) {
+                         key,
+                         sections = character()) {
   cfg <- config_data(config)
   if (!is.list(cfg)) {
     return(NULL)
@@ -89,7 +89,7 @@ config_value <- function(config,
 #' @return Invisibly returns `NULL`.
 #' @keywords internal
 report_progress <- function(progress,
-                              ...) {
+                            ...) {
   if (!isTRUE(progress)) {
     return(invisible(NULL))
   }
@@ -610,6 +610,8 @@ initialize_parallel_cluster <- function(workers,
 
 #' @keywords internal
 tsb_cluster_export <- function(cl, varlist, envir = parent.frame()) {
-  if (is.null(cl) || identical(attr(cl, "cluster_type"), "fork")) return(invisible(NULL))
+  if (is.null(cl) || identical(attr(cl, "cluster_type"), "fork")) {
+    return(invisible(NULL))
+  }
   parallel::clusterExport(cl, varlist, envir = envir)
 }

@@ -1106,7 +1106,7 @@ normalize_active_policy_names <- function(config,
           candidate_pool = vapply(synthetic_defs, function(x) as.character(x$candidate_pool %||% NA_character_), character(1))
         )
       ) |>
-        dplyr::distinct(policy, .keep_all = TRUE)
+        dplyr::distinct(.data$policy, .keep_all = TRUE)
       available_groups <- unique(policy_tbl$grouping_key)
       available_metrics <- unique(policy_tbl$metric_key)
     }
@@ -2404,7 +2404,7 @@ validate_metalearner_section <- function(metalearner_section) {
 
   if (!is.null(metalearner_section$outcome_clip_quantile)) {
     clip_q <- suppressWarnings(as.numeric(metalearner_section$outcome_clip_quantile)[[1]])
-  if (!is.finite(clip_q) || clip_q <= 0 || clip_q > 1) {
+    if (!is.finite(clip_q) || clip_q <= 0 || clip_q > 1) {
       stop(
         "Metalearner field 'outcome_clip_quantile' must be one finite number in (0, 1].",
         call. = FALSE
@@ -2930,5 +2930,3 @@ validate_weight_map <- function(weight_map,
     )
   }
 }
-
-

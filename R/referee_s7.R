@@ -337,32 +337,32 @@ validate_referee_provenance <- function(selector,
     dplyr::transmute(
       anchor_model_id = as.character(anchor_model_id),
       policy = if ("selected_policy" %in% names(selected_tbl)) {
-        as.character(selected_policy)
+        as.character(.data$selected_policy)
       } else if ("policy" %in% names(selected_tbl)) {
-        as.character(policy)
+        as.character(.data$policy)
       } else {
         rep(NA_character_, dplyr::n())
       },
       equation_branch_filter = if ("selected_equation_branch_filter" %in% names(selected_tbl)) {
-        dplyr::coalesce(selected_equation_branch_filter, equation_branch_filter)
+        dplyr::coalesce(.data$selected_equation_branch_filter, .data$equation_branch_filter)
       } else if ("equation_branch_filter" %in% names(selected_tbl)) {
-        equation_branch_filter
+        .data$equation_branch_filter
       } else {
         rep(NA_character_, dplyr::n())
       }
     ) |>
-    dplyr::filter(!is.na(policy), nzchar(policy))
+    dplyr::filter(!is.na(.data$policy), nzchar(.data$policy))
 
   interval_keys <- intervals_tbl |>
     dplyr::transmute(
       anchor_model_id = as.character(anchor_model_id),
-      policy = as.character(policy),
-      equation_branch_filter = equation_branch_filter
+      policy = as.character(.data$policy),
+      equation_branch_filter = .data$equation_branch_filter
     ) |>
     dplyr::distinct()
 
   missing_keys <- dplyr::anti_join(
-    dplyr::distinct(selected_keys),
+    dplyr::distinct(.data$selected_keys),
     interval_keys,
     by = intersect(names(selected_keys), names(interval_keys))
   )
@@ -663,7 +663,7 @@ build_recommendation_cards <- function(selected_tbl,
             species_oracle_best_policy = species_oracle_best_policy,
             selected_delta_to_species_oracle = selected_delta_to_species_oracle
           ) |>
-          dplyr::distinct(anchor_model_id, .keep_all = TRUE),
+          dplyr::distinct(.data$anchor_model_id, .keep_all = TRUE),
         by = "anchor_model_id"
       )
   }
@@ -982,9 +982,11 @@ build_referee_scorecard <- function(object,
   } else if (nrow(benchmark_selected_calibration) > 0) {
     tibble::as_tibble(benchmark_selected_calibration)
   } else {
-    tibble::as_tibble(intervals_tbl)
-  } |>
-    dplyr::distinct()
+    {
+      tibble::as_tibble(intervals_tbl)
+    } |>
+      dplyr::distinct()
+  }
   report_progress(progress, "[Referee] Summarizing selected-row TS calibration...")
   selected_ts_calibration <- if (nrow(ts_calibration_source) > 0 && nrow(benchmark_ts_error) > 0) {
     summarize_selected_ts_calibration(
@@ -1001,9 +1003,11 @@ build_referee_scorecard <- function(object,
   } else if (nrow(benchmark_selected_calibration) > 0) {
     tibble::as_tibble(benchmark_selected_calibration)
   } else {
-    tibble::as_tibble(intervals_tbl)
-  } |>
-    dplyr::distinct()
+    {
+      tibble::as_tibble(intervals_tbl)
+    } |>
+      dplyr::distinct()
+  }
   if (
     !all(c("policy_slope_len", "policy_intercept_len") %in% names(coefficient_calibration_source)) ||
       !any(
@@ -1329,7 +1333,7 @@ build_referee_scorecard <- function(object,
                              predictions = NULL,
                              allow_partial = FALSE,
                              progress = NULL) {
-  cfg      <- merge_cfg(object@selector@config, list())
+  cfg <- merge_cfg(object@selector@config, list())
   progress <- progress %||%
     policy_selector_config_value(cfg, "progress", sections = c("selection", "benchmark")) %||%
     FALSE
@@ -1377,9 +1381,9 @@ methods::setMethod(
       predictions = predictions,
       allow_partial = allow_partial,
       progress = progress
-      )
-    }
-  )
+    )
+  }
+)
 
 `predict.tsbiomass::Referee` <- function(object,
                                          predictions = NULL,
@@ -1875,7 +1879,7 @@ S7::method(show_generic, Referee) <- function(object) {
       return(
         ggplot2::ggplot(
           count_tbl,
-          ggplot2::aes(x = selected_policy_display, y = n)
+          ggplot2::aes(x = .data$selected_policy_display, y = .data$n)
         ) +
           ggplot2::geom_col(fill = "#5d6f89") +
           ggplot2::coord_flip() +
@@ -1897,7 +1901,7 @@ S7::method(show_generic, Referee) <- function(object) {
     return(
       ggplot2::ggplot(
         count_tbl,
-        ggplot2::aes(x = anchor_species, y = n, fill = selected_policy_display)
+        ggplot2::aes(x = .data$anchor_species, y = .data$n, fill = .data$selected_policy_display)
       ) +
         ggplot2::geom_col(position = "stack") +
         ggplot2::scale_x_discrete(labels = function(x) parse(text = paste0("italic('", x, "')"))) +

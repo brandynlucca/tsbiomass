@@ -103,14 +103,14 @@ candidate_admissibility_matches_anchors <- function(candidates,
   }
 
   score_keys <- scores_tbl |>
-    dplyr::distinct(anchor_model_id, anchor_species) |>
-    dplyr::arrange(anchor_model_id, anchor_species)
+    dplyr::distinct(.data$anchor_model_id, .data$anchor_species) |>
+    dplyr::arrange(anchor_model_id, .data$anchor_species)
   anchor_keys <- anchors_tbl |>
     dplyr::transmute(
-      anchor_model_id = as.character(model_id),
-      anchor_species = as.character(species_name)
+      anchor_model_id = as.character(.data$model_id),
+      anchor_species = as.character(.data$species_name)
     ) |>
-    dplyr::distinct(anchor_model_id, anchor_species) |>
+    dplyr::distinct(.data$anchor_model_id, .data$anchor_species) |>
     dplyr::arrange(anchor_model_id, anchor_species)
 
   isTRUE(all.equal(score_keys, anchor_keys, check.attributes = FALSE))
@@ -1670,7 +1670,7 @@ S7::method(show_generic, Candidates) <- function(object) {
       similarity_tbl <- tibble::as_tibble(anchor_result$scored %||% tibble::tibble())
       if ("admissible" %in% names(similarity_tbl)) {
         similarity_tbl <- similarity_tbl |>
-          dplyr::filter(admissible)
+          dplyr::filter(.data$admissible)
       }
       return(plot_similarity_map(
         map_tbl = similarity_tbl,
@@ -1701,9 +1701,9 @@ S7::method(show_generic, Candidates) <- function(object) {
         dropout_tbl = diag_tbl |>
           dplyr::transmute(
             anchor_species = as.character(anchor_species),
-            block = as.character(component),
-            importance_score = as.numeric(importance_score),
-            component_rank_global = as.integer(component_rank_global)
+            block = as.character(.data$component),
+            importance_score = as.numeric(.data$importance_score),
+            component_rank_global = as.integer(.data$component_rank_global)
           )
       ))
     }
@@ -1733,10 +1733,10 @@ S7::method(show_generic, Candidates) <- function(object) {
       return(plot_uncertainty_blocks(
         dropout_tbl = diag_tbl |>
           dplyr::transmute(
-            block = as.character(component),
-            importance_score = as.numeric(importance_score),
-            delta_log_spread = as.numeric(delta_log_spread),
-            component_rank_global = as.integer(component_rank_global)
+            block = as.character(.data$component),
+            importance_score = as.numeric(.data$importance_score),
+            delta_log_spread = as.numeric(.data$delta_log_spread),
+            component_rank_global = as.integer(.data$component_rank_global)
           ),
         anchor_label = as.character(diag_tbl$anchor_species[[1]])
       ))
@@ -1753,10 +1753,10 @@ S7::method(show_generic, Candidates) <- function(object) {
     return(plot_uncertainty_blocks(
       dropout_tbl = overall_tbl |>
         dplyr::transmute(
-          block = as.character(component),
-          importance_score = as.numeric(importance_score),
-          delta_log_spread = as.numeric(delta_log_spread),
-          component_rank_global = as.integer(component_rank_global)
+          block = as.character(.data$component),
+          importance_score = as.numeric(.data$importance_score),
+          delta_log_spread = as.numeric(.data$delta_log_spread),
+          component_rank_global = as.integer(.data$component_rank_global)
         ),
       anchor_label = "All anchors"
     ))
@@ -1819,13 +1819,13 @@ S7::method(show_generic, Candidates) <- function(object) {
     }
     return(plot_tuning_variation(
       plot_tbl = variation_tbl |>
-        dplyr::filter(is.finite(multiplier)) |>
-        dplyr::group_by(block = component) |>
+        dplyr::filter(is.finite(.data$multiplier)) |>
+        dplyr::group_by(block = .data$component) |>
         dplyr::summarise(
-          mean_multiplier = mean(multiplier, na.rm = TRUE),
-          q05_multiplier = stats::quantile(multiplier, probs = 0.05, na.rm = TRUE, names = FALSE),
-          q95_multiplier = stats::quantile(multiplier, probs = 0.95, na.rm = TRUE, names = FALSE),
-          sd_multiplier = stats::sd(multiplier, na.rm = TRUE),
+          mean_multiplier = mean(.data$multiplier, na.rm = TRUE),
+          q05_multiplier = stats::quantile(.data$multiplier, probs = 0.05, na.rm = TRUE, names = FALSE),
+          q95_multiplier = stats::quantile(.data$multiplier, probs = 0.95, na.rm = TRUE, names = FALSE),
+          sd_multiplier = stats::sd(.data$multiplier, na.rm = TRUE),
           .groups = "drop"
         )
     ))
@@ -1897,9 +1897,9 @@ methods::setMethod(
       anchor_species = anchor_species,
       include_hulls = include_hulls,
       ...
-      )
-    }
-  )
+    )
+  }
+)
 
 `plot.tsbiomass::Candidates` <- function(x,
                                          y = NULL,
@@ -1939,4 +1939,3 @@ methods::setMethod(
     ...
   )
 }
-

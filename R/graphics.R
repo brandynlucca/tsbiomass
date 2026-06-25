@@ -135,7 +135,9 @@ plot_uncertainty_blocks <- function(dropout_tbl,
   # the most important blocks appear first.
   plot_df <- tibble::as_tibble(dropout_tbl)
   if (nrow(plot_df) == 0 || !all(c("block", "importance_score", "delta_log_spread") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = paste0("Local Dropout Sensitivity [", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = NULL, y = "Heuristic importance") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = paste0("Local Dropout Sensitivity [", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = NULL, y = "Heuristic importance") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   plot_df <- plot_df |>
     dplyr::mutate(block = factor(block, levels = rev(unique(block))))
@@ -149,7 +151,7 @@ plot_uncertainty_blocks <- function(dropout_tbl,
   if ("component_rank_global" %in% names(plot_df)) {
     block_levels <- plot_df |>
       dplyr::arrange(component_rank_global, block) |>
-      dplyr::distinct(block) |>
+      dplyr::distinct(.data$block) |>
       dplyr::pull(block)
   } else {
     block_levels <- plot_df |>
@@ -159,7 +161,7 @@ plot_uncertainty_blocks <- function(dropout_tbl,
   }
   plot_df$block <- factor(plot_df$block, levels = rev(block_levels))
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = block, y = importance_score, fill = delta_log_spread)) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$block, y = .data$importance_score, fill = .data$delta_log_spread)) +
     ggplot2::geom_col() +
     ggplot2::coord_flip() +
     ggplot2::scale_fill_gradient2(low = "#2166ac", mid = "#f7f7f7", high = "#b2182b", midpoint = 0) +
@@ -188,11 +190,13 @@ plot_similarity_map <- function(map_tbl,
   # plot function does only plotting work.
   plot_df <- tibble::as_tibble(map_tbl)
   if (nrow(plot_df) == 0 || !all(c("d_species", "d_study", "w_combined", "overlap_same_species") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = paste0("Admissible Similarity Map [", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = "Species dissimilarity", y = "Study dissimilarity") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = paste0("Admissible Similarity Map [", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = "Species dissimilarity", y = "Study dissimilarity") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   ggplot2::ggplot(
     plot_df,
-    ggplot2::aes(x = d_species, y = d_study, size = w_combined, colour = overlap_same_species)
+    ggplot2::aes(x = .data$d_species, y = .data$d_study, size = .data$w_combined, colour = .data$overlap_same_species)
   ) +
     ggplot2::geom_point(alpha = 0.75) +
     ggplot2::scale_colour_manual(values = c("TRUE" = "#b2182b", "FALSE" = "#2166ac")) +
@@ -262,7 +266,7 @@ plot_top_models <- function(top_tbl,
       w_adm > 0,
       !is.na(model_id_chr)
     ) |>
-    dplyr::arrange(dplyr::desc(w_adm), combined_distance) |>
+    dplyr::arrange(dplyr::desc(.data$w_adm), combined_distance) |>
     dplyr::slice_head(n = 10L) |>
     dplyr::mutate(
       species_label = dplyr::case_when(
@@ -286,10 +290,12 @@ plot_top_models <- function(top_tbl,
       candidate_label = factor(candidate_label, levels = rev(candidate_label))
     )
   if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = "Final weight") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = "Final weight") +
+      ggplot2::theme_minimal(base_size = 11))
   }
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = candidate_label, y = w_adm, fill = biomass_multiplier_if_replace)) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$candidate_label, y = .data$w_adm, fill = .data$biomass_multiplier_if_replace)) +
     ggplot2::geom_col(width = 0.72) +
     ggplot2::coord_flip() +
     ggplot2::scale_fill_viridis_c(
@@ -339,12 +345,14 @@ plot_ts_bands <- function(band_tbl,
   if (nrow(band_df) == 0 || nrow(curve_df) == 0 ||
     !all(c("length_cm", "ymin", "ymax", "band") %in% names(band_df)) ||
     !all(c("length_cm", "ts_anchor", "ts_panel_center") %in% names(curve_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = "Length (cm)", y = "TS (dB re 1 m^2)") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = "Length (cm)", y = "TS (dB re 1 m^2)") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   p <- ggplot2::ggplot() +
     ggplot2::geom_ribbon(
       data = band_df,
-      ggplot2::aes(x = length_cm, ymin = ymin, ymax = ymax, fill = band),
+      ggplot2::aes(x = .data$length_cm, ymin = .data$ymin, ymax = .data$ymax, fill = .data$band),
       alpha = 0.28
     ) +
     ggplot2::scale_fill_manual(
@@ -353,14 +361,14 @@ plot_ts_bands <- function(band_tbl,
     ) +
     ggplot2::geom_line(
       data = curve_df,
-      ggplot2::aes(x = length_cm, y = ts_panel_center, colour = "Selected policy", linetype = "Selected policy"),
+      ggplot2::aes(x = .data$length_cm, y = .data$ts_panel_center, colour = "Selected policy", linetype = "Selected policy"),
       linewidth = 0.95
     )
   if (isTRUE(show_top_candidate) && "ts_top_candidate" %in% names(curve_df)) {
     p <- p +
       ggplot2::geom_line(
         data = curve_df,
-        ggplot2::aes(x = length_cm, y = ts_top_candidate, colour = "Top candidate", linetype = "Top candidate"),
+        ggplot2::aes(x = .data$length_cm, y = .data$ts_top_candidate, colour = "Top candidate", linetype = "Top candidate"),
         linewidth = 0.85,
         alpha = 0.9
       )
@@ -368,7 +376,7 @@ plot_ts_bands <- function(band_tbl,
   p <- p +
     ggplot2::geom_line(
       data = curve_df,
-      ggplot2::aes(x = length_cm, y = ts_anchor),
+      ggplot2::aes(x = .data$length_cm, y = .data$ts_anchor),
       linewidth = 1.45,
       colour = "white",
       linetype = "longdash",
@@ -376,7 +384,7 @@ plot_ts_bands <- function(band_tbl,
     ) +
     ggplot2::geom_line(
       data = curve_df,
-      ggplot2::aes(x = length_cm, y = ts_anchor, colour = "Anchor", linetype = "Anchor"),
+      ggplot2::aes(x = .data$length_cm, y = .data$ts_anchor, colour = "Anchor", linetype = "Anchor"),
       linewidth = 0.85
     )
   colour_values <- c(
@@ -420,9 +428,11 @@ plot_slope_distribution <- function(slope_tbl) {
   # table so this function is only responsible for rendering.
   plot_df <- tibble::as_tibble(slope_tbl)
   if (nrow(plot_df) == 0 || !all("slope_len_cell" %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Study-Cell Distribution of TS-Length Slopes", subtitle = "Required plotting fields were not available.", x = "Standardized TS-length slope", y = "Study-cell count") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Study-Cell Distribution of TS-Length Slopes", subtitle = "Required plotting fields were not available.", x = "Standardized TS-length slope", y = "Study-cell count") +
+      ggplot2::theme_minimal(base_size = 11))
   }
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = slope_len_cell)) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$slope_len_cell)) +
     ggplot2::geom_histogram(binwidth = 0.5, fill = "#9ecae1", colour = "white") +
     ggplot2::geom_vline(xintercept = 20, colour = "#b2182b", linetype = "dashed", linewidth = 0.9) +
     ggplot2::labs(
@@ -445,12 +455,14 @@ plot_slope_group <- function(slope_tbl) {
   # visually comparable on one axis.
   plot_df <- tibble::as_tibble(slope_tbl)
   if (nrow(plot_df) == 0 || !all(c("review_group", "slope_len_cell") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "TS-Length Slope by Species Group", subtitle = "Required plotting fields were not available.", x = NULL, y = "Standardized TS-length slope") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "TS-Length Slope by Species Group", subtitle = "Required plotting fields were not available.", x = NULL, y = "Standardized TS-length slope") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   plot_df <- plot_df |>
     dplyr::filter(review_group != "Other")
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = review_group, y = slope_len_cell, fill = review_group)) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$review_group, y = .data$slope_len_cell, fill = .data$review_group)) +
     ggplot2::geom_hline(yintercept = 20, colour = "#b2182b", linetype = "dashed", linewidth = 0.9) +
     ggplot2::geom_boxplot(outlier.shape = NA, alpha = 0.70, width = 0.65) +
     ggplot2::geom_jitter(width = 0.16, height = 0, alpha = 0.45, size = 1.7, colour = "grey25") +
@@ -475,7 +487,9 @@ plot_slope_support <- function(support_tbl) {
   # the stacked group-wise proportions.
   plot_df <- tibble::as_tibble(support_tbl)
   if (nrow(plot_df) == 0 || !all(c("review_group", "prop_study_cells", "original_reference_class") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Support for 20log10 Dependence by Species Group", subtitle = "Required plotting fields were not available.", x = NULL, y = "Proportion of study-cells") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Support for 20log10 Dependence by Species Group", subtitle = "Required plotting fields were not available.", x = NULL, y = "Proportion of study-cells") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   fill_vals <- c(
     "< -2" = "#3b4cc0",
@@ -491,7 +505,7 @@ plot_slope_support <- function(support_tbl) {
   ggplot2::ggplot(
     plot_df |>
       dplyr::filter(review_group != "Other"),
-    ggplot2::aes(x = review_group, y = prop_study_cells, fill = original_reference_class)
+    ggplot2::aes(x = .data$review_group, y = .data$prop_study_cells, fill = .data$original_reference_class)
   ) +
     ggplot2::geom_col(position = "fill") +
     ggplot2::scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
@@ -526,7 +540,9 @@ plot_ordination_clusters <- function(points_tbl,
   # subset before layering them in the ordination.
   plot_df <- tibble::as_tibble(points_tbl)
   if (nrow(plot_df) == 0 || !all(c("MDS1", "MDS2") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = "NMDS1", y = "NMDS2") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = "NMDS1", y = "NMDS2") +
+      ggplot2::theme_minimal(base_size = 11))
   }
 
   # Process the clusters and shared column names
@@ -649,7 +665,9 @@ plot_ordination_vectors <- function(vec_tbl,
   if (nrow(vec_df) == 0 || nrow(point_df) == 0 ||
     !all(c("trait", "MDS1", "MDS2") %in% names(vec_df)) ||
     !all(c("MDS1", "MDS2") %in% names(point_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Global NMDS Variable Loadings", subtitle = "Required plotting fields were not available.", x = "NMDS1", y = "NMDS2") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Global NMDS Variable Loadings", subtitle = "Required plotting fields were not available.", x = "NMDS1", y = "NMDS2") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   if (!(species_col %in% names(point_df))) {
     species_col <- "model_id"
@@ -677,10 +695,10 @@ plot_ordination_vectors <- function(vec_tbl,
   ) +
     ggplot2::geom_hline(yintercept = 0, linetype = "dashed", colour = "grey80") +
     ggplot2::geom_vline(xintercept = 0, linetype = "dashed", colour = "grey80") +
-    ggplot2::geom_point(data = point_df, ggplot2::aes(x = MDS1, y = MDS2), inherit.aes = FALSE, colour = "grey75", alpha = 0.35, size = 1.8) +
+    ggplot2::geom_point(data = point_df, ggplot2::aes(x = .data$MDS1, y = .data$MDS2), inherit.aes = FALSE, colour = "grey75", alpha = 0.35, size = 1.8) +
     ggplot2::geom_point(
       data = point_df[ref_flag, , drop = FALSE],
-      ggplot2::aes(x = MDS1, y = MDS2),
+      ggplot2::aes(x = .data$MDS1, y = .data$MDS2),
       inherit.aes = FALSE,
       shape = 23,
       size = 4.2,
@@ -690,7 +708,7 @@ plot_ordination_vectors <- function(vec_tbl,
     ) +
     ggplot2::geom_text(
       data = point_df[ref_flag, , drop = FALSE],
-      ggplot2::aes(x = MDS1, y = MDS2, label = anchor_label),
+      ggplot2::aes(x = .data$MDS1, y = .data$MDS2, label = .data$anchor_label),
       inherit.aes = FALSE,
       size = 2.8,
       fontface = "italic",
@@ -698,13 +716,13 @@ plot_ordination_vectors <- function(vec_tbl,
       check_overlap = TRUE
     ) +
     ggplot2::geom_segment(
-      ggplot2::aes(xend = MDS1, yend = MDS2, linewidth = r2, colour = p_value),
+      ggplot2::aes(xend = .data$MDS1, yend = .data$MDS2, linewidth = .data$r2, colour = .data$p_value),
       arrow = grid::arrow(length = grid::unit(0.18, "cm")),
       alpha = 0.9
     ) +
-    ggplot2::geom_point(ggplot2::aes(x = MDS1, y = MDS2), size = 2.2, colour = "black") +
+    ggplot2::geom_point(ggplot2::aes(x = .data$MDS1, y = .data$MDS2), size = 2.2, colour = "black") +
     ggrepel::geom_text_repel(
-      ggplot2::aes(x = MDS1, y = MDS2, label = trait_label),
+      ggplot2::aes(x = .data$MDS1, y = .data$MDS2, label = .data$trait_label),
       size = 3.2,
       box.padding = 0.25,
       point.padding = 0.2,
@@ -746,7 +764,9 @@ plot_species_ordination <- function(points_tbl,
   # layering optional significant vectors and factor centroids.
   pts <- tibble::as_tibble(points_tbl)
   if (nrow(pts) == 0 || !all(c("MDS1", "MDS2") %in% names(pts))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = "NMDS1", y = "NMDS2") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = "NMDS1", y = "NMDS2") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   if (!(species_col %in% names(pts))) {
     species_col <- "model_id"
@@ -784,7 +804,9 @@ plot_species_ordination <- function(points_tbl,
       nzchar(plot_label)
     )
   if (nrow(pts) == 0) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = "NMDS1", y = "NMDS2") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = "NMDS1", y = "NMDS2") +
+      ggplot2::theme_minimal(base_size = 11))
   }
 
   # Infer group column when ambiguous
@@ -924,7 +946,7 @@ plot_species_ordination <- function(points_tbl,
       p <- p +
         ggplot2::geom_segment(
           data = sig_vec,
-          ggplot2::aes(x = 0, y = 0, xend = xend, yend = yend),
+          ggplot2::aes(x = 0, y = 0, xend = .data$xend, yend = .data$yend),
           inherit.aes = FALSE,
           arrow = grid::arrow(length = grid::unit(0.15, "cm")),
           colour = "#333333",
@@ -932,7 +954,7 @@ plot_species_ordination <- function(points_tbl,
         ) +
         ggplot2::geom_text(
           data = sig_vec,
-          ggplot2::aes(x = xend * 1.08, y = yend * 1.08, label = trait),
+          ggplot2::aes(x = .data$xend * 1.08, y = .data$yend * 1.08, label = .data$trait),
           inherit.aes = FALSE,
           size = 2.8,
           colour = "#333333",
@@ -952,7 +974,7 @@ plot_species_ordination <- function(points_tbl,
       p <- p +
         ggplot2::geom_point(
           data = sig_fac,
-          ggplot2::aes(x = MDS1, y = MDS2),
+          ggplot2::aes(x = .data$MDS1, y = .data$MDS2),
           inherit.aes = FALSE,
           shape = 4,
           size = 2.8,
@@ -961,7 +983,7 @@ plot_species_ordination <- function(points_tbl,
         ) +
         ggplot2::geom_text(
           data = sig_fac,
-          ggplot2::aes(x = MDS1, y = MDS2, label = fac_label),
+          ggplot2::aes(x = .data$MDS1, y = .data$MDS2, label = .data$fac_label),
           inherit.aes = FALSE,
           size = 2.5,
           colour = "#7f2704",
@@ -975,13 +997,13 @@ plot_species_ordination <- function(points_tbl,
   p <- p +
     ggplot2::geom_point(
       data = pts[!pts$ref_flag, , drop = FALSE],
-      ggplot2::aes(fill = group_val, shape = "A"),
+      ggplot2::aes(fill = .data$group_val, shape = "A"),
       size = 3,
       alpha = 0.55
     ) +
     ggplot2::geom_point(
       data = pts[pts$ref_flag, , drop = FALSE],
-      ggplot2::aes(fill = group_val, shape = "B"),
+      ggplot2::aes(fill = .data$group_val, shape = "B"),
       size = 3.5,
       stroke = 1.4,
       colour = "black"
@@ -1054,7 +1076,9 @@ plot_ordination_centers <- function(fac_tbl,
   if (nrow(fac_df) == 0 || nrow(point_df) == 0 ||
     !all(c("trait", "level", "MDS1", "MDS2") %in% names(fac_df)) ||
     !all(c("MDS1", "MDS2") %in% names(point_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = "NMDS1", y = "NMDS2") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = "NMDS1", y = "NMDS2") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   if (!"n" %in% names(fac_df)) {
     fac_df$n <- 1
@@ -1083,13 +1107,13 @@ plot_ordination_centers <- function(fac_tbl,
   scale_ref <- max(abs(c(point_df$MDS1, point_df$MDS2)), na.rm = TRUE)
   if (!is.finite(scale_ref) || scale_ref <= 0) scale_ref <- 1
 
-  ggplot2::ggplot(fac_df, ggplot2::aes(x = MDS1, y = MDS2, colour = trait)) +
+  ggplot2::ggplot(fac_df, ggplot2::aes(x = .data$MDS1, y = .data$MDS2, colour = .data$trait)) +
     ggplot2::geom_hline(yintercept = 0, linetype = "dashed", colour = "grey80") +
     ggplot2::geom_vline(xintercept = 0, linetype = "dashed", colour = "grey80") +
-    ggplot2::geom_point(data = point_df, ggplot2::aes(x = MDS1, y = MDS2), inherit.aes = FALSE, colour = "grey75", alpha = 0.35, size = 1.8) +
+    ggplot2::geom_point(data = point_df, ggplot2::aes(x = .data$MDS1, y = .data$MDS2), inherit.aes = FALSE, colour = "grey75", alpha = 0.35, size = 1.8) +
     ggplot2::geom_point(
       data = point_df[ref_flag, , drop = FALSE],
-      ggplot2::aes(x = MDS1, y = MDS2),
+      ggplot2::aes(x = .data$MDS1, y = .data$MDS2),
       inherit.aes = FALSE,
       shape = 23,
       size = 4.2,
@@ -1099,16 +1123,16 @@ plot_ordination_centers <- function(fac_tbl,
     ) +
     ggplot2::geom_text(
       data = point_df[ref_flag, , drop = FALSE],
-      ggplot2::aes(x = MDS1, y = MDS2, label = anchor_label),
+      ggplot2::aes(x = .data$MDS1, y = .data$MDS2, label = .data$anchor_label),
       inherit.aes = FALSE,
       size = 2.8,
       fontface = "italic",
       nudge_y = 0.03 * scale_ref,
       check_overlap = TRUE
     ) +
-    ggplot2::geom_point(ggplot2::aes(size = n), alpha = 0.9) +
+    ggplot2::geom_point(ggplot2::aes(size = .data$n), alpha = 0.9) +
     ggrepel::geom_text_repel(
-      ggplot2::aes(label = centroid_label),
+      ggplot2::aes(label = .data$centroid_label),
       size = 3,
       box.padding = 0.25,
       point.padding = 0.2,
@@ -1138,7 +1162,9 @@ plot_overlap_heatmap <- function(overlap_tbl,
   # can be compared across anchors on one scale.
   overlap_df <- tibble::as_tibble(overlap_tbl)
   if (nrow(overlap_df) == 0 || !"anchor_species" %in% names(overlap_df)) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = NULL) +
+      ggplot2::theme_minimal(base_size = 11))
   }
   if (is.null(metric_labs)) {
     metric_labs <- c(
@@ -1170,7 +1196,7 @@ plot_overlap_heatmap <- function(overlap_tbl,
       metric = factor(dplyr::recode(metric, !!!metric_labs), levels = unname(metric_labs))
     )
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = metric, y = anchor_species, fill = value)) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$metric, y = .data$anchor_species, fill = .data$value)) +
     ggplot2::geom_tile(colour = "white") +
     ggplot2::scale_fill_gradient(low = "#f7fbff", high = "#08306b", na.value = "grey90") +
     ggplot2::labs(
@@ -1484,7 +1510,9 @@ plot_gate_composition <- function(gate_tbl,
   # proportions so anchors remain directly comparable.
   plot_df <- tibble::as_tibble(gate_tbl)
   if (nrow(plot_df) == 0 || !all(c("anchor_species", "inadmissible_reason", "n_models") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = "Proportion of candidate models") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = "Proportion of candidate models") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   plot_df <- dplyr::filter(plot_df, dplyr::coalesce(as.character(inadmissible_reason), "") != "self")
   gate_spec <- admissibility_plot_gate_spec(
@@ -1519,7 +1547,7 @@ plot_gate_composition <- function(gate_tbl,
       )
     )
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = anchor_species, y = n_models, fill = gate_label)) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$anchor_species, y = .data$n_models, fill = .data$gate_label)) +
     ggplot2::geom_col(position = "fill", width = 0.78) +
     ggplot2::scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
     ggplot2::scale_fill_manual(values = gate_color_lookup, drop = FALSE, name = "Gate outcome") +
@@ -1543,14 +1571,16 @@ plot_anchor_ranges <- function(range_tbl) {
   # above and below one are visually comparable.
   plot_df <- tibble::as_tibble(range_tbl)
   if (nrow(plot_df) == 0 || !all(c("anchor_species", "q50_multiplier_admissible", "q05_multiplier_admissible", "q95_multiplier_admissible") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Admissible Biomass Multiplier Range by Reference", subtitle = "Required plotting fields were not available.", x = NULL, y = "Biomass multiplier") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Admissible Biomass Multiplier Range by Reference", subtitle = "Required plotting fields were not available.", x = NULL, y = "Biomass multiplier") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   ggplot2::ggplot(
     plot_df,
-    ggplot2::aes(x = reorder(anchor_species, q50_multiplier_admissible), y = q50_multiplier_admissible)
+    ggplot2::aes(x = .data$reorder(anchor_species, q50_multiplier_admissible), y = q50_multiplier_admissible)
   ) +
     ggplot2::geom_hline(yintercept = 1, linetype = "dashed", colour = "grey50") +
-    ggplot2::geom_errorbar(ggplot2::aes(ymin = q05_multiplier_admissible, ymax = q95_multiplier_admissible), width = 0.15, colour = "#2171b5") +
+    ggplot2::geom_errorbar(ggplot2::aes(ymin = .data$q05_multiplier_admissible, ymax = .data$q95_multiplier_admissible), width = 0.15, colour = "#2171b5") +
     ggplot2::geom_point(size = 2.8, colour = "#b2182b") +
     ggplot2::coord_flip() +
     ggplot2::scale_y_log10() +
@@ -1574,19 +1604,23 @@ plot_policy_boxplot <- function(perf_tbl) {
   # by their median error.
   plot_df <- tibble::as_tibble(perf_tbl)
   if (!all(c("valid_prediction", "error_abs_log") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = "|log(multiplier prediction)|") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = "|log(multiplier prediction)|") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   plot_df$policy <- resolve_policy_display_names(plot_df)
   plot_df <- plot_df |>
     dplyr::filter(valid_prediction, is.finite(error_abs_log)) |>
     dplyr::mutate(plot_error = pmax(error_abs_log, .Machine$double.xmin))
   if (nrow(plot_df) == 0 || !"policy" %in% names(plot_df)) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = "|log(multiplier prediction)|") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = "|log(multiplier prediction)|") +
+      ggplot2::theme_minimal(base_size = 11))
   }
 
   ggplot2::ggplot(
     plot_df,
-    ggplot2::aes(x = reorder(policy, plot_error, FUN = stats::median), y = plot_error, fill = policy)
+    ggplot2::aes(x = .data$reorder(policy, plot_error, FUN = stats::median), y = plot_error, fill = policy)
   ) +
     ggplot2::geom_boxplot(outlier.alpha = 0.18, width = 0.72) +
     ggplot2::coord_flip() +
@@ -1612,19 +1646,23 @@ plot_species_boxplot <- function(perf_tbl) {
   # pseudo-anchor benchmark for direct comparison.
   plot_df <- tibble::as_tibble(perf_tbl)
   if (!all(c("valid_prediction", "error_abs_log") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = "|log(multiplier prediction)|") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = "|log(multiplier prediction)|") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   plot_df$policy <- resolve_policy_display_names(plot_df)
   plot_df <- plot_df |>
     dplyr::filter(valid_prediction, is.finite(error_abs_log)) |>
     dplyr::mutate(plot_error = pmax(error_abs_log, .Machine$double.xmin))
   if (nrow(plot_df) == 0 || !"policy" %in% names(plot_df)) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = "|log(multiplier prediction)|") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = "|log(multiplier prediction)|") +
+      ggplot2::theme_minimal(base_size = 11))
   }
 
   ggplot2::ggplot(
     plot_df,
-    ggplot2::aes(x = reorder(policy, plot_error, FUN = stats::median), y = plot_error, fill = policy)
+    ggplot2::aes(x = .data$reorder(policy, plot_error, FUN = stats::median), y = plot_error, fill = policy)
   ) +
     ggplot2::geom_boxplot(outlier.alpha = 0.18, width = 0.72) +
     ggplot2::coord_flip() +
@@ -1652,7 +1690,9 @@ plot_policy_heatmap <- function(perf_tbl,
   # pair before drawing the heatmap.
   plot_df <- tibble::as_tibble(perf_tbl)
   if (!all(c("anchor_species", "valid_prediction", "error_abs_log") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = NULL) +
+      ggplot2::theme_minimal(base_size = 11))
   }
   plot_df$policy <- resolve_policy_display_names(plot_df)
   plot_df <- plot_df |>
@@ -1660,7 +1700,9 @@ plot_policy_heatmap <- function(perf_tbl,
     dplyr::group_by(anchor_species, policy) |>
     dplyr::summarise(median_abs_log_error = stats::median(error_abs_log, na.rm = TRUE), .groups = "drop")
   if (nrow(plot_df) == 0 || !all(c("anchor_species", "policy", "median_abs_log_error") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = NULL) +
+      ggplot2::theme_minimal(base_size = 11))
   }
 
   if (!is.null(policy_labs)) {
@@ -1680,7 +1722,7 @@ plot_policy_heatmap <- function(perf_tbl,
         policy = factor(policy, levels = policy_levels),
         anchor_species = factor(anchor_species, levels = sort(unique(anchor_species)))
       ),
-    ggplot2::aes(x = policy, y = anchor_species, fill = median_abs_log_error)
+    ggplot2::aes(x = .data$policy, y = .data$anchor_species, fill = .data$median_abs_log_error)
   ) +
     ggplot2::geom_tile(colour = "white") +
     ggplot2::scale_fill_viridis_c(option = "C", direction = -1) +
@@ -1786,7 +1828,9 @@ conjurer_heatmap_plot <- function(x,
 
   # Stop early with a placeholder when the required summary columns are absent.
   if (nrow(plot_df) == 0 || !all(c("anchor_species", "trait", metric) %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = title %||% "Missing Study Metadata Uncertainty Heatmap", subtitle = subtitle %||% paste0("Required Conjurer summary columns were not available for metric: ", metric, "."), x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = title %||% "Missing Study Metadata Uncertainty Heatmap", subtitle = subtitle %||% paste0("Required Conjurer summary columns were not available for metric: ", metric, "."), x = NULL, y = NULL) +
+      ggplot2::theme_minimal(base_size = 11))
   }
 
   # Resolve the display text from the selected summary metric.
@@ -1818,7 +1862,7 @@ conjurer_heatmap_plot <- function(x,
       trait_order <- plot_df |>
         dplyr::group_by(trait_label) |>
         dplyr::summarise(metric_mean = mean(value, na.rm = TRUE), .groups = "drop") |>
-        dplyr::arrange(dplyr::desc(metric_mean), trait_label) |>
+        dplyr::arrange(dplyr::desc(.data$metric_mean), trait_label) |>
         dplyr::pull(trait_label)
     }
   }
@@ -1839,7 +1883,7 @@ conjurer_heatmap_plot <- function(x,
     )
 
   # Build the heatmap around one continuous fill scale and optional cell labels.
-  p <- ggplot2::ggplot(plot_df, ggplot2::aes(x = trait_label, y = anchor_species, fill = value)) +
+  p <- ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$trait_label, y = .data$anchor_species, fill = .data$value)) +
     ggplot2::geom_tile(colour = tile_colour) +
     ggplot2::scale_fill_gradientn(
       colours = if (metric %in% c("mean_n_admissible", "sd_n_admissible")) {
@@ -1866,7 +1910,7 @@ conjurer_heatmap_plot <- function(x,
 
   # Overlay formatted value labels when the caller wants a manuscript-style figure.
   if (isTRUE(show_values)) {
-    p <- p + ggplot2::geom_text(ggplot2::aes(label = value_label), size = 3.2)
+    p <- p + ggplot2::geom_text(ggplot2::aes(label = .data$value_label), size = 3.2)
   }
 
   p
@@ -2017,11 +2061,13 @@ plot_species_policy_ranked <- function(perf_tbl) {
   }
   if (nrow(plot_df) == 0 ||
     !all(c("anchor_species", "policy", "rank_within_species", "median_abs_log_error") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Species-Blocked Policy Performance by Held-Out Species", subtitle = "Required plotting fields were not available.", x = "Median |log multiplier error|", y = "Policy") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Species-Blocked Policy Performance by Held-Out Species", subtitle = "Required plotting fields were not available.", x = "Median |log multiplier error|", y = "Policy") +
+      ggplot2::theme_minimal(base_size = 11))
   }
 
   plot_df <- plot_df |>
-    dplyr::arrange(anchor_species, dplyr::desc(rank_within_species)) |>
+    dplyr::arrange(anchor_species, dplyr::desc(.data$rank_within_species)) |>
     dplyr::group_by(anchor_species) |>
     dplyr::mutate(
       invalid_x_position = {
@@ -2047,7 +2093,9 @@ plot_species_policy_ranked <- function(perf_tbl) {
       is.finite(n_anchor_models)
     )
   if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Species-Blocked Policy Performance by Held-Out Species", subtitle = "Required plotting fields were not available.", x = "Median |log multiplier error|", y = "Policy") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Species-Blocked Policy Performance by Held-Out Species", subtitle = "Required plotting fields were not available.", x = "Median |log multiplier error|", y = "Policy") +
+      ggplot2::theme_minimal(base_size = 11))
   }
 
   ggplot2::ggplot(
@@ -2175,7 +2223,9 @@ plot_conformal_scores <- function(cal_tbl) {
   }
   plot_df <- tibble::as_tibble(cal_tbl)
   if (nrow(plot_df) == 0 || !all(c("policy", "q_abs_log") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Conformal Calibration Radius by Policy", subtitle = "Required plotting fields were not available.", x = "Policy", y = "Conformal q_abs_log") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Conformal Calibration Radius by Policy", subtitle = "Required plotting fields were not available.", x = "Policy", y = "Conformal q_abs_log") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   if (!"equation_branch_filter" %in% names(plot_df)) {
     plot_df$equation_branch_filter <- "all"
@@ -2213,7 +2263,9 @@ plot_conformal_scores <- function(cal_tbl) {
       is.finite(q_abs_log)
     )
   if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = NULL) +
+      ggplot2::theme_minimal(base_size = 11))
   }
 
   policy_levels <- plot_df |>
@@ -2237,7 +2289,7 @@ plot_conformal_scores <- function(cal_tbl) {
         policy_display = factor(policy_display, levels = rev(policy_levels)),
         branch_display = factor(branch_display, levels = branch_levels)
       ),
-    ggplot2::aes(x = branch_display, y = policy_display, fill = q_abs_log)
+    ggplot2::aes(x = .data$branch_display, y = .data$policy_display, fill = .data$q_abs_log)
   ) +
     ggplot2::geom_tile(colour = "white", linewidth = 0.6) +
     ggplot2::geom_text(
@@ -2300,7 +2352,7 @@ plot_component_importance <- function(impact_tbl,
         )
       ) |>
       dplyr::arrange(component_rank_global, component_label) |>
-      dplyr::distinct(component_label) |>
+      dplyr::distinct(.data$component_label) |>
       dplyr::pull(component_label)
     plot_df <- plot_df |>
       dplyr::mutate(
@@ -2320,7 +2372,7 @@ plot_component_importance <- function(impact_tbl,
 
     p <- ggplot2::ggplot(
       plot_df,
-      ggplot2::aes(x = component_label, y = delta_log_spread, fill = delta_log_consensus)
+      ggplot2::aes(x = .data$component_label, y = .data$delta_log_spread, fill = .data$delta_log_consensus)
     ) +
       ggplot2::geom_col() +
       ggplot2::coord_flip() +
@@ -2349,12 +2401,16 @@ plot_component_importance <- function(impact_tbl,
   }
 
   if (nrow(plot_df) == 0 || !all(c("component", "delta_rmse", "delta_mae") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Empirical Component Importance for Similarity Weighting", subtitle = "Required plotting fields were not available.", x = NULL, y = "Delta RMSE after component dropout") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Empirical Component Importance for Similarity Weighting", subtitle = "Required plotting fields were not available.", x = NULL, y = "Delta RMSE after component dropout") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   plot_df <- plot_df |>
     dplyr::filter(component != "full_model")
   if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Empirical Component Importance for Similarity Weighting", subtitle = "Required plotting fields were not available.", x = NULL, y = "Delta RMSE after component dropout") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Empirical Component Importance for Similarity Weighting", subtitle = "Required plotting fields were not available.", x = NULL, y = "Delta RMSE after component dropout") +
+      ggplot2::theme_minimal(base_size = 11))
   }
 
   if (!is.null(label_map)) {
@@ -2364,8 +2420,8 @@ plot_component_importance <- function(impact_tbl,
 
   ggplot2::ggplot(
     plot_df |>
-      dplyr::mutate(component = forcats::fct_reorder(component, delta_rmse)),
-    ggplot2::aes(x = component, y = delta_rmse, fill = delta_mae)
+      dplyr::mutate(component = forcats::fct_reorder(.data$component, .data$delta_rmse)),
+    ggplot2::aes(x = .data$component, y = .data$delta_rmse, fill = .data$delta_mae)
   ) +
     ggplot2::geom_col() +
     ggplot2::coord_flip() +
@@ -2395,7 +2451,9 @@ plot_uncertainty_heat <- function(dropout_tbl,
   # anchor-by-component heatmap lines up with the component-importance plots.
   plot_df <- tibble::as_tibble(dropout_tbl)
   if (nrow(plot_df) == 0 || !all(c("block", "anchor_species", "importance_score") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Anchor-Specific Local Dropout Sensitivity", subtitle = "Required plotting fields were not available.", x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Anchor-Specific Local Dropout Sensitivity", subtitle = "Required plotting fields were not available.", x = NULL, y = NULL) +
+      ggplot2::theme_minimal(base_size = 11))
   }
   plot_df <- plot_df |>
     dplyr::mutate(
@@ -2411,20 +2469,20 @@ plot_uncertainty_heat <- function(dropout_tbl,
   if ("component_rank_global" %in% names(plot_df)) {
     block_levels <- plot_df |>
       dplyr::arrange(component_rank_global, block) |>
-      dplyr::distinct(block) |>
+      dplyr::distinct(.data$block) |>
       dplyr::pull(block)
   } else {
     block_levels <- plot_df |>
       dplyr::group_by(block) |>
       dplyr::summarise(mean_importance = mean(importance_score, na.rm = TRUE), .groups = "drop") |>
-      dplyr::arrange(dplyr::desc(mean_importance), block) |>
+      dplyr::arrange(dplyr::desc(.data$mean_importance), block) |>
       dplyr::pull(block)
   }
 
   ggplot2::ggplot(
     plot_df |>
       dplyr::mutate(block = factor(block, levels = block_levels)),
-    ggplot2::aes(x = block, y = anchor_species, fill = importance_score)
+    ggplot2::aes(x = .data$block, y = .data$anchor_species, fill = .data$importance_score)
   ) +
     ggplot2::geom_tile(colour = "white") +
     ggplot2::scale_fill_gradient(low = "#f7fbff", high = "#08306b", na.value = "grey90") +
@@ -2478,7 +2536,9 @@ plot_selected_intervals <- function(sel_tbl,
     }
   )
   if (nrow(plot_df) == 0 || !all(c("anchor_species", "multiplier_pred", "multiplier_lo", "multiplier_hi", "selected_policy_display") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = "Biomass multiplier") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = "Biomass multiplier") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   plot_df <- plot_df |>
     dplyr::filter(
@@ -2491,7 +2551,9 @@ plot_selected_intervals <- function(sel_tbl,
       multiplier_hi > 0
     )
   if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = "Biomass multiplier") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = "Biomass multiplier") +
+      ggplot2::theme_minimal(base_size = 11))
   }
 
   ggplot2::ggplot(
@@ -2535,7 +2597,9 @@ plot_anchor_summary <- function(integrated_tbl,
   integrated_df <- tibble::as_tibble(integrated_tbl)
   if (nrow(integrated_df) == 0 ||
     !all(c("anchor_species", "multiplier_pred", "multiplier_lo", "multiplier_hi", "combined_multiplier_q05", "combined_multiplier_q50", "combined_multiplier_q95") %in% names(integrated_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Integrated Anchor-Level Biomass Multiplier Summary", subtitle = "Required plotting fields were not available.", x = NULL, y = "Biomass multiplier") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Integrated Anchor-Level Biomass Multiplier Summary", subtitle = "Required plotting fields were not available.", x = NULL, y = "Biomass multiplier") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   integrated_df$selected_policy_display <- resolve_selected_policy_names(integrated_df)
   anchor_levels <- integrated_df |>
@@ -2581,7 +2645,9 @@ plot_anchor_summary <- function(integrated_tbl,
     ) |>
     dplyr::ungroup()
   if (nrow(integrated_df) == 0) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Integrated Anchor-Level Biomass Multiplier Summary", subtitle = "Required plotting fields were not available.", x = NULL, y = "Biomass multiplier") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Integrated Anchor-Level Biomass Multiplier Summary", subtitle = "Required plotting fields were not available.", x = NULL, y = "Biomass multiplier") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   red_df <- tibble::as_tibble(score_tbl)
   if (all(c("anchor_species", "admissible", "biomass_multiplier_if_replace") %in% names(red_df))) {
@@ -2600,11 +2666,11 @@ plot_anchor_summary <- function(integrated_tbl,
     blue_df <- tibble::tibble(x_pos = numeric(), multiplier_pred = numeric())
   }
 
-  ggplot2::ggplot(integrated_df, ggplot2::aes(x = x_pos)) +
+  ggplot2::ggplot(integrated_df, ggplot2::aes(x = .data$x_pos)) +
     ggplot2::geom_hline(yintercept = 1, linetype = "dashed", colour = "grey55") +
     ggplot2::geom_point(
       data = red_df,
-      ggplot2::aes(x = x_pos, y = biomass_multiplier_if_replace),
+      ggplot2::aes(x = .data$x_pos, y = .data$biomass_multiplier_if_replace),
       inherit.aes = FALSE,
       position = ggplot2::position_jitter(width = 0.035, height = 0),
       colour = "#b2182b",
@@ -2613,7 +2679,7 @@ plot_anchor_summary <- function(integrated_tbl,
     ) +
     ggplot2::geom_point(
       data = blue_df,
-      ggplot2::aes(x = x_pos, y = multiplier_pred),
+      ggplot2::aes(x = .data$x_pos, y = .data$multiplier_pred),
       inherit.aes = FALSE,
       position = ggplot2::position_jitter(width = 0.028, height = 0),
       colour = "#2166ac",
@@ -2621,18 +2687,18 @@ plot_anchor_summary <- function(integrated_tbl,
       size = 1.5
     ) +
     ggplot2::geom_errorbar(
-      ggplot2::aes(x = selected_x_pos, ymin = multiplier_lo, ymax = multiplier_hi),
+      ggplot2::aes(x = .data$selected_x_pos, ymin = .data$multiplier_lo, ymax = .data$multiplier_hi),
       width = 0.12,
       colour = "#2166ac"
     ) +
-    ggplot2::geom_point(ggplot2::aes(x = selected_x_pos, y = multiplier_pred), colour = "#2166ac", size = 2.5) +
+    ggplot2::geom_point(ggplot2::aes(x = .data$selected_x_pos, y = .data$multiplier_pred), colour = "#2166ac", size = 2.5) +
     ggplot2::geom_errorbar(
-      ggplot2::aes(ymin = combined_multiplier_q05, ymax = combined_multiplier_q95),
+      ggplot2::aes(ymin = .data$combined_multiplier_q05, ymax = .data$combined_multiplier_q95),
       width = 0.12,
       colour = "#b2182b",
       position = ggplot2::position_nudge(x = 0.12)
     ) +
-    ggplot2::geom_point(ggplot2::aes(y = combined_multiplier_q50), colour = "#b2182b", size = 2.5, position = ggplot2::position_nudge(x = 0.12)) +
+    ggplot2::geom_point(ggplot2::aes(y = .data$combined_multiplier_q50), colour = "#b2182b", size = 2.5, position = ggplot2::position_nudge(x = 0.12)) +
     ggplot2::coord_flip() +
     ggplot2::scale_x_continuous(
       breaks = seq_along(anchor_levels),
@@ -2796,7 +2862,7 @@ plot_area_distribution <- function(model_data,
       linewidth = 0.5
     ) +
     ggplot2::geom_label(
-      mapping = ggplot2::aes(x = longitude, y = latitude, label = n),
+      mapping = ggplot2::aes(x = .data$longitude, y = .data$latitude, label = .data$n),
       data = fao_labels,
       size = 4.0
     ) +
@@ -2847,7 +2913,9 @@ plot_ts_panel <- function(curve_tbl,
   }
   if (!all(c("length_cm", "ts_pred", "ts_anchor", "ts_lo_99", "ts_hi_99", "ts_lo_95", "ts_hi_95", "ts_lo_90", "ts_hi_90", "ts_lo_80", "ts_hi_80") %in% names(curve_tbl))) {
     return(
-      ggplot2::ggplot() + ggplot2::labs(x = "Length (cm)", y = "TS (dB re 1 m^2)") + ggplot2::theme_minimal(base_size = 11)
+      ggplot2::ggplot() +
+        ggplot2::labs(x = "Length (cm)", y = "TS (dB re 1 m^2)") +
+        ggplot2::theme_minimal(base_size = 11)
     )
   }
   curve_tbl$ts_panel_center <- dplyr::coalesce(
@@ -2947,12 +3015,12 @@ plot_ts_panel <- function(curve_tbl,
       ),
       name = "Prediction band"
     ) +
-    ggplot2::geom_line(data = curve_tbl, ggplot2::aes(x = length_cm, y = ts_panel_center, colour = "Selected policy", linetype = "Selected policy"), linewidth = 0.85)
+    ggplot2::geom_line(data = curve_tbl, ggplot2::aes(x = .data$length_cm, y = .data$ts_panel_center, colour = "Selected policy", linetype = "Selected policy"), linewidth = 0.85)
   if (isTRUE(show_top_candidate) && "ts_top_candidate" %in% names(curve_tbl)) {
     p <- p +
       ggplot2::geom_line(
         data = curve_tbl,
-        ggplot2::aes(x = length_cm, y = ts_top_candidate, colour = "Top candidate", linetype = "Top candidate"),
+        ggplot2::aes(x = .data$length_cm, y = .data$ts_top_candidate, colour = "Top candidate", linetype = "Top candidate"),
         linewidth = 0.75,
         alpha = 0.9
       )
@@ -2960,7 +3028,7 @@ plot_ts_panel <- function(curve_tbl,
   p <- p +
     ggplot2::geom_line(
       data = curve_tbl,
-      ggplot2::aes(x = length_cm, y = ts_anchor),
+      ggplot2::aes(x = .data$length_cm, y = .data$ts_anchor),
       linewidth = 1.35,
       colour = "white",
       linetype = "longdash",
@@ -2968,7 +3036,7 @@ plot_ts_panel <- function(curve_tbl,
     ) +
     ggplot2::geom_line(
       data = curve_tbl,
-      ggplot2::aes(x = length_cm, y = ts_anchor, colour = "Anchor", linetype = "Anchor"),
+      ggplot2::aes(x = .data$length_cm, y = .data$ts_anchor, colour = "Anchor", linetype = "Anchor"),
       linewidth = 0.75
     )
   colour_values <- c(
@@ -3024,7 +3092,9 @@ plot_policy_coefficients <- function(coefficient_tbl) {
     rep(NA_real_, nrow(df))
   }
   if (nrow(plot_df) == 0 || !"anchor_species" %in% names(plot_df)) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = NULL) +
+      ggplot2::theme_minimal(base_size = 11))
   }
   plot_df$estimate_slope <- resolve_one(plot_df, c("policy_slope_len"))
   plot_df$estimate_intercept <- resolve_one(plot_df, c("policy_intercept_len"))
@@ -3110,10 +3180,12 @@ plot_policy_coefficients <- function(coefficient_tbl) {
       layer = factor(layer, levels = c("Conditional on selected policy", "Post-selection"))
     )
   if (nrow(long_df) == 0) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = NULL) +
+      ggplot2::theme_minimal(base_size = 11))
   }
 
-  ggplot2::ggplot(long_df, ggplot2::aes(y = anchor_species, x = estimate, xmin = lo, xmax = hi)) +
+  ggplot2::ggplot(long_df, ggplot2::aes(y = .data$anchor_species, x = .data$estimate, xmin = .data$lo, xmax = .data$hi)) +
     ggplot2::geom_vline(xintercept = 0, linetype = "dashed", colour = "grey60") +
     ggplot2::geom_errorbar(orientation = "y", width = 0.16, linewidth = 0.7, colour = "#4d4d4d") +
     ggplot2::geom_point(size = 2.4, colour = "#2166ac") +
@@ -3144,7 +3216,9 @@ plot_multiplier_vs_expected_length <- function(anchor_tbl) {
     "meta_post_selection_multiplier_hi"
   )
   if (nrow(plot_df) == 0 || !all(required_cols %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Selected Biomass Multiplier vs Expected Anchor Length", subtitle = "Required plotting fields were not available.", x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Selected Biomass Multiplier vs Expected Anchor Length", subtitle = "Required plotting fields were not available.", x = NULL, y = NULL) +
+      ggplot2::theme_minimal(base_size = 11))
   }
   plot_df <- plot_df |>
     dplyr::filter(
@@ -3158,7 +3232,9 @@ plot_multiplier_vs_expected_length <- function(anchor_tbl) {
       multiplier_pred > 0
     )
   if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Selected Biomass Multiplier vs Expected Anchor Length", subtitle = "Required plotting fields were not available.", x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Selected Biomass Multiplier vs Expected Anchor Length", subtitle = "Required plotting fields were not available.", x = NULL, y = NULL) +
+      ggplot2::theme_minimal(base_size = 11))
   }
 
   ggplot2::ggplot(
@@ -3197,7 +3273,9 @@ plot_multiplier_length_spectrum <- function(curve_tbl,
   curve_tbl <- tibble::as_tibble(curve_tbl)
   needed <- c(reference_col, "length_cm", "ts_anchor", "ts_pred", "ts_lo_95", "ts_hi_95")
   if (nrow(curve_tbl) == 0 || !all(needed %in% names(curve_tbl))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = "Length (cm)", y = "Biomass multiplier") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = "Length (cm)", y = "Biomass multiplier") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   plot_df <- curve_tbl |>
     dplyr::mutate(
@@ -3214,11 +3292,13 @@ plot_multiplier_length_spectrum <- function(curve_tbl,
       multiplier_hi_95 > 0
     )
   if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = "Length (cm)", y = "Biomass multiplier") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = "Length (cm)", y = "Biomass multiplier") +
+      ggplot2::theme_minimal(base_size = 11))
   }
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = length_cm, y = multiplier_at_length)) +
-    ggplot2::geom_ribbon(ggplot2::aes(ymin = multiplier_lo_95, ymax = multiplier_hi_95), fill = "#9ebcda", alpha = 0.30) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$length_cm, y = .data$multiplier_at_length)) +
+    ggplot2::geom_ribbon(ggplot2::aes(ymin = .data$multiplier_lo_95, ymax = .data$multiplier_hi_95), fill = "#9ebcda", alpha = 0.30) +
     ggplot2::geom_hline(yintercept = 1, linetype = "dashed", colour = "grey45") +
     ggplot2::geom_line(colour = "#08519c", linewidth = 0.9) +
     ggplot2::scale_y_log10(labels = scales::label_number(accuracy = 0.01)) +
@@ -3252,7 +3332,9 @@ plot_all_intervals <- function(interval_tbl,
   )
   plot_df$policy_display <- resolve_policy_display_names(plot_df)
   if (nrow(plot_df) == 0 || !all(c("policy_display", "multiplier_pred", "multiplier_lo", "multiplier_hi", "is_selected") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = "Biomass multiplier") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = "Biomass multiplier") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   plot_df <- plot_df |>
     dplyr::filter(
@@ -3265,7 +3347,9 @@ plot_all_intervals <- function(interval_tbl,
     ) |>
     dplyr::arrange(multiplier_pred, policy_display)
   if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = "Biomass multiplier") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = "Biomass multiplier") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   policy_levels <- unique(plot_df$policy_display)
   plot_df$policy_display <- factor(plot_df$policy_display, levels = rev(policy_levels))
@@ -3274,7 +3358,7 @@ plot_all_intervals <- function(interval_tbl,
   selected_df <- plot_df |>
     dplyr::filter(is_selected)
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(y = policy_display)) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(y = .data$policy_display)) +
     ggplot2::geom_vline(xintercept = 1, linetype = "dashed", colour = "grey55") +
     ggplot2::geom_segment(
       data = background_df,
@@ -3289,7 +3373,7 @@ plot_all_intervals <- function(interval_tbl,
     ) +
     ggplot2::geom_point(
       data = background_df,
-      ggplot2::aes(x = multiplier_pred),
+      ggplot2::aes(x = .data$multiplier_pred),
       size = 2.4,
       colour = "grey60",
       alpha = 0.75
@@ -3306,7 +3390,7 @@ plot_all_intervals <- function(interval_tbl,
     ) +
     ggplot2::geom_point(
       data = selected_df,
-      ggplot2::aes(x = multiplier_pred),
+      ggplot2::aes(x = .data$multiplier_pred),
       size = 3.1,
       colour = "#2166ac"
     ) +
@@ -3337,7 +3421,9 @@ plot_interval_panel <- function(interval_tbl) {
   )
   plot_df$policy_display <- resolve_policy_display_names(plot_df)
   if (nrow(plot_df) == 0 || !all(c("anchor_species", "policy_display", "multiplier_pred", "multiplier_lo", "multiplier_hi", "is_selected") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = "Biomass multiplier") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = "Biomass multiplier") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   plot_df <- plot_df |>
     dplyr::filter(
@@ -3351,7 +3437,9 @@ plot_interval_panel <- function(interval_tbl) {
     ) |>
     dplyr::ungroup()
   if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = NULL, y = "Biomass multiplier") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = "Biomass multiplier") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   policy_levels <- plot_df |>
     dplyr::group_by(policy_display) |>
@@ -3368,7 +3456,7 @@ plot_interval_panel <- function(interval_tbl) {
   selected_df <- plot_df |>
     dplyr::filter(is_selected)
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(y = policy_display)) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(y = .data$policy_display)) +
     ggplot2::geom_vline(xintercept = 1, linetype = "dashed", colour = "grey55") +
     ggplot2::geom_segment(
       data = background_df,
@@ -3383,7 +3471,7 @@ plot_interval_panel <- function(interval_tbl) {
     ) +
     ggplot2::geom_point(
       data = background_df,
-      ggplot2::aes(x = multiplier_pred),
+      ggplot2::aes(x = .data$multiplier_pred),
       size = 2.1,
       colour = "grey60",
       alpha = 0.75
@@ -3400,7 +3488,7 @@ plot_interval_panel <- function(interval_tbl) {
     ) +
     ggplot2::geom_point(
       data = selected_df,
-      ggplot2::aes(x = multiplier_pred),
+      ggplot2::aes(x = .data$multiplier_pred),
       size = 2.8,
       colour = "#2166ac"
     ) +
@@ -3434,7 +3522,9 @@ plot_policy_stability <- function(sens_tbl,
   # the numeric multiplier-drift heatmap.
   plot_df <- tibble::as_tibble(sens_tbl)
   if (nrow(plot_df) == 0 || !"scenario" %in% names(plot_df) || !"anchor_species" %in% names(plot_df)) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Representative Policy Stability and Multiplier Drift", subtitle = "Required plotting fields were not available.", x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Representative Policy Stability and Multiplier Drift", subtitle = "Required plotting fields were not available.", x = NULL, y = NULL) +
+      ggplot2::theme_minimal(base_size = 11))
   }
   if (!is.null(scenario_labs)) {
     plot_df <- plot_df |>
@@ -3489,8 +3579,8 @@ plot_policy_stability <- function(sens_tbl,
       )
     )
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = scenario_label, y = anchor_species)) +
-    ggplot2::geom_tile(ggplot2::aes(fill = stability_state), colour = "white", linewidth = 0.6) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$scenario_label, y = .data$anchor_species)) +
+    ggplot2::geom_tile(ggplot2::aes(fill = .data$stability_state), colour = "white", linewidth = 0.6) +
     ggplot2::scale_fill_manual(
       values = c(
         "Selection unchanged" = "#d9d9d9",
@@ -3528,7 +3618,9 @@ plot_multiplier_drift <- function(sens_tbl,
   # the selection-change overlays used in the stability plot.
   plot_df <- tibble::as_tibble(sens_tbl)
   if (nrow(plot_df) == 0 || !"scenario" %in% names(plot_df) || !"anchor_species" %in% names(plot_df) || !"anchor_model_id" %in% names(plot_df) || !"multiplier_pred" %in% names(plot_df)) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Multiplier Sensitivity Relative to Baseline", subtitle = "Required plotting fields were not available.", x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Multiplier Sensitivity Relative to Baseline", subtitle = "Required plotting fields were not available.", x = NULL, y = NULL) +
+      ggplot2::theme_minimal(base_size = 11))
   }
   if (!is.null(scenario_labs)) {
     plot_df <- plot_df |>
@@ -3554,9 +3646,9 @@ plot_multiplier_drift <- function(sens_tbl,
       label = sprintf("%+.2f", delta_log_multiplier)
     )
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = scenario_label, y = anchor_species, fill = delta_log_multiplier)) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$scenario_label, y = .data$anchor_species, fill = .data$delta_log_multiplier)) +
     ggplot2::geom_tile(colour = "white", linewidth = 0.6) +
-    ggplot2::geom_text(ggplot2::aes(label = label), size = 3) +
+    ggplot2::geom_text(ggplot2::aes(label = .data$label), size = 3) +
     ggplot2::scale_fill_gradient2(low = "#2166ac", mid = "white", high = "#b2182b", midpoint = 0, labels = scales::number_format(accuracy = 0.01)) +
     ggplot2::scale_y_discrete(labels = function(x) parse(text = paste0("italic('", x, "')"))) +
     ggplot2::labs(
@@ -3581,10 +3673,12 @@ plot_sensitivity_overview <- function(plot_tbl) {
   # handles the segment-plus-point rendering.
   plot_df <- tibble::as_tibble(plot_tbl)
   if (nrow(plot_df) == 0 || !all(c("value", "scenario_label", "metric", "panel") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Sensitivity Scenario Summary", subtitle = "Required plotting fields were not available.", x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Sensitivity Scenario Summary", subtitle = "Required plotting fields were not available.", x = NULL, y = NULL) +
+      ggplot2::theme_minimal(base_size = 11))
   }
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = value, y = forcats::fct_rev(scenario_label), colour = metric)) +
-    ggplot2::geom_segment(ggplot2::aes(x = 0, xend = value, yend = forcats::fct_rev(scenario_label)), linewidth = 0.9, alpha = 0.75) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$value, y = forcats::fct_rev(.data$scenario_label), colour = .data$metric)) +
+    ggplot2::geom_segment(ggplot2::aes(x = 0, xend = .data$value, yend = forcats::fct_rev(.data$scenario_label)), linewidth = 0.9, alpha = 0.75) +
     ggplot2::geom_point(size = 3) +
     ggplot2::facet_wrap(~panel, ncol = 1, scales = "free_x") +
     ggplot2::scale_x_continuous(labels = scales::number_format(accuracy = 0.01)) +
@@ -3619,16 +3713,18 @@ plot_tuning_variation <- function(plot_tbl,
   # variability intervals and point estimates.
   plot_df <- tibble::as_tibble(plot_tbl)
   if (nrow(plot_df) == 0 || !all(c(block_col, "mean_multiplier", "q05_multiplier", "q95_multiplier", "sd_multiplier") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Tuning Block Multipliers Across Resamples", subtitle = "Required plotting fields were not available.", x = "Block multiplier", y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Tuning Block Multipliers Across Resamples", subtitle = "Required plotting fields were not available.", x = "Block multiplier", y = NULL) +
+      ggplot2::theme_minimal(base_size = 11))
   }
   ggplot2::ggplot(
     plot_df |>
-      dplyr::mutate(.block = forcats::fct_reorder(.data[[block_col]], mean_multiplier)),
-    ggplot2::aes(x = mean_multiplier, y = .block)
+      dplyr::mutate(.block = forcats::fct_reorder(.data[[block_col]], .data$mean_multiplier)),
+    ggplot2::aes(x = .data$mean_multiplier, y = .block)
   ) +
-    ggplot2::geom_linerange(ggplot2::aes(xmin = q05_multiplier, xmax = q95_multiplier), linewidth = 1.1, colour = "#6baed6") +
+    ggplot2::geom_linerange(ggplot2::aes(xmin = .data$q05_multiplier, xmax = .data$q95_multiplier), linewidth = 1.1, colour = "#6baed6") +
     ggplot2::geom_point(size = 3, colour = "#08519c") +
-    ggplot2::geom_text(ggplot2::aes(label = sprintf("sd=%.2f", sd_multiplier)), nudge_y = 0.22, size = 3, colour = "#444444") +
+    ggplot2::geom_text(ggplot2::aes(label = .data$sprintf("sd=%.2f", sd_multiplier)), nudge_y = 0.22, size = 3, colour = "#444444") +
     ggplot2::labs(
       title = "Tuning Block Multipliers Across Resamples",
       x = "Block multiplier",
@@ -3649,7 +3745,9 @@ plot_anchor_audit <- function(audit_tbl) {
   audit_tbl <- tibble::as_tibble(audit_tbl)
   if (nrow(audit_tbl) == 0) {
     return(
-      ggplot2::ggplot() + ggplot2::labs(title = "Representative Policy Audit", subtitle = "Required plotting fields were not available.", x = NULL, y = NULL) + ggplot2::theme_minimal(base_size = 11)
+      ggplot2::ggplot() +
+        ggplot2::labs(title = "Representative Policy Audit", subtitle = "Required plotting fields were not available.", x = NULL, y = NULL) +
+        ggplot2::theme_minimal(base_size = 11)
     )
   }
   metric_labs <- c(
@@ -3681,7 +3779,7 @@ plot_anchor_audit <- function(audit_tbl) {
   # Reshape the audit metrics to one long plotting table so each audit measure
   # can be shown on its own x-scale.
   plot_df <- audit_tbl |>
-    dplyr::mutate(anchor_species = forcats::fct_inorder(anchor_species)) |>
+    dplyr::mutate(anchor_species = forcats::fct_inorder(.data$anchor_species)) |>
     dplyr::select(dplyr::all_of(keep_cols)) |>
     tidyr::pivot_longer(cols = -c(anchor_species, selected_policy_display), names_to = "metric", values_to = "value") |>
     dplyr::mutate(
@@ -3691,7 +3789,7 @@ plot_anchor_audit <- function(audit_tbl) {
       )
     )
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = value, y = forcats::fct_rev(anchor_species), colour = selected_policy_display)) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$value, y = forcats::fct_rev(.data$anchor_species), colour = .data$selected_policy_display)) +
     ggplot2::geom_point(size = 3) +
     ggplot2::facet_wrap(~metric, scales = "free_x", ncol = 2) +
     ggplot2::scale_color_brewer(palette = "Dark2") +
@@ -3718,12 +3816,14 @@ plot_field_missing <- function(field_tbl) {
   # missingness audit bar chart.
   plot_df <- tibble::as_tibble(field_tbl)
   if (nrow(plot_df) == 0 || !all(c("field", "missing_fraction") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Missingness Across Key Metadata Fields", subtitle = "Required plotting fields were not available.", x = "Missing fraction", y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Missingness Across Key Metadata Fields", subtitle = "Required plotting fields were not available.", x = "Missing fraction", y = NULL) +
+      ggplot2::theme_minimal(base_size = 11))
   }
   ggplot2::ggplot(
     plot_df |>
-      dplyr::mutate(field = forcats::fct_reorder(field, missing_fraction)),
-    ggplot2::aes(x = missing_fraction, y = field)
+      dplyr::mutate(field = forcats::fct_reorder(.data$field, .data$missing_fraction)),
+    ggplot2::aes(x = .data$missing_fraction, y = .data$field)
   ) +
     ggplot2::geom_col(fill = "#756bb1", width = 0.7) +
     ggplot2::scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
@@ -3747,12 +3847,14 @@ plot_anchor_missing <- function(anchor_tbl) {
   # missingness gate for each reference species.
   plot_df <- tibble::as_tibble(anchor_tbl)
   if (nrow(plot_df) == 0 || !all(c("anchor_species", "prop_fail_missing_metadata") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = "Candidate Exclusion from Missing Key Metadata", subtitle = "Required plotting fields were not available.", x = "Excluded by missingness gate", y = NULL) + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = "Candidate Exclusion from Missing Key Metadata", subtitle = "Required plotting fields were not available.", x = "Excluded by missingness gate", y = NULL) +
+      ggplot2::theme_minimal(base_size = 11))
   }
   ggplot2::ggplot(
     plot_df |>
-      dplyr::mutate(anchor_species = forcats::fct_inorder(anchor_species)),
-    ggplot2::aes(x = prop_fail_missing_metadata, y = forcats::fct_rev(anchor_species))
+      dplyr::mutate(anchor_species = forcats::fct_inorder(.data$anchor_species)),
+    ggplot2::aes(x = .data$prop_fail_missing_metadata, y = forcats::fct_rev(.data$anchor_species))
   ) +
     ggplot2::geom_col(fill = "#1c9099", width = 0.7) +
     ggplot2::scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
@@ -3785,7 +3887,9 @@ plot_ordination_cluster_hulls <- function(points_tbl,
   point_df <- tibble::as_tibble(points_tbl)
   hull_df <- tibble::as_tibble(hull_tbl)
   if (nrow(point_df) == 0 || !all(c("MDS1", "MDS2") %in% names(point_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = "NMDS1", y = "NMDS2") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = "NMDS1", y = "NMDS2") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   cluster_name <- cluster_col
   if (!(cluster_name %in% names(point_df))) {
@@ -3813,19 +3917,19 @@ plot_ordination_cluster_hulls <- function(points_tbl,
     label_col <- "species_name"
   }
 
-  ggplot2::ggplot(point_df, ggplot2::aes(x = MDS1, y = MDS2, colour = .data[[cluster_name]])) +
+  ggplot2::ggplot(point_df, ggplot2::aes(x = .data$MDS1, y = .data$MDS2, colour = .data[[cluster_name]])) +
     ggplot2::geom_hline(yintercept = 0, linetype = "dashed", colour = "grey70") +
     ggplot2::geom_vline(xintercept = 0, linetype = "dashed", colour = "grey70") +
     ggplot2::geom_polygon(
       data = hull_df,
-      ggplot2::aes(x = MDS1, y = MDS2, fill = .data[[cluster_name]], group = .data[[cluster_name]]),
+      ggplot2::aes(x = .data$MDS1, y = .data$MDS2, fill = .data[[cluster_name]], group = .data[[cluster_name]]),
       inherit.aes = FALSE,
       alpha = 0.12,
       colour = NA
     ) +
     ggplot2::geom_path(
       data = hull_df,
-      ggplot2::aes(x = MDS1, y = MDS2, colour = .data[[cluster_name]], group = .data[[cluster_name]]),
+      ggplot2::aes(x = .data$MDS1, y = .data$MDS2, colour = .data[[cluster_name]], group = .data[[cluster_name]]),
       inherit.aes = FALSE,
       linewidth = 0.8,
       alpha = 0.7
@@ -3841,7 +3945,7 @@ plot_ordination_cluster_hulls <- function(points_tbl,
     ) +
     ggplot2::geom_text(
       data = point_df[ref_flag, , drop = FALSE],
-      ggplot2::aes(x = MDS1, y = MDS2, label = .data[[label_col]]),
+      ggplot2::aes(x = .data$MDS1, y = .data$MDS2, label = .data[[label_col]]),
       inherit.aes = FALSE,
       size = 3,
       fontface = "italic",
@@ -3868,9 +3972,11 @@ plot_length_density <- function(length_tbl,
   # pure plotting helper.
   plot_df <- tibble::as_tibble(length_tbl)
   if (nrow(plot_df) == 0 || !all(c("length_cm", "f_len") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = "Length (cm)", y = "f(L)") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = "Length (cm)", y = "f(L)") +
+      ggplot2::theme_minimal(base_size = 11))
   }
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = length_cm, y = f_len)) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$length_cm, y = .data$f_len)) +
     ggplot2::geom_line(linewidth = 0.8, colour = "#3182bd") +
     ggplot2::labs(
       x = "Length (cm)",
@@ -3891,10 +3997,12 @@ plot_length_density_panel <- function(length_tbl,
                                       reference_col = "anchor_species") {
   plot_df <- tibble::as_tibble(length_tbl)
   if (nrow(plot_df) == 0 || !all(c(reference_col, "length_cm", "f_len") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = "Length (cm)", y = "f(L)") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = "Length (cm)", y = "f(L)") +
+      ggplot2::theme_minimal(base_size = 11))
   }
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = length_cm, y = f_len)) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$length_cm, y = .data$f_len)) +
     ggplot2::geom_line(linewidth = 0.8, colour = "#3182bd") +
     ggplot2::facet_wrap(stats::as.formula(paste("~", reference_col)), ncol = 2, scales = "free_x") +
     ggplot2::labs(
@@ -3919,7 +4027,9 @@ plot_ts_ribbon <- function(ribbon_tbl,
   # the mean plus-or-minus one supplied standard deviation.
   plot_df <- tibble::as_tibble(ribbon_tbl)
   if (nrow(plot_df) == 0 || !all(c("length_cm", "ts_mean") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = paste0("Weighted TS Ribbon [reference: ", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = "Length (cm)", y = "TS (dB re 1 m^2)") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = paste0("Weighted TS Ribbon [reference: ", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = "Length (cm)", y = "TS (dB re 1 m^2)") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   plot_df <- plot_df |>
     dplyr::mutate(
@@ -3927,8 +4037,8 @@ plot_ts_ribbon <- function(ribbon_tbl,
       ribbon_high = dplyr::coalesce(ts_hi, ts_mean + ts_sd)
     )
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = length_cm, y = ts_mean)) +
-    ggplot2::geom_ribbon(ggplot2::aes(ymin = ribbon_low, ymax = ribbon_high), alpha = 0.2, fill = "#3182bd") +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$length_cm, y = .data$ts_mean)) +
+    ggplot2::geom_ribbon(ggplot2::aes(ymin = .data$ribbon_low, ymax = .data$ribbon_high), alpha = 0.2, fill = "#3182bd") +
     ggplot2::geom_line(linewidth = 0.9, colour = "#3182bd") +
     ggplot2::labs(
       title = paste0("Weighted TS Ribbon [reference: ", anchor_label, "]"),
@@ -3955,7 +4065,9 @@ plot_model_weights <- function(weight_tbl,
   plot_df <- tibble::as_tibble(weight_tbl)
   if (!("w_adm" %in% names(plot_df) || "w_combined" %in% names(plot_df)) ||
     !("combined_distance" %in% names(plot_df) || "d_species" %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = "Distance to reference", y = "Model weight") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = "Distance to reference", y = "Model weight") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   if (!"w_adm" %in% names(plot_df)) plot_df$w_adm <- NA_real_
   if (!"w_combined" %in% names(plot_df)) plot_df$w_combined <- NA_real_
@@ -3968,7 +4080,9 @@ plot_model_weights <- function(weight_tbl,
     ) |>
     dplyr::filter(is.finite(plot_weight), is.finite(plot_distance), plot_weight >= 0)
   if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = "Distance to reference", y = "Model weight") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = "Distance to reference", y = "Model weight") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   if ("swimbladder_type" %in% names(plot_df)) {
     plot_df$group_val <- dplyr::coalesce(as.character(plot_df$swimbladder_type), "unknown")
@@ -3976,10 +4090,10 @@ plot_model_weights <- function(weight_tbl,
     plot_df$group_val <- "unknown"
   }
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = plot_distance, y = plot_weight)) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$plot_distance, y = .data$plot_weight)) +
     ggplot2::geom_hline(yintercept = 0, linetype = "dashed", colour = "grey70") +
     ggplot2::geom_point(
-      ggplot2::aes(colour = group_val),
+      ggplot2::aes(colour = .data$group_val),
       size = 2.5,
       alpha = 0.8
     ) +
@@ -4007,7 +4121,9 @@ plot_biomass_sensitivity <- function(sensitivity_tbl,
   # drawing the weighted histogram on the log scale.
   plot_df <- tibble::as_tibble(sensitivity_tbl)
   if (!"biomass_multiplier_if_replace" %in% names(plot_df)) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = paste0("Biomass Sensitivity [reference: ", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = "Biomass multiplier relative to the reference model", y = "Weighted model count") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = paste0("Biomass Sensitivity [reference: ", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = "Biomass multiplier relative to the reference model", y = "Weighted model count") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   if (!"w_adm" %in% names(plot_df)) plot_df$w_adm <- NA_real_
   if (!"w_combined" %in% names(plot_df)) plot_df$w_combined <- NA_real_
@@ -4020,10 +4136,12 @@ plot_biomass_sensitivity <- function(sensitivity_tbl,
       plot_weight > 0
     )
   if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = paste0("Biomass Sensitivity [reference: ", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = "Biomass multiplier relative to the reference model", y = "Weighted model count") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = paste0("Biomass Sensitivity [reference: ", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = "Biomass multiplier relative to the reference model", y = "Weighted model count") +
+      ggplot2::theme_minimal(base_size = 11))
   }
 
-  p <- ggplot2::ggplot(plot_df, ggplot2::aes(x = biomass_multiplier_if_replace, weight = plot_weight)) +
+  p <- ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$biomass_multiplier_if_replace, weight = .data$plot_weight)) +
     ggplot2::geom_histogram(bins = 30, fill = "#9ecae1", colour = "white", alpha = 0.95) +
     ggplot2::scale_x_log10() +
     ggplot2::geom_vline(xintercept = 1, colour = "#4d4d4d", linetype = "dashed", linewidth = 0.7) +
@@ -4065,7 +4183,9 @@ plot_biomass_candidate_map <- function(candidate_tbl,
   plot_df <- tibble::as_tibble(candidate_tbl)
   if (!"biomass_multiplier_if_replace" %in% names(plot_df) ||
     !("w_adm" %in% names(plot_df) || "w_combined" %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = "Model weight", y = "Biomass multiplier") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = "Model weight", y = "Biomass multiplier") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   if (!"w_adm" %in% names(plot_df)) plot_df$w_adm <- NA_real_
   if (!"w_combined" %in% names(plot_df)) plot_df$w_combined <- NA_real_
@@ -4078,7 +4198,9 @@ plot_biomass_candidate_map <- function(candidate_tbl,
       biomass_multiplier_if_replace > 0
     )
   if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() + ggplot2::labs(x = "Model weight", y = "Biomass multiplier") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = "Model weight", y = "Biomass multiplier") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   if ("common" %in% names(plot_df)) {
     plot_df$label <- dplyr::coalesce(as.character(plot_df$common), as.character(plot_df$species_name), as.character(plot_df$model_id_chr))
@@ -4092,19 +4214,19 @@ plot_biomass_candidate_map <- function(candidate_tbl,
   }
 
   label_df <- plot_df |>
-    dplyr::arrange(dplyr::desc(plot_weight)) |>
+    dplyr::arrange(dplyr::desc(.data$plot_weight)) |>
     dplyr::slice_head(n = 10)
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = plot_weight, y = biomass_multiplier_if_replace)) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$plot_weight, y = .data$biomass_multiplier_if_replace)) +
     ggplot2::scale_y_log10(
       breaks = scales::breaks_log(n = 6),
       labels = scales::label_number(accuracy = 0.01)
     ) +
     ggplot2::geom_hline(yintercept = 1, colour = "#4d4d4d", linetype = "dashed", linewidth = 0.7) +
-    ggplot2::geom_point(ggplot2::aes(colour = group_val), alpha = 0.55, size = 2.2) +
+    ggplot2::geom_point(ggplot2::aes(colour = .data$group_val), alpha = 0.55, size = 2.2) +
     ggplot2::geom_text(
       data = label_df,
-      ggplot2::aes(label = label),
+      ggplot2::aes(label = .data$label),
       size = 2.8,
       nudge_x = 0.005 * max(plot_df$plot_weight, na.rm = TRUE),
       check_overlap = TRUE,
@@ -4131,7 +4253,9 @@ plot_top_ten_model_weights <- function(top_tbl,
   # Build the ordered top-ten label set before drawing the ranking bar chart.
   plot_df <- tibble::as_tibble(top_tbl)
   if (nrow(plot_df) == 0 || !all(c("species_name", "model_id_chr", "w_adm") %in% names(plot_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = paste0("Top-10 Models by Weight [", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = NULL, y = "Model weight") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = paste0("Top-10 Models by Weight [", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = NULL, y = "Model weight") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   if ("common" %in% names(plot_df)) {
     common_suffix <- dplyr::if_else(!is.na(plot_df$common) & nzchar(plot_df$common), paste0(" [", plot_df$common, "]"), "")
@@ -4144,7 +4268,7 @@ plot_top_ten_model_weights <- function(top_tbl,
       label = factor(label, levels = label)
     )
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = label, y = w_adm)) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$label, y = .data$w_adm)) +
     ggplot2::geom_col(fill = "#3182bd", alpha = 0.85) +
     ggplot2::labs(
       title = paste0("Top-10 Models by Weight [", anchor_label, "]"),
@@ -4172,12 +4296,14 @@ plot_pivot_variance <- function(profile_tbl,
   profile_df <- tibble::as_tibble(profile_tbl)
   summary_df <- tibble::as_tibble(summary_tbl)
   if (nrow(profile_df) == 0 || nrow(summary_df) == 0 || !all(c("length_cm", "weighted_variance_v") %in% names(profile_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = paste0("Pivot-Point Variance Profile [reference: ", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = "Length (cm)", y = "Weighted variance V(L)") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = paste0("Pivot-Point Variance Profile [reference: ", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = "Length (cm)", y = "Weighted variance V(L)") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   boundary_case <- identical(summary_df$pivot_display_source[[1]], "pairwise_weighted_median")
   plot_pivot <- if (boundary_case) summary_df$pivot_length_cm[[1]] else summary_df$pivot_display_length_cm[[1]]
 
-  ggplot2::ggplot(profile_df, ggplot2::aes(x = length_cm, y = weighted_variance_v)) +
+  ggplot2::ggplot(profile_df, ggplot2::aes(x = .data$length_cm, y = .data$weighted_variance_v)) +
     {
       if (is.finite(summary_df$pairwise_pivot_q25_cm[[1]]) && is.finite(summary_df$pairwise_pivot_q75_cm[[1]])) {
         ggplot2::annotate(
@@ -4227,12 +4353,14 @@ plot_pairwise_pivot_histogram <- function(pairwise_tbl,
   pairwise_df <- tibble::as_tibble(pairwise_tbl)
   summary_df <- tibble::as_tibble(summary_tbl)
   if (nrow(pairwise_df) == 0 || nrow(summary_df) == 0 || !all(c("lpivot_cm", "pair_weight") %in% names(pairwise_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = paste0("Pairwise Pivot-Length Distribution [reference: ", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = "Pairwise pivot length (cm)", y = "Weighted pair count") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = paste0("Pairwise Pivot-Length Distribution [reference: ", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = "Pairwise pivot length (cm)", y = "Weighted pair count") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   plot_pivot <- summary_df$pivot_display_length_cm[[1]]
   boundary_case <- identical(summary_df$pivot_display_source[[1]], "pairwise_weighted_median")
 
-  ggplot2::ggplot(pairwise_df, ggplot2::aes(x = lpivot_cm, weight = pair_weight)) +
+  ggplot2::ggplot(pairwise_df, ggplot2::aes(x = .data$lpivot_cm, weight = .data$pair_weight)) +
     ggplot2::geom_histogram(bins = 30, fill = "#9ecae1", colour = "white") +
     {
       if (is.finite(plot_pivot)) {
@@ -4270,12 +4398,14 @@ plot_biological_leverage <- function(profile_tbl,
   profile_df <- tibble::as_tibble(profile_tbl)
   summary_df <- tibble::as_tibble(summary_tbl)
   if (nrow(profile_df) == 0 || nrow(summary_df) == 0 || !all(c("length_cm", "lambda_l") %in% names(profile_df))) {
-    return(ggplot2::ggplot() + ggplot2::labs(title = paste0("Biological Leverage Profile [reference: ", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = "Length (cm)", y = "Biological leverage") + ggplot2::theme_minimal(base_size = 11))
+    return(ggplot2::ggplot() +
+      ggplot2::labs(title = paste0("Biological Leverage Profile [reference: ", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = "Length (cm)", y = "Biological leverage") +
+      ggplot2::theme_minimal(base_size = 11))
   }
   boundary_case <- identical(summary_df$pivot_display_source[[1]], "pairwise_weighted_median")
   plot_pivot <- if (boundary_case) summary_df$pivot_length_cm[[1]] else summary_df$pivot_display_length_cm[[1]]
 
-  ggplot2::ggplot(profile_df, ggplot2::aes(x = length_cm, y = lambda_l)) +
+  ggplot2::ggplot(profile_df, ggplot2::aes(x = .data$length_cm, y = .data$lambda_l)) +
     {
       if (is.finite(summary_df$pairwise_pivot_q25_cm[[1]]) && is.finite(summary_df$pairwise_pivot_q75_cm[[1]])) {
         ggplot2::annotate(
@@ -4312,4 +4442,3 @@ plot_biological_leverage <- function(profile_tbl,
     ) +
     ggplot2::theme_minimal(base_size = 12)
 }
-

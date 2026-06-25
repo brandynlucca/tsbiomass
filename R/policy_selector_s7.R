@@ -469,10 +469,10 @@ policy_selector_cached_anchor_evaluation <- function(object,
 canonicalize_equivalent_policy_rows <- function(policy_tbl) {
   policy_tbl <- standardize_policies(policy_tbl)
   if (nrow(policy_tbl) == 0L ||
-      !"realized_donor_fingerprint" %in% names(policy_tbl) ||
-      !"multiplier_pred" %in% names(policy_tbl) ||
-      !"policy_slope_len" %in% names(policy_tbl) ||
-      !"policy_intercept_len" %in% names(policy_tbl)) {
+    !"realized_donor_fingerprint" %in% names(policy_tbl) ||
+    !"multiplier_pred" %in% names(policy_tbl) ||
+    !"policy_slope_len" %in% names(policy_tbl) ||
+    !"policy_intercept_len" %in% names(policy_tbl)) {
     return(policy_tbl)
   }
 
@@ -910,7 +910,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
   select_tbl <- tibble::as_tibble(selection_obj$final_ref %||% tibble::tibble())
   benchmark_policy_tbl <- tibble::as_tibble((object@benchmark)$policy_perf %||% tibble::tibble())
   if (nrow(select_tbl) == 0L &&
-      nrow(tibble::as_tibble((object@benchmark)$species_block_perf %||% tibble::tibble())) > 0L) {
+    nrow(tibble::as_tibble((object@benchmark)$species_block_perf %||% tibble::tibble())) > 0L) {
     # Older selector checkpoints can reach prediction with uncertainty already
     # calibrated but without a persisted global selection summary. Rebuild the
     # benchmark-derived selection reference table on demand so anchor-time
@@ -1034,8 +1034,8 @@ S7::method(select_policies, PolicySelector) <- function(object,
     tibble::tibble()
   }
   learner_meta_ref_tbl <- if ((inherits(learner, "S7_object") &&
-      exists("PolicyLearner", inherits = TRUE) &&
-      isTRUE(tryCatch(S7::S7_inherits(learner, PolicyLearner), error = function(e) FALSE)))) {
+    exists("PolicyLearner", inherits = TRUE) &&
+    isTRUE(tryCatch(S7::S7_inherits(learner, PolicyLearner), error = function(e) FALSE)))) {
     benchmark_species_perf <- tryCatch(
       policy_learner_species_perf(learner),
       error = function(e) tibble::tibble()

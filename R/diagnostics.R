@@ -606,7 +606,7 @@ build_candidates_uncertainty_diagnostics <- function(candidates,
       !is.na(component),
       nzchar(component)
     ) |>
-    dplyr::arrange(dplyr::desc(delta_rmse), component) |>
+    dplyr::arrange(dplyr::desc(.data$delta_rmse), component) |>
     dplyr::pull(component)
   global_component_order <- unique(c(global_component_order, component_tbl$component))
   component_rank <- stats::setNames(seq_along(global_component_order), global_component_order)
@@ -745,7 +745,7 @@ build_candidates_uncertainty_diagnostics <- function(candidates,
   }
 
   anchor_ablation <- dplyr::bind_rows(ablation_rows) |>
-    dplyr::arrange(anchor_species, component_rank_global, dplyr::desc(importance_score), component)
+    dplyr::arrange(anchor_species, component_rank_global, dplyr::desc(.data$importance_score), component)
   overall_tbl <- anchor_ablation |>
     dplyr::group_by(component, component_type, component_rank_global) |>
     dplyr::summarise(
@@ -756,7 +756,7 @@ build_candidates_uncertainty_diagnostics <- function(candidates,
       n_anchors = dplyr::n_distinct(anchor_model_id),
       .groups = "drop"
     ) |>
-    dplyr::arrange(component_rank_global, dplyr::desc(importance_score), component)
+    dplyr::arrange(component_rank_global, dplyr::desc(.data$importance_score), component)
 
   report_progress(progress, "Finished anchor-level similarity ablation diagnostics.")
 
@@ -819,5 +819,3 @@ check_conformal_coverage <- function(calibration_residuals,
     covered = emp_cov >= finite_sample_floor
   )
 }
-
-

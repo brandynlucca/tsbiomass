@@ -615,13 +615,13 @@ fetch_fishbase <- function(species, cache_path = NULL, refresh = FALSE) {
     )
   }
   endpoints <- list(
-    species       = fetch_quietly(rfishbase::species(species_list = species)),
-    morphology    = fetch_quietly(rfishbase::morphology(species_list = species)),
-    ecology       = fetch_quietly(rfishbase::ecology(species_list = species)),
+    species = fetch_quietly(rfishbase::species(species_list = species)),
+    morphology = fetch_quietly(rfishbase::morphology(species_list = species)),
+    ecology = fetch_quietly(rfishbase::ecology(species_list = species)),
     length_weight = fetch_quietly(rfishbase::length_weight(species_list = species)),
-    popgrowth     = fetch_quietly(rfishbase::popgrowth(species_list = species)),
-    stocks        = fetch_quietly(rfishbase::stocks(species_list = species)),
-    faoareas      = fetch_quietly(rfishbase::faoareas(species_list = species))
+    popgrowth = fetch_quietly(rfishbase::popgrowth(species_list = species)),
+    stocks = fetch_quietly(rfishbase::stocks(species_list = species)),
+    faoareas = fetch_quietly(rfishbase::faoareas(species_list = species))
   )
 
   for (endpoint_name in names(endpoints)) {
@@ -2529,4 +2529,3 @@ enrich_species_db <- function(db_list,
 
   out
 }
-

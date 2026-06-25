@@ -133,7 +133,7 @@ evaluate_nested_transfer_set <- function(anchor_models,
       tibble::as_tibble(donor_models),
       tibble::as_tibble(anchor_row)
     ) |>
-      dplyr::distinct(model_id_chr, .keep_all = TRUE)
+      dplyr::distinct(.data$model_id_chr, .keep_all = TRUE)
 
     eval_obj <- tryCatch(
       screen_one_anchor_admissibility(
@@ -691,5 +691,3 @@ run_nested_policy_validation <- function(candidate_models,
 
   result
 }
-
-

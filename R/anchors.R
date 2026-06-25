@@ -441,16 +441,16 @@ compute_conformal_scores <- function(policy_perf,
   policy_perf$policy <- resolve_policy_names(policy_perf)
   if (nrow(policy_perf) == 0L || !"valid_prediction" %in% names(policy_perf)) {
     return(tibble::tibble(
-      policy                 = character(),
+      policy = character(),
       equation_branch_filter = character(),
-      n                      = integer(),
-      q_abs_log              = numeric(),
-      median_abs_log         = numeric()
+      n = integer(),
+      q_abs_log = numeric(),
+      median_abs_log = numeric()
     ))
   }
   policy_perf |>
-    dplyr::filter(valid_prediction, is.finite(error_abs_log)) |>
-    dplyr::group_by(policy, equation_branch_filter) |>
+    dplyr::filter(.data$valid_prediction, is.finite(.data$error_abs_log)) |>
+    dplyr::group_by(.data$policy, .data$equation_branch_filter) |>
     dplyr::summarise(
       n = dplyr::n(),
       q_abs_log = {
@@ -458,12 +458,12 @@ compute_conformal_scores <- function(policy_perf,
         # q = sort(scores)[min(n, ceiling((n+1)*(1-alpha)))]
         # stats::quantile(..., type=8) interpolates between order stats and
         # can return a value below the required index, violating coverage.
-        s <- sort(error_abs_log)
+        s <- sort(.data$error_abs_log)
         n_cal <- length(s)
         idx <- min(n_cal, ceiling((n_cal + 1L) * (1 - alpha)))
         if (n_cal == 0L) NA_real_ else s[[idx]]
       },
-      median_abs_log = stats::median(error_abs_log, na.rm = TRUE),
+      median_abs_log = stats::median(.data$error_abs_log, na.rm = TRUE),
       .groups = "drop"
     )
 }
@@ -490,65 +490,65 @@ summarize_conformal <- function(policy_perf,
   conf_cal <- standardize_policies(conf_cal)
   if (nrow(perf_aug) == 0L || !"valid_prediction" %in% names(perf_aug)) {
     empty <- tibble::tibble(
-      policy                    = character(),
-      equation_branch_filter    = character(),
-      benchmark_label           = character(),
-      n                         = integer(),
-      empirical_coverage        = numeric(),
+      policy = character(),
+      equation_branch_filter = character(),
+      benchmark_label = character(),
+      n = integer(),
+      empirical_coverage = numeric(),
       median_interval_log_width = numeric(),
-      mean_signed_log_error     = numeric(),
-      median_signed_log_error   = numeric(),
-      mean_abs_log_error        = numeric(),
-      median_abs_log_error      = numeric()
+      mean_signed_log_error = numeric(),
+      median_signed_log_error = numeric(),
+      mean_abs_log_error = numeric(),
+      median_abs_log_error = numeric()
     )
     return(list(overall = empty, by_species = empty))
   }
   perf_aug <- perf_aug |>
     dplyr::filter(
-      valid_prediction,
-      is.finite(multiplier_pred),
-      multiplier_pred > 0,
-      is.finite(error_abs_log)
+      .data$valid_prediction,
+      is.finite(.data$multiplier_pred),
+      .data$multiplier_pred > 0,
+      is.finite(.data$error_abs_log)
     ) |>
     dplyr::left_join(
       tibble::as_tibble(conf_cal) |>
-        dplyr::select(policy, equation_branch_filter, q_abs_log),
+        dplyr::select("policy", "equation_branch_filter", "q_abs_log"),
       by = c("policy", "equation_branch_filter")
     ) |>
     dplyr::mutate(
-      covered = is.finite(q_abs_log) & error_abs_log <= q_abs_log,
-      interval_log_width = 2 * q_abs_log,
-      signed_log_error = log(multiplier_pred)
+      covered = is.finite(.data$q_abs_log) & .data$error_abs_log <= .data$q_abs_log,
+      interval_log_width = 2 * .data$q_abs_log,
+      signed_log_error = log(.data$multiplier_pred)
     )
 
   # Summarize the calibrated benchmark at the policy level first.
   overall <- perf_aug |>
-    dplyr::group_by(policy, equation_branch_filter) |>
+    dplyr::group_by(.data$policy, .data$equation_branch_filter) |>
     dplyr::summarise(
       benchmark_label = bench_label,
       n = dplyr::n(),
-      empirical_coverage = mean(covered, na.rm = TRUE),
-      median_interval_log_width = stats::median(interval_log_width, na.rm = TRUE),
-      mean_signed_log_error = mean(signed_log_error, na.rm = TRUE),
-      median_signed_log_error = stats::median(signed_log_error, na.rm = TRUE),
-      mean_abs_log_error = mean(error_abs_log, na.rm = TRUE),
-      median_abs_log_error = stats::median(error_abs_log, na.rm = TRUE),
+      empirical_coverage = mean(.data$covered, na.rm = TRUE),
+      median_interval_log_width = stats::median(.data$interval_log_width, na.rm = TRUE),
+      mean_signed_log_error = mean(.data$signed_log_error, na.rm = TRUE),
+      median_signed_log_error = stats::median(.data$signed_log_error, na.rm = TRUE),
+      mean_abs_log_error = mean(.data$error_abs_log, na.rm = TRUE),
+      median_abs_log_error = stats::median(.data$error_abs_log, na.rm = TRUE),
       .groups = "drop"
     )
 
   # Repeat the same summary by anchor species so species-level calibration
   # differences can be inspected downstream.
   by_species <- perf_aug |>
-    dplyr::group_by(policy, equation_branch_filter, anchor_species) |>
+    dplyr::group_by(.data$policy, .data$equation_branch_filter, .data$anchor_species) |>
     dplyr::summarise(
       benchmark_label = bench_label,
       n = dplyr::n(),
-      empirical_coverage = mean(covered, na.rm = TRUE),
-      median_interval_log_width = stats::median(interval_log_width, na.rm = TRUE),
-      mean_signed_log_error = mean(signed_log_error, na.rm = TRUE),
-      median_signed_log_error = stats::median(signed_log_error, na.rm = TRUE),
-      mean_abs_log_error = mean(error_abs_log, na.rm = TRUE),
-      median_abs_log_error = stats::median(error_abs_log, na.rm = TRUE),
+      empirical_coverage = mean(.data$covered, na.rm = TRUE),
+      median_interval_log_width = stats::median(.data$interval_log_width, na.rm = TRUE),
+      mean_signed_log_error = mean(.data$signed_log_error, na.rm = TRUE),
+      median_signed_log_error = stats::median(.data$signed_log_error, na.rm = TRUE),
+      mean_abs_log_error = mean(.data$error_abs_log, na.rm = TRUE),
+      median_abs_log_error = stats::median(.data$error_abs_log, na.rm = TRUE),
       .groups = "drop"
     )
 
@@ -594,27 +594,27 @@ smooth_ts_calibration <- function(ts_cal) {
   # Smooth each policy independently so the relative-length calibration shape
   # is preserved within policy.
   tibble::as_tibble(ts_cal) |>
-    dplyr::group_by(policy, equation_branch_filter) |>
-    dplyr::arrange(u, .by_group = TRUE) |>
+    dplyr::group_by(.data$policy, .data$equation_branch_filter) |>
+    dplyr::arrange(.data$u, .by_group = TRUE) |>
     dplyr::mutate(
-      median_ts_error_smooth = smooth_one(u, median_ts_error),
-      q80_ts_abs_raw_smooth = smooth_one(u, q80_ts_abs_raw),
-      q90_ts_abs_raw_smooth = smooth_one(u, q90_ts_abs_raw),
-      q95_ts_abs_raw_smooth = smooth_one(u, q95_ts_abs_raw),
-      q99_ts_abs_raw_smooth = smooth_one(u, q99_ts_abs_raw),
-      q80_ts_abs_dev_smooth = smooth_one(u, q80_ts_abs_dev),
-      q90_ts_abs_dev_smooth = smooth_one(u, q90_ts_abs_dev),
-      q95_ts_abs_dev_smooth = smooth_one(u, q95_ts_abs_dev),
-      q99_ts_abs_dev_smooth = smooth_one(u, q99_ts_abs_dev),
-      median_log_sigma_residual_smooth = smooth_one(u, median_log_sigma_residual),
-      q10_log_sigma_residual_smooth = smooth_one(u, q10_log_sigma_residual),
-      q90_log_sigma_residual_smooth = smooth_one(u, q90_log_sigma_residual),
-      q05_log_sigma_residual_smooth = smooth_one(u, q05_log_sigma_residual),
-      q95_log_sigma_residual_smooth = smooth_one(u, q95_log_sigma_residual),
-      q025_log_sigma_residual_smooth = smooth_one(u, q025_log_sigma_residual),
-      q975_log_sigma_residual_smooth = smooth_one(u, q975_log_sigma_residual),
-      q005_log_sigma_residual_smooth = smooth_one(u, q005_log_sigma_residual),
-      q995_log_sigma_residual_smooth = smooth_one(u, q995_log_sigma_residual)
+      median_ts_error_smooth = smooth_one(.data$u, .data$median_ts_error),
+      q80_ts_abs_raw_smooth = smooth_one(.data$u, .data$q80_ts_abs_raw),
+      q90_ts_abs_raw_smooth = smooth_one(.data$u, .data$q90_ts_abs_raw),
+      q95_ts_abs_raw_smooth = smooth_one(.data$u, .data$q95_ts_abs_raw),
+      q99_ts_abs_raw_smooth = smooth_one(.data$u, .data$q99_ts_abs_raw),
+      q80_ts_abs_dev_smooth = smooth_one(.data$u, .data$q80_ts_abs_dev),
+      q90_ts_abs_dev_smooth = smooth_one(.data$u, .data$q90_ts_abs_dev),
+      q95_ts_abs_dev_smooth = smooth_one(.data$u, .data$q95_ts_abs_dev),
+      q99_ts_abs_dev_smooth = smooth_one(.data$u, .data$q99_ts_abs_dev),
+      median_log_sigma_residual_smooth = smooth_one(.data$u, .data$median_log_sigma_residual),
+      q10_log_sigma_residual_smooth = smooth_one(.data$u, .data$q10_log_sigma_residual),
+      q90_log_sigma_residual_smooth = smooth_one(.data$u, .data$q90_log_sigma_residual),
+      q05_log_sigma_residual_smooth = smooth_one(.data$u, .data$q05_log_sigma_residual),
+      q95_log_sigma_residual_smooth = smooth_one(.data$u, .data$q95_log_sigma_residual),
+      q025_log_sigma_residual_smooth = smooth_one(.data$u, .data$q025_log_sigma_residual),
+      q975_log_sigma_residual_smooth = smooth_one(.data$u, .data$q975_log_sigma_residual),
+      q005_log_sigma_residual_smooth = smooth_one(.data$u, .data$q005_log_sigma_residual),
+      q995_log_sigma_residual_smooth = smooth_one(.data$u, .data$q995_log_sigma_residual)
     ) |>
     dplyr::ungroup()
 }
@@ -639,51 +639,51 @@ summarize_ts_calibration <- function(ts_error) {
   ts_cal <- standardize_policies(ts_error)
   ts_cal$policy <- resolve_policy_names(ts_cal)
   ts_cal <- ts_cal |>
-    dplyr::group_by(policy, equation_branch_filter, u) |>
+    dplyr::group_by(.data$policy, .data$equation_branch_filter, .data$u) |>
     dplyr::summarise(
       n = dplyr::n(),
-      median_ts_error = stats::median(ts_error, na.rm = TRUE),
+      median_ts_error = stats::median(.data$ts_error, na.rm = TRUE),
       q80_ts_abs_raw = stats::quantile(
-        abs(ts_error),
+        abs(.data$ts_error),
         probs = 0.80, na.rm = TRUE, names = FALSE, type = 8
       ),
       q90_ts_abs_raw = stats::quantile(
-        abs(ts_error),
+        abs(.data$ts_error),
         probs = 0.90, na.rm = TRUE, names = FALSE, type = 8
       ),
       q95_ts_abs_raw = stats::quantile(
-        abs(ts_error),
+        abs(.data$ts_error),
         probs = 0.95, na.rm = TRUE, names = FALSE, type = 8
       ),
       q99_ts_abs_raw = stats::quantile(
-        abs(ts_error),
+        abs(.data$ts_error),
         probs = 0.99, na.rm = TRUE, names = FALSE, type = 8
       ),
       q80_ts_abs_dev = stats::quantile(
-        abs(ts_error - stats::median(ts_error, na.rm = TRUE)),
+        abs(.data$ts_error - stats::median(.data$ts_error, na.rm = TRUE)),
         probs = 0.80, na.rm = TRUE, names = FALSE, type = 8
       ),
       q90_ts_abs_dev = stats::quantile(
-        abs(ts_error - stats::median(ts_error, na.rm = TRUE)),
+        abs(.data$ts_error - stats::median(.data$ts_error, na.rm = TRUE)),
         probs = 0.90, na.rm = TRUE, names = FALSE, type = 8
       ),
       q95_ts_abs_dev = stats::quantile(
-        abs(ts_error - stats::median(ts_error, na.rm = TRUE)),
+        abs(.data$ts_error - stats::median(.data$ts_error, na.rm = TRUE)),
         probs = 0.95, na.rm = TRUE, names = FALSE, type = 8
       ),
       q99_ts_abs_dev = stats::quantile(
-        abs(ts_error - stats::median(ts_error, na.rm = TRUE)),
+        abs(.data$ts_error - stats::median(.data$ts_error, na.rm = TRUE)),
         probs = 0.99, na.rm = TRUE, names = FALSE, type = 8
       ),
-      median_log_sigma_residual = stats::median(log_sigma_residual, na.rm = TRUE),
-      q10_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.10, na.rm = TRUE, names = FALSE, type = 8),
-      q90_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
-      q05_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.05, na.rm = TRUE, names = FALSE, type = 8),
-      q95_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.95, na.rm = TRUE, names = FALSE, type = 8),
-      q025_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.025, na.rm = TRUE, names = FALSE, type = 8),
-      q975_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.975, na.rm = TRUE, names = FALSE, type = 8),
-      q005_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.005, na.rm = TRUE, names = FALSE, type = 8),
-      q995_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.995, na.rm = TRUE, names = FALSE, type = 8),
+      median_log_sigma_residual = stats::median(.data$log_sigma_residual, na.rm = TRUE),
+      q10_log_sigma_residual = stats::quantile(.data$log_sigma_residual, probs = 0.10, na.rm = TRUE, names = FALSE, type = 8),
+      q90_log_sigma_residual = stats::quantile(.data$log_sigma_residual, probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
+      q05_log_sigma_residual = stats::quantile(.data$log_sigma_residual, probs = 0.05, na.rm = TRUE, names = FALSE, type = 8),
+      q95_log_sigma_residual = stats::quantile(.data$log_sigma_residual, probs = 0.95, na.rm = TRUE, names = FALSE, type = 8),
+      q025_log_sigma_residual = stats::quantile(.data$log_sigma_residual, probs = 0.025, na.rm = TRUE, names = FALSE, type = 8),
+      q975_log_sigma_residual = stats::quantile(.data$log_sigma_residual, probs = 0.975, na.rm = TRUE, names = FALSE, type = 8),
+      q005_log_sigma_residual = stats::quantile(.data$log_sigma_residual, probs = 0.005, na.rm = TRUE, names = FALSE, type = 8),
+      q995_log_sigma_residual = stats::quantile(.data$log_sigma_residual, probs = 0.995, na.rm = TRUE, names = FALSE, type = 8),
       .groups = "drop"
     )
 
@@ -735,30 +735,30 @@ smooth_selected_ts_calibration <- function(ts_cal) {
         "equation_branch_filter"
       )))
     ) |>
-    dplyr::arrange(u, .by_group = TRUE) |>
+    dplyr::arrange(.data$u, .by_group = TRUE) |>
     dplyr::mutate(
-      median_ts_error_smooth = smooth_one(u, median_ts_error),
-      q80_ts_abs_raw_smooth = smooth_one(u, q80_ts_abs_raw),
-      q90_ts_abs_raw_smooth = smooth_one(u, q90_ts_abs_raw),
-      q95_ts_abs_raw_smooth = smooth_one(u, q95_ts_abs_raw),
-      q99_ts_abs_raw_smooth = smooth_one(u, q99_ts_abs_raw),
-      q80_ts_abs_dev_smooth = smooth_one(u, q80_ts_abs_dev),
-      q90_ts_abs_dev_smooth = smooth_one(u, q90_ts_abs_dev),
-      q95_ts_abs_dev_smooth = smooth_one(u, q95_ts_abs_dev),
-      q99_ts_abs_dev_smooth = smooth_one(u, q99_ts_abs_dev),
-      median_log_sigma_residual_smooth = smooth_one(u, median_log_sigma_residual),
-      q80_log_sigma_abs_dev_smooth = smooth_one(u, q80_log_sigma_abs_dev),
-      q90_log_sigma_abs_dev_smooth = smooth_one(u, q90_log_sigma_abs_dev),
-      q95_log_sigma_abs_dev_smooth = smooth_one(u, q95_log_sigma_abs_dev),
-      q99_log_sigma_abs_dev_smooth = smooth_one(u, q99_log_sigma_abs_dev),
-      q10_log_sigma_residual_smooth = smooth_one(u, q10_log_sigma_residual),
-      q90_log_sigma_residual_smooth = smooth_one(u, q90_log_sigma_residual),
-      q05_log_sigma_residual_smooth = smooth_one(u, q05_log_sigma_residual),
-      q95_log_sigma_residual_smooth = smooth_one(u, q95_log_sigma_residual),
-      q025_log_sigma_residual_smooth = smooth_one(u, q025_log_sigma_residual),
-      q975_log_sigma_residual_smooth = smooth_one(u, q975_log_sigma_residual),
-      q005_log_sigma_residual_smooth = smooth_one(u, q005_log_sigma_residual),
-      q995_log_sigma_residual_smooth = smooth_one(u, q995_log_sigma_residual)
+      median_ts_error_smooth = smooth_one(.data$u, .data$median_ts_error),
+      q80_ts_abs_raw_smooth = smooth_one(.data$u, .data$q80_ts_abs_raw),
+      q90_ts_abs_raw_smooth = smooth_one(.data$u, .data$q90_ts_abs_raw),
+      q95_ts_abs_raw_smooth = smooth_one(.data$u, .data$q95_ts_abs_raw),
+      q99_ts_abs_raw_smooth = smooth_one(.data$u, .data$q99_ts_abs_raw),
+      q80_ts_abs_dev_smooth = smooth_one(.data$u, .data$q80_ts_abs_dev),
+      q90_ts_abs_dev_smooth = smooth_one(.data$u, .data$q90_ts_abs_dev),
+      q95_ts_abs_dev_smooth = smooth_one(.data$u, .data$q95_ts_abs_dev),
+      q99_ts_abs_dev_smooth = smooth_one(.data$u, .data$q99_ts_abs_dev),
+      median_log_sigma_residual_smooth = smooth_one(.data$u, .data$median_log_sigma_residual),
+      q80_log_sigma_abs_dev_smooth = smooth_one(.data$u, .data$q80_log_sigma_abs_dev),
+      q90_log_sigma_abs_dev_smooth = smooth_one(.data$u, .data$q90_log_sigma_abs_dev),
+      q95_log_sigma_abs_dev_smooth = smooth_one(.data$u, .data$q95_log_sigma_abs_dev),
+      q99_log_sigma_abs_dev_smooth = smooth_one(.data$u, .data$q99_log_sigma_abs_dev),
+      q10_log_sigma_residual_smooth = smooth_one(.data$u, .data$q10_log_sigma_residual),
+      q90_log_sigma_residual_smooth = smooth_one(.data$u, .data$q90_log_sigma_residual),
+      q05_log_sigma_residual_smooth = smooth_one(.data$u, .data$q05_log_sigma_residual),
+      q95_log_sigma_residual_smooth = smooth_one(.data$u, .data$q95_log_sigma_residual),
+      q025_log_sigma_residual_smooth = smooth_one(.data$u, .data$q025_log_sigma_residual),
+      q975_log_sigma_residual_smooth = smooth_one(.data$u, .data$q975_log_sigma_residual),
+      q005_log_sigma_residual_smooth = smooth_one(.data$u, .data$q005_log_sigma_residual),
+      q995_log_sigma_residual_smooth = smooth_one(.data$u, .data$q995_log_sigma_residual)
     ) |>
     dplyr::ungroup()
 }
@@ -796,10 +796,10 @@ summarize_selected_ts_calibration <- function(ts_error,
       equation_branch_filter = selected_branches(selected_tbl)
     ) |>
     dplyr::filter(
-      !is.na(policy),
-      !is.na(equation_branch_filter)
+      !is.na(.data$policy),
+      !is.na(.data$equation_branch_filter)
     ) |>
-    dplyr::distinct(policy, equation_branch_filter)
+    dplyr::distinct(.data$policy, .data$equation_branch_filter)
   if (nrow(selected_keys) == 0) {
     return(tibble::tibble())
   }
@@ -809,8 +809,8 @@ summarize_selected_ts_calibration <- function(ts_error,
   selected_ts <- selected_ts |>
     dplyr::mutate(
       anchor_model_id = as.character(anchor_model_id),
-      anchor_species = if ("anchor_species" %in% names(selected_ts)) as.character(anchor_species) else rep(NA_character_, dplyr::n()),
-      anchor_family = if ("anchor_family" %in% names(selected_ts)) as.character(anchor_family) else rep(NA_character_, dplyr::n())
+      anchor_species = if ("anchor_species" %in% names(selected_ts)) as.character(.data$anchor_species) else rep(NA_character_, dplyr::n()),
+      anchor_family = if ("anchor_family" %in% names(selected_ts)) as.character(.data$anchor_family) else rep(NA_character_, dplyr::n())
     )
   selected_ts_joined <- selected_ts |>
     dplyr::inner_join(
@@ -823,14 +823,14 @@ summarize_selected_ts_calibration <- function(ts_error,
 
   selected_ts_joined |>
     dplyr::mutate(
-      u = suppressWarnings(as.numeric(u)),
-      ts_error = suppressWarnings(as.numeric(ts_error)),
-      log_sigma_residual = suppressWarnings(as.numeric(log_sigma_residual))
+      u = suppressWarnings(as.numeric(.data$u)),
+      ts_error = suppressWarnings(as.numeric(.data$ts_error)),
+      log_sigma_residual = suppressWarnings(as.numeric(.data$log_sigma_residual))
     ) |>
     dplyr::filter(
-      is.finite(u),
-      is.finite(ts_error),
-      is.finite(log_sigma_residual)
+      is.finite(.data$u),
+      is.finite(.data$ts_error),
+      is.finite(.data$log_sigma_residual)
     )
 }
 
@@ -947,14 +947,14 @@ summarize_selected_coefficient_calibration <- function(selected_tbl,
       post_selection_support_bin = selected_support_bins
     ) |>
     dplyr::filter(
-      !is.na(policy),
-      !is.na(equation_branch_filter)
+      !is.na(.data$policy),
+      !is.na(.data$equation_branch_filter)
     )
   selected_keys <- selected_keys |>
-    dplyr::group_by(policy, equation_branch_filter) |>
+    dplyr::group_by(.data$policy, .data$equation_branch_filter) |>
     dplyr::summarise(
       post_selection_support_bin = {
-        x <- stats::na.omit(post_selection_support_bin)
+        x <- stats::na.omit(.data$post_selection_support_bin)
         if (length(x) > 0) as.character(x[[1]]) else NA_character_
       },
       .groups = "drop"
@@ -968,54 +968,54 @@ summarize_selected_coefficient_calibration <- function(selected_tbl,
   if (all(c("policy_slope_len", "policy_intercept_len") %in% names(ts_error))) {
     benchmark_coefficients <- ts_error |>
       dplyr::mutate(
-        anchor_model_id = as.character(anchor_model_id),
-        policy_slope_len = suppressWarnings(as.numeric(policy_slope_len)),
-        policy_intercept_len = suppressWarnings(as.numeric(policy_intercept_len)),
-        local_min_combined_distance = if ("local_min_combined_distance" %in% names(ts_error)) suppressWarnings(as.numeric(local_min_combined_distance)) else NA_real_,
-        local_weighted_mean_combined_distance = if ("local_weighted_mean_combined_distance" %in% names(ts_error)) suppressWarnings(as.numeric(local_weighted_mean_combined_distance)) else NA_real_,
-        local_min_species_distance = if ("local_min_species_distance" %in% names(ts_error)) suppressWarnings(as.numeric(local_min_species_distance)) else NA_real_,
-        local_weighted_mean_species_distance = if ("local_weighted_mean_species_distance" %in% names(ts_error)) suppressWarnings(as.numeric(local_weighted_mean_species_distance)) else NA_real_,
-        local_min_trait_gower_distance = if ("local_min_trait_gower_distance" %in% names(ts_error)) suppressWarnings(as.numeric(local_min_trait_gower_distance)) else NA_real_,
-        local_weighted_mean_trait_gower_distance = if ("local_weighted_mean_trait_gower_distance" %in% names(ts_error)) suppressWarnings(as.numeric(local_weighted_mean_trait_gower_distance)) else NA_real_,
-        local_effective_support = if ("local_effective_support" %in% names(ts_error)) suppressWarnings(as.numeric(local_effective_support)) else NA_real_,
-        local_mean_length_overlap = if ("local_mean_length_overlap" %in% names(ts_error)) suppressWarnings(as.numeric(local_mean_length_overlap)) else NA_real_,
-        local_mean_depth_overlap = if ("local_mean_depth_overlap" %in% names(ts_error)) suppressWarnings(as.numeric(local_mean_depth_overlap)) else NA_real_
+        anchor_model_id = as.character(.data$anchor_model_id),
+        policy_slope_len = suppressWarnings(as.numeric(.data$policy_slope_len)),
+        policy_intercept_len = suppressWarnings(as.numeric(.data$policy_intercept_len)),
+        local_min_combined_distance = if ("local_min_combined_distance" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_min_combined_distance)) else NA_real_,
+        local_weighted_mean_combined_distance = if ("local_weighted_mean_combined_distance" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_weighted_mean_combined_distance)) else NA_real_,
+        local_min_species_distance = if ("local_min_species_distance" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_min_species_distance)) else NA_real_,
+        local_weighted_mean_species_distance = if ("local_weighted_mean_species_distance" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_weighted_mean_species_distance)) else NA_real_,
+        local_min_trait_gower_distance = if ("local_min_trait_gower_distance" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_min_trait_gower_distance)) else NA_real_,
+        local_weighted_mean_trait_gower_distance = if ("local_weighted_mean_trait_gower_distance" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_weighted_mean_trait_gower_distance)) else NA_real_,
+        local_effective_support = if ("local_effective_support" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_effective_support)) else NA_real_,
+        local_mean_length_overlap = if ("local_mean_length_overlap" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_mean_length_overlap)) else NA_real_,
+        local_mean_depth_overlap = if ("local_mean_depth_overlap" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_mean_depth_overlap)) else NA_real_
       ) |>
-      dplyr::group_by(anchor_model_id, policy, equation_branch_filter) |>
+      dplyr::group_by(.data$anchor_model_id, .data$policy, .data$equation_branch_filter) |>
       dplyr::summarise(
-        policy_slope_len = stats::median(policy_slope_len, na.rm = TRUE),
-        policy_intercept_len = stats::median(policy_intercept_len, na.rm = TRUE),
-        local_min_combined_distance = stats::median(local_min_combined_distance, na.rm = TRUE),
-        local_weighted_mean_combined_distance = stats::median(local_weighted_mean_combined_distance, na.rm = TRUE),
-        local_min_species_distance = stats::median(local_min_species_distance, na.rm = TRUE),
-        local_weighted_mean_species_distance = stats::median(local_weighted_mean_species_distance, na.rm = TRUE),
-        local_min_trait_gower_distance = stats::median(local_min_trait_gower_distance, na.rm = TRUE),
-        local_weighted_mean_trait_gower_distance = stats::median(local_weighted_mean_trait_gower_distance, na.rm = TRUE),
-        local_effective_support = stats::median(local_effective_support, na.rm = TRUE),
-        local_mean_length_overlap = stats::median(local_mean_length_overlap, na.rm = TRUE),
-        local_mean_depth_overlap = stats::median(local_mean_depth_overlap, na.rm = TRUE),
+        policy_slope_len = stats::median(.data$policy_slope_len, na.rm = TRUE),
+        policy_intercept_len = stats::median(.data$policy_intercept_len, na.rm = TRUE),
+        local_min_combined_distance = stats::median(.data$local_min_combined_distance, na.rm = TRUE),
+        local_weighted_mean_combined_distance = stats::median(.data$local_weighted_mean_combined_distance, na.rm = TRUE),
+        local_min_species_distance = stats::median(.data$local_min_species_distance, na.rm = TRUE),
+        local_weighted_mean_species_distance = stats::median(.data$local_weighted_mean_species_distance, na.rm = TRUE),
+        local_min_trait_gower_distance = stats::median(.data$local_min_trait_gower_distance, na.rm = TRUE),
+        local_weighted_mean_trait_gower_distance = stats::median(.data$local_weighted_mean_trait_gower_distance, na.rm = TRUE),
+        local_effective_support = stats::median(.data$local_effective_support, na.rm = TRUE),
+        local_mean_length_overlap = stats::median(.data$local_mean_length_overlap, na.rm = TRUE),
+        local_mean_depth_overlap = stats::median(.data$local_mean_depth_overlap, na.rm = TRUE),
         .groups = "drop"
       ) |>
       dplyr::filter(
-        is.finite(policy_slope_len),
-        is.finite(policy_intercept_len)
+        is.finite(.data$policy_slope_len),
+        is.finite(.data$policy_intercept_len)
       )
   } else if (all(c("length_cm", "ts_pred") %in% names(ts_error))) {
     benchmark_coefficients <- ts_error |>
       dplyr::mutate(
-        anchor_model_id = as.character(anchor_model_id),
-        length_cm = suppressWarnings(as.numeric(length_cm)),
-        ts_pred = suppressWarnings(as.numeric(ts_pred))
+        anchor_model_id = as.character(.data$anchor_model_id),
+        length_cm = suppressWarnings(as.numeric(.data$length_cm)),
+        ts_pred = suppressWarnings(as.numeric(.data$ts_pred))
       ) |>
-      dplyr::group_by(anchor_model_id, policy, equation_branch_filter) |>
+      dplyr::group_by(.data$anchor_model_id, .data$policy, .data$equation_branch_filter) |>
       dplyr::summarise(
         policy_slope_len = {
-          keep <- is.finite(length_cm) & length_cm > 0 & is.finite(ts_pred)
+          keep <- is.finite(.data$length_cm) & .data$length_cm > 0 & is.finite(.data$ts_pred)
           if (sum(keep) < 2L) {
             NA_real_
           } else {
-            x <- log10(length_cm[keep])
-            y <- ts_pred[keep]
+            x <- log10(.data$length_cm[keep])
+            y <- .data$ts_pred[keep]
             slope_var <- stats::var(x)
             if (!is.finite(slope_var) || slope_var <= 0) {
               NA_real_
@@ -1025,12 +1025,12 @@ summarize_selected_coefficient_calibration <- function(selected_tbl,
           }
         },
         policy_intercept_len = {
-          keep <- is.finite(length_cm) & length_cm > 0 & is.finite(ts_pred)
+          keep <- is.finite(.data$length_cm) & .data$length_cm > 0 & is.finite(.data$ts_pred)
           if (sum(keep) < 2L) {
             NA_real_
           } else {
-            x <- log10(length_cm[keep])
-            y <- ts_pred[keep]
+            x <- log10(.data$length_cm[keep])
+            y <- .data$ts_pred[keep]
             slope_var <- stats::var(x)
             if (!is.finite(slope_var) || slope_var <= 0) {
               NA_real_
@@ -1043,8 +1043,8 @@ summarize_selected_coefficient_calibration <- function(selected_tbl,
         .groups = "drop"
       ) |>
       dplyr::filter(
-        is.finite(policy_slope_len),
-        is.finite(policy_intercept_len)
+        is.finite(.data$policy_slope_len),
+        is.finite(.data$policy_intercept_len)
       )
   } else {
     benchmark_coefficients <- tibble::tibble()
@@ -1055,51 +1055,51 @@ summarize_selected_coefficient_calibration <- function(selected_tbl,
 
   benchmark_selected <- benchmark_coefficients |>
     dplyr::inner_join(
-      dplyr::distinct(selected_keys, policy, equation_branch_filter, post_selection_support_bin),
+      dplyr::distinct(.data$selected_keys, .data$policy, .data$equation_branch_filter, .data$post_selection_support_bin),
       by = c("policy", "equation_branch_filter")
     )
   benchmark_selected |>
     dplyr::inner_join(truth_tbl, by = "anchor_model_id") |>
     dplyr::mutate(
-      slope_resid = anchor_slope_len - policy_slope_len,
-      intercept_resid = anchor_intercept_len - policy_intercept_len
+      slope_resid = .data$anchor_slope_len - .data$policy_slope_len,
+      intercept_resid = .data$anchor_intercept_len - .data$policy_intercept_len
     ) |>
     dplyr::filter(
-      is.finite(policy_slope_len),
-      is.finite(policy_intercept_len),
-      is.finite(anchor_slope_len),
-      is.finite(anchor_intercept_len),
-      is.finite(slope_resid),
-      is.finite(intercept_resid),
-      !is.na(policy),
-      !is.na(equation_branch_filter)
+      is.finite(.data$policy_slope_len),
+      is.finite(.data$policy_intercept_len),
+      is.finite(.data$anchor_slope_len),
+      is.finite(.data$anchor_intercept_len),
+      is.finite(.data$slope_resid),
+      is.finite(.data$intercept_resid),
+      !is.na(.data$policy),
+      !is.na(.data$equation_branch_filter)
     ) |>
     dplyr::select(
-      anchor_model_id,
-      anchor_species,
-      anchor_genus,
-      anchor_family,
-      anchor_frequency_khz,
-      anchor_length_min,
-      anchor_length_max,
-      anchor_depth_min,
-      anchor_depth_max,
-      policy,
-      equation_branch_filter,
-      post_selection_support_bin,
-      local_min_combined_distance,
-      local_weighted_mean_combined_distance,
-      local_min_species_distance,
-      local_weighted_mean_species_distance,
-      local_min_trait_gower_distance,
-      local_weighted_mean_trait_gower_distance,
-      local_effective_support,
-      local_mean_length_overlap,
-      local_mean_depth_overlap,
-      policy_slope_len,
-      policy_intercept_len,
-      slope_resid,
-      intercept_resid
+      "anchor_model_id",
+      "anchor_species",
+      "anchor_genus",
+      "anchor_family",
+      "anchor_frequency_khz",
+      "anchor_length_min",
+      "anchor_length_max",
+      "anchor_depth_min",
+      "anchor_depth_max",
+      "policy",
+      "equation_branch_filter",
+      "post_selection_support_bin",
+      "local_min_combined_distance",
+      "local_weighted_mean_combined_distance",
+      "local_min_species_distance",
+      "local_weighted_mean_species_distance",
+      "local_min_trait_gower_distance",
+      "local_weighted_mean_trait_gower_distance",
+      "local_effective_support",
+      "local_mean_length_overlap",
+      "local_mean_depth_overlap",
+      "policy_slope_len",
+      "policy_intercept_len",
+      "slope_resid",
+      "intercept_resid"
     )
 }
 
@@ -1253,7 +1253,7 @@ locality_similarity_weights <- function(training_tbl,
     } else if (nm %in% names(row_now)) {
       suppressWarnings(as.numeric(row_now[[nm]][[1]]))
     } else if (identical(nm, "log_local_effective_support") &&
-               "local_effective_support" %in% names(row_now)) {
+      "local_effective_support" %in% names(row_now)) {
       suppressWarnings(log1p(pmax(as.numeric(row_now$local_effective_support[[1]]), 0)))
     } else {
       NA_real_
@@ -1347,40 +1347,40 @@ collapse_selected_ts_calibration <- function(ts_calibration) {
   if (all(c("ts_error", "log_sigma_residual") %in% names(ts_calibration))) {
     collapsed_raw <- ts_calibration |>
       dplyr::mutate(
-        u = suppressWarnings(as.numeric(u)),
-        ts_error = suppressWarnings(as.numeric(ts_error)),
-        log_sigma_residual = suppressWarnings(as.numeric(log_sigma_residual))
+        u = suppressWarnings(as.numeric(.data$u)),
+        ts_error = suppressWarnings(as.numeric(.data$ts_error)),
+        log_sigma_residual = suppressWarnings(as.numeric(.data$log_sigma_residual))
       ) |>
       dplyr::filter(
-        is.finite(u),
-        is.finite(ts_error),
-        is.finite(log_sigma_residual)
+        is.finite(.data$u),
+        is.finite(.data$ts_error),
+        is.finite(.data$log_sigma_residual)
       ) |>
-      dplyr::group_by(u) |>
+      dplyr::group_by(.data$u) |>
       dplyr::summarise(
         n = dplyr::n(),
-        median_ts_error = stats::median(ts_error, na.rm = TRUE),
-        q80_ts_abs_raw = stats::quantile(abs(ts_error), probs = 0.80, na.rm = TRUE, names = FALSE, type = 8),
-        q90_ts_abs_raw = stats::quantile(abs(ts_error), probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
-        q95_ts_abs_raw = stats::quantile(abs(ts_error), probs = 0.95, na.rm = TRUE, names = FALSE, type = 8),
-        q99_ts_abs_raw = stats::quantile(abs(ts_error), probs = 0.99, na.rm = TRUE, names = FALSE, type = 8),
-        q80_ts_abs_dev = stats::quantile(abs(ts_error - stats::median(ts_error, na.rm = TRUE)), probs = 0.80, na.rm = TRUE, names = FALSE, type = 8),
-        q90_ts_abs_dev = stats::quantile(abs(ts_error - stats::median(ts_error, na.rm = TRUE)), probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
-        q95_ts_abs_dev = stats::quantile(abs(ts_error - stats::median(ts_error, na.rm = TRUE)), probs = 0.95, na.rm = TRUE, names = FALSE, type = 8),
-        q99_ts_abs_dev = stats::quantile(abs(ts_error - stats::median(ts_error, na.rm = TRUE)), probs = 0.99, na.rm = TRUE, names = FALSE, type = 8),
-        median_log_sigma_residual = stats::median(log_sigma_residual, na.rm = TRUE),
-        q80_log_sigma_abs_dev = stats::quantile(abs(log_sigma_residual - stats::median(log_sigma_residual, na.rm = TRUE)), probs = 0.80, na.rm = TRUE, names = FALSE, type = 8),
-        q90_log_sigma_abs_dev = stats::quantile(abs(log_sigma_residual - stats::median(log_sigma_residual, na.rm = TRUE)), probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
-        q95_log_sigma_abs_dev = stats::quantile(abs(log_sigma_residual - stats::median(log_sigma_residual, na.rm = TRUE)), probs = 0.95, na.rm = TRUE, names = FALSE, type = 8),
-        q99_log_sigma_abs_dev = stats::quantile(abs(log_sigma_residual - stats::median(log_sigma_residual, na.rm = TRUE)), probs = 0.99, na.rm = TRUE, names = FALSE, type = 8),
-        q10_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.10, na.rm = TRUE, names = FALSE, type = 8),
-        q90_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
-        q05_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.05, na.rm = TRUE, names = FALSE, type = 8),
-        q95_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.95, na.rm = TRUE, names = FALSE, type = 8),
-        q025_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.025, na.rm = TRUE, names = FALSE, type = 8),
-        q975_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.975, na.rm = TRUE, names = FALSE, type = 8),
-        q005_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.005, na.rm = TRUE, names = FALSE, type = 8),
-        q995_log_sigma_residual = stats::quantile(log_sigma_residual, probs = 0.995, na.rm = TRUE, names = FALSE, type = 8),
+        median_ts_error = stats::median(.data$ts_error, na.rm = TRUE),
+        q80_ts_abs_raw = stats::quantile(abs(.data$ts_error), probs = 0.80, na.rm = TRUE, names = FALSE, type = 8),
+        q90_ts_abs_raw = stats::quantile(abs(.data$ts_error), probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
+        q95_ts_abs_raw = stats::quantile(abs(.data$ts_error), probs = 0.95, na.rm = TRUE, names = FALSE, type = 8),
+        q99_ts_abs_raw = stats::quantile(abs(.data$ts_error), probs = 0.99, na.rm = TRUE, names = FALSE, type = 8),
+        q80_ts_abs_dev = stats::quantile(abs(.data$ts_error - stats::median(.data$ts_error, na.rm = TRUE)), probs = 0.80, na.rm = TRUE, names = FALSE, type = 8),
+        q90_ts_abs_dev = stats::quantile(abs(.data$ts_error - stats::median(.data$ts_error, na.rm = TRUE)), probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
+        q95_ts_abs_dev = stats::quantile(abs(.data$ts_error - stats::median(.data$ts_error, na.rm = TRUE)), probs = 0.95, na.rm = TRUE, names = FALSE, type = 8),
+        q99_ts_abs_dev = stats::quantile(abs(.data$ts_error - stats::median(.data$ts_error, na.rm = TRUE)), probs = 0.99, na.rm = TRUE, names = FALSE, type = 8),
+        median_log_sigma_residual = stats::median(.data$log_sigma_residual, na.rm = TRUE),
+        q80_log_sigma_abs_dev = stats::quantile(abs(.data$log_sigma_residual - stats::median(.data$log_sigma_residual, na.rm = TRUE)), probs = 0.80, na.rm = TRUE, names = FALSE, type = 8),
+        q90_log_sigma_abs_dev = stats::quantile(abs(.data$log_sigma_residual - stats::median(.data$log_sigma_residual, na.rm = TRUE)), probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
+        q95_log_sigma_abs_dev = stats::quantile(abs(.data$log_sigma_residual - stats::median(.data$log_sigma_residual, na.rm = TRUE)), probs = 0.95, na.rm = TRUE, names = FALSE, type = 8),
+        q99_log_sigma_abs_dev = stats::quantile(abs(.data$log_sigma_residual - stats::median(.data$log_sigma_residual, na.rm = TRUE)), probs = 0.99, na.rm = TRUE, names = FALSE, type = 8),
+        q10_log_sigma_residual = stats::quantile(.data$log_sigma_residual, probs = 0.10, na.rm = TRUE, names = FALSE, type = 8),
+        q90_log_sigma_residual = stats::quantile(.data$log_sigma_residual, probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
+        q05_log_sigma_residual = stats::quantile(.data$log_sigma_residual, probs = 0.05, na.rm = TRUE, names = FALSE, type = 8),
+        q95_log_sigma_residual = stats::quantile(.data$log_sigma_residual, probs = 0.95, na.rm = TRUE, names = FALSE, type = 8),
+        q025_log_sigma_residual = stats::quantile(.data$log_sigma_residual, probs = 0.025, na.rm = TRUE, names = FALSE, type = 8),
+        q975_log_sigma_residual = stats::quantile(.data$log_sigma_residual, probs = 0.975, na.rm = TRUE, names = FALSE, type = 8),
+        q005_log_sigma_residual = stats::quantile(.data$log_sigma_residual, probs = 0.005, na.rm = TRUE, names = FALSE, type = 8),
+        q995_log_sigma_residual = stats::quantile(.data$log_sigma_residual, probs = 0.995, na.rm = TRUE, names = FALSE, type = 8),
         .groups = "drop"
       )
     if (nrow(collapsed_raw) == 0) {
@@ -1390,30 +1390,30 @@ collapse_selected_ts_calibration <- function(ts_calibration) {
     return(
       collapsed_raw |>
         dplyr::mutate(
-          q80_ts_abs_raw = pmax(q80_ts_abs_raw, 0, na.rm = TRUE),
-          q90_ts_abs_raw = pmax(q90_ts_abs_raw, q80_ts_abs_raw, 0, na.rm = TRUE),
-          q95_ts_abs_raw = pmax(q95_ts_abs_raw, q90_ts_abs_raw, 0, na.rm = TRUE),
-          q99_ts_abs_raw = pmax(q99_ts_abs_raw, q95_ts_abs_raw, 0, na.rm = TRUE),
-          q80_ts_abs_dev = pmax(q80_ts_abs_dev, 0, na.rm = TRUE),
-          q90_ts_abs_dev = pmax(q90_ts_abs_dev, q80_ts_abs_dev, 0, na.rm = TRUE),
-          q95_ts_abs_dev = pmax(q95_ts_abs_dev, q90_ts_abs_dev, 0, na.rm = TRUE),
-          q99_ts_abs_dev = pmax(q99_ts_abs_dev, q95_ts_abs_dev, 0, na.rm = TRUE),
-          q80_log_sigma_abs_dev = pmax(q80_log_sigma_abs_dev, 0, na.rm = TRUE),
-          q90_log_sigma_abs_dev = pmax(q90_log_sigma_abs_dev, q80_log_sigma_abs_dev, 0, na.rm = TRUE),
-          q95_log_sigma_abs_dev = pmax(q95_log_sigma_abs_dev, q90_log_sigma_abs_dev, 0, na.rm = TRUE),
-          q99_log_sigma_abs_dev = pmax(q99_log_sigma_abs_dev, q95_log_sigma_abs_dev, 0, na.rm = TRUE)
+          q80_ts_abs_raw = pmax(.data$q80_ts_abs_raw, 0, na.rm = TRUE),
+          q90_ts_abs_raw = pmax(.data$q90_ts_abs_raw, .data$q80_ts_abs_raw, 0, na.rm = TRUE),
+          q95_ts_abs_raw = pmax(.data$q95_ts_abs_raw, .data$q90_ts_abs_raw, 0, na.rm = TRUE),
+          q99_ts_abs_raw = pmax(.data$q99_ts_abs_raw, .data$q95_ts_abs_raw, 0, na.rm = TRUE),
+          q80_ts_abs_dev = pmax(.data$q80_ts_abs_dev, 0, na.rm = TRUE),
+          q90_ts_abs_dev = pmax(.data$q90_ts_abs_dev, .data$q80_ts_abs_dev, 0, na.rm = TRUE),
+          q95_ts_abs_dev = pmax(.data$q95_ts_abs_dev, .data$q90_ts_abs_dev, 0, na.rm = TRUE),
+          q99_ts_abs_dev = pmax(.data$q99_ts_abs_dev, .data$q95_ts_abs_dev, 0, na.rm = TRUE),
+          q80_log_sigma_abs_dev = pmax(.data$q80_log_sigma_abs_dev, 0, na.rm = TRUE),
+          q90_log_sigma_abs_dev = pmax(.data$q90_log_sigma_abs_dev, .data$q80_log_sigma_abs_dev, 0, na.rm = TRUE),
+          q95_log_sigma_abs_dev = pmax(.data$q95_log_sigma_abs_dev, .data$q90_log_sigma_abs_dev, 0, na.rm = TRUE),
+          q99_log_sigma_abs_dev = pmax(.data$q99_log_sigma_abs_dev, .data$q95_log_sigma_abs_dev, 0, na.rm = TRUE)
         )
     )
   }
 
   collapsed <- ts_calibration |>
     dplyr::mutate(
-      u = suppressWarnings(as.numeric(u)),
+      u = suppressWarnings(as.numeric(.data$u)),
       .weight_n = dplyr::coalesce(
-        if ("n" %in% names(ts_calibration)) suppressWarnings(as.numeric(n)) else rep(NA_real_, dplyr::n()),
+        if ("n" %in% names(ts_calibration)) suppressWarnings(as.numeric(.data$n)) else rep(NA_real_, dplyr::n()),
         1
       ),
-      .weight_n = dplyr::if_else(is.finite(.weight_n) & .weight_n > 0, .weight_n, 1),
+      .weight_n = dplyr::if_else(is.finite(.data$.weight_n) & .data$.weight_n > 0, .data$.weight_n, 1),
       median_ts_error_use = resolve_numeric_candidates(ts_calibration, c("median_ts_error_smooth", "median_ts_error")),
       q80_ts_abs_raw_use = resolve_numeric_candidates(ts_calibration, c("q80_ts_abs_raw_smooth", "q80_ts_abs_raw")),
       q90_ts_abs_raw_use = resolve_numeric_candidates(ts_calibration, c("q90_ts_abs_raw_smooth", "q90_ts_abs_raw")),
@@ -1433,31 +1433,31 @@ collapse_selected_ts_calibration <- function(ts_calibration) {
       q005_log_sigma_residual_use = resolve_numeric_candidates(ts_calibration, c("q005_log_sigma_residual_smooth", "q005_log_sigma_residual")),
       q995_log_sigma_residual_use = resolve_numeric_candidates(ts_calibration, c("q995_log_sigma_residual_smooth", "q995_log_sigma_residual"))
     ) |>
-    dplyr::filter(is.finite(u)) |>
-    dplyr::group_by(u) |>
+    dplyr::filter(is.finite(.data$u)) |>
+    dplyr::group_by(.data$u) |>
     dplyr::summarise(
-      n = sum(.weight_n, na.rm = TRUE),
-      median_ts_error = weighted_mean_or_na(median_ts_error_use, .weight_n),
-      q80_ts_abs_raw = weighted_mean_or_na(q80_ts_abs_raw_use, .weight_n),
-      q90_ts_abs_raw = weighted_mean_or_na(q90_ts_abs_raw_use, .weight_n),
-      q95_ts_abs_raw = weighted_mean_or_na(q95_ts_abs_raw_use, .weight_n),
-      q99_ts_abs_raw = weighted_mean_or_na(q99_ts_abs_raw_use, .weight_n),
-      q80_ts_abs_dev = weighted_mean_or_na(q80_ts_abs_dev_use, .weight_n),
-      q90_ts_abs_dev = weighted_mean_or_na(q90_ts_abs_dev_use, .weight_n),
-      q95_ts_abs_dev = weighted_mean_or_na(q95_ts_abs_dev_use, .weight_n),
-      q99_ts_abs_dev = weighted_mean_or_na(q99_ts_abs_dev_use, .weight_n),
-      median_log_sigma_residual = weighted_mean_or_na(median_log_sigma_residual_use, .weight_n),
-      q10_log_sigma_residual = weighted_mean_or_na(q10_log_sigma_residual_use, .weight_n),
-      q90_log_sigma_residual = weighted_mean_or_na(q90_log_sigma_residual_use, .weight_n),
-      q05_log_sigma_residual = weighted_mean_or_na(q05_log_sigma_residual_use, .weight_n),
-      q95_log_sigma_residual = weighted_mean_or_na(q95_log_sigma_residual_use, .weight_n),
-      q025_log_sigma_residual = weighted_mean_or_na(q025_log_sigma_residual_use, .weight_n),
-      q975_log_sigma_residual = weighted_mean_or_na(q975_log_sigma_residual_use, .weight_n),
-      q005_log_sigma_residual = weighted_mean_or_na(q005_log_sigma_residual_use, .weight_n),
-      q995_log_sigma_residual = weighted_mean_or_na(q995_log_sigma_residual_use, .weight_n),
+      n = sum(.data$.weight_n, na.rm = TRUE),
+      median_ts_error = weighted_mean_or_na(.data$median_ts_error_use, .data$.weight_n),
+      q80_ts_abs_raw = weighted_mean_or_na(.data$q80_ts_abs_raw_use, .data$.weight_n),
+      q90_ts_abs_raw = weighted_mean_or_na(.data$q90_ts_abs_raw_use, .data$.weight_n),
+      q95_ts_abs_raw = weighted_mean_or_na(.data$q95_ts_abs_raw_use, .data$.weight_n),
+      q99_ts_abs_raw = weighted_mean_or_na(.data$q99_ts_abs_raw_use, .data$.weight_n),
+      q80_ts_abs_dev = weighted_mean_or_na(.data$q80_ts_abs_dev_use, .data$.weight_n),
+      q90_ts_abs_dev = weighted_mean_or_na(.data$q90_ts_abs_dev_use, .data$.weight_n),
+      q95_ts_abs_dev = weighted_mean_or_na(.data$q95_ts_abs_dev_use, .data$.weight_n),
+      q99_ts_abs_dev = weighted_mean_or_na(.data$q99_ts_abs_dev_use, .data$.weight_n),
+      median_log_sigma_residual = weighted_mean_or_na(.data$median_log_sigma_residual_use, .data$.weight_n),
+      q10_log_sigma_residual = weighted_mean_or_na(.data$q10_log_sigma_residual_use, .data$.weight_n),
+      q90_log_sigma_residual = weighted_mean_or_na(.data$q90_log_sigma_residual_use, .data$.weight_n),
+      q05_log_sigma_residual = weighted_mean_or_na(.data$q05_log_sigma_residual_use, .data$.weight_n),
+      q95_log_sigma_residual = weighted_mean_or_na(.data$q95_log_sigma_residual_use, .data$.weight_n),
+      q025_log_sigma_residual = weighted_mean_or_na(.data$q025_log_sigma_residual_use, .data$.weight_n),
+      q975_log_sigma_residual = weighted_mean_or_na(.data$q975_log_sigma_residual_use, .data$.weight_n),
+      q005_log_sigma_residual = weighted_mean_or_na(.data$q005_log_sigma_residual_use, .data$.weight_n),
+      q995_log_sigma_residual = weighted_mean_or_na(.data$q995_log_sigma_residual_use, .data$.weight_n),
       .groups = "drop"
     ) |>
-    dplyr::arrange(u)
+    dplyr::arrange(.data$u)
 
   if (nrow(collapsed) == 0) {
     return(collapsed)
@@ -1465,14 +1465,14 @@ collapse_selected_ts_calibration <- function(ts_calibration) {
 
   collapsed |>
     dplyr::mutate(
-      q80_ts_abs_raw = pmax(q80_ts_abs_raw, 0, na.rm = TRUE),
-      q90_ts_abs_raw = pmax(q90_ts_abs_raw, q80_ts_abs_raw, 0, na.rm = TRUE),
-      q95_ts_abs_raw = pmax(q95_ts_abs_raw, q90_ts_abs_raw, 0, na.rm = TRUE),
-      q99_ts_abs_raw = pmax(q99_ts_abs_raw, q95_ts_abs_raw, 0, na.rm = TRUE),
-      q80_ts_abs_dev = pmax(q80_ts_abs_dev, 0, na.rm = TRUE),
-      q90_ts_abs_dev = pmax(q90_ts_abs_dev, q80_ts_abs_dev, 0, na.rm = TRUE),
-      q95_ts_abs_dev = pmax(q95_ts_abs_dev, q90_ts_abs_dev, 0, na.rm = TRUE),
-      q99_ts_abs_dev = pmax(q99_ts_abs_dev, q95_ts_abs_dev, 0, na.rm = TRUE)
+      q80_ts_abs_raw = pmax(.data$q80_ts_abs_raw, 0, na.rm = TRUE),
+      q90_ts_abs_raw = pmax(.data$q90_ts_abs_raw, .data$q80_ts_abs_raw, 0, na.rm = TRUE),
+      q95_ts_abs_raw = pmax(.data$q95_ts_abs_raw, .data$q90_ts_abs_raw, 0, na.rm = TRUE),
+      q99_ts_abs_raw = pmax(.data$q99_ts_abs_raw, .data$q95_ts_abs_raw, 0, na.rm = TRUE),
+      q80_ts_abs_dev = pmax(.data$q80_ts_abs_dev, 0, na.rm = TRUE),
+      q90_ts_abs_dev = pmax(.data$q90_ts_abs_dev, .data$q80_ts_abs_dev, 0, na.rm = TRUE),
+      q95_ts_abs_dev = pmax(.data$q95_ts_abs_dev, .data$q90_ts_abs_dev, 0, na.rm = TRUE),
+      q99_ts_abs_dev = pmax(.data$q99_ts_abs_dev, .data$q95_ts_abs_dev, 0, na.rm = TRUE)
     )
 }
 
@@ -1514,7 +1514,7 @@ enrich_ts_calibration_locality <- function(ts_calibration,
 
   lookup <- standardize_policies(policy_perf) |>
     dplyr::mutate(
-      anchor_model_id = as.character(anchor_model_id),
+      anchor_model_id = as.character(.data$anchor_model_id),
       policy = resolve_policy_names(policy_perf),
       equation_branch_filter = standardize_branches(policy_perf)
     )
@@ -1530,22 +1530,22 @@ enrich_ts_calibration_locality <- function(ts_calibration,
 
   lookup <- lookup |>
     dplyr::transmute(
-      anchor_model_id,
-      policy,
-      equation_branch_filter,
-      lookup_local_min_combined_distance = suppressWarnings(as.numeric(local_min_combined_distance)),
-      lookup_local_weighted_mean_combined_distance = suppressWarnings(as.numeric(local_weighted_mean_combined_distance)),
-      lookup_local_min_species_distance = suppressWarnings(as.numeric(local_min_species_distance)),
-      lookup_local_weighted_mean_species_distance = suppressWarnings(as.numeric(local_weighted_mean_species_distance)),
-      lookup_local_min_trait_gower_distance = suppressWarnings(as.numeric(local_min_trait_gower_distance)),
-      lookup_local_weighted_mean_trait_gower_distance = suppressWarnings(as.numeric(local_weighted_mean_trait_gower_distance)),
-      lookup_local_effective_support = suppressWarnings(as.numeric(local_effective_support)),
-      lookup_local_mean_length_overlap = suppressWarnings(as.numeric(local_mean_length_overlap)),
-      lookup_local_mean_depth_overlap = suppressWarnings(as.numeric(local_mean_depth_overlap)),
-      lookup_policy_slope_len = suppressWarnings(as.numeric(policy_slope_len)),
-      lookup_policy_intercept_len = suppressWarnings(as.numeric(policy_intercept_len))
+      anchor_model_id = .data$anchor_model_id,
+      policy = .data$policy,
+      equation_branch_filter = .data$equation_branch_filter,
+      lookup_local_min_combined_distance = suppressWarnings(as.numeric(.data$local_min_combined_distance)),
+      lookup_local_weighted_mean_combined_distance = suppressWarnings(as.numeric(.data$local_weighted_mean_combined_distance)),
+      lookup_local_min_species_distance = suppressWarnings(as.numeric(.data$local_min_species_distance)),
+      lookup_local_weighted_mean_species_distance = suppressWarnings(as.numeric(.data$local_weighted_mean_species_distance)),
+      lookup_local_min_trait_gower_distance = suppressWarnings(as.numeric(.data$local_min_trait_gower_distance)),
+      lookup_local_weighted_mean_trait_gower_distance = suppressWarnings(as.numeric(.data$local_weighted_mean_trait_gower_distance)),
+      lookup_local_effective_support = suppressWarnings(as.numeric(.data$local_effective_support)),
+      lookup_local_mean_length_overlap = suppressWarnings(as.numeric(.data$local_mean_length_overlap)),
+      lookup_local_mean_depth_overlap = suppressWarnings(as.numeric(.data$local_mean_depth_overlap)),
+      lookup_policy_slope_len = suppressWarnings(as.numeric(.data$policy_slope_len)),
+      lookup_policy_intercept_len = suppressWarnings(as.numeric(.data$policy_intercept_len))
     ) |>
-    dplyr::group_by(anchor_model_id, policy, equation_branch_filter) |>
+    dplyr::group_by(.data$anchor_model_id, .data$policy, .data$equation_branch_filter) |>
     dplyr::summarise(
       dplyr::across(
         dplyr::starts_with("lookup_"),
@@ -1616,7 +1616,7 @@ fit_scaled_functional_residual_curve <- function(calibration_rows,
 
   scale_tbl <- calibration_rows |>
     dplyr::transmute(
-      u = suppressWarnings(as.numeric(u)),
+      u = suppressWarnings(as.numeric(.data$u)),
       residual_value = suppressWarnings(as.numeric(.data[[value_col]])),
       case_weight = if (!is.null(case_weight_col) && case_weight_col %in% names(calibration_rows)) {
         suppressWarnings(as.numeric(.data[[case_weight_col]]))
@@ -1625,18 +1625,18 @@ fit_scaled_functional_residual_curve <- function(calibration_rows,
       }
     ) |>
     dplyr::filter(
-      is.finite(u),
-      is.finite(residual_value),
-      is.finite(case_weight),
-      case_weight > 0
+      is.finite(.data$u),
+      is.finite(.data$residual_value),
+      is.finite(.data$case_weight),
+      .data$case_weight > 0
     ) |>
-    dplyr::group_by(u) |>
+    dplyr::group_by(.data$u) |>
     dplyr::summarise(
-      n = sum(case_weight, na.rm = TRUE),
-      scale_raw = sqrt(stats::weighted.mean(residual_value^2, w = case_weight, na.rm = TRUE)),
+      n = sum(.data$case_weight, na.rm = TRUE),
+      scale_raw = sqrt(stats::weighted.mean(.data$residual_value^2, w = .data$case_weight, na.rm = TRUE)),
       .groups = "drop"
     ) |>
-    dplyr::arrange(u)
+    dplyr::arrange(.data$u)
 
   if (nrow(scale_tbl) == 0) {
     return(scale_tbl)
@@ -1644,7 +1644,7 @@ fit_scaled_functional_residual_curve <- function(calibration_rows,
 
   scale_tbl <- scale_tbl |>
     dplyr::mutate(
-      scale_fit = scale_raw
+      scale_fit = .data$scale_raw
     )
 
   # Smooth the RMS scale over normalized length only when enough support
@@ -1655,17 +1655,22 @@ fit_scaled_functional_residual_curve <- function(calibration_rows,
   if (nrow(scale_tbl) >= 4L) {
     scale_fit <- NULL
     if (requireNamespace("mgcv", quietly = TRUE)) {
-      k_now <- max(4L, min(12L, nrow(scale_tbl) - 1L))
+      # Format GAM formula
+      gam_formula <- substitute(
+        log(pmax(scale_raw, sqrt(.Machine$double.eps))) ~ mgcv::s(u, bs = "cs", k = k_val),
+        list(k_val = .data$k_now)
+      )
+      # Run fit
       gam_fit <- tryCatch(
         mgcv::gam(
-          log(pmax(scale_raw, sqrt(.Machine$double.eps))) ~
-            mgcv::s(u, bs = "cs", k = k_now),
+          formula = gam_formula,
           data = scale_tbl,
-          weights = pmax(n, 1),
+          weights = pmax(scale_tbl$n, 1),
           method = "REML"
         ),
         error = function(e) NULL
       )
+
       if (!is.null(gam_fit)) {
         scale_fit <- tryCatch(
           exp(as.numeric(stats::predict(gam_fit, newdata = scale_tbl))),
@@ -1742,7 +1747,7 @@ build_scaled_functional_conformal_curve <- function(calibration_rows,
   # come from the out-of-fold scores.
   calibration_rows <- tibble::as_tibble(calibration_rows)
   if (nrow(calibration_rows) == 0 ||
-      !all(c("anchor_model_id", "u", value_col) %in% names(calibration_rows))) {
+    !all(c("anchor_model_id", "u", value_col) %in% names(calibration_rows))) {
     return(tibble::tibble())
   }
 
@@ -1754,15 +1759,15 @@ build_scaled_functional_conformal_curve <- function(calibration_rows,
 
   rows_now <- calibration_rows |>
     dplyr::transmute(
-      anchor_model_id = as.character(anchor_model_id),
-      u = suppressWarnings(as.numeric(u)),
+      anchor_model_id = as.character(.data$anchor_model_id),
+      u = suppressWarnings(as.numeric(.data$u)),
       residual_value = suppressWarnings(as.numeric(.data[[value_col]]))
     ) |>
     dplyr::filter(
-      !is.na(anchor_model_id),
-      nzchar(anchor_model_id),
-      is.finite(u),
-      is.finite(residual_value)
+      !is.na(.data$anchor_model_id),
+      nzchar(.data$anchor_model_id),
+      is.finite(.data$u),
+      is.finite(.data$residual_value)
     )
   if (nrow(rows_now) == 0) {
     return(tibble::tibble())
@@ -1826,11 +1831,11 @@ build_scaled_functional_conformal_curve <- function(calibration_rows,
 
   out <- full_scale_curve |>
     dplyr::transmute(
-      u = suppressWarnings(as.numeric(u)),
-      n = suppressWarnings(as.numeric(n)),
-      scale_fit = suppressWarnings(as.numeric(scale_fit))
+      u = suppressWarnings(as.numeric(.data$u)),
+      n = suppressWarnings(as.numeric(.data$n)),
+      scale_fit = suppressWarnings(as.numeric(.data$scale_fit))
     ) |>
-    dplyr::arrange(u)
+    dplyr::arrange(.data$u)
 
   # Convert the out-of-fold score distribution into level-specific envelope
   # multipliers, then map those multipliers back onto the smooth scale curve.
@@ -1879,46 +1884,46 @@ build_scaled_functional_ts_calibration <- function(ts_rows,
 
   out <- ts_curve |>
     dplyr::rename(
-      ts_scale_fit = scale_fit,
-      q80_ts_abs_dev = q80_abs_dev,
-      q90_ts_abs_dev = q90_abs_dev,
-      q95_ts_abs_dev = q95_abs_dev,
-      q99_ts_abs_dev = q99_abs_dev,
-      ts_score_multiplier_80 = score_multiplier_80,
-      ts_score_multiplier_90 = score_multiplier_90,
-      ts_score_multiplier_95 = score_multiplier_95,
-      ts_score_multiplier_99 = score_multiplier_99,
-      ts_score_n = score_n,
-      ts_anchor_n = anchor_n
+      ts_scale_fit = .data$scale_fit,
+      q80_ts_abs_dev = .data$q80_abs_dev,
+      q90_ts_abs_dev = .data$q90_abs_dev,
+      q95_ts_abs_dev = .data$q95_abs_dev,
+      q99_ts_abs_dev = .data$q99_abs_dev,
+      ts_score_multiplier_80 = .data$score_multiplier_80,
+      ts_score_multiplier_90 = .data$score_multiplier_90,
+      ts_score_multiplier_95 = .data$score_multiplier_95,
+      ts_score_multiplier_99 = .data$score_multiplier_99,
+      ts_score_n = .data$score_n,
+      ts_anchor_n = .data$anchor_n
     ) |>
     dplyr::left_join(
       sigma_curve |>
         dplyr::rename(
-          log_sigma_scale_fit = scale_fit,
-          q80_log_sigma_abs_dev = q80_abs_dev,
-          q90_log_sigma_abs_dev = q90_abs_dev,
-          q95_log_sigma_abs_dev = q95_abs_dev,
-          q99_log_sigma_abs_dev = q99_abs_dev,
-          sigma_score_multiplier_80 = score_multiplier_80,
-          sigma_score_multiplier_90 = score_multiplier_90,
-          sigma_score_multiplier_95 = score_multiplier_95,
-          sigma_score_multiplier_99 = score_multiplier_99,
-          sigma_score_n = score_n,
-          sigma_anchor_n = anchor_n
+          log_sigma_scale_fit = .data$scale_fit,
+          q80_log_sigma_abs_dev = .data$q80_abs_dev,
+          q90_log_sigma_abs_dev = .data$q90_abs_dev,
+          q95_log_sigma_abs_dev = .data$q95_abs_dev,
+          q99_log_sigma_abs_dev = .data$q99_abs_dev,
+          sigma_score_multiplier_80 = .data$score_multiplier_80,
+          sigma_score_multiplier_90 = .data$score_multiplier_90,
+          sigma_score_multiplier_95 = .data$score_multiplier_95,
+          sigma_score_multiplier_99 = .data$score_multiplier_99,
+          sigma_score_n = .data$score_n,
+          sigma_anchor_n = .data$anchor_n
         ) |>
         dplyr::select(
-          u,
-          log_sigma_scale_fit,
-          q80_log_sigma_abs_dev,
-          q90_log_sigma_abs_dev,
-          q95_log_sigma_abs_dev,
-          q99_log_sigma_abs_dev,
-          sigma_score_multiplier_80,
-          sigma_score_multiplier_90,
-          sigma_score_multiplier_95,
-          sigma_score_multiplier_99,
-          sigma_score_n,
-          sigma_anchor_n
+          "u",
+          "log_sigma_scale_fit",
+          "q80_log_sigma_abs_dev",
+          "q90_log_sigma_abs_dev",
+          "q95_log_sigma_abs_dev",
+          "q99_log_sigma_abs_dev",
+          "sigma_score_multiplier_80",
+          "sigma_score_multiplier_90",
+          "sigma_score_multiplier_95",
+          "sigma_score_multiplier_99",
+          "sigma_score_n",
+          "sigma_anchor_n"
         ),
       by = "u"
     ) |>
@@ -1926,19 +1931,19 @@ build_scaled_functional_ts_calibration <- function(ts_rows,
       # The selected-policy line is the center of the displayed band, so the
       # residual envelopes are symmetric around zero rather than bias-shifted.
       median_ts_error = 0,
-      q80_ts_abs_raw = q80_ts_abs_dev,
-      q90_ts_abs_raw = q90_ts_abs_dev,
-      q95_ts_abs_raw = q95_ts_abs_dev,
-      q99_ts_abs_raw = q99_ts_abs_dev,
+      q80_ts_abs_raw = .data$q80_ts_abs_dev,
+      q90_ts_abs_raw = .data$q90_ts_abs_dev,
+      q95_ts_abs_raw = .data$q95_ts_abs_dev,
+      q99_ts_abs_raw = .data$q99_ts_abs_dev,
       median_log_sigma_residual = 0,
-      q10_log_sigma_residual = -q90_log_sigma_abs_dev,
-      q90_log_sigma_residual = q90_log_sigma_abs_dev,
-      q05_log_sigma_residual = -q95_log_sigma_abs_dev,
-      q95_log_sigma_residual = q95_log_sigma_abs_dev,
-      q025_log_sigma_residual = -q99_log_sigma_abs_dev,
-      q975_log_sigma_residual = q99_log_sigma_abs_dev,
-      q005_log_sigma_residual = -q99_log_sigma_abs_dev,
-      q995_log_sigma_residual = q99_log_sigma_abs_dev
+      q10_log_sigma_residual = -.data$q90_log_sigma_abs_dev,
+      q90_log_sigma_residual = .data$q90_log_sigma_abs_dev,
+      q05_log_sigma_residual = -.data$q95_log_sigma_abs_dev,
+      q95_log_sigma_residual = .data$q95_log_sigma_abs_dev,
+      q025_log_sigma_residual = -.data$q99_log_sigma_abs_dev,
+      q975_log_sigma_residual = .data$q99_log_sigma_abs_dev,
+      q005_log_sigma_residual = -.data$q99_log_sigma_abs_dev,
+      q995_log_sigma_residual = .data$q99_log_sigma_abs_dev
     )
 
   out
@@ -1956,33 +1961,33 @@ prepare_residual_scale_training <- function(calibration_rows,
 
   out <- calibration_rows |>
     dplyr::transmute(
-      anchor_model_id = as.character(anchor_model_id),
-      u = if ("u" %in% names(calibration_rows)) suppressWarnings(as.numeric(u)) else NA_real_,
+      anchor_model_id = as.character(.data$anchor_model_id),
+      u = if ("u" %in% names(calibration_rows)) suppressWarnings(as.numeric(.data$u)) else NA_real_,
       abs_residual = abs(suppressWarnings(as.numeric(.data[[response_col]]))),
-      local_min_combined_distance = if ("local_min_combined_distance" %in% names(calibration_rows)) suppressWarnings(as.numeric(local_min_combined_distance)) else NA_real_,
-      local_weighted_mean_combined_distance = if ("local_weighted_mean_combined_distance" %in% names(calibration_rows)) suppressWarnings(as.numeric(local_weighted_mean_combined_distance)) else NA_real_,
-      local_min_species_distance = if ("local_min_species_distance" %in% names(calibration_rows)) suppressWarnings(as.numeric(local_min_species_distance)) else NA_real_,
-      local_weighted_mean_species_distance = if ("local_weighted_mean_species_distance" %in% names(calibration_rows)) suppressWarnings(as.numeric(local_weighted_mean_species_distance)) else NA_real_,
-      local_min_trait_gower_distance = if ("local_min_trait_gower_distance" %in% names(calibration_rows)) suppressWarnings(as.numeric(local_min_trait_gower_distance)) else NA_real_,
-      local_weighted_mean_trait_gower_distance = if ("local_weighted_mean_trait_gower_distance" %in% names(calibration_rows)) suppressWarnings(as.numeric(local_weighted_mean_trait_gower_distance)) else NA_real_,
-      local_effective_support = if ("local_effective_support" %in% names(calibration_rows)) suppressWarnings(as.numeric(local_effective_support)) else NA_real_,
-      local_mean_length_overlap = if ("local_mean_length_overlap" %in% names(calibration_rows)) suppressWarnings(as.numeric(local_mean_length_overlap)) else NA_real_,
-      local_mean_depth_overlap = if ("local_mean_depth_overlap" %in% names(calibration_rows)) suppressWarnings(as.numeric(local_mean_depth_overlap)) else NA_real_,
-      policy_slope_len = if ("policy_slope_len" %in% names(calibration_rows)) suppressWarnings(as.numeric(policy_slope_len)) else NA_real_,
-      policy_intercept_len = if ("policy_intercept_len" %in% names(calibration_rows)) suppressWarnings(as.numeric(policy_intercept_len)) else NA_real_
+      local_min_combined_distance = if ("local_min_combined_distance" %in% names(calibration_rows)) suppressWarnings(as.numeric(.data$local_min_combined_distance)) else NA_real_,
+      local_weighted_mean_combined_distance = if ("local_weighted_mean_combined_distance" %in% names(calibration_rows)) suppressWarnings(as.numeric(.data$local_weighted_mean_combined_distance)) else NA_real_,
+      local_min_species_distance = if ("local_min_species_distance" %in% names(calibration_rows)) suppressWarnings(as.numeric(.data$local_min_species_distance)) else NA_real_,
+      local_weighted_mean_species_distance = if ("local_weighted_mean_species_distance" %in% names(calibration_rows)) suppressWarnings(as.numeric(.data$local_weighted_mean_species_distance)) else NA_real_,
+      local_min_trait_gower_distance = if ("local_min_trait_gower_distance" %in% names(calibration_rows)) suppressWarnings(as.numeric(.data$local_min_trait_gower_distance)) else NA_real_,
+      local_weighted_mean_trait_gower_distance = if ("local_weighted_mean_trait_gower_distance" %in% names(calibration_rows)) suppressWarnings(as.numeric(.data$local_weighted_mean_trait_gower_distance)) else NA_real_,
+      local_effective_support = if ("local_effective_support" %in% names(calibration_rows)) suppressWarnings(as.numeric(.data$local_effective_support)) else NA_real_,
+      local_mean_length_overlap = if ("local_mean_length_overlap" %in% names(calibration_rows)) suppressWarnings(as.numeric(.data$local_mean_length_overlap)) else NA_real_,
+      local_mean_depth_overlap = if ("local_mean_depth_overlap" %in% names(calibration_rows)) suppressWarnings(as.numeric(.data$local_mean_depth_overlap)) else NA_real_,
+      policy_slope_len = if ("policy_slope_len" %in% names(calibration_rows)) suppressWarnings(as.numeric(.data$policy_slope_len)) else NA_real_,
+      policy_intercept_len = if ("policy_intercept_len" %in% names(calibration_rows)) suppressWarnings(as.numeric(.data$policy_intercept_len)) else NA_real_
     ) |>
     dplyr::mutate(
-      log_abs_residual = log1p(pmax(abs_residual, 0)),
+      log_abs_residual = log1p(pmax(.data$abs_residual, 0)),
       log_local_effective_support = dplyr::if_else(
-        is.finite(local_effective_support),
-        log1p(pmax(local_effective_support, 0)),
+        is.finite(.data$local_effective_support),
+        log1p(pmax(.data$local_effective_support, 0)),
         NA_real_
       )
     ) |>
     dplyr::filter(
-      !is.na(anchor_model_id),
-      nzchar(anchor_model_id),
-      is.finite(abs_residual)
+      !is.na(.data$anchor_model_id),
+      nzchar(.data$anchor_model_id),
+      is.finite(.data$abs_residual)
     )
 
   out
@@ -2139,7 +2144,7 @@ predict_residual_scale_quantile_model <- function(model_obj,
     value_now <- if (nm %in% names(row_now)) {
       suppressWarnings(as.numeric(row_now[[nm]][[1]]))
     } else if (identical(nm, "log_local_effective_support") &&
-               "local_effective_support" %in% names(row_now)) {
+      "local_effective_support" %in% names(row_now)) {
       suppressWarnings(log1p(pmax(as.numeric(row_now$local_effective_support[[1]]), 0)))
     } else {
       NA_real_
@@ -2187,34 +2192,34 @@ build_anchor_specific_ts_width_curve <- function(ts_rows,
   )
   predictor_available <- intersect(predictor_candidates, names(ts_rows))
   if (!"u" %in% predictor_available ||
-      !"ts_error" %in% names(ts_rows) ||
-      !"log_sigma_residual" %in% names(ts_rows)) {
+    !"ts_error" %in% names(ts_rows) ||
+    !"log_sigma_residual" %in% names(ts_rows)) {
     return(tibble::tibble())
   }
   build_weighted_curve <- function(value_col,
                                    signed = FALSE) {
     training_tbl <- ts_rows |>
       dplyr::transmute(
-        anchor_model_id = as.character(anchor_model_id),
-        u = suppressWarnings(as.numeric(u)),
-        local_min_combined_distance = if ("local_min_combined_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(local_min_combined_distance)) else NA_real_,
-        local_weighted_mean_combined_distance = if ("local_weighted_mean_combined_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(local_weighted_mean_combined_distance)) else NA_real_,
-        local_min_species_distance = if ("local_min_species_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(local_min_species_distance)) else NA_real_,
-        local_weighted_mean_species_distance = if ("local_weighted_mean_species_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(local_weighted_mean_species_distance)) else NA_real_,
-        local_min_trait_gower_distance = if ("local_min_trait_gower_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(local_min_trait_gower_distance)) else NA_real_,
-        local_weighted_mean_trait_gower_distance = if ("local_weighted_mean_trait_gower_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(local_weighted_mean_trait_gower_distance)) else NA_real_,
-        local_mean_length_overlap = if ("local_mean_length_overlap" %in% names(ts_rows)) suppressWarnings(as.numeric(local_mean_length_overlap)) else NA_real_,
-        local_mean_depth_overlap = if ("local_mean_depth_overlap" %in% names(ts_rows)) suppressWarnings(as.numeric(local_mean_depth_overlap)) else NA_real_,
-        log_local_effective_support = if ("local_effective_support" %in% names(ts_rows)) suppressWarnings(log1p(pmax(as.numeric(local_effective_support), 0))) else NA_real_,
-        policy_slope_len = if ("policy_slope_len" %in% names(ts_rows)) suppressWarnings(as.numeric(policy_slope_len)) else NA_real_,
-        policy_intercept_len = if ("policy_intercept_len" %in% names(ts_rows)) suppressWarnings(as.numeric(policy_intercept_len)) else NA_real_,
+        anchor_model_id = as.character(.data$anchor_model_id),
+        u = suppressWarnings(as.numeric(.data$u)),
+        local_min_combined_distance = if ("local_min_combined_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$local_min_combined_distance)) else NA_real_,
+        local_weighted_mean_combined_distance = if ("local_weighted_mean_combined_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$local_weighted_mean_combined_distance)) else NA_real_,
+        local_min_species_distance = if ("local_min_species_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$local_min_species_distance)) else NA_real_,
+        local_weighted_mean_species_distance = if ("local_weighted_mean_species_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$local_weighted_mean_species_distance)) else NA_real_,
+        local_min_trait_gower_distance = if ("local_min_trait_gower_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$local_min_trait_gower_distance)) else NA_real_,
+        local_weighted_mean_trait_gower_distance = if ("local_weighted_mean_trait_gower_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$local_weighted_mean_trait_gower_distance)) else NA_real_,
+        local_mean_length_overlap = if ("local_mean_length_overlap" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$local_mean_length_overlap)) else NA_real_,
+        local_mean_depth_overlap = if ("local_mean_depth_overlap" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$local_mean_depth_overlap)) else NA_real_,
+        log_local_effective_support = if ("local_effective_support" %in% names(ts_rows)) suppressWarnings(log1p(pmax(as.numeric(.data$local_effective_support), 0))) else NA_real_,
+        policy_slope_len = if ("policy_slope_len" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$policy_slope_len)) else NA_real_,
+        policy_intercept_len = if ("policy_intercept_len" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$policy_intercept_len)) else NA_real_,
         residual = suppressWarnings(as.numeric(.data[[value_col]]))
       ) |>
       dplyr::filter(
-        !is.na(anchor_model_id),
-        nzchar(anchor_model_id),
-        is.finite(u),
-        is.finite(residual)
+        !is.na(.data$anchor_model_id),
+        nzchar(.data$anchor_model_id),
+        is.finite(.data$u),
+        is.finite(.data$residual)
       )
     if (nrow(training_tbl) < 2L) {
       return(NULL)
@@ -2331,26 +2336,26 @@ build_anchor_specific_ts_width_curve <- function(ts_rows,
   build_weighted_scale_fit <- function(value_col) {
     training_tbl <- ts_rows |>
       dplyr::transmute(
-        anchor_model_id = as.character(anchor_model_id),
-        u = suppressWarnings(as.numeric(u)),
-        local_min_combined_distance = if ("local_min_combined_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(local_min_combined_distance)) else NA_real_,
-        local_weighted_mean_combined_distance = if ("local_weighted_mean_combined_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(local_weighted_mean_combined_distance)) else NA_real_,
-        local_min_species_distance = if ("local_min_species_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(local_min_species_distance)) else NA_real_,
-        local_weighted_mean_species_distance = if ("local_weighted_mean_species_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(local_weighted_mean_species_distance)) else NA_real_,
-        local_min_trait_gower_distance = if ("local_min_trait_gower_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(local_min_trait_gower_distance)) else NA_real_,
-        local_weighted_mean_trait_gower_distance = if ("local_weighted_mean_trait_gower_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(local_weighted_mean_trait_gower_distance)) else NA_real_,
-        local_mean_length_overlap = if ("local_mean_length_overlap" %in% names(ts_rows)) suppressWarnings(as.numeric(local_mean_length_overlap)) else NA_real_,
-        local_mean_depth_overlap = if ("local_mean_depth_overlap" %in% names(ts_rows)) suppressWarnings(as.numeric(local_mean_depth_overlap)) else NA_real_,
-        log_local_effective_support = if ("local_effective_support" %in% names(ts_rows)) suppressWarnings(log1p(pmax(as.numeric(local_effective_support), 0))) else NA_real_,
-        policy_slope_len = if ("policy_slope_len" %in% names(ts_rows)) suppressWarnings(as.numeric(policy_slope_len)) else NA_real_,
-        policy_intercept_len = if ("policy_intercept_len" %in% names(ts_rows)) suppressWarnings(as.numeric(policy_intercept_len)) else NA_real_,
+        anchor_model_id = as.character(.data$anchor_model_id),
+        u = suppressWarnings(as.numeric(.data$u)),
+        local_min_combined_distance = if ("local_min_combined_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$local_min_combined_distance)) else NA_real_,
+        local_weighted_mean_combined_distance = if ("local_weighted_mean_combined_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$local_weighted_mean_combined_distance)) else NA_real_,
+        local_min_species_distance = if ("local_min_species_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$local_min_species_distance)) else NA_real_,
+        local_weighted_mean_species_distance = if ("local_weighted_mean_species_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$local_weighted_mean_species_distance)) else NA_real_,
+        local_min_trait_gower_distance = if ("local_min_trait_gower_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$local_min_trait_gower_distance)) else NA_real_,
+        local_weighted_mean_trait_gower_distance = if ("local_weighted_mean_trait_gower_distance" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$local_weighted_mean_trait_gower_distance)) else NA_real_,
+        local_mean_length_overlap = if ("local_mean_length_overlap" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$local_mean_length_overlap)) else NA_real_,
+        local_mean_depth_overlap = if ("local_mean_depth_overlap" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$local_mean_depth_overlap)) else NA_real_,
+        log_local_effective_support = if ("local_effective_support" %in% names(ts_rows)) suppressWarnings(log1p(pmax(as.numeric(.data$local_effective_support), 0))) else NA_real_,
+        policy_slope_len = if ("policy_slope_len" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$policy_slope_len)) else NA_real_,
+        policy_intercept_len = if ("policy_intercept_len" %in% names(ts_rows)) suppressWarnings(as.numeric(.data$policy_intercept_len)) else NA_real_,
         residual = suppressWarnings(as.numeric(.data[[value_col]]))
       ) |>
       dplyr::filter(
-        !is.na(anchor_model_id),
-        nzchar(anchor_model_id),
-        is.finite(u),
-        is.finite(residual)
+        !is.na(.data$anchor_model_id),
+        nzchar(.data$anchor_model_id),
+        is.finite(.data$u),
+        is.finite(.data$residual)
       )
     if (nrow(training_tbl) < 2L) {
       return(NULL)
@@ -2459,14 +2464,14 @@ select_ts_calibration_curve <- function(ts_calibration,
   }
   ts_calibration$equation_branch_filter <- standardize_branches(ts_calibration)
   if (is.na(policy_value) || !nzchar(policy_value) ||
-      is.na(branch_value) || !nzchar(branch_value)) {
+    is.na(branch_value) || !nzchar(branch_value)) {
     return(tibble::tibble())
   }
 
   pool_now <- ts_calibration |>
     dplyr::filter(
-      policy == !!policy_value,
-      equation_branch_filter == !!branch_value
+      .data$policy == !!policy_value,
+      .data$equation_branch_filter == !!branch_value
     )
   if (nrow(pool_now) == 0 || dplyr::n_distinct(pool_now$anchor_model_id) < 2L) {
     return(tibble::tibble())
@@ -2520,17 +2525,17 @@ collapse_local_ts_calibration_pool <- function(pool_now,
     }
     anchor_locality <- pool_now |>
       dplyr::mutate(
-        anchor_model_id = as.character(anchor_model_id),
-        .local_distance = suppressWarnings(as.numeric(local_min_combined_distance))
+        anchor_model_id = as.character(.data$anchor_model_id),
+        .local_distance = suppressWarnings(as.numeric(.data$local_min_combined_distance))
       ) |>
-      dplyr::filter(!is.na(anchor_model_id), nzchar(anchor_model_id), is.finite(.local_distance)) |>
-      dplyr::group_by(anchor_model_id) |>
-      dplyr::summarise(.local_distance = stats::median(.local_distance, na.rm = TRUE), .groups = "drop") |>
-      dplyr::arrange(abs(.local_distance - target_distance), anchor_model_id)
+      dplyr::filter(!is.na(.data$anchor_model_id), nzchar(.data$anchor_model_id), is.finite(.data$.local_distance)) |>
+      dplyr::group_by(.data$anchor_model_id) |>
+      dplyr::summarise(.local_distance = stats::median(.data$.local_distance, na.rm = TRUE), .groups = "drop") |>
+      dplyr::arrange(abs(.data$.local_distance - target_distance), .data$anchor_model_id)
     keep_ids <- head(anchor_locality$anchor_model_id, min_anchor_neighbors)
     if (length(keep_ids) > 0) {
       pool_now <- pool_now |>
-        dplyr::filter(as.character(anchor_model_id) %in% keep_ids)
+        dplyr::filter(as.character(.data$anchor_model_id) %in% keep_ids)
     }
   }
   min_u <- suppressWarnings(as.integer(min_u %||% 1L))
@@ -2543,65 +2548,65 @@ collapse_local_ts_calibration_pool <- function(pool_now,
   }
   curve_now <- pool_now |>
     dplyr::mutate(
-      anchor_model_id = as.character(anchor_model_id),
-      u = suppressWarnings(as.numeric(u)),
-      ts_error = suppressWarnings(as.numeric(ts_error)),
-      log_sigma_residual = suppressWarnings(as.numeric(log_sigma_residual))
+      anchor_model_id = as.character(.data$anchor_model_id),
+      u = suppressWarnings(as.numeric(.data$u)),
+      ts_error = suppressWarnings(as.numeric(.data$ts_error)),
+      log_sigma_residual = suppressWarnings(as.numeric(.data$log_sigma_residual))
     ) |>
     dplyr::filter(
-      !is.na(anchor_model_id),
-      nzchar(anchor_model_id),
-      is.finite(u),
-      is.finite(ts_error),
-      is.finite(log_sigma_residual)
+      !is.na(.data$anchor_model_id),
+      nzchar(.data$anchor_model_id),
+      is.finite(.data$u),
+      is.finite(.data$ts_error),
+      is.finite(.data$log_sigma_residual)
     ) |>
-    dplyr::group_by(u) |>
+    dplyr::group_by(.data$u) |>
     dplyr::summarise(
       n = dplyr::n(),
-      ts_anchor_n = dplyr::n_distinct(anchor_model_id),
+      ts_anchor_n = dplyr::n_distinct(.data$anchor_model_id),
       ts_score_n = dplyr::n(),
-      sigma_anchor_n = dplyr::n_distinct(anchor_model_id),
+      sigma_anchor_n = dplyr::n_distinct(.data$anchor_model_id),
       sigma_score_n = dplyr::n(),
-      median_ts_error = stats::median(ts_error, na.rm = TRUE),
-      q10_ts_error = stats::quantile(ts_error, 0.10, na.rm = TRUE, names = FALSE, type = 8),
-      q90_ts_error = stats::quantile(ts_error, 0.90, na.rm = TRUE, names = FALSE, type = 8),
-      q05_ts_error = stats::quantile(ts_error, 0.05, na.rm = TRUE, names = FALSE, type = 8),
-      q95_ts_error = stats::quantile(ts_error, 0.95, na.rm = TRUE, names = FALSE, type = 8),
-      q025_ts_error = stats::quantile(ts_error, 0.025, na.rm = TRUE, names = FALSE, type = 8),
-      q975_ts_error = stats::quantile(ts_error, 0.975, na.rm = TRUE, names = FALSE, type = 8),
-      q005_ts_error = stats::quantile(ts_error, 0.005, na.rm = TRUE, names = FALSE, type = 8),
-      q995_ts_error = stats::quantile(ts_error, 0.995, na.rm = TRUE, names = FALSE, type = 8),
-      q80_ts_abs_dev = stats::quantile(abs(ts_error - stats::median(ts_error, na.rm = TRUE)), 0.80, na.rm = TRUE, names = FALSE, type = 8),
-      q90_ts_abs_dev = stats::quantile(abs(ts_error - stats::median(ts_error, na.rm = TRUE)), 0.90, na.rm = TRUE, names = FALSE, type = 8),
-      q95_ts_abs_dev = stats::quantile(abs(ts_error - stats::median(ts_error, na.rm = TRUE)), 0.95, na.rm = TRUE, names = FALSE, type = 8),
-      q99_ts_abs_dev = stats::quantile(abs(ts_error - stats::median(ts_error, na.rm = TRUE)), 0.99, na.rm = TRUE, names = FALSE, type = 8),
-      median_log_sigma_residual = stats::median(log_sigma_residual, na.rm = TRUE),
-      q80_log_sigma_abs_dev = stats::quantile(abs(log_sigma_residual), 0.80, na.rm = TRUE, names = FALSE, type = 8),
-      q90_log_sigma_abs_dev = stats::quantile(abs(log_sigma_residual), 0.90, na.rm = TRUE, names = FALSE, type = 8),
-      q95_log_sigma_abs_dev = stats::quantile(abs(log_sigma_residual), 0.95, na.rm = TRUE, names = FALSE, type = 8),
-      q99_log_sigma_abs_dev = stats::quantile(abs(log_sigma_residual), 0.99, na.rm = TRUE, names = FALSE, type = 8),
-      q10_log_sigma_residual = stats::quantile(log_sigma_residual, 0.10, na.rm = TRUE, names = FALSE, type = 8),
-      q90_log_sigma_residual = stats::quantile(log_sigma_residual, 0.90, na.rm = TRUE, names = FALSE, type = 8),
-      q05_log_sigma_residual = stats::quantile(log_sigma_residual, 0.05, na.rm = TRUE, names = FALSE, type = 8),
-      q95_log_sigma_residual = stats::quantile(log_sigma_residual, 0.95, na.rm = TRUE, names = FALSE, type = 8),
-      q025_log_sigma_residual = stats::quantile(log_sigma_residual, 0.025, na.rm = TRUE, names = FALSE, type = 8),
-      q975_log_sigma_residual = stats::quantile(log_sigma_residual, 0.975, na.rm = TRUE, names = FALSE, type = 8),
-      q005_log_sigma_residual = stats::quantile(log_sigma_residual, 0.005, na.rm = TRUE, names = FALSE, type = 8),
-      q995_log_sigma_residual = stats::quantile(log_sigma_residual, 0.995, na.rm = TRUE, names = FALSE, type = 8),
+      median_ts_error = stats::median(.data$ts_error, na.rm = TRUE),
+      q10_ts_error = stats::quantile(.data$ts_error, 0.10, na.rm = TRUE, names = FALSE, type = 8),
+      q90_ts_error = stats::quantile(.data$ts_error, 0.90, na.rm = TRUE, names = FALSE, type = 8),
+      q05_ts_error = stats::quantile(.data$ts_error, 0.05, na.rm = TRUE, names = FALSE, type = 8),
+      q95_ts_error = stats::quantile(.data$ts_error, 0.95, na.rm = TRUE, names = FALSE, type = 8),
+      q025_ts_error = stats::quantile(.data$ts_error, 0.025, na.rm = TRUE, names = FALSE, type = 8),
+      q975_ts_error = stats::quantile(.data$ts_error, 0.975, na.rm = TRUE, names = FALSE, type = 8),
+      q005_ts_error = stats::quantile(.data$ts_error, 0.005, na.rm = TRUE, names = FALSE, type = 8),
+      q995_ts_error = stats::quantile(.data$ts_error, 0.995, na.rm = TRUE, names = FALSE, type = 8),
+      q80_ts_abs_dev = stats::quantile(abs(.data$ts_error - stats::median(.data$ts_error, na.rm = TRUE)), 0.80, na.rm = TRUE, names = FALSE, type = 8),
+      q90_ts_abs_dev = stats::quantile(abs(.data$ts_error - stats::median(.data$ts_error, na.rm = TRUE)), 0.90, na.rm = TRUE, names = FALSE, type = 8),
+      q95_ts_abs_dev = stats::quantile(abs(.data$ts_error - stats::median(.data$ts_error, na.rm = TRUE)), 0.95, na.rm = TRUE, names = FALSE, type = 8),
+      q99_ts_abs_dev = stats::quantile(abs(.data$ts_error - stats::median(.data$ts_error, na.rm = TRUE)), 0.99, na.rm = TRUE, names = FALSE, type = 8),
+      median_log_sigma_residual = stats::median(.data$log_sigma_residual, na.rm = TRUE),
+      q80_log_sigma_abs_dev = stats::quantile(abs(.data$log_sigma_residual), 0.80, na.rm = TRUE, names = FALSE, type = 8),
+      q90_log_sigma_abs_dev = stats::quantile(abs(.data$log_sigma_residual), 0.90, na.rm = TRUE, names = FALSE, type = 8),
+      q95_log_sigma_abs_dev = stats::quantile(abs(.data$log_sigma_residual), 0.95, na.rm = TRUE, names = FALSE, type = 8),
+      q99_log_sigma_abs_dev = stats::quantile(abs(.data$log_sigma_residual), 0.99, na.rm = TRUE, names = FALSE, type = 8),
+      q10_log_sigma_residual = stats::quantile(.data$log_sigma_residual, 0.10, na.rm = TRUE, names = FALSE, type = 8),
+      q90_log_sigma_residual = stats::quantile(.data$log_sigma_residual, 0.90, na.rm = TRUE, names = FALSE, type = 8),
+      q05_log_sigma_residual = stats::quantile(.data$log_sigma_residual, 0.05, na.rm = TRUE, names = FALSE, type = 8),
+      q95_log_sigma_residual = stats::quantile(.data$log_sigma_residual, 0.95, na.rm = TRUE, names = FALSE, type = 8),
+      q025_log_sigma_residual = stats::quantile(.data$log_sigma_residual, 0.025, na.rm = TRUE, names = FALSE, type = 8),
+      q975_log_sigma_residual = stats::quantile(.data$log_sigma_residual, 0.975, na.rm = TRUE, names = FALSE, type = 8),
+      q005_log_sigma_residual = stats::quantile(.data$log_sigma_residual, 0.005, na.rm = TRUE, names = FALSE, type = 8),
+      q995_log_sigma_residual = stats::quantile(.data$log_sigma_residual, 0.995, na.rm = TRUE, names = FALSE, type = 8),
       .groups = "drop"
     ) |>
-    dplyr::filter(n >= min_avg_scores_per_u) |>
-    dplyr::arrange(u)
+    dplyr::filter(.data$n >= min_avg_scores_per_u) |>
+    dplyr::arrange(.data$u)
   if (nrow(curve_now) < min_u) {
     return(tibble::tibble())
   }
   curve_now |>
     dplyr::mutate(
-      q80_ts_abs_raw = q80_ts_abs_dev,
-      q90_ts_abs_raw = q90_ts_abs_dev,
-      q95_ts_abs_raw = q95_ts_abs_dev,
-      q99_ts_abs_raw = q99_ts_abs_dev,
-      log_sigma_scale_fit = q90_log_sigma_abs_dev
+      q80_ts_abs_raw = .data$q80_ts_abs_dev,
+      q90_ts_abs_raw = .data$q90_ts_abs_dev,
+      q95_ts_abs_raw = .data$q95_ts_abs_dev,
+      q99_ts_abs_raw = .data$q99_ts_abs_dev,
+      log_sigma_scale_fit = .data$q90_log_sigma_abs_dev
     )
 }
 
@@ -2680,18 +2685,18 @@ select_coefficient_residual_pool <- function(coefficient_calibration,
 
   coefficient_calibration <- coefficient_calibration |>
     dplyr::mutate(
-      anchor_model_id = if ("anchor_model_id" %in% names(coefficient_calibration)) as.character(anchor_model_id) else NA_character_,
-      anchor_species = if ("anchor_species" %in% names(coefficient_calibration)) as.character(anchor_species) else NA_character_,
-      anchor_family = if ("anchor_family" %in% names(coefficient_calibration)) as.character(anchor_family) else NA_character_,
-      policy = as.character(policy),
+      anchor_model_id = if ("anchor_model_id" %in% names(coefficient_calibration)) as.character(.data$anchor_model_id) else NA_character_,
+      anchor_species = if ("anchor_species" %in% names(coefficient_calibration)) as.character(.data$anchor_species) else NA_character_,
+      anchor_family = if ("anchor_family" %in% names(coefficient_calibration)) as.character(.data$anchor_family) else NA_character_,
+      policy = as.character(.data$policy),
       equation_branch_filter = standardize_branches(coefficient_calibration),
-      post_selection_support_bin = as.character(post_selection_support_bin),
-      slope_resid = suppressWarnings(as.numeric(slope_resid)),
-      intercept_resid = suppressWarnings(as.numeric(intercept_resid))
+      post_selection_support_bin = as.character(.data$post_selection_support_bin),
+      slope_resid = suppressWarnings(as.numeric(.data$slope_resid)),
+      intercept_resid = suppressWarnings(as.numeric(.data$intercept_resid))
     ) |>
     dplyr::filter(
-      is.finite(slope_resid),
-      is.finite(intercept_resid)
+      is.finite(.data$slope_resid),
+      is.finite(.data$intercept_resid)
     )
   if (nrow(coefficient_calibration) == 0) {
     return(tibble::tibble())
@@ -2700,14 +2705,14 @@ select_coefficient_residual_pool <- function(coefficient_calibration,
   policy_value <- as.character(row_now$selected_policy[[1]] %||% row_now$policy[[1]] %||% NA_character_)
   branch_value <- selected_branches(row_now)[[1]]
   if (is.na(policy_value) || !nzchar(policy_value) ||
-      is.na(branch_value) || !nzchar(branch_value)) {
+    is.na(branch_value) || !nzchar(branch_value)) {
     return(tibble::tibble())
   }
 
   pool_now <- coefficient_calibration |>
     dplyr::filter(
-      policy == !!policy_value,
-      equation_branch_filter == !!branch_value
+      .data$policy == !!policy_value,
+      .data$equation_branch_filter == !!branch_value
     )
   if (nrow(pool_now) < as.integer(min_rows)) {
     return(tibble::tibble())
@@ -2866,59 +2871,57 @@ selection_competition_pool <- function(policy_tbl,
     return(tibble::tibble())
   }
 
+  # Helper coalesce to extract the most relevant validation error metric available for each row.
+  tidy_coalesce <- function(col, type_fn = as.numeric) {
+    if (col %in% names(policy_tbl)) suppressWarnings(type_fn(policy_tbl[[col]])) else NA    
+  }
+
   validation_error <- dplyr::coalesce(
-    if ("anchor_selection_validation_error" %in% names(policy_tbl)) suppressWarnings(as.numeric(policy_tbl$anchor_selection_validation_error)) else rep(NA_real_, nrow(policy_tbl)),
-    if ("species_block_median_abs_log_error" %in% names(policy_tbl)) suppressWarnings(as.numeric(policy_tbl$species_block_median_abs_log_error)) else rep(NA_real_, nrow(policy_tbl)),
-    if ("mean_species_median_abs_log" %in% names(policy_tbl)) suppressWarnings(as.numeric(policy_tbl$mean_species_median_abs_log)) else rep(NA_real_, nrow(policy_tbl)),
-    if ("median_abs_log" %in% names(policy_tbl)) suppressWarnings(as.numeric(policy_tbl$median_abs_log)) else rep(NA_real_, nrow(policy_tbl)),
-    if (".meta_predicted_score" %in% names(policy_tbl)) suppressWarnings(as.numeric(policy_tbl$.meta_predicted_score)) else rep(NA_real_, nrow(policy_tbl))
-  )
-  uncertainty_width <- dplyr::coalesce(
-    if ("uncertainty_cost_log_width" %in% names(policy_tbl)) suppressWarnings(as.numeric(policy_tbl$uncertainty_cost_log_width)) else rep(NA_real_, nrow(policy_tbl)),
-    if ("interval_log_width" %in% names(policy_tbl)) suppressWarnings(as.numeric(policy_tbl$interval_log_width)) else rep(NA_real_, nrow(policy_tbl))
-  )
-  selection_valid <- dplyr::coalesce(
-    if ("selection_valid" %in% names(policy_tbl)) as.logical(policy_tbl$selection_valid) else rep(NA, nrow(policy_tbl)),
-    if ("n_valid_models" %in% names(policy_tbl)) {
-      n_valid <- suppressWarnings(as.numeric(policy_tbl$n_valid_models))
-      is.finite(n_valid) & n_valid > 0
-    } else {
-      rep(NA, nrow(policy_tbl))
-    },
-    if ("n_models" %in% names(policy_tbl)) {
-      n_models <- suppressWarnings(as.numeric(policy_tbl$n_models))
-      is.finite(n_models) & n_models > 0
-    } else {
-      rep(NA, nrow(policy_tbl))
-    },
-    if ("valid_prediction" %in% names(policy_tbl)) as.logical(policy_tbl$valid_prediction) else rep(FALSE, nrow(policy_tbl)),
-    FALSE
-  )
-  uncertainty_eligible <- dplyr::coalesce(
-    if ("uncertainty_eligible" %in% names(policy_tbl)) as.logical(policy_tbl$uncertainty_eligible) else rep(NA, nrow(policy_tbl)),
-    FALSE
-  )
+      tidy_coalesce ("anchor_selection_validation_error"),
+      tidy_coalesce ("species_block_median_abs_log_error"),
+      tidy_coalesce ("mean_species_median_abs_log"),
+      tidy_coalesce ("median_abs_log"),
+      tidy_coalesce (".meta_predicted_score")
+    )
+
+    uncertainty_width <- dplyr::coalesce(
+      tidy_coalesce("uncertainty_cost_log_width"),
+      tidy_coalesce("interval_log_width")
+    )
+
+    selection_valid <- dplyr::coalesce(
+      tidy_coalesce("selection_valid", as.logical),
+      tidy_coalesce("n_valid_models") > 0,
+      tidy_coalesce("n_models") > 0,
+      tidy_coalesce("valid_prediction", as.logical),
+      FALSE
+    )
+
+    uncertainty_eligible <- dplyr::coalesce(
+      tidy_coalesce("uncertainty_eligible", as.logical),
+      FALSE
+    )
 
   pool <- policy_tbl |>
     dplyr::mutate(
-      .anchor_model_id_chr = as.character(anchor_model_id),
+      .anchor_model_id_chr = as.character(.data$anchor_model_id),
       .validation_error = validation_error,
       .uncertainty_width = uncertainty_width,
       .selection_valid = selection_valid,
       .uncertainty_eligible = uncertainty_eligible
     ) |>
     dplyr::filter(
-      .anchor_model_id_chr == anchor_id_chr,
-      .selection_valid,
-      is.finite(.validation_error),
-      is.finite(.uncertainty_width)
+      .data$.anchor_model_id_chr == anchor_id_chr,
+      .data$.selection_valid,
+      is.finite(.data$.validation_error),
+      is.finite(.data$.uncertainty_width)
     )
   if (nrow(pool) == 0) {
     return(pool)
   }
 
   eligible_pool <- pool |>
-    dplyr::filter(dplyr::coalesce(.uncertainty_eligible, FALSE))
+    dplyr::filter(dplyr::coalesce(.data$.uncertainty_eligible, FALSE))
   if (nrow(eligible_pool) > 0) {
     pool <- eligible_pool
   }
@@ -2945,10 +2948,10 @@ selection_competition_pool <- function(policy_tbl,
   # that the selector considered, rather than reintroducing separate width or
   # locality screens after the fact.
   score_pool <- pool |>
-    dplyr::filter(.validation_error <= validation_threshold + 1e-12)
+    dplyr::filter(.data$.validation_error <= validation_threshold + 1e-12)
   if (nrow(score_pool) == 0) {
     score_pool <- pool |>
-      dplyr::filter(.validation_error <= min_validation_error + 1e-12)
+      dplyr::filter(.data$.validation_error <= min_validation_error + 1e-12)
   }
   if (nrow(score_pool) == 0) {
     return(pool[0, , drop = FALSE])
@@ -2969,13 +2972,13 @@ selection_competition_pool <- function(policy_tbl,
 
   score_pool |>
     dplyr::filter(
-      !(as.character(policy) == selected_policy_value &
-          as.character(equation_branch_filter) == selected_branch_value)
+      !(as.character(.data$policy) == selected_policy_value &
+        as.character(.data$equation_branch_filter) == selected_branch_value)
     ) |>
     dplyr::arrange(
-      bootstrap_median_rank,
-      .validation_error,
-      policy
+      .data$bootstrap_median_rank,
+      .data$.validation_error,
+      .data$policy
     )
 }
 
@@ -3409,7 +3412,7 @@ strategy_uncertainty_context <- function(row_now,
       if (length(anc_id_col_d) > 0) {
         df_d <- dplyr::filter(df_d, as.character(.data[[anc_id_col_d[[1]]]]) != anchor_id_chr)
       }
-      dplyr::filter(df_d, is.finite(slope_len), is.finite(intercept_len))
+      dplyr::filter(df_d, is.finite(.data$slope_len), is.finite(.data$intercept_len))
     } else {
       tibble::tibble()
     }
@@ -3436,8 +3439,8 @@ strategy_uncertainty_context <- function(row_now,
 
   competition_support_n <- competition_sigma$n %||% NA_real_
   if (!is.null(competition_sigma) &&
-      is.matrix(competition_sigma$covariance) &&
-      all(is.finite(competition_sigma$covariance))) {
+    is.matrix(competition_sigma$covariance) &&
+    all(is.finite(competition_sigma$covariance))) {
     raw_covariance <- if (is.null(raw_covariance)) {
       competition_sigma$covariance
     } else {
@@ -3664,7 +3667,7 @@ strategy_uncertainty_context <- function(row_now,
   comp_lo95 <- comp_hi95 <- rep(0, length(length_grid))
   comp_lo99 <- comp_hi99 <- rep(0, length(length_grid))
   if (nrow(competitor_pool) > 0 &&
-      all(c("policy_slope_len", "policy_intercept_len") %in% names(competitor_pool))) {
+    all(c("policy_slope_len", "policy_intercept_len") %in% names(competitor_pool))) {
     comp_slope <- suppressWarnings(as.numeric(competitor_pool$policy_slope_len))
     comp_intercept <- suppressWarnings(as.numeric(competitor_pool$policy_intercept_len))
     comp_score <- suppressWarnings(as.numeric(
@@ -3753,7 +3756,7 @@ strategy_uncertainty_context <- function(row_now,
   )
   top_row <- if (all(top_candidate_fields %in% names(anchor_scores))) {
     anchor_scores |>
-      dplyr::filter(as.character(anchor_model_id) == anchor_id_chr) |>
+      dplyr::filter(as.character(.data$anchor_model_id) == anchor_id_chr) |>
       (\(df) {
         donor_id_col <- if ("model_id_chr" %in% names(df)) {
           "model_id_chr"
@@ -3769,11 +3772,11 @@ strategy_uncertainty_context <- function(row_now,
         }
       })() |>
       dplyr::mutate(
-        combined_distance = suppressWarnings(as.numeric(combined_distance)),
-        w_adm = suppressWarnings(as.numeric(w_adm))
+        combined_distance = suppressWarnings(as.numeric(.data$combined_distance)),
+        w_adm = suppressWarnings(as.numeric(.data$w_adm))
       ) |>
-      dplyr::filter(is.finite(slope_len), is.finite(intercept_len)) |>
-      dplyr::arrange(combined_distance, dplyr::desc(w_adm)) |>
+      dplyr::filter(is.finite(.data$slope_len), is.finite(.data$intercept_len)) |>
+      dplyr::arrange(.data$combined_distance, dplyr::desc(.data$w_adm)) |>
       dplyr::slice(1)
   } else {
     tibble::tibble()
@@ -4167,8 +4170,8 @@ coefficient_interval_from_context <- function(row_now,
     ) |>
       dplyr::distinct()
     corr <- if (!identical(branch_value, "fixed20_only") &&
-                nrow(corr_pool) >= 2L &&
-                all(c("slope_resid", "intercept_resid") %in% names(corr_pool))) {
+      nrow(corr_pool) >= 2L &&
+      all(c("slope_resid", "intercept_resid") %in% names(corr_pool))) {
       weighted_cor_or_na(
         x = corr_pool$slope_resid,
         y = corr_pool$intercept_resid,
@@ -4223,7 +4226,7 @@ coefficient_interval_from_context <- function(row_now,
     return(NULL)
   }
   if (!identical(branch_value, "fixed20_only") &&
-      (!is.finite(slope_lo) || !is.finite(slope_hi) || slope_lo > slope_hi)) {
+    (!is.finite(slope_lo) || !is.finite(slope_hi) || slope_lo > slope_hi)) {
     return(NULL)
   }
   if (!is.finite(corr)) {
@@ -4298,10 +4301,10 @@ build_ts_conformal_panel_data <- function(selected_tbl,
   selected_tbl$selected_equation_branch_filter <- selected_branches(selected_tbl)
   selected_tbl <- selected_tbl |>
     dplyr::filter(
-      !is.na(anchor_model_id),
-      !is.na(selected_policy),
-      is.finite(policy_slope_len),
-      is.finite(policy_intercept_len)
+      !is.na(.data$anchor_model_id),
+      !is.na(.data$selected_policy),
+      is.finite(.data$policy_slope_len),
+      is.finite(.data$policy_intercept_len)
     )
   n_selected <- nrow(selected_tbl)
   purrr::map_dfr(seq_len(n_selected), function(i) {
@@ -4926,4 +4929,3 @@ run_anchor_conformal <- function(policy_perf,
 
   result
 }
-

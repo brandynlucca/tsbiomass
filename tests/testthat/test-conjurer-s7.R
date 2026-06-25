@@ -168,5 +168,3 @@ test_that("show.Conjurer prints a compact analysis summary", {
   expect_match(output, "largest_mean_abs_db_shift: Alpha alpha / frequency = 0.42")
   expect_match(output, "largest_policy_switch_rate: Alpha alpha / frequency = 25%")
 })
-
-
