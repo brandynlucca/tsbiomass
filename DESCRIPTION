@@ -1,6 +1,6 @@
 Package: tsbiomass
 Title: TS Biomass Model Transferability Package
-Version: 0.0.0.9000
+Version: 0.1.0
 Authors@R: 
     person("First", "Last", , "first.last@example.com", role = c("aut", "cre"))
 Description: Bundles the TS-model transferability analysis pipeline, benchmark logic,
@@ -8,48 +8,51 @@ Description: Bundles the TS-model transferability analysis pipeline, benchmark l
     and figure-generation pipeline used for TS-to-biomass transfer analyses.
     The package is configuration-driven and can be run from YAML/JSON
     files or from the preserved command-line interface.
-License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
-    license
+License: MIT + file LICENSE
 Encoding: UTF-8
+Depends:
+    R (>= 4.1.0)
 Imports:
     S7,
-    ape,
-    cluster,
     dplyr,
     forcats,
     fs,
     ggplot2,
-    glmnet,
     ggrepel,
     janitor,
     jsonlite,
     methods,
-    mgcv,
-    nnls,
     purrr,
     readr,
     readxl,
-    ranger,
-    rpart,
-    rotl,
+    rlang,
     scales,
     scico,
     stringr,
     tibble,
     tidyr,
+    yaml
+Suggests: 
+    ape,
+    cluster,
+    glmnet,
+    mgcv,
+    nnls,
+    pkgload,
+    quantreg,
+    ranger,
+    rfishbase,
+    rotl,
+    rpart,    
+    sf,
+    sfheaders,
+    testthat (>= 3.0.0),
     vegan,
     wk,
-    xgboost,
-    yaml
-Suggests:
-    knitr,
-    pkgload,
-    rmarkdown,
-    testthat (>= 3.0.0)
-VignetteBuilder: knitr
+    worrms,
+    xgboost
 Config/testthat/edition: 3
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.3
 Collate:
     'utils.R'
     'logging.R'
@@ -83,3 +86,5 @@ Collate:
     'policy_selection.R'
     'similarity.R'
     'summary.R'
+    's3_bridges.R'
+Config/roxygen2/version: 8.0.0

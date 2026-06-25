@@ -13,6 +13,7 @@
 *_files
 .tmp
 dev/
+tsbiomass.Rcheck/
 scratch/
 .vscode/
 .Rhistory
@@ -22,3 +23,4 @@ cache/
 *.csv
 inst/docs
 inst/slides
+*.tar.gz

@@ -15,3 +15,5 @@
 ^.tmp$
 ^outputs_swfscfish/.*$
 ^cache/.*$
+^[0-9]+_R-CMD-check.*[.]txt$
+^[0-9]+_coverage[.]txt$
