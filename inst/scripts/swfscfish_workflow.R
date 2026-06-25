@@ -530,7 +530,7 @@ ggplot2::ggsave(
 # anchor-facing multiplier figure can compare the chosen transfer against the
 # broader admissible-pool baseline.
 anchor_multiplier_summary <- selected_policies |>
-  dplyr::select(anchor_model_id, anchor_species, multiplier_pred, multiplier_lo, multiplier_hi) |>
+  dplyr::select(anchor_model_id, anchor_species, multiplier_pred, .multiplier_lo, multiplier_hi) |>
   dplyr::left_join(
     consensus_multipliers |>
       dplyr::transmute(

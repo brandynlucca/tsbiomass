@@ -1056,12 +1056,12 @@ recommendation_stability_tbl <- recommendation_stability_source |>
   dplyr::mutate(
     total_selected = sum(n_selected),
     win_fraction = n_selected / total_selected,
-    rank = dplyr::min_rank(dplyr::desc(win_fraction))
+    rank = dplyr::min_rank(dplyr::desc(.data$win_fraction))
   ) |>
   dplyr::ungroup()
 recommendation_stability_summary <- recommendation_stability_tbl |>
   dplyr::group_by(anchor_species) |>
-  dplyr::arrange(dplyr::desc(win_fraction), policy_display, .by_group = TRUE) |>
+  dplyr::arrange(dplyr::desc(.data$win_fraction), policy_display, .by_group = TRUE) |>
   dplyr::summarise(
     n_anchor_models = sum(n_selected),
     n_policies_seen = dplyr::n(),
@@ -1198,7 +1198,7 @@ if (nrow(plot_tbl) > 0) {
     )
   utils::write.csv(
     residual_tbl |>
-      dplyr::arrange(dplyr::desc(abs_residual_raw)) |>
+      dplyr::arrange(dplyr::desc(.data$abs_residual_raw)) |>
       dplyr::slice_head(n = 100),
     file.path(meta_output_dir, "meta_policy_worst_outliers.csv"),
     row.names = FALSE
@@ -1212,7 +1212,7 @@ if (nrow(plot_tbl) > 0) {
       median_residual = stats::median(residual_raw, na.rm = TRUE),
       .groups = "drop"
     ) |>
-    dplyr::arrange(dplyr::desc(median_abs_residual))
+    dplyr::arrange(dplyr::desc(.data$median_abs_residual))
   utils::write.csv(
     residual_by_policy,
     file.path(meta_output_dir, "meta_policy_residual_summary_by_policy.csv"),
