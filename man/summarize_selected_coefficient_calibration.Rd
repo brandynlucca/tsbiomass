@@ -4,13 +4,20 @@
 \alias{summarize_selected_coefficient_calibration}
 \title{Summarize selected-policy coefficient calibration}
 \usage{
-summarize_selected_coefficient_calibration(selected_tbl, candidate_models)
+summarize_selected_coefficient_calibration(
+  selected_tbl,
+  candidate_models,
+  ts_error = NULL
+)
 }
 \arguments{
 \item{selected_tbl}{Selected-policy table.}
 
 \item{candidate_models}{Candidate-model table containing the true anchor
 coefficients.}
+
+\item{ts_error}{Optional policy TS-error table used to recover policy
+coefficients when \code{selected_tbl} does not carry them directly.}
 }
 \value{
 A tibble of residual pairs.

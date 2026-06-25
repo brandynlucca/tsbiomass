@@ -4,21 +4,6 @@
 \alias{PolicySimulator-class}
 \alias{PolicySimulator}
 \title{Policy Simulator S7 Class}
-\usage{
-PolicySimulator(
-  selector = NULL,
-  config = list(),
-  scenarios = list(),
-  results = list(),
-  manifest = (function (.data) 
- {
-    
-    stop(sprintf("S3 class <\%s> doesn't have a constructor", class[[1]]), call. =
-    FALSE)
- })(),
-  tables = list()
-)
-}
 \description{
 \code{PolicySimulator} wraps the policy-sensitivity pipeline around a staged
 \link{PolicySelector}. It owns the scenario specifications, the rerun benchmark

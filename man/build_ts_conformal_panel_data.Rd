@@ -10,19 +10,23 @@ build_ts_conformal_panel_data(
   coefficient_calibration = NULL,
   candidate_models,
   anchor_scores,
+  competition_policy_tbl = NULL,
   config = NULL,
   model_scores = NULL,
   species_lookup = NULL,
   policy_path = NULL,
-  length_grid_n = 400L
+  progress = NULL,
+  length_grid_n = 400L,
+  ts_band_method = c("current", "smooth_scale_shape")
 )
 }
 \arguments{
 \item{selected_tbl}{Selected-policy table.}
 
-\item{ts_calibration}{Unused legacy argument retained for compatibility.}
+\item{ts_calibration}{Optional selected-row TS residual calibration table.}
 
-\item{coefficient_calibration}{Unused legacy argument retained for compatibility.}
+\item{coefficient_calibration}{Optional selected-row coefficient residual
+calibration table used as a fallback when TS calibration is unavailable.}
 
 \item{candidate_models}{Candidate-model table.}
 

@@ -4,42 +4,6 @@
 \alias{Candidates-class}
 \alias{Candidates}
 \title{Candidate-Model Ingest and Preparation S7 Class}
-\usage{
-Candidates(
-  spec = list(),
-  study_db = (function (.data) 
- {
-    
-    stop(sprintf("S3 class <\%s> doesn't have a constructor", class[[1]]), call. =
-    FALSE)
- })(),
-  species_vector = character(0),
-  source_dbs = list(),
-  species_db = (function (.data) 
- {
-    
-    stop(sprintf("S3 class <\%s> doesn't have a constructor", class[[1]]), call. =
-    FALSE)
- })(),
-  candidate_models = (function (.data) 
- {
-    
-    stop(sprintf("S3 class <\%s> doesn't have a constructor", class[[1]]), call. =
-    FALSE)
- })(),
-  reference_anchors = (function (.data) 
- {
-    
-    stop(sprintf("S3 class <\%s> doesn't have a constructor", class[[1]]), call. =
-    FALSE)
- })(),
-  similarity_matrix = list(),
-  gower_distances = list(),
-  ordination = list(),
-  admissibility = list(),
-  similarity_tuning = list()
-)
-}
 \description{
 \code{Candidates} is the main staged data object for downstream transferability
 analysis. It reads the study table, ingests any configured species metadata

@@ -12,12 +12,6 @@ build_ts_errors(anchor_row, policy_tbl, config)
 \item{policy_tbl}{Policy table for the anchor.}
 
 \item{config}{Benchmark config list.}
-
-\item{eval_obj}{Anchor evaluation object.}
-
-\item{ordination_info}{Optional ordination-context list.}
-
-\item{curve_fun}{Policy-curve prediction function.}
 }
 \value{
 A tibble.

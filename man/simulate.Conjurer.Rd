@@ -2,7 +2,20 @@
 % Please edit documentation in R/conjurer_s7.R
 \name{simulate.Conjurer}
 \alias{simulate.Conjurer}
+\alias{.simulate_conjurer}
 \title{Run missingness-uncertainty draws from a \code{Conjurer}}
+\usage{
+.simulate_conjurer(
+  object,
+  traits = NULL,
+  n_draws = NULL,
+  config = NULL,
+  seed = NULL,
+  progress = NULL,
+  registry_path = NULL,
+  policy_path = NULL
+)
+}
 \arguments{
 \item{object}{A \link{Conjurer} object.}
 

@@ -6,6 +6,7 @@
 \usage{
 run_policy_selection(
   species_performance_table,
+  candidate_models = NULL,
   config = NULL,
   cache_path = NULL,
   refresh = FALSE,
@@ -15,12 +16,17 @@ run_policy_selection(
 \arguments{
 \item{species_performance_table}{Species-block benchmark table.}
 
+\item{candidate_models}{Optional candidate-model metadata used to enrich
+policy labels.}
+
 \item{config}{Optional JSON path or list with \code{tolerance}, \code{n_boot}, and
 \code{seed}. A \link{Configurer} object is also accepted.}
 
 \item{cache_path}{Optional \code{.rds} cache path.}
 
 \item{refresh}{Logical scalar. If \code{TRUE}, ignore any existing cache.}
+
+\item{progress}{Logical scalar controlling stage messages.}
 }
 \value{
 A list containing the selection table, pairwise equivalence table,

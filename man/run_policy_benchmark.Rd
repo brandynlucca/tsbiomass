@@ -47,6 +47,12 @@ policies.}
 \item{reference_ids}{Optional vector of reference-model IDs used only to
 annotate the output tables.}
 
+\item{policies}{Optional character vector of policy names to evaluate.}
+
+\item{policy_params}{Optional named list of per-policy parameter overrides.}
+
+\item{policy_path}{Optional policy-registry path.}
+
 \item{config}{Optional JSON path or list with benchmark/admissibility
 settings.}
 
@@ -67,6 +73,10 @@ development package on parallel workers when running from source.}
 
 \item{progress}{Logical scalar. If \code{TRUE}, emit lightweight progress updates
 during the anchor loop.}
+
+\item{group_block_col}{Optional grouping column for group-block validation.}
+
+\item{group_block_label}{Label used for group-block validation outputs.}
 
 \item{registry_path}{Optional path to the trait-registry JSON.}
 }

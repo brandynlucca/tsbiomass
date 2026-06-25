@@ -7,6 +7,7 @@
 recommendation_candidate_pool(
   admissible_rows,
   all_rows,
+  policy_def,
   policy_params = list(),
   ordination_info = NULL
 )
@@ -16,11 +17,11 @@ recommendation_candidate_pool(
 
 \item{all_rows}{All valid donor rows before the admissibility restriction.}
 
+\item{policy_def}{One-row recommendation policy definition.}
+
 \item{policy_params}{Optional named list of per-policy parameter overrides.}
 
 \item{ordination_info}{Optional ordination-context list.}
-
-\item{policy_def}{One-row recommendation policy definition.}
 }
 \value{
 Tibble of donor rows retained for the policy.

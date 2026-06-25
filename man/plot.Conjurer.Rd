@@ -2,7 +2,25 @@
 % Please edit documentation in R/graphics.R
 \name{plot.Conjurer}
 \alias{plot.Conjurer}
+\alias{.plot_conjurer}
 \title{Plot \code{Conjurer} missingness uncertainty summaries}
+\usage{
+.plot_conjurer(
+  x,
+  y = NULL,
+  metric = "mean_abs_db_shift",
+  trait_labs = NULL,
+  anchor_order = NULL,
+  trait_order = NULL,
+  title = NULL,
+  subtitle = NULL,
+  fill_lab = NULL,
+  show_values = TRUE,
+  na_value = "grey90",
+  tile_colour = "white",
+  ...
+)
+}
 \arguments{
 \item{x}{A \link{Conjurer} object.}
 

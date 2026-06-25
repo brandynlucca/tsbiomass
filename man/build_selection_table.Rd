@@ -6,6 +6,7 @@
 \usage{
 build_selection_table(
   species_performance_table,
+  candidate_models = NULL,
   one_se_multiplier = 1,
   equivalence_tolerance = 0.05,
   n_boot = 500L,
@@ -16,12 +17,20 @@ build_selection_table(
 \arguments{
 \item{species_performance_table}{Species-block benchmark table.}
 
+\item{candidate_models}{Optional candidate-model metadata used to enrich
+policy labels.}
+
+\item{one_se_multiplier}{Multiplier applied to one-standard-error
+thresholds.}
+
+\item{equivalence_tolerance}{Practical equivalence tolerance used by paired
+comparisons.}
+
 \item{n_boot}{Number of bootstrap resamples across species.}
 
 \item{seed}{Integer bootstrap seed.}
 
-\item{tolerance}{Optional tolerance value retained in the output for
-reference.}
+\item{progress}{Logical scalar controlling stage messages.}
 }
 \value{
 A tibble.

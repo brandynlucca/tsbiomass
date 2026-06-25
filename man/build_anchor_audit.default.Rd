@@ -3,6 +3,22 @@
 \name{build_anchor_audit.default}
 \alias{build_anchor_audit.default}
 \title{Build an anchor support audit from selected-policy interval tables}
+\arguments{
+\item{sel_tbl}{Selected-policy interval table.}
+
+\item{select_ref}{Policy-selection reference table.}
+
+\item{cover_tbl}{Policy-level coverage summary table.}
+
+\item{sens_detail}{Optional sensitivity-detail table.}
+
+\item{sens_tbl}{Optional full policy-sensitivity table.}
+
+\item{baseline_label}{Baseline scenario label.}
+
+\item{selector}{Optional \link{PolicySelector} object used when \code{sel_tbl} is a
+\link{PolicyPredictions} object.}
+}
 \description{
 Build an anchor support audit from selected-policy interval tables
 }

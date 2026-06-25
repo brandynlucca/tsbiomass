@@ -23,6 +23,8 @@ plot_ordination_clusters(
 \item{species_col}{Species-label column.}
 
 \item{common_col}{Optional common-name column.}
+
+\item{colorbar_name}{Legend title for the cluster color scale.}
 }
 \value{
 A ggplot object.

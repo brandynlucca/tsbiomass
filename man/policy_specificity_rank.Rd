@@ -4,10 +4,28 @@
 \alias{policy_specificity_rank}
 \title{Rank policy specificity}
 \usage{
-policy_specificity_rank(policy)
+policy_specificity_rank(
+  policy,
+  candidate_pool = NULL,
+  aggregation_method = NULL,
+  policy_family = NULL,
+  equation_branch_filter = NULL
+)
 }
 \arguments{
 \item{policy}{Character vector of policy names.}
+
+\item{candidate_pool}{Optional candidate-pool labels used to refine
+specificity ties.}
+
+\item{aggregation_method}{Optional aggregation-method labels used to refine
+specificity ties.}
+
+\item{policy_family}{Optional policy-family labels used to refine
+specificity ties.}
+
+\item{equation_branch_filter}{Optional equation-branch filters used to
+refine specificity ties.}
 }
 \value{
 Integer vector.

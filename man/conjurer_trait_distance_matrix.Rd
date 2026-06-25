@@ -2,7 +2,7 @@
 % Please edit documentation in R/conjurer_s7.R
 \name{conjurer_trait_distance_matrix}
 \alias{conjurer_trait_distance_matrix}
-\title{Build one predictor wrapper for imputed draws}
+\title{Build one imputation distance matrix for a target trait}
 \usage{
 conjurer_trait_distance_matrix(
   object,
@@ -22,14 +22,11 @@ conjurer_trait_distance_matrix(
 \item{cfg}{Analysis config list.}
 
 \item{registry_path}{Optional trait-registry path.}
-
-\item{selector}{A \link{PolicySelector} object.
-Build one imputation distance matrix for a target trait}
 }
 \value{
 Numeric matrix or \code{NULL}.
 }
 \description{
-Build one predictor wrapper for imputed draws
+Build one imputation distance matrix for a target trait
 }
 \keyword{internal}

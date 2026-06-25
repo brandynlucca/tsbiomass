@@ -10,7 +10,7 @@ recommendation_local_support_score(tbl)
 \item{tbl}{Recommendation policy rows.}
 }
 \value{
-Numeric vector in approximately \verb{[0, 1]}; larger values indicate
+Numeric vector approximately between 0 and 1; larger values indicate
 stronger transfer support.
 }
 \description{

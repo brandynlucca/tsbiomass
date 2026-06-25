@@ -3,6 +3,9 @@
 \name{bind_sensitivity_data.default}
 \alias{bind_sensitivity_data.default}
 \title{Bind scenario benchmark tables from a named scenario-result map}
+\arguments{
+\item{sensitivity_map}{Named scenario benchmark map.}
+}
 \description{
 Bind scenario benchmark tables from a named scenario-result map
 }

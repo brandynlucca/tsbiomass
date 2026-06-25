@@ -3,6 +3,9 @@
 \name{summarize_missing_gate.default}
 \alias{summarize_missing_gate.default}
 \title{Summarize missingness gate outcomes for admissibility summary tables}
+\arguments{
+\item{adm_tbl}{Admissibility summary table.}
+}
 \description{
 Summarize missingness gate outcomes for admissibility summary tables
 }

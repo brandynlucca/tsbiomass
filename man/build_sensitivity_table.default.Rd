@@ -3,6 +3,13 @@
 \name{build_sensitivity_table.default}
 \alias{build_sensitivity_table.default}
 \title{Build a scenario manifest from named sensitivity scenario lists}
+\arguments{
+\item{sensitivity_specs}{Named scenario-specification list.}
+
+\item{sensitivity_map}{Named scenario benchmark map.}
+
+\item{config}{Optional JSON path or list with sensitivity settings.}
+}
 \description{
 Build a scenario manifest from named sensitivity scenario lists
 }

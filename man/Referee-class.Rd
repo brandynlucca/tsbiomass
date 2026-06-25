@@ -4,15 +4,6 @@
 \alias{Referee-class}
 \alias{Referee}
 \title{Referee and Scorecard S7 Classes}
-\usage{
-Referee(
-  selector = NULL,
-  learner = NULL,
-  predictions = NULL,
-  config = list(),
-  scorecard = Scorecard()
-)
-}
 \description{
 \code{Referee} is the post-prediction recommendation layer for the main
 policy-transfer pipeline. It consumes a \link{PolicySelector}, an optional

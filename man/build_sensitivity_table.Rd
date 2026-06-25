@@ -9,9 +9,7 @@ build_sensitivity_table(sensitivity_specs, ...)
 \arguments{
 \item{sensitivity_specs}{Named scenario-specification list.}
 
-\item{sensitivity_map}{Named scenario benchmark map.}
-
-\item{config}{Optional JSON path or list with sensitivity settings.}
+\item{...}{Method-specific arguments.}
 }
 \value{
 A tibble.

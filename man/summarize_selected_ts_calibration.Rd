@@ -4,7 +4,7 @@
 \alias{summarize_selected_ts_calibration}
 \title{Summarize selected-policy TS calibration}
 \usage{
-summarize_selected_ts_calibration(ts_error, selected_tbl)
+summarize_selected_ts_calibration(ts_error, selected_tbl, policy_perf = NULL)
 }
 \arguments{
 \item{ts_error}{Policy TS-error table.}

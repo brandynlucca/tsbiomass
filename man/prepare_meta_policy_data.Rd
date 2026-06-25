@@ -17,6 +17,9 @@ prepare_meta_policy_data(
 \item{outcome_col}{Outcome column to model.}
 
 \item{feature_cols}{Optional feature columns. \code{NULL} uses defaults.}
+
+\item{outcome_clip_quantile}{Optional upper quantile used to clip extreme
+outcomes during training-data preparation.}
 }
 \value{
 A tibble with model-ready features and \code{.outcome}.

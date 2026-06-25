@@ -8,6 +8,8 @@ summarize_missing_gate(adm_tbl, ...)
 }
 \arguments{
 \item{adm_tbl}{Admissibility summary table.}
+
+\item{...}{Method-specific arguments.}
 }
 \value{
 A tibble.

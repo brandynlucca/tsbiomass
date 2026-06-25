@@ -44,6 +44,8 @@ config-supplied value is used when present.}
 \item{max_models_per_species}{Maximum number of retained tuning models per
 species. When \code{NULL}, a config-supplied value is used when present.}
 
+\item{n_resamples}{Optional number of resampled tuning subsets.}
+
 \item{seed}{Optional integer seed. When \code{NULL}, a config-supplied value is
 used when present; otherwise one is generated and returned in the output
 object.}
@@ -106,7 +108,7 @@ cfg_data <- as_configurer(list(
     species_traits = list(genus = 1, family = 1),
     study_traits = list(frequency = 1, fao_area = 1)
   ),
-  policies = list(active = "all_models_weighted")
+  policies = list(active = "same_species_closest")
 ))
 
 tune_obj <- tune_similarity_matrix(

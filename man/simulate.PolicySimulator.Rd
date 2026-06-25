@@ -2,7 +2,25 @@
 % Please edit documentation in R/policy_simulator_s7.R
 \name{simulate.PolicySimulator}
 \alias{simulate.PolicySimulator}
+\alias{.simulate_policy_simulator}
 \title{Simulate policy sensitivity scenarios from a PolicySimulator}
+\usage{
+.simulate_policy_simulator(
+  object,
+  sensitivity_specs = NULL,
+  baseline_obj = NULL,
+  policies = NULL,
+  reference_ids = NULL,
+  benchmark_args = list(),
+  workers = NULL,
+  package_dir = NULL,
+  registry_path = NULL,
+  config = NULL,
+  cache_path = NULL,
+  refresh = NULL,
+  progress = NULL
+)
+}
 \arguments{
 \item{object}{A \link{PolicySimulator} object.}
 
@@ -31,13 +49,6 @@
 \item{progress}{Logical scalar.}
 }
 \value{
-An updated \link{PolicySimulator} object.
-
-Simulate policy sensitivity scenarios from a PolicySimulator
-
-Re-runs the policy benchmark across configured sensitivity scenarios and
-stores the resulting manifest and bound scenario tables on the object.
-
 An updated \link{PolicySimulator} object.
 }
 \description{

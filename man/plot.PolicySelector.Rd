@@ -2,7 +2,17 @@
 % Please edit documentation in R/policy_selector_s7.R
 \name{plot.PolicySelector}
 \alias{plot.PolicySelector}
+\alias{.plot_policy_selector}
 \title{Plot a \code{PolicySelector}}
+\usage{
+.plot_policy_selector(
+  x,
+  y = NULL,
+  type = c("strategy_error_heatmap", "conformal_scores", "policy_benchmark",
+    "species_policy_ranked"),
+  ...
+)
+}
 \arguments{
 \item{x}{A \link{PolicySelector} object.}
 

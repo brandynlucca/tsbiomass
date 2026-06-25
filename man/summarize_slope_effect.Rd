@@ -46,9 +46,9 @@ summarize_slope_effect(
 
 \item{tax_genus_col}{Optional taxonomy-derived genus column.}
 
-\item{freq_col}{Column holding frequency labels.}
+\item{tags_col}{Column holding tag annotations.}
 
-\item{common_col}{Column holding common names.}
+\item{freq_col}{Column holding frequency labels.}
 }
 \value{
 A list of slope-summary tibbles.

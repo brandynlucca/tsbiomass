@@ -4,32 +4,6 @@
 \alias{Conjurer-class}
 \alias{Conjurer}
 \title{Conjurer S7 Class}
-\usage{
-Conjurer(
-  selector = NULL,
-  learner = NULL,
-  config = list(),
-  results = list(),
-  manifest = (function (.data) 
- {
-    
-    stop(sprintf("S3 class <\%s> doesn't have a constructor", class[[1]]), call. =
-    FALSE)
- })(),
-  draws = (function (.data) 
- {
-    
-    stop(sprintf("S3 class <\%s> doesn't have a constructor", class[[1]]), call. =
-    FALSE)
- })(),
-  summary = (function (.data) 
- {
-    
-    stop(sprintf("S3 class <\%s> doesn't have a constructor", class[[1]]), call. =
-    FALSE)
- })()
-)
-}
 \description{
 \code{Conjurer} runs a targeted missing-study-metadata uncertainty analysis on a
 staged \link{PolicySelector} and an optional fitted \link{PolicyLearner}. It keeps the

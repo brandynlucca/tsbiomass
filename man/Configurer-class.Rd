@@ -4,14 +4,6 @@
 \alias{Configurer-class}
 \alias{Configurer}
 \title{Generalized Configurer S7 Class}
-\usage{
-Configurer(
-  data = list(),
-  base_dir = ".",
-  registry_path = NA_character_,
-  policy_path = NA_character_
-)
-}
 \description{
 \code{Configurer} stores one fully specified configuration as a
 validated S7 object. Construction is explicit: callers must supply either a
@@ -45,16 +37,21 @@ cfg <- create_configurer(list(
     species_traits = list(genus = 2, family = 1),
     study_traits = list(frequency = 1, fao_area = 1),
     coherence = list(
-      length = list(mode = "overlap", weight = 2, min = 0.25),
-      depth = list(mode = "overlap", weight = 3, min = 0.25),
+      length = list(mode = "overlap", weight = 2),
+      depth = list(mode = "overlap", weight = 3),
       frequency = list(mode = "overlap", weight = 2, gap = 60)
     )
   ),
   admissibility = list(
-    key_metadata_max = 0.25
+    key_metadata_max = 0.25,
+    coherence = list(
+      length = list(mode = "overlap", min = 0.25),
+      depth = list(mode = "overlap", min = 0.25),
+      frequency = list(mode = "overlap")
+    )
   ),
   policies = list(
-    active = "all_models_weighted"
+    active = "same_species_closest"
   ),
   metalearner = list(
     selection_method = "glm"

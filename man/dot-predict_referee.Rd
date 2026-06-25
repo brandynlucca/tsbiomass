@@ -19,6 +19,8 @@ stored predictions are used, or they are generated from the selector.}
 
 \item{allow_partial}{Logical scalar. If \code{TRUE}, flagged partial scorecards are
 allowed when non-critical report components fail.}
+
+\item{progress}{Optional logical scalar controlling stage messages.}
 }
 \value{
 A populated \link{Scorecard}.

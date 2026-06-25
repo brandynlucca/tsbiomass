@@ -15,12 +15,12 @@ row. Binomials ("Gadus morhua") are preferred; single epithets
 \code{species_vec}.}
 }
 \value{
-Numeric n × n matrix in \link{0, 1}, or \code{NULL} on failure.
+Numeric n x n matrix with values between 0 and 1, or \code{NULL} on failure.
 }
 \description{
 Uses the Open Tree of Life API (\code{rotl}) to compute cophenetic phylogenetic
-distances for a vector of species names, returning a normalised \link{0, 1}
-n × n matrix where \code{n = length(species_vec)}. Rows with missing or
+distances for a vector of species names, returning a normalised 0 to 1
+n x n matrix where \code{n = length(species_vec)}. Rows with missing or
 unmatched species names default to distance 1 (maximum dissimilarity).
 Returns \code{NULL} when fewer than two species can be matched, so the caller
 can apply a rank-based fallback.

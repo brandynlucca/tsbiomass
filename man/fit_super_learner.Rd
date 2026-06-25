@@ -11,7 +11,7 @@ fit_super_learner(
   outcome_transform = "log1p",
   lambda_rule = "lambda.1se",
   inner_folds = 5L,
-  seed = 42L,
+  seed = NULL,
   method_settings = NULL,
   workers = 1L,
   progress = FALSE

@@ -7,17 +7,10 @@
 summarize_key_missing(candidate_models, ...)
 }
 \arguments{
-\item{candidate_models}{Candidate-model table.}
+\item{candidate_models}{Candidate-model table, \link{Candidates} object, or
+\link{PolicySelector} object.}
 
-\item{key_cols}{Character vector of key-field names.}
-
-\item{threshold}{Missingness threshold.}
-
-\item{model_id_col}{Model identifier column.}
-
-\item{species_col}{Species label column.}
-
-\item{common_col}{Optional common-name column.}
+\item{...}{Method-specific arguments.}
 }
 \value{
 A list of tibbles.

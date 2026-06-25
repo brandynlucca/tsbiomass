@@ -4,21 +4,6 @@
 \alias{PolicyLearner-class}
 \alias{PolicyLearner}
 \title{Policy Learner S7 Class}
-\usage{
-PolicyLearner(
-  selector = NULL,
-  config = list(),
-  training_data = (function (.data) 
- {
-    
-    stop(sprintf("S3 class <\%s> doesn't have a constructor", class[[1]]), call. =
-    FALSE)
- })(),
-  crossfit = list(),
-  fitted_model = list(),
-  calibration = list()
-)
-}
 \description{
 \code{PolicyLearner} wraps the meta-policy and super-learner pipeline around a
 staged \link{PolicySelector}. It owns the cross-fitted meta-policy benchmark,

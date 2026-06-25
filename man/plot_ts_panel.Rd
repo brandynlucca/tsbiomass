@@ -14,6 +14,9 @@ plot_ts_panel(
 \item{curve_tbl}{Combined per-reference TS ribbon table.}
 
 \item{reference_col}{Facet-label column.}
+
+\item{show_top_candidate}{Logical scalar controlling whether the top
+candidate curve is drawn when available.}
 }
 \value{
 A ggplot object.

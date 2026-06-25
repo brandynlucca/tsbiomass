@@ -49,7 +49,7 @@ Runs the inner OOF loop to derive metalearner weights, then fits each base
 learner on the full training split and predicts on the test split one at a
 time, accumulating a weighted average before freeing each model. This keeps
 at most one fitted base learner in memory per worker at any instant, avoiding
-the ~11× model accumulation that causes the RAM spike during parallel
+the ~11x model accumulation that causes the RAM spike during parallel
 crossfit.
 }
 \keyword{internal}

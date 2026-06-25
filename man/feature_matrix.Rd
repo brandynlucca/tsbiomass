@@ -17,7 +17,7 @@ A numeric matrix with \code{nrow(data)} rows and \code{length(feature_cols)}
 columns.
 }
 \description{
-All Gower distance features are numeric and bounded \link{0, 1}. Missing values
+All Gower distance features are numeric and bounded between 0 and 1. Missing values
 are imputed at 0.5 (the Gower midpoint for unknown comparisons).
 }
 \keyword{internal}

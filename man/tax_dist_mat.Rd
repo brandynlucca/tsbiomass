@@ -15,7 +15,7 @@ of \code{species_name}, \code{species}, \code{genus}. Recognised taxonomic rank 
 actual column names in \code{models_df} (e.g. \code{c(family="family", genus="genus", species="species_name")}). Ordered broadest-to-specific.}
 }
 \value{
-Numeric n × n matrix, values in \link{0, 1}, or \code{NULL} on total failure.
+Numeric n x n matrix, values between 0 and 1, or \code{NULL} on total failure.
 }
 \description{
 Attempts to build a continuous phylogenetic distance matrix using the Open

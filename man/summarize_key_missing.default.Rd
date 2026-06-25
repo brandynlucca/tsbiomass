@@ -3,6 +3,19 @@
 \name{summarize_key_missing.default}
 \alias{summarize_key_missing.default}
 \title{Summarize key-field missingness for candidate-model tables}
+\arguments{
+\item{candidate_models}{Candidate-model table.}
+
+\item{key_cols}{Character vector of key-field names.}
+
+\item{threshold}{Missingness threshold.}
+
+\item{model_id_col}{Model identifier column.}
+
+\item{species_col}{Species label column.}
+
+\item{common_col}{Optional common-name column.}
+}
 \description{
 Summarize key-field missingness for candidate-model tables
 }

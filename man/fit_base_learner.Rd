@@ -9,7 +9,7 @@ fit_base_learner(
   y_train,
   method,
   method_settings = NULL,
-  seed = 42L,
+  seed = NULL,
   lambda_rule = "lambda.1se"
 )
 }

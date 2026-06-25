@@ -4,17 +4,6 @@
 \alias{Alchemist-class}
 \alias{Alchemist}
 \title{Learned-Distance Alchemist S7 Class}
-\usage{
-Alchemist(
-  candidates = NULL,
-  config = list(),
-  learner = list(),
-  distance_matrix = list(),
-  trait_importance = list(),
-  ordination = list(),
-  admissibility = list()
-)
-}
 \description{
 \code{Alchemist} replaces the Gower-distance tuning pipeline with a supervised
 metric-learning approach. A Super Learner is trained to predict pairwise

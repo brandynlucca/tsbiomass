@@ -7,20 +7,10 @@
 build_anchor_audit(sel_tbl, ...)
 }
 \arguments{
-\item{sel_tbl}{Selected-policy interval table.}
+\item{sel_tbl}{Selected-policy interval table or a \link{PolicyPredictions}
+object.}
 
-\item{select_ref}{Policy-selection reference table.}
-
-\item{cover_tbl}{Policy-level coverage summary table.}
-
-\item{sens_detail}{Optional sensitivity-detail table.}
-
-\item{sens_tbl}{Optional full policy-sensitivity table.}
-
-\item{baseline_label}{Baseline scenario label.}
-
-\item{selector}{Optional \link{PolicySelector} object used when \code{sel_tbl} is a
-\link{PolicyPredictions} object.}
+\item{...}{Method-specific arguments.}
 }
 \value{
 A tibble.

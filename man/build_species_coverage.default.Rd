@@ -3,6 +3,13 @@
 \name{build_species_coverage.default}
 \alias{build_species_coverage.default}
 \title{Build a species-block coverage table from conformal summary lists}
+\arguments{
+\item{pseudo_sum}{Pseudo-anchor conformal summary list.}
+
+\item{species_sum}{Species-block conformal summary list.}
+
+\item{bench_label}{Species-block benchmark label.}
+}
 \description{
 Build a species-block coverage table from conformal summary lists
 }

@@ -4,28 +4,6 @@
 \alias{PolicyPredictions-class}
 \alias{PolicyPredictions}
 \title{Policy prediction bundle}
-\usage{
-PolicyPredictions(
-  intervals = (function (.data) 
- {
-    
-    stop(sprintf("S3 class <\%s> doesn't have a constructor", class[[1]]), call. =
-    FALSE)
- })(),
-  selections = (function (.data) 
- {
-    
-    stop(sprintf("S3 class <\%s> doesn't have a constructor", class[[1]]), call. =
-    FALSE)
- })(),
-  consensus = (function (.data) 
- {
-    
-    stop(sprintf("S3 class <\%s> doesn't have a constructor", class[[1]]), call. =
-    FALSE)
- })()
-)
-}
 \description{
 Stores the full policy-interval table, the retained selected-policy rows,
 and the donor-pool consensus summaries returned by \code{\link[=predict]{predict()}} on a

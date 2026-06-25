@@ -2,7 +2,24 @@
 % Please edit documentation in R/referee_s7.R
 \name{plot.Scorecard}
 \alias{plot.Scorecard}
+\alias{.plot_scorecard}
 \title{Plot a \code{Scorecard}}
+\usage{
+.plot_scorecard(
+  x,
+  y = NULL,
+  type = c("ts_length", "ts_length_conformal", "ts_length_multiplier", "ts_length_bands",
+    "coefficient_uncertainty", "selected_intervals", "selected_multiplier_summary",
+    "selected_policy_counts", "strategy_competition", "field_missingness"),
+  scale = c("ts", "multiplier"),
+  view = NULL,
+  anchor_model_id = NULL,
+  anchor_species = NULL,
+  show_top_candidate = FALSE,
+  reference_label = "Reference",
+  ...
+)
+}
 \arguments{
 \item{x}{A \link{Scorecard} object.}
 

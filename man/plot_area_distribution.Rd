@@ -7,11 +7,11 @@
 plot_area_distribution(model_data, count_type = "studies")
 }
 \arguments{
+\item{model_data}{Model metadata table.}
+
 \item{count_type}{The type of count to distribute across FAO major regions.
 This can either be 'studies' for the number of studies, or 'models' for the
 number of models.}
-
-\item{source_data}{Model metadata table.}
 }
 \value{
 A ggplot object.

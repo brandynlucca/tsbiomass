@@ -2,7 +2,17 @@
 % Please edit documentation in R/policy_simulator_s7.R
 \name{plot.PolicySimulator}
 \alias{plot.PolicySimulator}
+\alias{.plot_policy_simulator}
 \title{Plot a \code{PolicySimulator}}
+\usage{
+.plot_policy_simulator(
+  x,
+  y = NULL,
+  type = c("sensitivity_overview", "policy_stability", "multiplier_drift"),
+  baseline_label = "baseline",
+  ...
+)
+}
 \arguments{
 \item{x}{A \link{PolicySimulator} object.}
 

@@ -20,6 +20,9 @@ plot_ts_bands(
 \item{anchor_label}{Anchor label used in the title.}
 
 \item{policy_label}{Selected policy label used in the subtitle.}
+
+\item{show_top_candidate}{Logical scalar controlling whether the top
+candidate curve is drawn when available.}
 }
 \value{
 A ggplot object.

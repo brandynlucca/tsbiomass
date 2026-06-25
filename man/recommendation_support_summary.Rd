@@ -14,19 +14,19 @@ recommendation_support_summary(
 )
 }
 \arguments{
-\item{rows}{Donor rows retained for the policy.}
+\item{rows}{Donor equation rows.}
 
 \item{policy_def}{One-row recommendation policy definition.}
 
 \item{equation_branch}{Standardized equation branch label.}
 
+\item{pred}{One-row aggregated policy equation from
+\code{\link[=recommendation_aggregate_equation]{recommendation_aggregate_equation()}}.}
+
 \item{anchor_pdf}{Anchor length-density support from the admissibility step.}
 
 \item{config}{Optional similarity/policy config used to define which overlap
 traits are active for the candidate set.}
-
-\item{eq}{One-row aggregated policy equation from
-\code{\link[=recommendation_aggregate_equation]{recommendation_aggregate_equation()}}.}
 }
 \value{
 One-row tibble with donor-count, overlap, distance, and structural

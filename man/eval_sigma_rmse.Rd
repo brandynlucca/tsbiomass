@@ -21,7 +21,7 @@ eval_sigma_rmse(
 \item{dist_vec}{Numeric vector of predicted distances, aligned with the index
 vectors.}
 
-\item{donor_sigma_mat}{n×n matrix; \verb{[i, j]} = sigma of donor equation i
+\item{donor_sigma_mat}{nxn matrix; \verb{[i, j]} = sigma of donor equation i
 evaluated at anchor j's length PDF.}
 
 \item{target_sigma}{Length-n numeric vector of each model's own sigma.}
@@ -34,9 +34,9 @@ evaluated at anchor j's length PDF.}
 Scalar RMSE, or \code{NA_real_} when no valid anchors remain.
 }
 \description{
-Reconstructs an n×n distance matrix from (donor_idx, anchor_idx, dist_vec)
+Reconstructs an nxn distance matrix from (donor_idx, anchor_idx, dist_vec)
 triplets, then computes the log sigma RMSE of the kernel-weighted ensemble
-sigma prediction — the same objective used by \code{\link[=score_similarity_basis]{score_similarity_basis()}} in
+sigma prediction - the same objective used by \code{\link[=score_similarity_basis]{score_similarity_basis()}} in
 the similarity tuning step.
 }
 \keyword{internal}

@@ -4,7 +4,12 @@
 \alias{build_referee_scorecard}
 \title{Build a post-prediction \code{Scorecard}}
 \usage{
-build_referee_scorecard(object, predictions, allow_partial = FALSE)
+build_referee_scorecard(
+  object,
+  predictions,
+  allow_partial = FALSE,
+  progress = NULL
+)
 }
 \arguments{
 \item{object}{A \link{Referee} object.}

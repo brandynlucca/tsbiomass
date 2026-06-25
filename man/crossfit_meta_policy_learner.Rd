@@ -41,6 +41,9 @@ infers the first available non-ID anchor-context column.}
 
 \item{outcome_col}{Outcome column to model.}
 
+\item{outcome_clip_quantile}{Optional upper quantile used to clip extreme
+outcomes before fitting.}
+
 \item{outcome_transform}{Outcome transform used during training.}
 
 \item{lambda_rule}{Regularization rule for glmnet-based learners.}

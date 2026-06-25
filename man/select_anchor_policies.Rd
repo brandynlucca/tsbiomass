@@ -6,22 +6,40 @@
 \usage{
 select_anchor_policies(
   policy_tbl,
-  uncertainty_relative_tolerance = 0.25,
-  uncertainty_absolute_tolerance = 0.05,
-  local_distance_tolerance = 1e-12
+  uncertainty_rule = "tolerance",
+  u_tol_rel = 0.25,
+  u_tol_abs = 0.05,
+  score_tol_abs = NULL,
+  one_se_multiplier = 1,
+  local_distance_tolerance = 1e-12,
+  uncertainty_relative_tolerance = NULL,
+  uncertainty_absolute_tolerance = NULL
 )
 }
 \arguments{
 \item{policy_tbl}{Anchor-policy prediction table.}
 
-\item{uncertainty_relative_tolerance}{Relative width tolerance around the
-minimum calibrated interval width after empirical-score screening.}
+\item{uncertainty_rule}{Final uncertainty-screening rule. Use \code{"min"} for
+strict minimum calibrated width or \code{"tolerance"} to retain policies within
+an absolute/relative width band around that minimum.}
 
-\item{uncertainty_absolute_tolerance}{Absolute log-width tolerance around the
-minimum calibrated interval width after empirical-score screening.}
+\item{u_tol_rel}{Relative width tolerance around the minimum calibrated
+interval width after empirical-score screening.}
+
+\item{u_tol_abs}{Absolute log-width tolerance around the minimum calibrated
+interval width after empirical-score screening.}
+
+\item{score_tol_abs}{Optional absolute benchmark-score tolerance.}
+
+\item{one_se_multiplier}{Multiplier applied to one-standard-error selection
+thresholds.}
 
 \item{local_distance_tolerance}{Absolute tolerance for retaining local
 support-distance ties after empirical-score and uncertainty screening.}
+
+\item{uncertainty_relative_tolerance}{Legacy alias for \code{u_tol_rel}.}
+
+\item{uncertainty_absolute_tolerance}{Legacy alias for \code{u_tol_abs}.}
 }
 \value{
 A tibble of selected policy rows.

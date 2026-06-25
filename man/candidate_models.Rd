@@ -5,8 +5,7 @@
 \alias{candidate_models}
 \title{Preprocessed candidate models table}
 \format{
-\subsection{\code{candidate_models}}{
-}
+A tibble with species traits, study traits, and model coefficients.
 }
 \usage{
 data(candidate_models)

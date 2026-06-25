@@ -10,9 +10,6 @@ distill_traits(object, ...)
 \item{object}{An \link{Alchemist} object with \verb{@learner} populated.}
 
 \item{...}{Method-specific arguments.}
-
-\item{kernel_scale}{Numeric. Bandwidth multiplier: \code{w = exp(-d / (median(d) * kernel_scale))}.
-Default \code{1} gives weight \verb{exp(-1) ≈ 0.37} at the median distance.}
 }
 \value{
 An updated \link{Alchemist} object with \verb{@trait_importance} populated.
@@ -20,6 +17,6 @@ An updated \link{Alchemist} object with \verb{@trait_importance} populated.
 \description{
 Computes sigma dropout sensitivity for each trait from the fitted distance
 learner. Dropout sensitivity zeros one feature at a time, re-predicts
-pairwise distances, and measures the change in kernel-weighted sigma RMSE —
+pairwise distances, and measures the change in kernel-weighted sigma RMSE -
 the same objective minimised by the empirical similarity tuning step.
 }

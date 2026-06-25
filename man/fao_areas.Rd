@@ -5,13 +5,12 @@
 \alias{fao_areas}
 \title{FAO area polygons}
 \format{
-\subsection{\code{fao_areas}}{
-}
+A tibble with FAO area metadata and polygon geometry columns.
 }
 \usage{
 data(fao_areas)
 }
 \description{
-A tibble containing FAO major area metadat and polygons.
+A tibble containing FAO major area metadata and polygons.
 }
 \keyword{datasets}

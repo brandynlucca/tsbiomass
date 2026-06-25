@@ -3,6 +3,11 @@
 \name{screen_missing_metadata.default}
 \alias{screen_missing_metadata.default}
 \title{Add key-metadata missingness for tabular candidate-model inputs}
+\arguments{
+\item{candidate_models}{Candidate-model table.}
+
+\item{key_cols}{Character vector of key trait columns.}
+}
 \description{
 Add key-metadata missingness for tabular candidate-model inputs
 }

@@ -45,6 +45,8 @@ learner-backed selection path.}
 
 \item{reuse_admissibility}{Logical scalar. If \code{TRUE}, reuse admissibility
 results already stored on the selector's \link{Candidates} object.}
+
+\item{progress}{Optional logical scalar controlling stage messages.}
 }
 \value{
 A \link{PolicyPredictions} object.

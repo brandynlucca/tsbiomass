@@ -9,7 +9,7 @@ screen_missing_metadata(candidate_models, ...)
 \arguments{
 \item{candidate_models}{Candidate-model table.}
 
-\item{key_cols}{Character vector of key trait columns.}
+\item{...}{Method-specific arguments.}
 }
 \value{
 A tibble.

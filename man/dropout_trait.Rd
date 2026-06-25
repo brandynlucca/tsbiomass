@@ -27,7 +27,7 @@ dropout_trait(
 
 \item{sl_fit}{A \code{"SuperLearner"} or \code{"Mahalanobis"} learner object.}
 
-\item{donor_sigma_mat}{n×n donor sigma matrix from \code{\link[=build_pair_data]{build_pair_data()}}.}
+\item{donor_sigma_mat}{nxn donor sigma matrix from \code{\link[=build_pair_data]{build_pair_data()}}.}
 
 \item{target_sigma}{Length-n target sigma vector.}
 

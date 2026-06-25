@@ -2,7 +2,20 @@
 % Please edit documentation in R/referee_s7.R
 \name{plot.Referee}
 \alias{plot.Referee}
+\alias{.plot_referee}
 \title{Plot a \code{Referee}}
+\usage{
+.plot_referee(
+  x,
+  y = NULL,
+  type = "biomass_change",
+  view = NULL,
+  anchor_model_id = NULL,
+  anchor_species = NULL,
+  reference_name = NULL,
+  ...
+)
+}
 \arguments{
 \item{x}{A \link{Referee} object.}
 

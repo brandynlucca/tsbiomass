@@ -4,15 +4,6 @@
 \alias{PolicySelector-class}
 \alias{PolicySelector}
 \title{Policy Selection S7 Classes}
-\usage{
-PolicySelector(
-  candidates = Candidates(),
-  config = list(),
-  benchmark = list(),
-  uncertainty = list(),
-  selection = list()
-)
-}
 \description{
 \code{PolicySelector} is the object-oriented wrapper around the policy
 benchmarking, uncertainty calibration, global policy selection, and

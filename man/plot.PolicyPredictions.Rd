@@ -2,7 +2,18 @@
 % Please edit documentation in R/policy_selector_s7.R
 \name{plot.PolicyPredictions}
 \alias{plot.PolicyPredictions}
+\alias{.plot_policy_predictions}
 \title{Plot a \code{PolicyPredictions}}
+\usage{
+.plot_policy_predictions(
+  x,
+  y = NULL,
+  type = c("selected_intervals", "strategy_competition"),
+  anchor_species = NULL,
+  reference_name = NULL,
+  ...
+)
+}
 \arguments{
 \item{x}{A \link{PolicyPredictions} object.}
 

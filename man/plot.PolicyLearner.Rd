@@ -2,7 +2,21 @@
 % Please edit documentation in R/policy_learner_s7.R
 \name{plot.PolicyLearner}
 \alias{plot.PolicyLearner}
+\alias{.plot_policy_learner}
 \title{Plot a \code{PolicyLearner}}
+\usage{
+.plot_policy_learner(
+  x,
+  y = NULL,
+  type = c("predicted_vs_observed", "calibration_curve", "residuals", "score_by_policy",
+    "support_bin_error", "selected_policy_counts", "recommendation_stability"),
+  view = NULL,
+  outcome = c("modeled", "raw"),
+  rows = c("all", "selected"),
+  n_bins = 10L,
+  ...
+)
+}
 \arguments{
 \item{x}{A \link{PolicyLearner} object.}
 

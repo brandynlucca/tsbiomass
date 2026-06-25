@@ -25,6 +25,9 @@ trait names.}
 
 \item{policy_path}{Optional policy-registry path used to derive one default
 active policy.}
+
+\item{use_canonical_names}{Logical scalar controlling whether canonical
+config names are used where legacy aliases are otherwise accepted.}
 }
 \value{
 A config list.

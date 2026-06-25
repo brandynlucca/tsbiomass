@@ -7,7 +7,10 @@
 bind_sensitivity_data(sensitivity_map, ...)
 }
 \arguments{
-\item{sensitivity_map}{Named scenario benchmark map.}
+\item{sensitivity_map}{Named scenario benchmark map or a
+\link{PolicySimulator} object.}
+
+\item{...}{Method-specific arguments.}
 }
 \value{
 A list of bound tibbles.

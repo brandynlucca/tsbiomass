@@ -18,6 +18,9 @@ Logical scalar.
 The uncertainty learner should rely on the unified distance summaries rather
 than decomposed taxonomic, overlap, or component-distance columns. This keeps
 the conditional uncertainty model aligned with the package's single combined
-distance concept instead of re-injecting lower-level pieces by hand.
+distance concept instead of re-injecting lower-level pieces by hand. It also
+keeps the width model anchored to continuous local geometry/support signals
+rather than sparse categorical policy labels that can destabilize the
+post-selection interval scale.
 }
 \keyword{internal}

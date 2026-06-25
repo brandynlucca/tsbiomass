@@ -55,16 +55,21 @@ cfg <- create_configurer(list(
     species_traits = list(genus = 2, family = 1),
     study_traits = list(frequency = 1, fao_area = 1),
     coherence = list(
-      length = list(mode = "overlap", weight = 2, min = 0.25),
-      depth = list(mode = "overlap", weight = 3, min = 0.25),
+      length = list(mode = "overlap", weight = 2),
+      depth = list(mode = "overlap", weight = 3),
       frequency = list(mode = "overlap", weight = 2, gap = 60)
     )
   ),
   admissibility = list(
-    key_metadata_max = 0.25
+    key_metadata_max = 0.25,
+    coherence = list(
+      length = list(mode = "overlap", min = 0.25),
+      depth = list(mode = "overlap", min = 0.25),
+      frequency = list(mode = "overlap")
+    )
   ),
   policies = list(
-    active = "all_models_weighted"
+    active = "same_species_closest"
   ),
   metalearner = list(
     selection_method = "glm"

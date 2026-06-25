@@ -32,8 +32,8 @@ Attaches the calibrated prediction interval to each policy row. The
 operational interval combines the conformal log-radius (\code{q_col}) and the
 donor structural spread (\code{local_structural_q_abs_log}) in quadrature:
 \code{q_total = sqrt(q_conformal^2 + (weight * q_structural)^2)}.
-Structural spread — the 90th-percentile weighted deviation of donor
-log-backscatter values from the policy prediction — penalises strategies
+Structural spread - the 90th-percentile weighted deviation of donor
+log-backscatter values from the policy prediction - penalises strategies
 that rely on heterogeneous donor pools (e.g. ocean-basin means), ensuring
 that narrower, more homogeneous donor sets are preferred when their
 conformal error is similar.

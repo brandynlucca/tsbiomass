@@ -23,7 +23,7 @@ filled automatically, and \code{genus} / \code{species} are derived from the que
 or returned scientific name when needed.
 }
 \description{
-Queries WoRMS with \code{\link[worrms:wm_records_name]{worrms::wm_records_name()}} and returns the raw WoRMS
+Queries WoRMS with \code{worrms::wm_records_name()} and returns the raw WoRMS
 metadata in a standardized tibble format. The output is restricted to the
 species-level trait names that are present in the package trait registry and
 can be supplied directly by WoRMS. The function does not rank, score, or

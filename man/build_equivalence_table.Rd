@@ -24,6 +24,8 @@ difference.}
 \item{n_boot}{Number of paired bootstrap resamples across species.}
 
 \item{seed}{Integer bootstrap seed.}
+
+\item{progress}{Logical scalar controlling stage messages.}
 }
 \value{
 A list with \code{pairs} and \code{best_flags}.

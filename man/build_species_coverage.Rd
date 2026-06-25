@@ -7,11 +7,10 @@
 build_species_coverage(pseudo_sum, ...)
 }
 \arguments{
-\item{pseudo_sum}{Pseudo-anchor conformal summary list.}
+\item{pseudo_sum}{Pseudo-anchor conformal summary list or a
+\link{PolicySelector} object.}
 
-\item{species_sum}{Species-block conformal summary list.}
-
-\item{bench_label}{Species-block benchmark label.}
+\item{...}{Method-specific arguments.}
 }
 \value{
 A tibble.
