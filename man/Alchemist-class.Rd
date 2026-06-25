@@ -24,7 +24,7 @@ alchemist <- forge_distances(alchemist)
 alchemist <- distill_traits(alchemist)
 alchemist <- run_ordination(alchemist)
 alchemist <- screen_admissibility(alchemist)
-selector  <- as_selector(alchemist)
+selector <- as_selector(alchemist)
 }
 
 }
