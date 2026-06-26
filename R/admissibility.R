@@ -872,7 +872,7 @@ apply_anchor_gates <- function(candidate_models,
   )
   out$admissible <- with(
     out,
-    .data$gate_not_self & .data$gate_configured_traits & .data$gate_frequency & .data$gate_length_overlap & .data$gate_depth_overlap & .data$gate_missing_key_metadata
+    out$gate_not_self & out$gate_configured_traits & out$gate_frequency & out$gate_length_overlap & out$gate_depth_overlap & out$gate_missing_key_metadata
   )
   out$inadmissible_reason <- trait_reason
   out$inadmissible_reason[!out$gate_not_self] <- "self"

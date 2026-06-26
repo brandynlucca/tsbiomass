@@ -335,7 +335,7 @@ validate_referee_provenance <- function(selector,
 
   selected_keys <- selected_tbl |>
     dplyr::transmute(
-      anchor_model_id = as.character(anchor_model_id),
+      anchor_model_id = as.character(.data$anchor_model_id),
       policy = if ("selected_policy" %in% names(selected_tbl)) {
         as.character(.data$selected_policy)
       } else if ("policy" %in% names(selected_tbl)) {
@@ -355,14 +355,14 @@ validate_referee_provenance <- function(selector,
 
   interval_keys <- intervals_tbl |>
     dplyr::transmute(
-      anchor_model_id = as.character(anchor_model_id),
+      anchor_model_id = as.character(.data$anchor_model_id),
       policy = as.character(.data$policy),
       equation_branch_filter = .data$equation_branch_filter
     ) |>
     dplyr::distinct()
 
   missing_keys <- dplyr::anti_join(
-    dplyr::distinct(.data$selected_keys),
+    dplyr::distinct(selected_keys),
     interval_keys,
     by = intersect(names(selected_keys), names(interval_keys))
   )

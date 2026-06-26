@@ -971,15 +971,15 @@ summarize_selected_coefficient_calibration <- function(selected_tbl,
         anchor_model_id = as.character(.data$anchor_model_id),
         policy_slope_len = suppressWarnings(as.numeric(.data$policy_slope_len)),
         policy_intercept_len = suppressWarnings(as.numeric(.data$policy_intercept_len)),
-        local_min_combined_distance = if ("local_min_combined_distance" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_min_combined_distance)) else NA_real_,
-        local_weighted_mean_combined_distance = if ("local_weighted_mean_combined_distance" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_weighted_mean_combined_distance)) else NA_real_,
-        local_min_species_distance = if ("local_min_species_distance" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_min_species_distance)) else NA_real_,
-        local_weighted_mean_species_distance = if ("local_weighted_mean_species_distance" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_weighted_mean_species_distance)) else NA_real_,
-        local_min_trait_gower_distance = if ("local_min_trait_gower_distance" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_min_trait_gower_distance)) else NA_real_,
-        local_weighted_mean_trait_gower_distance = if ("local_weighted_mean_trait_gower_distance" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_weighted_mean_trait_gower_distance)) else NA_real_,
-        local_effective_support = if ("local_effective_support" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_effective_support)) else NA_real_,
-        local_mean_length_overlap = if ("local_mean_length_overlap" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_mean_length_overlap)) else NA_real_,
-        local_mean_depth_overlap = if ("local_mean_depth_overlap" %in% names(.data$ts_error)) suppressWarnings(as.numeric(.data$local_mean_depth_overlap)) else NA_real_
+        local_min_combined_distance = if ("local_min_combined_distance" %in% names(ts_error)) suppressWarnings(as.numeric(.data$local_min_combined_distance)) else NA_real_,
+        local_weighted_mean_combined_distance = if ("local_weighted_mean_combined_distance" %in% names(ts_error)) suppressWarnings(as.numeric(.data$local_weighted_mean_combined_distance)) else NA_real_,
+        local_min_species_distance = if ("local_min_species_distance" %in% names(ts_error)) suppressWarnings(as.numeric(.data$local_min_species_distance)) else NA_real_,
+        local_weighted_mean_species_distance = if ("local_weighted_mean_species_distance" %in% names(ts_error)) suppressWarnings(as.numeric(.data$local_weighted_mean_species_distance)) else NA_real_,
+        local_min_trait_gower_distance = if ("local_min_trait_gower_distance" %in% names(ts_error)) suppressWarnings(as.numeric(.data$local_min_trait_gower_distance)) else NA_real_,
+        local_weighted_mean_trait_gower_distance = if ("local_weighted_mean_trait_gower_distance" %in% names(ts_error)) suppressWarnings(as.numeric(.data$local_weighted_mean_trait_gower_distance)) else NA_real_,
+        local_effective_support = if ("local_effective_support" %in% names(ts_error)) suppressWarnings(as.numeric(.data$local_effective_support)) else NA_real_,
+        local_mean_length_overlap = if ("local_mean_length_overlap" %in% names(ts_error)) suppressWarnings(as.numeric(.data$local_mean_length_overlap)) else NA_real_,
+        local_mean_depth_overlap = if ("local_mean_depth_overlap" %in% names(ts_error)) suppressWarnings(as.numeric(.data$local_mean_depth_overlap)) else NA_real_
       ) |>
       dplyr::group_by(.data$anchor_model_id, .data$policy, .data$equation_branch_filter) |>
       dplyr::summarise(
@@ -1055,7 +1055,8 @@ summarize_selected_coefficient_calibration <- function(selected_tbl,
 
   benchmark_selected <- benchmark_coefficients |>
     dplyr::inner_join(
-      dplyr::distinct(.data$selected_keys, .data$policy, .data$equation_branch_filter, .data$post_selection_support_bin),
+      dplyr::distinct(selected_keys, 
+      dplyr::pick("policy", "equation_branch_filter", "post_selection_support_bin")),
       by = c("policy", "equation_branch_filter")
     )
   benchmark_selected |>

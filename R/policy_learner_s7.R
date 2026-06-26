@@ -935,7 +935,7 @@ policy_learner_prepare_context <- function(tbl,
       out <- out |>
         dplyr::left_join(
           anchor_lookup |>
-            dplyr::select("anchor_species", lookup_anchor_family_by_species = .data$anchor_family) |>
+            dplyr::select("anchor_species", lookup_anchor_family_by_species = "anchor_family") |>
             dplyr::filter(!is.na(.data$anchor_species), !is.na(.data$lookup_anchor_family_by_species)) |>
             dplyr::distinct(),
           by = "anchor_species"
