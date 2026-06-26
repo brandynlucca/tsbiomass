@@ -1215,8 +1215,8 @@ valid_multiplier_rows <- function(rows) {
   # the same numerical screening rules.
   tibble::as_tibble(rows) |>
     dplyr::filter(
-      is.finite(biomass_multiplier_if_replace),
-      biomass_multiplier_if_replace > 0
+      is.finite(.data$biomass_multiplier_if_replace),
+      .data$biomass_multiplier_if_replace > 0
     )
 }
 
@@ -1253,8 +1253,8 @@ group_model_rows <- function(rows) {
 
   out |>
     dplyr::filter(
-      (if (has_group_flag) is_group_model else FALSE) |
-        (if (has_method_flag) method_type == "group" else FALSE)
+      (if (has_group_flag) .data$is_group_model else FALSE) |
+        (if (has_method_flag) .data$method_type == "group" else FALSE)
     )
 }
 
@@ -1439,24 +1439,24 @@ policy_rows <- function(rows,
   # Use the registry candidate-pool definition as the single policy-routing
   # switch so selection logic stays aligned with the registry names.
   pool_name <- as.character(policy_def$candidate_pool)[[1]]
-  policy_rows <- tibble::as_tibble(rows)
+  policy_rows_ <- tibble::as_tibble(rows)
 
-  if (!"model_id_chr" %in% names(policy_rows) && "model_id" %in% names(policy_rows)) {
-    policy_rows$model_id_chr <- as.character(policy_rows$model_id)
+  if (!"model_id_chr" %in% names(policy_rows_) && "model_id" %in% names(policy_rows_)) {
+    policy_rows_$model_id_chr <- as.character(policy_rows_$model_id)
   }
 
   selected_rows <- NULL
   if (identical(pool_name, "all_admissible")) {
-    selected_rows <- policy_rows
+    selected_rows <- policy_rows_
   }
   if (is.null(selected_rows) && identical(pool_name, "all_valid_models")) {
-    selected_rows <- policy_rows
+    selected_rows <- policy_rows_
   }
   if (is.null(selected_rows) && identical(pool_name, "same_species")) {
-    selected_rows <- dplyr::filter(policy_rows, overlap_same_species)
+    selected_rows <- dplyr::filter(policy_rows_, .data$overlap_same_species)
   }
   if (is.null(selected_rows) && identical(pool_name, "match_all_traits")) {
-    selected_rows <- policy_rows
+    selected_rows <- policy_rows_
   }
   if (is.null(selected_rows) && identical(pool_name, "nearest_phylogenetic")) {
     for (expr in list(
@@ -1465,65 +1465,65 @@ policy_rows <- function(rows,
       quote(overlap_same_family & !overlap_same_genus),
       quote(overlap_same_order & !overlap_same_family)
     )) {
-      out <- dplyr::filter(policy_rows, !!expr)
+      out <- dplyr::filter(policy_rows_, !!expr)
       if (nrow(out) > 0) {
         selected_rows <- out
         break
       }
     }
     if (is.null(selected_rows)) {
-      selected_rows <- policy_rows[0, , drop = FALSE]
+      selected_rows <- policy_rows_[0, , drop = FALSE]
     }
   }
   if (is.null(selected_rows) && identical(pool_name, "phylogenetic_neighborhood")) {
-    out <- dplyr::filter(policy_rows, !overlap_same_species)
+    out <- dplyr::filter(policy_rows_, !.data$overlap_same_species)
     if (!is.null(policy_params$phylo_radius)) {
       out <- dplyr::filter(
         out,
-        is.finite(taxonomic_distance_to_anchor),
-        taxonomic_distance_to_anchor <= as.numeric(policy_params$phylo_radius)
+        is.finite(.data$taxonomic_distance_to_anchor),
+        .data$taxonomic_distance_to_anchor <= as.numeric(policy_params$phylo_radius)
       )
     }
     selected_rows <- out
   }
   if (is.null(selected_rows) && identical(pool_name, "same_genus")) {
-    selected_rows <- dplyr::filter(policy_rows, overlap_same_genus)
+    selected_rows <- dplyr::filter(policy_rows_, .data$overlap_same_genus)
   }
   if (is.null(selected_rows) && identical(pool_name, "same_family")) {
-    selected_rows <- dplyr::filter(policy_rows, overlap_same_family)
+    selected_rows <- dplyr::filter(policy_rows_, .data$overlap_same_family)
   }
   if (is.null(selected_rows) && identical(pool_name, "same_order")) {
-    selected_rows <- dplyr::filter(policy_rows, overlap_same_order)
+    selected_rows <- dplyr::filter(policy_rows_, .data$overlap_same_order)
   }
   if (is.null(selected_rows) && identical(pool_name, "same_nmds_cluster")) {
     score_tbl <- tibble::as_tibble(ordination_info$model_scores %||% tibble::tibble())
     if (!all(c("nmds_cluster", "model_id_chr") %in% names(score_tbl)) ||
       is.na(ordination_info$anchor_cluster)) {
-      selected_rows <- policy_rows[0, , drop = FALSE]
+      selected_rows <- policy_rows_[0, , drop = FALSE]
     } else {
       cluster_ids <- score_tbl |>
-        dplyr::filter(nmds_cluster == ordination_info$anchor_cluster) |>
-        dplyr::pull(model_id_chr) |>
+        dplyr::filter(.data$nmds_cluster == ordination_info$anchor_cluster) |>
+        dplyr::pull(.data$model_id_chr) |>
         unique()
-      selected_rows <- dplyr::filter(policy_rows, model_id_chr %in% cluster_ids)
+      selected_rows <- dplyr::filter(policy_rows_, .data$model_id_chr %in% cluster_ids)
     }
   }
   if (is.null(selected_rows) && identical(pool_name, "same_species_ellipse")) {
     selected_rows <- dplyr::filter(
-      policy_rows,
-      model_id_chr %in% ordination_info$species_ellipse_ids,
-      !overlap_same_species
+      policy_rows_,
+      .data$model_id_chr %in% ordination_info$species_ellipse_ids,
+      !.data$overlap_same_species
     )
   }
   if (is.null(selected_rows) && identical(pool_name, "generalized_models_only")) {
-    selected_rows <- group_model_rows(policy_rows)
+    selected_rows <- group_model_rows(policy_rows_)
   }
   if (is.null(selected_rows) && identical(pool_name, "closest_study_cell")) {
     cell_col <- "study_cell_id"
-    ranked <- valid_equation_rows(policy_rows) |>
-      dplyr::arrange(combined_distance)
+    ranked <- valid_equation_rows(policy_rows_) |>
+      dplyr::arrange(.data$combined_distance)
     if (nrow(ranked) == 0) {
-      selected_rows <- policy_rows[0, , drop = FALSE]
+      selected_rows <- policy_rows_[0, , drop = FALSE]
     } else if (!cell_col %in% names(ranked)) {
       selected_rows <- dplyr::slice_head(ranked, n = 1)
     } else {
@@ -1531,22 +1531,22 @@ policy_rows <- function(rows,
       if (is.na(cell_id) || !nzchar(as.character(cell_id))) {
         selected_rows <- dplyr::slice_head(ranked, n = 1)
       } else {
-        selected_rows <- valid_equation_rows(policy_rows) |>
+        selected_rows <- valid_equation_rows(policy_rows_) |>
           dplyr::filter(.data[[cell_col]] == cell_id)
       }
     }
   }
   if (is.null(selected_rows) && identical(pool_name, "same_fao_area")) {
-    selected_rows <- dplyr::filter(policy_rows, overlap_same_fao_area)
+    selected_rows <- dplyr::filter(policy_rows_, .data$overlap_same_fao_area)
   }
   if (is.null(selected_rows) && identical(pool_name, "same_ocean_basin")) {
-    selected_rows <- dplyr::filter(policy_rows, overlap_same_ocean_basin)
+    selected_rows <- dplyr::filter(policy_rows_, .data$overlap_same_ocean_basin)
   }
   if (is.null(selected_rows) && identical(pool_name, "same_equation_form")) {
-    selected_rows <- dplyr::filter(policy_rows, overlap_same_equation_form)
+    selected_rows <- dplyr::filter(policy_rows_, .data$overlap_same_equation_form)
   }
   if (is.null(selected_rows) && identical(pool_name, "same_derivation")) {
-    selected_rows <- dplyr::filter(policy_rows, overlap_same_derivation)
+    selected_rows <- dplyr::filter(policy_rows_, .data$overlap_same_derivation)
   }
 
   if (is.null(selected_rows)) {
@@ -1741,7 +1741,7 @@ study_ensemble_rows <- function(rows,
   group_weight <- match.arg(group_weight)
   within_weight <- match.arg(within_weight)
   keep_rows <- valid_equation_rows(rows) |>
-    dplyr::filter(is.finite(w_adm), w_adm > 0)
+    dplyr::filter(is.finite(.data$w_adm), .data$w_adm > 0)
   if (!"combined_distance" %in% names(keep_rows)) {
     keep_rows$combined_distance <- NA_real_
   }
@@ -1757,33 +1757,33 @@ study_ensemble_rows <- function(rows,
     dplyr::group_by(dplyr::across(dplyr::all_of(group_cols))) |>
     dplyr::mutate(
       .study_group_raw_weight = dplyr::case_when(
-        group_weight == "sum" ~ sum(w_adm, na.rm = TRUE),
-        group_weight == "mean" ~ mean(w_adm, na.rm = TRUE),
-        TRUE ~ max(w_adm, na.rm = TRUE)
+        group_weight == "sum" ~ sum(.data$w_adm, na.rm = TRUE),
+        group_weight == "mean" ~ mean(.data$w_adm, na.rm = TRUE),
+        TRUE ~ max(.data$w_adm, na.rm = TRUE)
       ),
-      .within_raw_weight = if (within_weight == "kernel") w_adm else 1
+      .within_raw_weight = if (within_weight == "kernel") .data$w_adm else 1
     ) |>
     dplyr::mutate(
-      .within_weight = .within_raw_weight / sum(.within_raw_weight, na.rm = TRUE),
-      .study_slope_len = sum(.within_weight * slope_len, na.rm = TRUE),
-      .study_intercept_len = sum(.within_weight * intercept_len, na.rm = TRUE),
+      .within_weight = .data$.within_raw_weight / sum(.data$.within_raw_weight, na.rm = TRUE),
+      .study_slope_len = sum(.data$.within_weight * .data$slope_len, na.rm = TRUE),
+      .study_intercept_len = sum(.data$.within_weight * .data$intercept_len, na.rm = TRUE),
       .study_within_slope_var = stats::weighted.mean(
-        (slope_len - .study_slope_len)^2,
-        .within_weight,
+        (.data$slope_len - .data$.study_slope_len)^2,
+        .data$.within_weight,
         na.rm = TRUE
       ),
       .study_within_intercept_var = stats::weighted.mean(
-        (intercept_len - .study_intercept_len)^2,
-        .within_weight,
+        (.data$intercept_len - .data$.study_intercept_len)^2,
+        .data$.within_weight,
         na.rm = TRUE
       ),
-      .study_combined_distance = if (any(is.finite(combined_distance))) {
-        sum(.within_weight * combined_distance, na.rm = TRUE)
+      .study_combined_distance = if (any(is.finite(.data$combined_distance))) {
+        sum(.data$.within_weight * .data$combined_distance, na.rm = TRUE)
       } else {
         NA_real_
       },
-      .study_trait_gower_distance = if (any(is.finite(trait_gower_distance))) {
-        sum(.within_weight * trait_gower_distance, na.rm = TRUE)
+      .study_trait_gower_distance = if (any(is.finite(.data$trait_gower_distance))) {
+        sum(.data$.within_weight * .data$trait_gower_distance, na.rm = TRUE)
       } else {
         NA_real_
       },
@@ -1792,11 +1792,11 @@ study_ensemble_rows <- function(rows,
     dplyr::slice(1) |>
     dplyr::ungroup() |>
     dplyr::mutate(
-      slope_len = .study_slope_len,
-      intercept_len = .study_intercept_len,
-      combined_distance = dplyr::coalesce(.study_combined_distance, combined_distance),
-      trait_gower_distance = dplyr::coalesce(.study_trait_gower_distance, trait_gower_distance),
-      w_adm = .study_group_raw_weight
+      slope_len = .data$.study_slope_len,
+      intercept_len = .data$.study_intercept_len,
+      combined_distance = dplyr::coalesce(.data$.study_combined_distance, .data$combined_distance),
+      trait_gower_distance = dplyr::coalesce(.data$.study_trait_gower_distance, .data$trait_gower_distance),
+      w_adm = .data$.study_group_raw_weight
     )
 }
 
@@ -1824,7 +1824,7 @@ policy_structural_rows <- function(rows,
 
   if (method_name %in% c("study_kernel_weighted_mean", "study_equal_weight_mean")) {
     source_rows <- source_rows |>
-      dplyr::filter(is.finite(w_adm), w_adm > 0)
+      dplyr::filter(is.finite(.data$w_adm), .data$w_adm > 0)
     group_cols <- study_group_columns(source_rows)
     if (nrow(source_rows) == 0 || length(group_cols) == 0) {
       source_rows$.structural_weight <- numeric(nrow(source_rows))
@@ -1838,11 +1838,11 @@ policy_structural_rows <- function(rows,
           .study_group_raw_weight = dplyr::if_else(
             identical(method_name, "study_equal_weight_mean"),
             1,
-            max(w_adm, na.rm = TRUE)
+            max(.data$w_adm, na.rm = TRUE)
           ),
-          .within_raw_weight = w_adm,
-          .within_weight = .within_raw_weight / sum(.within_raw_weight, na.rm = TRUE),
-          .structural_weight = .study_group_raw_weight * .within_weight
+          .within_raw_weight = .data$w_adm,
+          .within_weight = .data$.within_raw_weight / sum(.data$.within_raw_weight, na.rm = TRUE),
+          .structural_weight = .data$.study_group_raw_weight * .data$.within_weight
         ) |>
         dplyr::ungroup()
     )
@@ -1870,7 +1870,7 @@ policy_structural_rows <- function(rows,
 
 study_weighted_equation <- function(rows) {
   keep_rows <- study_ensemble_rows(rows, group_weight = "max", within_weight = "kernel") |>
-    dplyr::filter(is.finite(w_adm), w_adm > 0)
+    dplyr::filter(is.finite(.data$w_adm), .data$w_adm > 0)
   weights <- normalized_weights(keep_rows$w_adm)
   if (nrow(keep_rows) == 0 || length(weights) == 0) {
     return(policy_equation_row(NA_real_, NA_real_))
@@ -1901,10 +1901,10 @@ nearest_study_then_model_equation <- function(rows) {
   study_rank <- keep_rows |>
     dplyr::group_by(dplyr::across(dplyr::all_of(group_cols))) |>
     dplyr::summarise(
-      study_distance = min(combined_distance, na.rm = TRUE),
+      study_distance = min(.data$combined_distance, na.rm = TRUE),
       .groups = "drop"
     ) |>
-    dplyr::arrange(study_distance)
+    dplyr::arrange(.data$study_distance)
   if (nrow(study_rank) == 0 || !is.finite(study_rank$study_distance[[1]])) {
     return(policy_equation_row(NA_real_, NA_real_))
   }
@@ -2041,7 +2041,7 @@ policy_summary_rows <- function(rows,
     }
     study_rank <- keep_rows |>
       dplyr::group_by(dplyr::across(dplyr::all_of(group_cols))) |>
-      dplyr::summarise(study_distance = min(combined_distance, na.rm = TRUE), .groups = "drop")
+      dplyr::summarise(study_distance = min(.data$combined_distance, na.rm = TRUE), .groups = "drop")
     study_rank <- study_rank[order(study_rank$study_distance, na.last = TRUE), , drop = FALSE]
     if (nrow(study_rank) == 0) {
       return(keep_rows[0, , drop = FALSE])
@@ -2105,12 +2105,6 @@ policy_support_summary <- function(rows,
       return(NA_real_)
     }
     stats::weighted.mean(x[ok], w[ok], na.rm = TRUE)
-  }
-  finite_sum_flag <- function(flag_col) {
-    if (!flag_col %in% names(keep_rows)) {
-      return(NA_integer_)
-    }
-    as.integer(sum(keep_rows[[flag_col]], na.rm = TRUE))
   }
 
   weights <- if ("w_adm" %in% names(keep_rows)) {

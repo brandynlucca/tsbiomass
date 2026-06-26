@@ -219,30 +219,30 @@ policy_simulator_anchor_config <- function(object,
   )
   selector <- object@selector
   sim_cfg <- policy_simulator_anchor_config(object, cfg)
-  workers <- workers %||%
+  workers_ <- workers %||%
     policy_selector_config_value(cfg, "workers", sections = "simulation") %||%
     policy_selector_config_value(cfg, "workers", sections = "benchmark") %||%
     1L
-  cache_path <- cache_path %||%
+  cache_path_ <- cache_path %||%
     policy_selector_config_value(cfg, "cache_path", sections = "simulation")
-  refresh <- refresh %||%
+  refresh_ <- refresh %||%
     policy_selector_config_value(cfg, "refresh", sections = "simulation") %||%
     FALSE
-  progress <- progress %||%
+  progress_ <- progress %||%
     policy_selector_config_value(cfg, "progress", sections = "simulation") %||%
     FALSE
-  report_progress(progress, "Running policy sensitivity scenarios.")
+  report_progress(progress_, "Running policy sensitivity scenarios.")
 
   # Build the scenario set from the selector's current candidate-model table
   # unless the caller supplied an explicit scenario list.
-  sensitivity_specs <- sensitivity_specs %||% build_policy_sensitivity_scenarios(
+  sensitivity_specs_ <- sensitivity_specs %||% build_policy_sensitivity_scenarios(
     candidate_models = selector@candidates@candidate_models,
     config = sim_cfg
   )
 
   # Default the baseline bundle to the selector's currently stored benchmark
   # stack so only the non-baseline scenarios need to be recomputed.
-  baseline_obj <- baseline_obj %||% {
+  baseline_obj_ <- baseline_obj %||% {
     if (length(selector@benchmark) == 0) {
       stop("No benchmark results are stored on this `PolicySelector`.", call. = FALSE)
     }
@@ -278,7 +278,7 @@ policy_simulator_anchor_config <- function(object,
       equivalence_classes = selector@selection$equiv_sets %||% tibble::tibble()
     )
   }
-  reference_ids <- reference_ids %||% {
+  reference_ids_ <- reference_ids %||% {
     anchors_tbl <- selector@candidates@reference_anchors
     if (!is.data.frame(anchors_tbl) || nrow(anchors_tbl) == 0) {
       NULL
@@ -293,13 +293,13 @@ policy_simulator_anchor_config <- function(object,
   active_policies <- policy_selector_active_policies(cfg, policies)
 
   sensitivity_map <- run_sensitivity_tests(
-    sensitivity_specs = sensitivity_specs,
+    sensitivity_specs = sensitivity_specs_,
     benchmark_fun = run_policy_sensitivity_reference,
-    baseline_obj = baseline_obj,
+    baseline_obj = baseline_obj_,
     benchmark_args = c(
       list(
         policies = active_policies,
-        reference_ids = reference_ids,
+        reference_ids = reference_ids_,
         candidate_template = list(
           spec = selector@candidates@spec,
           study_db = selector@candidates@study_db,
@@ -311,32 +311,32 @@ policy_simulator_anchor_config <- function(object,
         reference_anchors = selector@candidates@reference_anchors,
         include_ts_error = FALSE,
         registry_path = registry_path,
-        progress = progress
+        progress = progress_
       ),
       benchmark_args
     ),
-    workers = workers,
+    workers = workers_,
     package_dir = package_dir,
     config = cfg,
-    cache_path = cache_path,
-    refresh = refresh,
-    progress = progress
+    cache_path = cache_path_,
+    refresh = refresh_,
+    progress = progress_
   )
 
   # Collapse the scenario reruns into the standard manifest and bound
   # reference-table bundles retained on the simulator.
   manifest_tbl <- build_sensitivity_table(
-    sensitivity_specs = sensitivity_specs,
+    sensitivity_specs = sensitivity_specs_,
     sensitivity_map = sensitivity_map,
     config = cfg
   )
   bound_tables <- bind_sensitivity_data(sensitivity_map)
-  report_progress(progress, "Completed policy sensitivity scenarios.")
+  report_progress(progress_, "Completed policy sensitivity scenarios.")
 
   policy_simulator_rebuild(
     object,
     config = cfg,
-    scenarios = sensitivity_specs,
+    scenarios = sensitivity_specs_,
     results = sensitivity_map,
     manifest = manifest_tbl,
     tables = bound_tables
@@ -413,7 +413,7 @@ S7::method(show_generic, PolicySimulator) <- function(object) {
                                    ),
                                    baseline_label = "baseline",
                                    ...) {
-  type <- match.arg(type)
+  type_ <- match.arg(type)
   sensitivity_tables <- bind_sensitivity_data(x)
   sensitivity_tbl <- tibble::as_tibble(sensitivity_tables$select_ref %||% tibble::tibble())
   if (nrow(sensitivity_tbl) == 0) {
@@ -431,7 +431,7 @@ S7::method(show_generic, PolicySimulator) <- function(object) {
     )
   }
 
-  if (identical(type, "sensitivity_overview")) {
+  if (identical(type_, "sensitivity_overview")) {
     sensitivity_summary <- summarize_sensitivity(
       sensitivity_table = sensitivity_tbl,
       baseline_label = baseline_label
@@ -446,10 +446,10 @@ S7::method(show_generic, PolicySimulator) <- function(object) {
         values_to = "value"
       ) |>
       dplyr::mutate(
-        scenario_label = scenario,
+        scenario_label = .data$scenario,
         panel = "Selection changes",
         metric = dplyr::recode(
-          metric,
+          .data$metric,
           prop_policy_changed = "Policy changed",
           prop_display_changed = "Display changed",
           prop_equiv_set_changed = "Equivalent set changed"
@@ -458,7 +458,7 @@ S7::method(show_generic, PolicySimulator) <- function(object) {
     return(plot_sensitivity_overview(sensitivity_summary))
   }
 
-  if (identical(type, "policy_stability")) {
+  if (identical(type_, "policy_stability")) {
     anchor_selected_tbl <- tibble::as_tibble(sensitivity_tables$anchor_selected %||% tibble::tibble())
     if (nrow(anchor_selected_tbl) == 0) {
       stop(

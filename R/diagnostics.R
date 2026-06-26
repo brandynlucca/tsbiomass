@@ -235,9 +235,9 @@ compute_pivot_profile <- function(models_df,
 
   pairwise <- pairwise |>
     dplyr::filter(
-      is.finite(lpivot_cm),
-      is.finite(pair_weight),
-      pair_weight > 0
+      is.finite(.data$lpivot_cm),
+      is.finite(.data$pair_weight),
+      .data$pair_weight > 0
     )
 
   # Clamp the raw pairwise pivots to a biologically plausible window around
@@ -247,11 +247,11 @@ compute_pivot_profile <- function(models_df,
   if (nrow(pairwise) > 0) {
     pairwise <- pairwise |>
       dplyr::mutate(
-        lpivot_raw_cm = lpivot_cm,
-        lpivot_cm = pmin(pmax(lpivot_cm, domain_lo), domain_hi),
-        log10_lpivot = log10(lpivot_cm)
+        lpivot_raw_cm = .data$lpivot_cm,
+        lpivot_cm = pmin(pmax(.data$lpivot_cm, domain_lo), domain_hi),
+        log10_lpivot = log10(.data$lpivot_cm)
       ) |>
-      dplyr::filter(is.finite(lpivot_cm), lpivot_cm > 0)
+      dplyr::filter(is.finite(.data$lpivot_cm), .data$lpivot_cm > 0)
   }
 
   pairwise_q25 <- NA_real_
@@ -513,7 +513,7 @@ summarize_missing_mix <- function(admissible_df,
       by = id_col
     ) |>
     dplyr::summarise(
-      weighted_missingness = sum(w_adm * dplyr::coalesce(.data[[miss_col]], 0), na.rm = TRUE),
+      weighted_missingness = sum(.data$w_adm * dplyr::coalesce(.data[[miss_col]], 0), na.rm = TRUE),
       mean_missingness = mean(dplyr::coalesce(.data[[miss_col]], 0), na.rm = TRUE),
       .groups = "drop"
     )
@@ -594,7 +594,7 @@ build_candidates_uncertainty_diagnostics <- function(candidates,
       )
     )
   ) |>
-    dplyr::filter(!is.na(component), nzchar(component), is.finite(active_weight), active_weight > 0)
+    dplyr::filter(!is.na(.data$component), nzchar(.data$component), is.finite(.data$active_weight), .data$active_weight > 0)
 
   if (nrow(component_tbl) == 0) {
     stop("No active similarity components were available for anchor ablation.", call. = FALSE)
@@ -602,12 +602,12 @@ build_candidates_uncertainty_diagnostics <- function(candidates,
 
   global_component_order <- tibble::as_tibble(tuning_obj$component_impact_summary %||% tibble::tibble()) |>
     dplyr::filter(
-      component != "full_model",
-      !is.na(component),
-      nzchar(component)
+      .data$component != "full_model",
+      !is.na(.data$component),
+      nzchar(.data$component)
     ) |>
-    dplyr::arrange(dplyr::desc(.data$delta_rmse), component) |>
-    dplyr::pull(component)
+    dplyr::arrange(dplyr::desc(.data$delta_rmse), .data$component) |>
+    dplyr::pull(.data$component)
   global_component_order <- unique(c(global_component_order, component_tbl$component))
   component_rank <- stats::setNames(seq_along(global_component_order), global_component_order)
 
@@ -745,18 +745,18 @@ build_candidates_uncertainty_diagnostics <- function(candidates,
   }
 
   anchor_ablation <- dplyr::bind_rows(ablation_rows) |>
-    dplyr::arrange(anchor_species, component_rank_global, dplyr::desc(.data$importance_score), component)
+    dplyr::arrange(anchor_species, .data$component_rank_global, dplyr::desc(.data$importance_score), .data$component)
   overall_tbl <- anchor_ablation |>
-    dplyr::group_by(component, component_type, component_rank_global) |>
+    dplyr::group_by(.data$component, .data$component_type, .data$component_rank_global) |>
     dplyr::summarise(
-      importance_score = mean(importance_score, na.rm = TRUE),
-      delta_log_spread = mean(delta_log_spread, na.rm = TRUE),
-      delta_log_consensus = mean(delta_log_consensus, na.rm = TRUE),
-      delta_n_admissible = mean(delta_n_admissible, na.rm = TRUE),
-      n_anchors = dplyr::n_distinct(anchor_model_id),
+      importance_score = mean(.data$importance_score, na.rm = TRUE),
+      delta_log_spread = mean(.data$delta_log_spread, na.rm = TRUE),
+      delta_log_consensus = mean(.data$delta_log_consensus, na.rm = TRUE),
+      delta_n_admissible = mean(.data$delta_n_admissible, na.rm = TRUE),
+      n_anchors = dplyr::n_distinct(.data$anchor_model_id),
       .groups = "drop"
     ) |>
-    dplyr::arrange(component_rank_global, dplyr::desc(.data$importance_score), component)
+    dplyr::arrange(.data$component_rank_global, dplyr::desc(.data$importance_score), .data$component)
 
   report_progress(progress, "Finished anchor-level similarity ablation diagnostics.")
 

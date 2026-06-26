@@ -7,8 +7,8 @@
 #' @keywords internal
 nested_conformal_quantile <- function(x,
                                       alpha) {
-  x <- sort(x[is.finite(x)])
-  n <- length(x)
+  x_ <- sort(x[is.finite(x)])
+  n <- length(x_)
   if (n == 0) {
     return(NA_real_)
   }
@@ -18,7 +18,7 @@ nested_conformal_quantile <- function(x,
     return(Inf)
   }
 
-  x[[q_idx]]
+  x_[[q_idx]]
 }
 
 #' Split species for one nested validation fold
@@ -36,8 +36,8 @@ split_nested_species <- function(species,
                                  selection_fraction,
                                  calibration_fraction,
                                  seed) {
-  species <- sort(unique(stats::na.omit(as.character(species))))
-  remaining <- setdiff(species, outer_species)
+  species_ <- sort(unique(stats::na.omit(as.character(species))))
+  remaining <- setdiff(species_, outer_species)
   if (length(remaining) < 4) {
     stop("Nested validation requires at least four non-test species.", call. = FALSE)
   }
@@ -158,9 +158,9 @@ evaluate_nested_transfer_set <- function(anchor_models,
       dplyr::mutate(
         anchor_model_id = as.character(anchor_row$model_id[[1]]),
         anchor_species = as.character(anchor_row$species_name[[1]]),
-        valid_prediction = is.finite(multiplier_pred) & multiplier_pred > 0,
-        error_log = dplyr::if_else(valid_prediction, log(multiplier_pred), NA_real_),
-        error_abs_log = abs(error_log)
+        valid_prediction = is.finite(.data$multiplier_pred) & .data$multiplier_pred > 0,
+        error_log = dplyr::if_else(.data$valid_prediction, log(.data$multiplier_pred), NA_real_),
+        error_abs_log = abs(.data$error_log)
       )
   })
 }
@@ -176,48 +176,48 @@ evaluate_nested_transfer_set <- function(anchor_models,
 summarize_nested_residuals <- function(perf_tbl,
                                        alpha,
                                        min_n = 10L) {
-  perf_tbl <- tibble::as_tibble(perf_tbl)
-  if (nrow(perf_tbl) == 0) {
+  perf_tbl_ <- tibble::as_tibble(perf_tbl)
+  if (nrow(perf_tbl_) == 0) {
     return(tibble::tibble())
   }
-  perf_tbl$policy <- resolve_policy_names(perf_tbl)
+  perf_tbl_$policy <- resolve_policy_names(perf_tbl_)
 
-  perf_tbl |>
-    dplyr::filter(valid_prediction, is.finite(error_abs_log)) |>
+  perf_tbl_ |>
+    dplyr::filter(.data$valid_prediction, is.finite(.data$error_abs_log)) |>
     dplyr::mutate(
       anchor_selection_local_distance = dplyr::coalesce(
-        local_weighted_mean_combined_distance,
-        local_min_combined_distance
+        .data$local_weighted_mean_combined_distance,
+        .data$local_min_combined_distance
       )
     ) |>
-    dplyr::group_by(policy) |>
+    dplyr::group_by(.data$policy) |>
     dplyr::summarise(
       n = dplyr::n(),
-      q_abs_log = nested_conformal_quantile(error_abs_log, alpha),
-      interval_log_width = dplyr::if_else(is.finite(q_abs_log), 2 * q_abs_log, NA_real_),
-      median_abs_log_error = stats::median(error_abs_log, na.rm = TRUE),
-      mean_abs_log_error = mean(error_abs_log, na.rm = TRUE),
-      median_local_combined_distance = stats::median(anchor_selection_local_distance, na.rm = TRUE),
-      min_local_combined_distance = suppressWarnings(min(anchor_selection_local_distance, na.rm = TRUE)),
-      median_local_effective_support = stats::median(local_effective_support, na.rm = TRUE),
-      eligible_n = n >= min_n,
+      q_abs_log = nested_conformal_quantile(.data$error_abs_log, alpha),
+      interval_log_width = dplyr::if_else(is.finite(.data$q_abs_log), 2 * .data$q_abs_log, NA_real_),
+      median_abs_log_error = stats::median(.data$error_abs_log, na.rm = TRUE),
+      mean_abs_log_error = mean(.data$error_abs_log, na.rm = TRUE),
+      median_local_combined_distance = stats::median(.data$anchor_selection_local_distance, na.rm = TRUE),
+      min_local_combined_distance = suppressWarnings(min(.data$anchor_selection_local_distance, na.rm = TRUE)),
+      median_local_effective_support = stats::median(.data$local_effective_support, na.rm = TRUE),
+      eligible_n = .data$n >= min_n,
       .groups = "drop"
     ) |>
     dplyr::mutate(
       median_local_combined_distance = dplyr::if_else(
-        is.infinite(median_local_combined_distance),
+        is.infinite(.data$median_local_combined_distance),
         NA_real_,
-        median_local_combined_distance
+        .data$median_local_combined_distance
       ),
       min_local_combined_distance = dplyr::if_else(
-        is.infinite(min_local_combined_distance),
+        is.infinite(.data$min_local_combined_distance),
         NA_real_,
-        min_local_combined_distance
+        .data$min_local_combined_distance
       ),
       median_local_effective_support = dplyr::if_else(
-        is.infinite(median_local_effective_support),
+        is.infinite(.data$median_local_effective_support),
         NA_real_,
-        median_local_effective_support
+        .data$median_local_effective_support
       )
     )
 }
@@ -256,13 +256,13 @@ run_nested_policy_fold <- function(task,
   )
 
   tune_models <- candidate_models |>
-    dplyr::filter(species_name %in% split_obj$tune)
+    dplyr::filter(.data$species_name %in% split_obj$tune)
   selection_models <- candidate_models |>
-    dplyr::filter(species_name %in% split_obj$selection)
+    dplyr::filter(.data$species_name %in% split_obj$selection)
   calibration_models <- candidate_models |>
-    dplyr::filter(species_name %in% split_obj$calibration)
+    dplyr::filter(.data$species_name %in% split_obj$calibration)
   test_models <- candidate_models |>
-    dplyr::filter(species_name == task$outer_species)
+    dplyr::filter(.data$species_name == task$outer_species)
 
   tune_obj <- tune_similarity_matrix(
     candidate_models = tune_models,
@@ -359,7 +359,7 @@ run_nested_policy_fold <- function(task,
     )
 
   eligible_selection <- selection_summary |>
-    dplyr::filter(eligible_n, is.finite(interval_log_width))
+    dplyr::filter(.data$eligible_n, is.finite(.data$interval_log_width))
   if (nrow(eligible_selection) == 0) {
     selected_policy_tbl <- tibble::tibble(
       fold_id = task$fold_id,
@@ -375,12 +375,12 @@ run_nested_policy_fold <- function(task,
     selected_policy_tbl <- eligible_selection |>
       dplyr::mutate(
         valid_prediction = TRUE,
-        uncertainty_eligible = eligible_n,
-        uncertainty_cost_log_width = interval_log_width,
-        species_block_median_abs_log_error = median_abs_log_error,
-        local_weighted_mean_combined_distance = median_local_combined_distance,
-        local_min_combined_distance = min_local_combined_distance,
-        local_effective_support = median_local_effective_support
+        uncertainty_eligible = .data$eligible_n,
+        uncertainty_cost_log_width = .data$interval_log_width,
+        species_block_median_abs_log_error = .data$median_abs_log_error,
+        local_weighted_mean_combined_distance = .data$median_local_combined_distance,
+        local_min_combined_distance = .data$min_local_combined_distance,
+        local_effective_support = .data$median_local_effective_support
       ) |>
       select_anchor_policies(
         uncertainty_rule = normalize_uncertainty_rule(selection_config$uncertainty_rule %||% "tolerance"),
@@ -390,17 +390,17 @@ run_nested_policy_fold <- function(task,
         local_distance_tolerance = selection_config$local_distance_tolerance %||% 1e-12
       ) |>
       dplyr::transmute(
-        fold_id,
-        repeat_id,
-        selected_policy = policy,
-        selection_interval_log_width = uncertainty_cost_log_width,
-        selection_n = n,
-        selection_median_abs_log_error = median_abs_log_error,
-        selection_local_distance = anchor_selection_local_distance,
-        tuned_alpha,
-        tuned_k_species,
-        tuned_k_study,
-        selection_tier
+        fold_id = .data$fold_id,
+        repeat_id = .data$repeat_id,
+        selected_policy = .data$policy,
+        selection_interval_log_width = .data$uncertainty_cost_log_width,
+        selection_n = .data$n,
+        selection_median_abs_log_error = .data$median_abs_log_error,
+        selection_local_distance = .data$anchor_selection_local_distance,
+        tuned_alpha = .data$tuned_alpha,
+        tuned_k_species = .data$tuned_k_species,
+        tuned_k_study = .data$tuned_k_study,
+        selection_tier = .data$selection_tier
       )
   }
 
@@ -423,28 +423,28 @@ run_nested_policy_fold <- function(task,
     ) |>
     dplyr::inner_join(
       selected_policy_tbl |>
-        dplyr::filter(!is.na(selected_policy)) |>
-        dplyr::select(fold_id, repeat_id, selected_policy, selection_interval_log_width),
+        dplyr::filter(!is.na(.data$selected_policy)) |>
+        dplyr::select("fold_id", "repeat_id", "selected_policy", "selection_interval_log_width"),
       by = c("fold_id", "repeat_id", "policy" = "selected_policy")
     ) |>
     dplyr::left_join(
       calibration_summary |>
-        dplyr::select(fold_id, repeat_id, policy, calibration_n = n, q_abs_log, calibration_interval_log_width = interval_log_width),
+        dplyr::select("fold_id", "repeat_id", "policy", calibration_n = "n", q_abs_log = "q_abs_log", calibration_interval_log_width = "interval_log_width"),
       by = c("fold_id", "repeat_id", "policy")
     ) |>
     dplyr::mutate(
-      multiplier_lo = dplyr::if_else(valid_prediction & is.finite(q_abs_log), multiplier_pred * exp(-q_abs_log), NA_real_),
-      multiplier_hi = dplyr::if_else(valid_prediction & is.finite(q_abs_log), multiplier_pred * exp(q_abs_log), NA_real_),
-      covered = valid_prediction & is.finite(q_abs_log) & error_abs_log <= q_abs_log
+      multiplier_lo = dplyr::if_else(.data$valid_prediction & is.finite(.data$q_abs_log), .data$multiplier_pred * exp(-.data$q_abs_log), NA_real_),
+      multiplier_hi = dplyr::if_else(.data$valid_prediction & is.finite(.data$q_abs_log), .data$multiplier_pred * exp(.data$q_abs_log), NA_real_),
+      covered = .data$valid_prediction & is.finite(.data$q_abs_log) & .data$error_abs_log <= .data$q_abs_log
     )
 
   alpha_k_audit <- dplyr::bind_rows(
     selection_perf |>
-      dplyr::select(fold_id, repeat_id, tuned_alpha, tuned_k_species, tuned_k_study),
+      dplyr::select("fold_id", "repeat_id", "tuned_alpha", "tuned_k_species", "tuned_k_study"),
     calibration_perf |>
-      dplyr::select(fold_id, repeat_id, tuned_alpha, tuned_k_species, tuned_k_study),
+      dplyr::select("fold_id", "repeat_id", "tuned_alpha", "tuned_k_species", "tuned_k_study"),
     test_perf |>
-      dplyr::select(fold_id, repeat_id, tuned_alpha, tuned_k_species, tuned_k_study)
+      dplyr::select("fold_id", "repeat_id", "tuned_alpha", "tuned_k_species", "tuned_k_study")
   ) |>
     dplyr::distinct()
 
@@ -532,37 +532,42 @@ run_nested_policy_validation <- function(candidate_models,
                                          refresh = FALSE,
                                          policy_path = NULL,
                                          registry_path = NULL) {
-  if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
-    config <- config@data
+  config_ <- if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
+    config@data
+  } else {
+    config
   }
-  if (is.null(seed)) {
-    seed <- sample.int(.Machine$integer.max, 1)
+  seed_ <- if (is.null(seed)) {
+    sample.int(.Machine$integer.max, 1)
+  } else {
+    seed
   }
   selector_obj <- if ((inherits(candidate_models, "S7_object") && exists("PolicySelector", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_models, PolicySelector), error = function(e) FALSE)))) candidate_models else NULL
   candidates_obj <- if ((inherits(candidate_models, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_models, Candidates), error = function(e) FALSE)))) candidate_models else NULL
+  candidate_models_ <- candidate_models
   if (!is.null(selector_obj)) {
-    config <- config %||% selector_obj@config
+    config_ <- config_ %||% selector_obj@config
     candidates_obj <- selector_obj@candidates
-    candidate_models <- selector_obj@candidates@candidate_models
+    candidate_models_ <- selector_obj@candidates@candidate_models
   } else if (!is.null(candidates_obj)) {
-    config <- config %||% list(
+    config_ <- config_ %||% list(
       policy = merge_cfg(
         default_anchor_config(list()),
         policy_selector_similarity_defaults(candidates_obj)
       )
     )
-    candidate_models <- candidates_obj@candidate_models
+    candidate_models_ <- candidates_obj@candidate_models
   }
-  if (!is.data.frame(candidate_models)) {
+  if (!is.data.frame(candidate_models_)) {
     stop("'candidate_models' must be a data frame or tibble.", call. = FALSE)
   }
   registered_policies <- policy_names(policy_path = policy_path)
-  policies <- policies %||% registered_policies
-  if (!is.character(policies) || any(!nzchar(policies))) {
+  policies_ <- policies %||% registered_policies
+  if (!is.character(policies_) || any(!nzchar(policies_))) {
     stop("'policies' must be a non-empty character vector.", call. = FALSE)
   }
-  missing_policies <- setdiff(registered_policies, policies)
-  extra_policies <- setdiff(policies, registered_policies)
+  missing_policies <- setdiff(registered_policies, policies_)
+  extra_policies <- setdiff(policies_, registered_policies)
   if (length(missing_policies) > 0 || length(extra_policies) > 0) {
     stop(
       sprintf(
@@ -573,7 +578,7 @@ run_nested_policy_validation <- function(candidate_models,
       call. = FALSE
     )
   }
-  if (!is.list(config)) {
+  if (!is.list(config_)) {
     stop("'config' must be a list.", call. = FALSE)
   }
   if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
@@ -582,36 +587,38 @@ run_nested_policy_validation <- function(candidate_models,
   if (!is.numeric(workers) || length(workers) != 1 || !is.finite(workers) || workers < 1) {
     stop("'workers' must be one finite number >= 1.", call. = FALSE)
   }
-  workers <- as.integer(workers)
+  workers_ <- as.integer(workers)
 
-  candidate_models <- tibble::as_tibble(candidate_models)
-  species_all <- sort(unique(stats::na.omit(as.character(candidate_models$species_name))))
+  candidate_models_ <- tibble::as_tibble(candidate_models_)
+  species_all <- sort(unique(stats::na.omit(as.character(candidate_models_$species_name))))
   if (length(species_all) < 5L) {
     stop("Nested validation requires at least five species.", call. = FALSE)
   }
 
-  n_repeats <- as.integer(n_repeats)
-  if (!is.finite(n_repeats) || n_repeats < 1L) {
+  n_repeats_ <- as.integer(n_repeats)
+  if (!is.finite(n_repeats_) || n_repeats_ < 1L) {
     stop("'n_repeats' must be one integer >= 1.", call. = FALSE)
   }
-  if (is.null(n_outer_folds)) {
-    n_outer_folds <- length(species_all)
+  n_outer_folds_ <- if (is.null(n_outer_folds)) {
+    length(species_all)
+  } else {
+    n_outer_folds
   }
-  n_outer_folds <- min(as.integer(n_outer_folds), length(species_all))
-  if (!is.finite(n_outer_folds) || n_outer_folds < 1L) {
+  n_outer_folds_ <- min(as.integer(n_outer_folds_), length(species_all))
+  if (!is.finite(n_outer_folds_) || n_outer_folds_ < 1L) {
     stop("'n_outer_folds' must be NULL or one integer >= 1.", call. = FALSE)
   }
 
-  base_policy_config <- config$policy %||% config
-  tuning_config <- config$tuning %||% list()
-  selection_config <- config$selection %||% list()
+  base_policy_config <- config_$policy %||% config_
+  tuning_config <- config_$tuning %||% list()
+  selection_config <- config_$selection %||% list()
 
   task_rows <- list()
   fold_id <- 0L
-  for (rep_id in seq_len(n_repeats)) {
-    set.seed(as.integer(seed) + rep_id)
+  for (rep_id in seq_len(n_repeats_)) {
+    set.seed(as.integer(seed_) + rep_id)
     outer_species_vec <- sample(species_all, length(species_all), replace = FALSE)
-    outer_species_vec <- outer_species_vec[seq_len(n_outer_folds)]
+    outer_species_vec <- outer_species_vec[seq_len(n_outer_folds_)]
 
     for (outer_species in outer_species_vec) {
       fold_id <- fold_id + 1L
@@ -626,9 +633,9 @@ run_nested_policy_validation <- function(candidate_models,
   run_one <- function(task) {
     run_nested_policy_fold(
       task = task,
-      candidate_models = candidate_models,
+      candidate_models = candidate_models_,
       species_all = species_all,
-      policies = policies,
+      policies = policies_,
       base_policy_config = base_policy_config,
       tuning_config = tuning_config,
       selection_fraction = selection_fraction,
@@ -637,22 +644,22 @@ run_nested_policy_validation <- function(candidate_models,
       min_calibration_n = min_calibration_n,
       selection_config = selection_config,
       alpha = alpha,
-      seed = seed,
+      seed = seed_,
       policy_path = policy_path,
       registry_path = registry_path
     )
   }
 
-  if (workers > 1L && length(task_rows) > 1L) {
-    cluster_obj <- initialize_parallel_cluster(workers = min(workers, length(task_rows)))
+  if (workers_ > 1L && length(task_rows) > 1L) {
+    cluster_obj <- initialize_parallel_cluster(workers = min(workers_, length(task_rows)))
     on.exit(parallel::stopCluster(cluster_obj), add = TRUE)
     tsb_cluster_export(
       cluster_obj,
       c(
-        "task_rows", "candidate_models", "species_all", "policies",
+        "task_rows", "candidate_models_", "species_all", "policies_",
         "base_policy_config", "tuning_config", "selection_fraction",
         "calibration_fraction", "min_selection_n", "min_calibration_n",
-        "selection_config", "alpha", "seed", "policy_path", "registry_path",
+        "selection_config", "alpha", "seed_", "policy_path", "registry_path",
         "run_nested_policy_fold"
       ),
       envir = environment()
@@ -664,16 +671,16 @@ run_nested_policy_validation <- function(candidate_models,
 
   test_tbl <- dplyr::bind_rows(lapply(fold_results, `[[`, "outer_test"))
   coverage_summary <- test_tbl |>
-    dplyr::filter(valid_prediction, is.finite(q_abs_log)) |>
-    dplyr::group_by(policy) |>
+    dplyr::filter(.data$valid_prediction, is.finite(.data$q_abs_log)) |>
+    dplyr::group_by(.data$policy) |>
     dplyr::summarise(
       n_test = dplyr::n(),
-      empirical_coverage = mean(covered, na.rm = TRUE),
-      median_interval_log_width = stats::median(calibration_interval_log_width, na.rm = TRUE),
-      median_abs_log_error = stats::median(error_abs_log, na.rm = TRUE),
+      empirical_coverage = mean(.data$covered, na.rm = TRUE),
+      median_interval_log_width = stats::median(.data$calibration_interval_log_width, na.rm = TRUE),
+      median_abs_log_error = stats::median(.data$error_abs_log, na.rm = TRUE),
       .groups = "drop"
     ) |>
-    dplyr::arrange(median_interval_log_width, policy)
+    dplyr::arrange(.data$median_interval_log_width, .data$policy)
 
   result <- list(
     folds = dplyr::bind_rows(lapply(fold_results, `[[`, "folds")),

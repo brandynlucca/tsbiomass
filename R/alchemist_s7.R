@@ -2141,7 +2141,7 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
   trait_cols <- intersect(all_traits, names(candidate_models))
 
   model_trait_table <- if (length(trait_cols) > 0) {
-    tbl <- dplyr::select(candidate_models, dplyr::all_of(trait_cols))
+    tbl <- dplyr::select("candidate_models", dplyr::all_of(trait_cols))
     if ("species" %in% names(tbl) && "genus" %in% names(candidate_models)) {
       g <- trimws(as.character(candidate_models[["genus"]]))
       s <- trimws(as.character(tbl[["species"]]))
@@ -2197,7 +2197,7 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
     )
   ))
   if (length(coh_cols) > 0L) {
-    coh_extra <- dplyr::select(candidate_models, dplyr::all_of(coh_cols)) |>
+    coh_extra <- dplyr::select("candidate_models", dplyr::all_of(coh_cols)) |>
       dplyr::mutate(dplyr::across(
         dplyr::everything(),
         ~ suppressWarnings(as.numeric(.x))

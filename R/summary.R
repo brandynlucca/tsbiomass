@@ -65,9 +65,9 @@ S7::method(build_species_coverage, S7::class_any) <- function(pseudo_sum,
     tibble::as_tibble(pseudo_sum$overall),
     tibble::as_tibble(species_sum$overall)
   ) |>
-    dplyr::filter(benchmark_label == bench_label) |>
+    dplyr::filter(.data$benchmark_label == bench_label) |>
     standardize_policies() |>
-    dplyr::select(policy, equation_branch_filter, empirical_coverage, median_interval_log_width)
+    dplyr::select("policy", "equation_branch_filter", "empirical_coverage", "median_interval_log_width")
 }
 
 #' Build a species-block coverage table from a [PolicySelector]
@@ -166,8 +166,8 @@ S7::method(build_anchor_audit, S7::class_any) <- function(sel_tbl,
         select_ref_tbl
       } |>
         dplyr::select(
-          policy, equation_branch_filter, mean_species_median_abs_log, acceptable_global, equivalent_to_best_global,
-          bootstrap_prob_within_threshold, bootstrap_median_rank
+          "policy", "equation_branch_filter", "mean_species_median_abs_log", "acceptable_global", "equivalent_to_best_global",
+          "bootstrap_prob_within_threshold", "bootstrap_median_rank"
         ),
       by = c(
         "selected_policy" = "policy",
@@ -191,26 +191,26 @@ S7::method(build_anchor_audit, S7::class_any) <- function(sel_tbl,
   if (!is.null(sens_detail) && !is.null(sens_tbl) &&
     nrow(sens_detail) > 0 && nrow(sens_tbl) > 0) {
     base_mult <- tibble::as_tibble(sens_tbl) |>
-      dplyr::filter(scenario == baseline_label) |>
-      dplyr::select(anchor_model_id, baseline_multiplier = multiplier_pred)
+      dplyr::filter(.data$scenario == baseline_label) |>
+      dplyr::select("anchor_model_id", baseline_multiplier = "multiplier_pred")
 
     change_tbl <- tibble::as_tibble(sens_detail) |>
-      dplyr::group_by(anchor_model_id, anchor_species) |>
+      dplyr::group_by(.data$anchor_model_id, .data$anchor_species) |>
       dplyr::summarise(
-        n_policy_changed = sum(policy_changed, na.rm = TRUE),
-        n_display_changed = sum(display_changed, na.rm = TRUE),
-        n_equiv_set_changed = sum(equiv_set_changed, na.rm = TRUE),
+        n_policy_changed = sum(.data$policy_changed, na.rm = TRUE),
+        n_display_changed = sum(.data$display_changed, na.rm = TRUE),
+        n_equiv_set_changed = sum(.data$equiv_set_changed, na.rm = TRUE),
         .groups = "drop"
       )
 
     drift_tbl <- tibble::as_tibble(sens_tbl) |>
-      dplyr::filter(scenario != baseline_label) |>
+      dplyr::filter(.data$scenario != baseline_label) |>
       dplyr::left_join(base_mult, by = "anchor_model_id") |>
-      dplyr::group_by(anchor_model_id, anchor_species) |>
+      dplyr::group_by(.data$anchor_model_id, .data$anchor_species) |>
       dplyr::summarise(
         n_scenarios = dplyr::n(),
-        median_abs_delta_log_multiplier = stats::median(abs(log(multiplier_pred / baseline_multiplier)), na.rm = TRUE),
-        max_abs_delta_log_multiplier = max(abs(log(multiplier_pred / baseline_multiplier)), na.rm = TRUE),
+        median_abs_delta_log_multiplier = stats::median(abs(log(.data$multiplier_pred / .data$baseline_multiplier)), na.rm = TRUE),
+        max_abs_delta_log_multiplier = max(abs(log(.data$multiplier_pred / .data$baseline_multiplier)), na.rm = TRUE),
         .groups = "drop"
       ) |>
       dplyr::left_join(change_tbl, by = c("anchor_model_id", "anchor_species"))
@@ -318,14 +318,14 @@ S7::method(summarize_key_missing, S7::class_any) <- function(candidate_models,
     nonmissing_n = purrr::map_int(key_cols, ~ sum(!is.na(models_tbl[[.x]]))),
     missing_fraction = purrr::map_dbl(key_cols, ~ mean(is.na(models_tbl[[.x]])))
   ) |>
-    dplyr::arrange(dplyr::desc(.data$missing_fraction), field)
+    dplyr::arrange(dplyr::desc(.data$missing_fraction), .data$field)
 
   by_model <- models_tbl |>
     dplyr::select(
       dplyr::all_of(model_id_col),
       dplyr::all_of(species_col),
       dplyr::any_of(common_col),
-      key_metadata_missing_fraction
+      "key_metadata_missing_fraction"
     ) |>
     dplyr::arrange(dplyr::desc(.data$key_metadata_missing_fraction), .data[[species_col]], .data[[model_id_col]])
 
@@ -418,14 +418,14 @@ S7::method(summarize_missing_gate, S7::class_any) <- function(adm_tbl) {
   if (all(c("anchor_model_id", "anchor_species", "admissible", "gate_missing_key_metadata") %in% names(out))) {
     return(
       out |>
-        dplyr::group_by(anchor_model_id, anchor_species) |>
+        dplyr::group_by(.data$anchor_model_id, .data$anchor_species) |>
         dplyr::summarise(
           n_candidates_total = dplyr::n(),
-          n_candidates_admissible = sum(dplyr::coalesce(as.logical(admissible), FALSE), na.rm = TRUE),
-          prop_fail_missing_metadata = mean(!dplyr::coalesce(as.logical(gate_missing_key_metadata), FALSE), na.rm = TRUE),
+          n_candidates_admissible = sum(dplyr::coalesce(as.logical(.data$admissible), FALSE), na.rm = TRUE),
+          prop_fail_missing_metadata = mean(!dplyr::coalesce(as.logical(.data$gate_missing_key_metadata), FALSE), na.rm = TRUE),
           .groups = "drop"
         ) |>
-        dplyr::arrange(anchor_species)
+        dplyr::arrange(.data$anchor_species)
     )
   }
 
@@ -435,13 +435,13 @@ S7::method(summarize_missing_gate, S7::class_any) <- function(adm_tbl) {
     return(
       out |>
         dplyr::transmute(
-          anchor_model_id,
-          anchor_species,
-          n_candidates_total,
-          n_candidates_admissible = round(n_candidates_total * prop_admissible),
-          prop_fail_missing_metadata
+          .data$anchor_model_id,
+          .data$anchor_species,
+          .data$n_candidates_total,
+          n_candidates_admissible = round(.data$n_candidates_total * .data$prop_admissible),
+          .data$prop_fail_missing_metadata
         ) |>
-        dplyr::arrange(anchor_species)
+        dplyr::arrange(.data$anchor_species)
     )
   }
 
@@ -449,13 +449,13 @@ S7::method(summarize_missing_gate, S7::class_any) <- function(adm_tbl) {
     return(
       out |>
         dplyr::transmute(
-          anchor_model_id,
-          anchor_species,
+          .data$anchor_model_id,
+          .data$anchor_species,
           n_candidates_total = NA_real_,
-          n_candidates_admissible = dplyr::coalesce(as.numeric(n_admissible), 0),
+          n_candidates_admissible = dplyr::coalesce(as.numeric(.data$n_admissible), 0),
           prop_fail_missing_metadata = NA_real_
         ) |>
-        dplyr::arrange(anchor_species)
+        dplyr::arrange(.data$anchor_species)
     )
   }
 
@@ -582,7 +582,7 @@ summarize_slope_effect <- function(candidate_models,
       "general/mixed", "general", "mixed clupeids and smelts"
     )
 
-    genus_chr   <- stringr::str_squish(stringr::str_to_lower(dplyr::coalesce(as.character(models_tbl[[genus_col]]), "")))
+    genus_chr <- stringr::str_squish(stringr::str_to_lower(dplyr::coalesce(as.character(models_tbl[[genus_col]]), "")))
     species_chr <- stringr::str_squish(stringr::str_to_lower(dplyr::coalesce(as.character(models_tbl[[species_col]]), "")))
 
     tags_chr <- if (tags_col %in% names(models_tbl)) {
@@ -590,7 +590,7 @@ summarize_slope_effect <- function(candidate_models,
     } else {
       rep("", nrow(models_tbl))
     }
-    
+
     swim_chr <- if ("swimbladder_type" %in% names(models_tbl)) {
       stringr::str_squish(stringr::str_to_lower(dplyr::coalesce(as.character(models_tbl$swimbladder_type), "")))
     } else {
@@ -675,7 +675,7 @@ summarize_slope_effect <- function(candidate_models,
         TRUE ~ NA_character_
       ),
       slope_deviation_class = factor(
-        slope_deviation_class,
+        .data$slope_deviation_class,
         levels = c("< -2", "-2 to -1", "-1 to 0", "exactly 20", "0 to 1", "1 to 2", "> 2")
       ),
       slope_support_class = dplyr::case_when(
@@ -704,7 +704,7 @@ summarize_slope_effect <- function(candidate_models,
       .groups = "drop"
     ) |>
     dplyr::mutate(
-      slope_deviation_from_20 = slope_len_cell - 20,
+      slope_deviation_from_20 = .data$slope_len_cell - 20,
       slope_deviation_class = dplyr::case_when(
         !is.finite(slope_deviation_from_20) ~ NA_character_,
         abs(slope_deviation_from_20) < 1e-8 ~ "exactly 20",

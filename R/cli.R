@@ -187,6 +187,9 @@ script_call_from_config <- function(config_path,
 
   config_data <- read_config(config_path)
 
+  # Force evaluation
+  force(config_data)
+
   list(
     command = rscript_path,
     args = c(

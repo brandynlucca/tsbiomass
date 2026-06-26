@@ -266,13 +266,13 @@ S7::method(build_sensitivity_table, S7::class_any) <- function(sensitivity_specs
     } else {
       selection_tbl$policy <- resolve_policy_names(selection_tbl)
       best_row <- selection_tbl |>
-        dplyr::arrange(mean_species_median_abs_log, policy) |>
+        dplyr::arrange(.data$mean_species_median_abs_log, .data$policy) |>
         dplyr::slice(1)
       best_policy <- best_row$policy[[1]]
       best_mean_error <- best_row$mean_species_median_abs_log[[1]]
       eq_best <- selection_tbl |>
-        dplyr::filter(equivalent_to_best_global) |>
-        dplyr::arrange(policy)
+        dplyr::filter(.data$equivalent_to_best_global) |>
+        dplyr::arrange(.data$policy)
     }
 
     tibble::tibble(
@@ -417,36 +417,36 @@ summarize_sensitivity <- function(sensitivity_table,
     out$equivalent_policy_set <- resolve_equivalent_policy_sets(out)
 
     detail <- out |>
-      dplyr::filter(scenario != baseline_label) |>
+      dplyr::filter(.data$scenario != baseline_label) |>
       dplyr::left_join(
         out |>
-          dplyr::filter(scenario == baseline_label) |>
+          dplyr::filter(.data$scenario == baseline_label) |>
           dplyr::select(
-            anchor_model_id,
-            baseline_policy = selected_policy,
-            baseline_display = selected_policy_display,
-            baseline_equiv_set = equivalent_policy_set
+            "anchor_model_id",
+            baseline_policy = "selected_policy",
+            baseline_display = "selected_policy_display",
+            baseline_equiv_set = "equivalent_policy_set"
           ),
         by = "anchor_model_id"
       ) |>
       dplyr::mutate(
-        policy_changed = selected_policy != baseline_policy,
-        display_changed = selected_policy_display != baseline_display,
-        equiv_set_changed = equivalent_policy_set != baseline_equiv_set
+        policy_changed = .data$selected_policy != .data$baseline_policy,
+        display_changed = .data$selected_policy_display != .data$baseline_display,
+        equiv_set_changed = .data$equivalent_policy_set != .data$baseline_equiv_set
       )
 
     # Summarize the cross-anchor change rates by scenario after the row-level
     # baseline comparison has been computed.
     summary <- detail |>
-      dplyr::group_by(scenario) |>
+      dplyr::group_by(.data$scenario) |>
       dplyr::summarise(
         n_anchors = dplyr::n(),
-        n_policy_changed = sum(policy_changed, na.rm = TRUE),
-        n_display_changed = sum(display_changed, na.rm = TRUE),
-        n_equiv_set_changed = sum(equiv_set_changed, na.rm = TRUE),
-        prop_policy_changed = mean(policy_changed, na.rm = TRUE),
-        prop_display_changed = mean(display_changed, na.rm = TRUE),
-        prop_equiv_set_changed = mean(equiv_set_changed, na.rm = TRUE),
+        n_policy_changed = sum(.data$policy_changed, na.rm = TRUE),
+        n_display_changed = sum(.data$display_changed, na.rm = TRUE),
+        n_equiv_set_changed = sum(.data$equiv_set_changed, na.rm = TRUE),
+        prop_policy_changed = mean(.data$policy_changed, na.rm = TRUE),
+        prop_display_changed = mean(.data$display_changed, na.rm = TRUE),
+        prop_equiv_set_changed = mean(.data$equiv_set_changed, na.rm = TRUE),
         .groups = "drop"
       )
 
@@ -469,7 +469,7 @@ summarize_sensitivity <- function(sensitivity_table,
   out$equivalent_policy_set <- resolve_equivalent_policy_sets(out)
 
   scenario_summary <- out |>
-    dplyr::group_by(scenario) |>
+    dplyr::group_by(.data$scenario) |>
     dplyr::summarise(
       selected_policy = {
         best_rows <- dplyr::pick(
@@ -490,10 +490,10 @@ summarize_sensitivity <- function(sensitivity_table,
             .specificity_rank = dplyr::coalesce(.data$specificity_rank, Inf)
           ) |>
           dplyr::arrange(
-            dplyr::desc(.acceptable_global),
-            dplyr::desc(.equivalent_to_best_global),
-            .mean_species_median_abs_log,
-            .specificity_rank,
+            dplyr::desc(.data$.acceptable_global),
+            dplyr::desc(.data$.equivalent_to_best_global),
+            .data$.mean_species_median_abs_log,
+            .data$.specificity_rank,
             .data$policy
           ) |>
           dplyr::slice(1)
@@ -518,10 +518,10 @@ summarize_sensitivity <- function(sensitivity_table,
             .specificity_rank = dplyr::coalesce(.data$specificity_rank, Inf)
           ) |>
           dplyr::arrange(
-            dplyr::desc(.acceptable_global),
-            dplyr::desc(.equivalent_to_best_global),
-            .mean_species_median_abs_log,
-            .specificity_rank,
+            dplyr::desc(.data$.acceptable_global),
+            dplyr::desc(.data$.equivalent_to_best_global),
+            .data$.mean_species_median_abs_log,
+            .data$.specificity_rank,
             .data$policy
           ) |>
           dplyr::slice(1)
@@ -544,7 +544,7 @@ summarize_sensitivity <- function(sensitivity_table,
         }
       },
       best_mean_species_median_abs_log = suppressWarnings(
-        min(mean_species_median_abs_log, na.rm = TRUE)
+        min(.data$mean_species_median_abs_log, na.rm = TRUE)
       ),
       .groups = "drop"
     )
@@ -554,33 +554,33 @@ summarize_sensitivity <- function(sensitivity_table,
   ] <- NA_real_
 
   detail <- scenario_summary |>
-    dplyr::filter(scenario != baseline_label) |>
+    dplyr::filter(.data$scenario != baseline_label) |>
     dplyr::cross_join(
       scenario_summary |>
-        dplyr::filter(scenario == baseline_label) |>
+        dplyr::filter(.data$scenario == baseline_label) |>
         dplyr::transmute(
-          baseline_policy = selected_policy,
-          baseline_display = selected_policy_display,
-          baseline_equiv_set = equivalent_policy_set,
-          baseline_best_mean_species_median_abs_log = best_mean_species_median_abs_log
+          baseline_policy = .data$selected_policy,
+          baseline_display = .data$selected_policy_display,
+          baseline_equiv_set = .data$equivalent_policy_set,
+          baseline_best_mean_species_median_abs_log = .data$best_mean_species_median_abs_log
         )
     ) |>
     dplyr::mutate(
-      policy_changed = selected_policy != baseline_policy,
-      display_changed = selected_policy_display != baseline_display,
-      equiv_set_changed = equivalent_policy_set != baseline_equiv_set
+      policy_changed = .data$selected_policy != .data$baseline_policy,
+      display_changed = .data$selected_policy_display != .data$baseline_display,
+      equiv_set_changed = .data$equivalent_policy_set != .data$baseline_equiv_set
     )
 
   summary <- detail |>
     dplyr::transmute(
-      scenario = scenario,
+      scenario = .data$scenario,
       n_anchors = 1L,
-      n_policy_changed = as.integer(policy_changed),
-      n_display_changed = as.integer(display_changed),
-      n_equiv_set_changed = as.integer(equiv_set_changed),
-      prop_policy_changed = as.numeric(policy_changed),
-      prop_display_changed = as.numeric(display_changed),
-      prop_equiv_set_changed = as.numeric(equiv_set_changed)
+      n_policy_changed = as.integer(.data$policy_changed),
+      n_display_changed = as.integer(.data$display_changed),
+      n_equiv_set_changed = as.integer(.data$equiv_set_changed),
+      prop_policy_changed = as.numeric(.data$policy_changed),
+      prop_display_changed = as.numeric(.data$display_changed),
+      prop_equiv_set_changed = as.numeric(.data$equiv_set_changed)
     )
 
   list(detail = detail, summary = summary)
@@ -618,6 +618,11 @@ build_policy_sensitivity_scenarios <- function(candidate_models,
     has_species <- "species_name" %in% names(models_tbl)
     has_genus <- "genus" %in% names(models_tbl)
     has_species_epithet <- "species" %in% names(models_tbl)
+
+    # Force evalation
+    force(has_species)
+    force(has_genus)
+    force(has_species_epithet)
 
     models_tbl$is_group_model <- dplyr::case_when(
       has_species & is.na(models_tbl$species_name) ~ TRUE,
@@ -658,12 +663,12 @@ build_policy_sensitivity_scenarios <- function(candidate_models,
     ),
     no_generalized_models = list(
       candidate_models = models_tbl |>
-        dplyr::filter(!dplyr::coalesce(is_group_model, FALSE)),
+        dplyr::filter(!dplyr::coalesce(.data$is_group_model, FALSE)),
       config = config_values
     ),
     no_high_missingness_0_10 = list(
       candidate_models = models_tbl |>
-        dplyr::filter(dplyr::coalesce(key_metadata_missing_fraction, 0) <= 0.10),
+        dplyr::filter(dplyr::coalesce(.data$key_metadata_missing_fraction, 0) <= 0.10),
       config = config_values
     ),
     frequency_penalty_soft = list(
@@ -756,9 +761,9 @@ bind_sensitivity_variance <- function(sens_data,
       }
       anchor_sel |>
         dplyr::filter(is.finite(.data[[mult_col]])) |>
-        dplyr::group_by(anchor_model_id) |>
+        dplyr::group_by(.data$anchor_model_id) |>
         dplyr::summarise(
-          n_scenarios = dplyr::n_distinct(scenario),
+          n_scenarios = dplyr::n_distinct(.data$scenario),
           between_sd_log_multiplier = stats::sd(.data[[mult_col]], na.rm = TRUE),
           between_iqr_log_multiplier = stats::IQR(.data[[mult_col]], na.rm = TRUE),
           between_range_log_multiplier = suppressWarnings(
@@ -778,9 +783,9 @@ bind_sensitivity_variance <- function(sens_data,
     all(c("scenario", policy_error_col) %in% names(select_ref))) {
     select_ref |>
       dplyr::filter(is.finite(.data[[policy_error_col]])) |>
-      dplyr::group_by(scenario) |>
+      dplyr::group_by(.data$scenario) |>
       dplyr::summarise(
-        n_policies = dplyr::n_distinct(policy),
+        n_policies = dplyr::n_distinct(.data$policy),
         within_sd_policy_error = stats::sd(.data[[policy_error_col]], na.rm = TRUE),
         within_iqr_policy_error = stats::IQR(.data[[policy_error_col]], na.rm = TRUE),
         within_range_policy_error = suppressWarnings(
@@ -931,7 +936,7 @@ run_policy_sensitivity_reference <- function(candidate_models,
   )
   species_points <- assign_ordination_groups(
     points_df = species_ordination_obj$points |>
-      dplyr::rename(species_name = model_id),
+      dplyr::rename(species_name = .data$model_id),
     cluster_col = "species_cluster_id"
   )
   species_points <- refine_species_clusters(

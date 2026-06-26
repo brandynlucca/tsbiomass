@@ -767,64 +767,64 @@ conjurer_summarize_draws <- function(selected_draws,
   consensus_draws <- tibble::as_tibble(consensus_draws)
   baseline_tbl <- tibble::as_tibble(baseline_selected) |>
     dplyr::transmute(
-      anchor_model_id,
-      anchor_species,
-      baseline_selected_policy = dplyr::coalesce(selected_policy_display, selected_policy),
-      baseline_multiplier_pred = multiplier_pred
+      .data$anchor_model_id,
+      .data$anchor_species,
+      baseline_selected_policy = dplyr::coalesce(.data$selected_policy_display, .data$selected_policy),
+      baseline_multiplier_pred = .data$multiplier_pred
     )
 
   # Summarize policy switching and multiplier spread on the selected rows.
   selected_summary <- selected_draws |>
     dplyr::mutate(
-      selected_policy_label = dplyr::coalesce(selected_policy_display, selected_policy)
+      selected_policy_label = dplyr::coalesce(.data$selected_policy_display, .data$selected_policy)
     ) |>
     dplyr::left_join(baseline_tbl, by = c("anchor_model_id", "anchor_species")) |>
     dplyr::mutate(
-      db_shift_from_baseline = conjurer_db_shift(multiplier_pred, baseline_multiplier_pred)
+      db_shift_from_baseline = conjurer_db_shift(.data$multiplier_pred, .data$baseline_multiplier_pred)
     ) |>
-    dplyr::group_by(trait, anchor_model_id, anchor_species) |>
+    dplyr::group_by(.data$trait, .data$anchor_model_id, .data$anchor_species) |>
     dplyr::summarise(
       n_draws = dplyr::n(),
-      baseline_multiplier_pred = dplyr::first(baseline_multiplier_pred),
-      modal_selected_policy = conjurer_modal_policy(selected_policy_label),
+      baseline_multiplier_pred = dplyr::first(.data$baseline_multiplier_pred),
+      modal_selected_policy = conjurer_modal_policy(.data$selected_policy_label),
       modal_selected_policy_prob = {
-        policy_vals <- selected_policy_label[!is.na(selected_policy_label) & nzchar(selected_policy_label)]
+        policy_vals <- .data$selected_policy_label[!is.na(.data$selected_policy_label) & nzchar(.data$selected_policy_label)]
         if (length(policy_vals) == 0) NA_real_ else max(as.numeric(table(policy_vals)) / length(policy_vals))
       },
-      selection_entropy = conjurer_selection_entropy(selected_policy_label),
-      mean_multiplier_pred = mean(multiplier_pred, na.rm = TRUE),
-      sd_log_multiplier = stats::sd(log(multiplier_pred[multiplier_pred > 0]), na.rm = TRUE),
-      mean_db_shift = mean(db_shift_from_baseline, na.rm = TRUE),
-      mean_abs_db_shift = mean(abs(db_shift_from_baseline), na.rm = TRUE),
-      sd_db_shift = stats::sd(db_shift_from_baseline, na.rm = TRUE),
-      q05_db_shift = stats::quantile(db_shift_from_baseline, probs = 0.05, na.rm = TRUE, names = FALSE),
-      q50_db_shift = stats::quantile(db_shift_from_baseline, probs = 0.50, na.rm = TRUE, names = FALSE),
-      q95_db_shift = stats::quantile(db_shift_from_baseline, probs = 0.95, na.rm = TRUE, names = FALSE),
-      q95_abs_db_shift = stats::quantile(abs(db_shift_from_baseline), probs = 0.95, na.rm = TRUE, names = FALSE),
-      q05_multiplier_pred = stats::quantile(multiplier_pred, probs = 0.05, na.rm = TRUE, names = FALSE),
-      q50_multiplier_pred = stats::quantile(multiplier_pred, probs = 0.50, na.rm = TRUE, names = FALSE),
-      q95_multiplier_pred = stats::quantile(multiplier_pred, probs = 0.95, na.rm = TRUE, names = FALSE),
+      selection_entropy = conjurer_selection_entropy(.data$selected_policy_label),
+      mean_multiplier_pred = mean(.data$multiplier_pred, na.rm = TRUE),
+      sd_log_multiplier = stats::sd(log(.data$multiplier_pred[.data$multiplier_pred > 0]), na.rm = TRUE),
+      mean_db_shift = mean(.data$db_shift_from_baseline, na.rm = TRUE),
+      mean_abs_db_shift = mean(abs(.data$db_shift_from_baseline), na.rm = TRUE),
+      sd_db_shift = stats::sd(.data$db_shift_from_baseline, na.rm = TRUE),
+      q05_db_shift = stats::quantile(.data$db_shift_from_baseline, probs = 0.05, na.rm = TRUE, names = FALSE),
+      q50_db_shift = stats::quantile(.data$db_shift_from_baseline, probs = 0.50, na.rm = TRUE, names = FALSE),
+      q95_db_shift = stats::quantile(.data$db_shift_from_baseline, probs = 0.95, na.rm = TRUE, names = FALSE),
+      q95_abs_db_shift = stats::quantile(abs(.data$db_shift_from_baseline), probs = 0.95, na.rm = TRUE, names = FALSE),
+      q05_multiplier_pred = stats::quantile(.data$multiplier_pred, probs = 0.05, na.rm = TRUE, names = FALSE),
+      q50_multiplier_pred = stats::quantile(.data$multiplier_pred, probs = 0.50, na.rm = TRUE, names = FALSE),
+      q95_multiplier_pred = stats::quantile(.data$multiplier_pred, probs = 0.95, na.rm = TRUE, names = FALSE),
       .groups = "drop"
     ) |>
     dplyr::left_join(
       baseline_tbl |>
-        dplyr::select(anchor_model_id, anchor_species, baseline_selected_policy),
+        dplyr::select("anchor_model_id", "anchor_species", "baseline_selected_policy"),
       by = c("anchor_model_id", "anchor_species")
     ) |>
     dplyr::left_join(
       selected_draws |>
         dplyr::mutate(
-          selected_policy_label = dplyr::coalesce(selected_policy_display, selected_policy)
+          selected_policy_label = dplyr::coalesce(.data$selected_policy_display, .data$selected_policy)
         ) |>
         dplyr::left_join(
           baseline_tbl |>
-            dplyr::select(anchor_model_id, anchor_species, baseline_selected_policy),
+            dplyr::select("anchor_model_id", "anchor_species", "baseline_selected_policy"),
           by = c("anchor_model_id", "anchor_species")
         ) |>
-        dplyr::group_by(trait, anchor_model_id, anchor_species) |>
+        dplyr::group_by(.data$trait, .data$anchor_model_id, .data$anchor_species) |>
         dplyr::summarise(
           switch_rate_vs_baseline = mean(
-            selected_policy_label != baseline_selected_policy,
+            .data$selected_policy_label != .data$baseline_selected_policy,
             na.rm = TRUE
           ),
           .groups = "drop"
@@ -834,13 +834,13 @@ conjurer_summarize_draws <- function(selected_draws,
 
   # Summarize the admissible donor-pool size and consensus multiplier spread.
   consensus_summary <- consensus_draws |>
-    dplyr::group_by(trait, anchor_model_id, anchor_species) |>
+    dplyr::group_by(.data$trait, .data$anchor_model_id, .data$anchor_species) |>
     dplyr::summarise(
-      mean_n_admissible = mean(n_admissible, na.rm = TRUE),
-      sd_n_admissible = stats::sd(n_admissible, na.rm = TRUE),
-      mean_consensus_multiplier = mean(consensus_multiplier, na.rm = TRUE),
-      sd_log_consensus_multiplier = stats::sd(log(consensus_multiplier[consensus_multiplier > 0]), na.rm = TRUE),
-      mean_log_spread = mean(log_spread, na.rm = TRUE),
+      mean_n_admissible = mean(.data$n_admissible, na.rm = TRUE),
+      sd_n_admissible = stats::sd(.data$n_admissible, na.rm = TRUE),
+      mean_consensus_multiplier = mean(.data$consensus_multiplier, na.rm = TRUE),
+      sd_log_consensus_multiplier = stats::sd(log(.data$consensus_multiplier[.data$consensus_multiplier > 0]), na.rm = TRUE),
+      mean_log_spread = mean(.data$log_spread, na.rm = TRUE),
       .groups = "drop"
     )
 
@@ -849,7 +849,7 @@ conjurer_summarize_draws <- function(selected_draws,
       consensus_summary,
       by = c("trait", "anchor_model_id", "anchor_species")
     ) |>
-    dplyr::arrange(trait, anchor_species, anchor_model_id)
+    dplyr::arrange(.data$trait, .data$anchor_species, .data$anchor_model_id)
 }
 
 #' Run missingness-uncertainty draws from a `Conjurer`
@@ -985,7 +985,7 @@ conjurer_top_signal <- function(summary_tbl,
 
   top_row <- summary_tbl |>
     dplyr::filter(is.finite(.data[[metric]])) |>
-    dplyr::arrange(dplyr::desc(.data[[metric]]), anchor_species, trait) |>
+    dplyr::arrange(dplyr::desc(.data[[metric]]), .data$anchor_species, .data$trait) |>
     dplyr::slice_head(n = 1)
 
   if (nrow(top_row) == 0) {
@@ -1014,7 +1014,6 @@ conjurer_top_signal <- function(summary_tbl,
 #' @return Invisibly returns `x`.
 #'
 #' @keywords internal
-#' @export
 S7::method(print_generic, Conjurer) <- function(x, ...) {
   cfg <- tryCatch(conjurer_analysis_config(x), error = function(e) NULL)
   configured_draws <- suppressWarnings(as.integer(cfg$n_draws %||% NA_integer_))

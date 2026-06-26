@@ -87,11 +87,11 @@ prepare_traits <- function(species_db,
   # species join key and all categorical fields compare consistently.
   species_tbl <- tibble::as_tibble(species_db) |>
     dplyr::mutate(
-      dplyr::across(where(is.character), ~ stringr::str_squish(.x))
+      dplyr::across(tidyselect::where(is.character), ~ stringr::str_squish(.x))
     )
   study_tbl <- tibble::as_tibble(study_db) |>
     dplyr::mutate(
-      dplyr::across(where(is.character), ~ stringr::str_squish(.x))
+      dplyr::across(tidyselect::where(is.character), ~ stringr::str_squish(.x))
     )
 
   # Build genus/species keys consistently in both tables before any other
@@ -163,8 +163,8 @@ prepare_traits <- function(species_db,
   # Collapse duplicate species rows within the species table so the join later
   # has exactly one row per species key.
   species_tbl <- species_tbl |>
-    dplyr::mutate(.species_key = paste(genus, species)) |>
-    dplyr::filter(!is.na(genus), !is.na(species))
+    dplyr::mutate(.species_key = paste(.data$genus, .data$species)) |>
+    dplyr::filter(!is.na(.data$genus), !is.na(.data$species))
 
   species_keys <- unique(species_tbl$.species_key)
   species_rows <- vector("list", length(species_keys))
@@ -505,30 +505,31 @@ fill_interval_derivations <- function(tbl,
                                       max_col,
                                       midpoint_col = NULL,
                                       range_col = NULL) {
+  tbl_ <- tbl
   required_cols <- c(min_col, max_col)
-  if (!all(required_cols %in% names(tbl))) {
-    return(tbl)
+  if (!all(required_cols %in% names(tbl_))) {
+    return(tbl_)
   }
 
   # Fill the interval range only where the source bounds are present and the
   # target range field exists but is still missing.
-  if (!is.null(range_col) && range_col %in% names(tbl)) {
-    fill_idx <- is.na(tbl[[range_col]]) &
-      !is.na(tbl[[min_col]]) &
-      !is.na(tbl[[max_col]])
-    tbl[[range_col]][fill_idx] <- tbl[[max_col]][fill_idx] - tbl[[min_col]][fill_idx]
+  if (!is.null(range_col) && range_col %in% names(tbl_)) {
+    fill_idx <- is.na(tbl_[[range_col]]) &
+      !is.na(tbl_[[min_col]]) &
+      !is.na(tbl_[[max_col]])
+    tbl_[[range_col]][fill_idx] <- tbl_[[max_col]][fill_idx] - tbl_[[min_col]][fill_idx]
   }
 
   # Fill the interval midpoint only where the source bounds are present and
   # the target midpoint field exists but is still missing.
-  if (!is.null(midpoint_col) && midpoint_col %in% names(tbl)) {
-    fill_idx <- is.na(tbl[[midpoint_col]]) &
-      !is.na(tbl[[min_col]]) &
-      !is.na(tbl[[max_col]])
-    tbl[[midpoint_col]][fill_idx] <- (tbl[[min_col]][fill_idx] + tbl[[max_col]][fill_idx]) / 2
+  if (!is.null(midpoint_col) && midpoint_col %in% names(tbl_)) {
+    fill_idx <- is.na(tbl_[[midpoint_col]]) &
+      !is.na(tbl_[[min_col]]) &
+      !is.na(tbl_[[max_col]])
+    tbl_[[midpoint_col]][fill_idx] <- (tbl_[[min_col]][fill_idx] + tbl_[[max_col]][fill_idx]) / 2
   }
 
-  tbl
+  tbl_
 }
 
 #' Convert TS models to a common length form
@@ -542,60 +543,67 @@ fill_interval_derivations <- function(tbl,
 #' @return The updated table.
 #' @keywords internal
 convert_to_length_form <- function(tbl) {
+  tbl_ <- tbl
   required_cols <- c("slope", "intercept", "equation_form")
-  if (!all(required_cols %in% names(tbl))) {
-    return(tbl)
+  if (!all(required_cols %in% names(tbl_))) {
+    return(tbl_)
   }
 
-  misc_chr <- if ("misc_factors" %in% names(tbl)) {
-    dplyr::coalesce(as.character(tbl$misc_factors), "")
+  misc_chr <- if ("misc_factors" %in% names(tbl_)) {
+    dplyr::coalesce(as.character(tbl_$misc_factors), "")
   } else {
-    rep("", nrow(tbl))
+    rep("", nrow(tbl_))
   }
 
-  lw_a <- if ("lw_a_g" %in% names(tbl)) {
-    suppressWarnings(as.numeric(tbl$lw_a_g))
+  lw_a <- if ("lw_a_g" %in% names(tbl_)) {
+    suppressWarnings(as.numeric(tbl_$lw_a_g))
   } else {
-    rep(NA_real_, nrow(tbl))
+    rep(NA_real_, nrow(tbl_))
   }
-  lw_b <- if ("lw_b" %in% names(tbl)) {
-    suppressWarnings(as.numeric(tbl$lw_b))
+  lw_b <- if ("lw_b" %in% names(tbl_)) {
+    suppressWarnings(as.numeric(tbl_$lw_b))
   } else {
-    rep(NA_real_, nrow(tbl))
+    rep(NA_real_, nrow(tbl_))
   }
 
-  valid_lw <- is.finite(lw_a) & lw_a > 0 & is.finite(lw_b)
+  valid_lw_ <- is.finite(lw_a) & lw_a > 0 & is.finite(lw_b)
 
   # Identify inverse-length equations first so they can be excluded from direct
   # TS-length conversion.
-  tbl$inverse_length_equation_flag <- stringr::str_detect(
+  tbl_$inverse_length_equation_flag <- stringr::str_detect(
     stringr::str_to_lower(misc_chr),
     "reported as\\s*log\\s*l\\s*=|derived from equation.*log\\s*l\\s*="
   )
 
-  slope_num <- suppressWarnings(as.numeric(tbl$slope))
-  intercept_num <- suppressWarnings(as.numeric(tbl$intercept))
-  eq_form <- stringr::str_to_lower(as.character(tbl$equation_form))
+  slope_num_ <- suppressWarnings(as.numeric(tbl_$slope))
+  intercept_num_ <- suppressWarnings(as.numeric(tbl_$intercept))
+  eq_form_ <- stringr::str_to_lower(as.character(tbl_$equation_form))
+
+  # Force evaluation
+  force(valid_lw_)
+  force(slope_num_)
+  force(intercept_num_)
+  force(eq_form_)
 
   # Apply the weight-to-length conversion only when length-weight coefficients
   # were observed. Missing coefficients leave the converted coefficients unset
   # instead of silently imposing canonical geometric scaling.
-  tbl$slope_len <- dplyr::case_when(
-    eq_form %in% c("20log10_ind", "mlog10_ind") ~ slope_num,
-    eq_form == "mlog10_kg" & valid_lw ~ slope_num + 10 * lw_b,
-    eq_form == "mlog10_kg" ~ NA_real_,
-    TRUE ~ slope_num
+  tbl_$slope_len <- dplyr::case_when(
+    eq_form_ %in% c("20log10_ind", "mlog10_ind") ~ slope_num_,
+    eq_form_ == "mlog10_kg" & valid_lw_ ~ slope_num_ + 10 * lw_b,
+    eq_form_ == "mlog10_kg" ~ NA_real_,
+    TRUE ~ slope_num_
   )
 
-  tbl$intercept_len <- dplyr::case_when(
-    eq_form %in% c("20log10_ind", "mlog10_ind") ~ intercept_num,
-    eq_form == "mlog10_kg" & valid_lw ~ intercept_num + 10 * (log10(lw_a) - 3),
-    eq_form == "mlog10_kg" ~ NA_real_,
-    TRUE ~ intercept_num
+  tbl_$intercept_len <- dplyr::case_when(
+    eq_form_ %in% c("20log10_ind", "mlog10_ind") ~ intercept_num_,
+    eq_form_ == "mlog10_kg" & valid_lw_ ~ intercept_num_ + 10 * (log10(lw_a) - 3),
+    eq_form_ == "mlog10_kg" ~ NA_real_,
+    TRUE ~ intercept_num_
   )
 
-  tbl$slope_len[tbl$inverse_length_equation_flag %in% TRUE] <- NA_real_
-  tbl$intercept_len[tbl$inverse_length_equation_flag %in% TRUE] <- NA_real_
+  tbl_$slope_len[tbl_$inverse_length_equation_flag %in% TRUE] <- NA_real_
+  tbl_$intercept_len[tbl_$inverse_length_equation_flag %in% TRUE] <- NA_real_
 
   extract_length_bounds <- function(tbl_now) {
     n_now <- nrow(tbl_now)
@@ -622,22 +630,22 @@ convert_to_length_form <- function(tbl) {
     list(lower = lower_now, upper = upper_now)
   }
 
-  length_bounds <- extract_length_bounds(tbl)
-  ts_at_lower <- tbl$slope_len * log10(pmax(length_bounds$lower, 1e-6)) + tbl$intercept_len
-  ts_at_upper <- tbl$slope_len * log10(pmax(length_bounds$upper, 1e-6)) + tbl$intercept_len
-  tbl$implausible_ts_length_coefficients <- is.finite(tbl$slope_len) &
-    is.finite(tbl$intercept_len) &
+  length_bounds <- extract_length_bounds(tbl_)
+  ts_at_lower <- tbl_$slope_len * log10(pmax(length_bounds$lower, 1e-6)) + tbl_$intercept_len
+  ts_at_upper <- tbl_$slope_len * log10(pmax(length_bounds$upper, 1e-6)) + tbl_$intercept_len
+  tbl_$implausible_ts_length_coefficients <- is.finite(tbl_$slope_len) &
+    is.finite(tbl_$intercept_len) &
     (
-      tbl$slope_len <= 0 |
-        tbl$slope_len > 40 |
-        tbl$intercept_len > -20
+      tbl_$slope_len <= 0 |
+        tbl_$slope_len > 40 |
+        tbl_$intercept_len > -20
     )
-  tbl$invalid_ts_length_curve <- (
+  tbl_$invalid_ts_length_curve <- (
     is.finite(ts_at_lower) & is.finite(ts_at_upper) &
       (ts_at_lower >= 0 | ts_at_upper >= 0)
-  ) | (tbl$implausible_ts_length_coefficients %in% TRUE)
-  tbl$slope_len[tbl$invalid_ts_length_curve %in% TRUE] <- NA_real_
-  tbl$intercept_len[tbl$invalid_ts_length_curve %in% TRUE] <- NA_real_
+  ) | (tbl_$implausible_ts_length_coefficients %in% TRUE)
+  tbl_$slope_len[tbl_$invalid_ts_length_curve %in% TRUE] <- NA_real_
+  tbl_$intercept_len[tbl_$invalid_ts_length_curve %in% TRUE] <- NA_real_
 
-  tbl
+  tbl_
 }

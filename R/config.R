@@ -660,14 +660,6 @@ normalize_similarity_config_shape <- function(config) {
   similarity$frequency_gap <- similarity$frequency_gap %||% frequency_cfg$gap %||% NULL
   similarity$kernel_scale <- similarity$kernel_scale %||% similarity$k_species %||% similarity$k_study %||% NULL
 
-  frequency_mode_internal <- switch(stringr::str_to_lower(stringr::str_squish(as.character(similarity$frequency_mode %||% "overlap")))[[1]],
-    overlap = "overlap",
-    literal = "literal",
-    none = "none",
-    "overlap"
-  )
-  exact_frequency <- identical(frequency_mode_internal, "literal")
-
   admissibility_coherence <- admissibility$coherence %||% list()
   admissibility_length_cfg <- admissibility_coherence$length %||% list()
   admissibility_depth_cfg <- admissibility_coherence$depth %||% list()
@@ -935,7 +927,7 @@ normalize_active_policy_names <- function(config,
     policy_family = vapply(policy_defs, function(x) as.character(x$policy_family %||% NA_character_), character(1)),
     candidate_pool = vapply(policy_defs, function(x) as.character(x$candidate_pool %||% NA_character_), character(1))
   )
-  policy_tbl <- dplyr::filter(policy_tbl, !is.na(policy), nzchar(policy))
+  policy_tbl <- dplyr::filter(policy_tbl, !is.na(.data$policy), nzchar(.data$policy))
 
   package_default_metrics <- c("closest", "weighted_mean", "unweighted_mean")
   package_default_branches <- "all"
@@ -1139,7 +1131,7 @@ normalize_active_policy_names <- function(config,
       next
     }
     matches <- policy_tbl |>
-      dplyr::filter(grouping_key == group_name, metric_key %in% metrics_now)
+      dplyr::filter(.data$grouping_key == group_name, .data$metric_key %in% metrics_now)
     if (nrow(matches) == 0) {
       stop(
         sprintf(

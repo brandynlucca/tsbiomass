@@ -26,12 +26,13 @@ anchor_field <- function(config,
 #' @return Anchor-evaluation config list.
 #' @keywords internal
 default_anchor_config <- function(config = NULL) {
-  if ((inherits(config, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Candidates), error = function(e) FALSE)))) {
-    config <- candidates_config_data(config)
+  config_ <- config
+  if ((inherits(config_, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config_, Candidates), error = function(e) FALSE)))) {
+    config_ <- candidates_config_data(config_)
   }
-  if (is.list(config) &&
-    is.list(config$fields %||% NULL) &&
-    all(c("model_id_chr", "species_name", "frequency") %in% names(config$fields)) &&
+  if (is.list(config_) &&
+    is.list(config_$fields %||% NULL) &&
+    all(c("model_id_chr", "species_name", "frequency") %in% names(config_$fields)) &&
     all(c(
       "species_traits",
       "study_traits",
@@ -41,22 +42,22 @@ default_anchor_config <- function(config = NULL) {
       "min_length_overlap_fraction",
       "min_depth_overlap_fraction",
       "missing_key_metadata_max_fraction"
-    ) %in% names(config))) {
-    return(config)
+    ) %in% names(config_))) {
+    return(config_)
   }
-  cfg_data <- if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
-    config@data
+  cfg_data <- if ((inherits(config_, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config_, Configurer), error = function(e) FALSE)))) {
+    config_@data
   } else if (
-    is.list(config) &&
+    is.list(config_) &&
       (
         (
-          all(c("paths", "execution", "tuning", "policies") %in% names(config)) &&
-            any(c("similarity", "policy", "admissibility") %in% names(config))
+          all(c("paths", "execution", "tuning", "policies") %in% names(config_)) &&
+            any(c("similarity", "policy", "admissibility") %in% names(config_))
         ) ||
-          any(c("similarity", "policy", "admissibility") %in% names(config))
+          any(c("similarity", "policy", "admissibility") %in% names(config_))
       )
   ) {
-    config
+    config_
   } else {
     list()
   }
@@ -64,8 +65,8 @@ default_anchor_config <- function(config = NULL) {
   similarity_cfg <- cfg_data$similarity %||% list()
   admissibility_cfg <- cfg_data$admissibility %||% list()
   policy_cfg <- similarity_cfg$policy %||% cfg_data$policy %||% list()
-  direct_cfg <- if (is.null(config) || is.list(config) || (is.character(config) && length(config) == 1)) {
-    read_similarity_config(config)
+  direct_cfg <- if (is.null(config_) || is.list(config_) || (is.character(config_) && length(config_) == 1)) {
+    read_similarity_config(config_)
   } else {
     list()
   }
@@ -397,25 +398,25 @@ calculate_range_overlap <- function(a_min, a_max, b_min, b_max) {
 #'
 #' @keywords internal
 calculate_range_overlap_vec <- function(a_min, a_max, b_min, b_max) {
-  a_min <- suppressWarnings(as.numeric(a_min))
-  a_max <- suppressWarnings(as.numeric(a_max))
-  a_min <- if (length(a_min) == 0) NA_real_ else a_min[[1]]
-  a_max <- if (length(a_max) == 0) NA_real_ else a_max[[1]]
-  b_min <- suppressWarnings(as.numeric(b_min))
-  b_max <- suppressWarnings(as.numeric(b_max))
-  out <- rep(NA_real_, length(b_min))
+  a_min_ <- suppressWarnings(as.numeric(a_min))
+  a_max_ <- suppressWarnings(as.numeric(a_max))
+  a_min_ <- if (length(a_min_) == 0) NA_real_ else a_min_[[1]]
+  a_max_ <- if (length(a_max_) == 0) NA_real_ else a_max_[[1]]
+  b_min_ <- suppressWarnings(as.numeric(b_min))
+  b_max_ <- suppressWarnings(as.numeric(b_max))
+  out <- rep(NA_real_, length(b_min_))
 
-  if (!is.finite(a_min) || !is.finite(a_max) || a_min > a_max) {
+  if (!is.finite(a_min_) || !is.finite(a_max_) || a_min_ > a_max_) {
     return(out)
   }
 
-  keep <- is.finite(b_min) & is.finite(b_max) & b_min <= b_max
+  keep <- is.finite(b_min_) & is.finite(b_max_) & b_min_ <= b_max_
   if (!any(keep)) {
     return(out)
   }
 
-  inter <- pmax(0, pmin(a_max, b_max[keep]) - pmax(a_min, b_min[keep]))
-  a_len <- max(1e-9, a_max - a_min)
+  inter <- pmax(0, pmin(a_max_, b_max_[keep]) - pmax(a_min_, b_min_[keep]))
+  a_len <- max(1e-9, a_max_ - a_min_)
   out[keep] <- inter / a_len
   out
 }
@@ -434,10 +435,9 @@ calculate_frequency_gap <- function(candidate_freq,
                                     anchor_freq,
                                     freq_span,
                                     mode = "overlap") {
-
   # Get valid frequencies
   valid_freqs <- is.finite(candidate_freq) & candidate_freq > 0 & is.finite(anchor_freq) & anchor_freq > 0
-  
+
   # Handle literal mode early
   if (identical(mode, "literal")) {
     return(
@@ -449,7 +449,7 @@ calculate_frequency_gap <- function(candidate_freq,
     )
   }
 
-# Handle standard distance mode
+  # Handle standard distance mode
   dplyr::case_when(
     identical(mode, "none") ~ NA_real_,
     valid_freqs ~ pmin(abs(log(candidate_freq / anchor_freq)) / freq_span, 1),
@@ -1189,11 +1189,12 @@ add_anchor_distances <- function(model_eval,
                                  config) {
   # Reindex the precomputed species and study distances onto the candidate
   # rows so every later scoring step can work off the row-wise table alone.
-  model_ids <- model_eval[[anchor_field(config, "model_id_chr")]]
-  model_eval$d_species <- as.numeric(dist_obj$species_dist_model[model_ids, anchor_id])
-  model_eval$d_study <- as.numeric(dist_obj$study_dist[model_ids, anchor_id])
+  model_eval_ <- model_eval
+  model_ids <- model_eval_[[anchor_field(config, "model_id_chr")]]
+  model_eval_$d_species <- as.numeric(dist_obj$species_dist_model[model_ids, anchor_id])
+  model_eval_$d_study <- as.numeric(dist_obj$study_dist[model_ids, anchor_id])
 
-  model_eval
+  model_eval_
 }
 
 #' Add anchor coherence and kernel terms
@@ -1262,7 +1263,7 @@ weight_anchor_models <- function(model_eval,
                                  config) {
   # Collapse all active distance blocks to one normalized distance and one
   # exponential kernel weight per candidate model.
-  model_eval <- tibble::as_tibble(model_eval) |>
+  model_eval_ <- tibble::as_tibble(model_eval) |>
     dplyr::mutate(
       combined_distance = (
         dplyr::coalesce(sim_obj$alpha * .data$d_species, 0) +
@@ -1297,14 +1298,14 @@ weight_anchor_models <- function(model_eval,
 
   # Normalize the raw kernel values only when the anchor pool contains at least
   # one finite positive candidate weight.
-  w_sum <- sum(model_eval$w_combined_raw, na.rm = TRUE)
+  w_sum <- sum(model_eval_$w_combined_raw, na.rm = TRUE)
   if (!is.finite(w_sum) || w_sum <= 0) {
-    model_eval$w_combined <- NA_real_
-    return(model_eval)
+    model_eval_$w_combined <- NA_real_
+    return(model_eval_)
   }
 
-  model_eval$w_combined <- model_eval$w_combined_raw / w_sum
-  model_eval
+  model_eval_$w_combined <- model_eval_$w_combined_raw / w_sum
+  model_eval_
 }
 
 #' Build the admissible anchor pool
@@ -1321,16 +1322,16 @@ build_admissible_pool <- function(model_eval,
   # the study-cell level before final admissible weights are normalized.
   study_cell_col <- anchor_field(config, "study_cell")
   id_chr_col <- anchor_field(config, "model_id_chr")
-  model_eval <- tibble::as_tibble(model_eval)
-  if (!study_cell_col %in% names(model_eval)) {
-    model_eval[[study_cell_col]] <- if (id_chr_col %in% names(model_eval)) {
-      as.character(model_eval[[id_chr_col]])
+  model_eval_ <- tibble::as_tibble(model_eval)
+  if (!study_cell_col %in% names(model_eval_)) {
+    model_eval_[[study_cell_col]] <- if (id_chr_col %in% names(model_eval_)) {
+      as.character(model_eval_[[id_chr_col]])
     } else {
-      rep(NA_character_, nrow(model_eval))
+      rep(NA_character_, nrow(model_eval_))
     }
   }
 
-  admissible_df <- model_eval |>
+  admissible_df <- model_eval_ |>
     dplyr::filter(.data$admissible, is.finite(.data$w_combined), .data$w_combined > 0, is.finite(.data$biomass_multiplier_if_replace)) |>
     dplyr::mutate(!!study_cell_col := dplyr::coalesce(.data[[study_cell_col]], .data[[id_chr_col]])) |>
     dplyr::arrange(dplyr::desc(.data$w_combined))
@@ -1567,22 +1568,28 @@ screen_admissibility <- function(reference_anchors = NULL,
                                  refresh = NULL,
                                  progress = NULL,
                                  registry_path = NULL) {
+  reference_anchors_ <- reference_anchors
+  candidate_models_ <- if (missing(candidate_models)) NULL else candidate_models
+  config_ <- config
+  cache_path_ <- cache_path
+  refresh_ <- refresh
+  progress_ <- progress
   if (missing(candidate_models)) {
-    if (inherits(reference_anchors, "S7_object") &&
+    if (inherits(reference_anchors_, "S7_object") &&
       exists("Alchemist", inherits = TRUE) &&
-      isTRUE(tryCatch(S7::S7_inherits(reference_anchors, Alchemist), error = function(e) FALSE))) {
+      isTRUE(tryCatch(S7::S7_inherits(reference_anchors_, Alchemist), error = function(e) FALSE))) {
       return(.screen_admissibility_alchemist(
-        alchemist = reference_anchors,
-        config = config,
-        cache_path = cache_path,
-        refresh = refresh,
-        progress = progress,
+        alchemist = reference_anchors_,
+        config = config_,
+        cache_path = cache_path_,
+        refresh = refresh_,
+        progress = progress_,
         registry_path = registry_path
       ))
     }
-    if ((inherits(reference_anchors, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(reference_anchors, Candidates), error = function(e) FALSE)))) {
-      candidate_models <- reference_anchors
-      reference_anchors <- NULL
+    if ((inherits(reference_anchors_, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(reference_anchors_, Candidates), error = function(e) FALSE)))) {
+      candidate_models_ <- reference_anchors_
+      reference_anchors_ <- NULL
     } else {
       stop(
         "'candidate_models' must be supplied unless the first argument is a `Candidates` object.",
@@ -1591,55 +1598,55 @@ screen_admissibility <- function(reference_anchors = NULL,
     }
   }
 
-  if (inherits(candidate_models, "S7_object") &&
+  if (inherits(candidate_models_, "S7_object") &&
     exists("Alchemist", inherits = TRUE) &&
-    isTRUE(tryCatch(S7::S7_inherits(candidate_models, Alchemist), error = function(e) FALSE))) {
+    isTRUE(tryCatch(S7::S7_inherits(candidate_models_, Alchemist), error = function(e) FALSE))) {
     return(.screen_admissibility_alchemist(
-      alchemist = candidate_models,
-      config = config,
-      cache_path = cache_path,
-      refresh = refresh,
-      progress = progress,
+      alchemist = candidate_models_,
+      config = config_,
+      cache_path = cache_path_,
+      refresh = refresh_,
+      progress = progress_,
       registry_path = registry_path
     ))
   }
 
-  candidates_obj <- if ((inherits(candidate_models, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_models, Candidates), error = function(e) FALSE)))) candidate_models else NULL
+  candidates_obj <- if ((inherits(candidate_models_, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_models_, Candidates), error = function(e) FALSE)))) candidate_models_ else NULL
   if (!is.null(candidates_obj)) {
-    if (is.null(config)) {
-      config <- candidates_config_data(candidates_obj)
+    if (is.null(config_)) {
+      config_ <- candidates_config_data(candidates_obj)
     }
-    if (is.null(reference_anchors)) {
-      reference_anchors <- candidates_obj@reference_anchors
+    if (is.null(reference_anchors_)) {
+      reference_anchors_ <- candidates_obj@reference_anchors
     }
-    candidate_models <- tibble::as_tibble(candidates_obj@candidate_models)
+    candidate_models_ <- tibble::as_tibble(candidates_obj@candidate_models)
   }
-  cfg_data <- config_data(config)
-  cache_path <- cache_path %||% config_value(cfg_data, "cache_path", sections = "admissibility") %||% NULL
-  refresh <- refresh %||% config_value(cfg_data, "refresh", sections = "admissibility") %||% FALSE
-  progress <- progress %||% config_value(cfg_data, "progress", sections = "admissibility") %||% FALSE
-  if (!is.null(cache_path) &&
-    (!is.character(cache_path) || length(cache_path) != 1 || !nzchar(cache_path))) {
+  cfg_data <- config_data(config_)
+  cache_path_ <- cache_path_ %||% config_value(cfg_data, "cache_path", sections = "admissibility") %||% NULL
+  refresh_ <- refresh_ %||% config_value(cfg_data, "refresh", sections = "admissibility") %||% FALSE
+  progress_ <- progress_ %||% config_value(cfg_data, "progress", sections = "admissibility") %||% FALSE
+  if (!is.null(cache_path_) &&
+    (!is.character(cache_path_) || length(cache_path_) != 1 || !nzchar(cache_path_))) {
     stop("'cache_path' must be NULL or a single file path.", call. = FALSE)
   }
-  if (!is.logical(refresh) || length(refresh) != 1 || is.na(refresh)) {
+  if (!is.logical(refresh_) || length(refresh_) != 1 || is.na(refresh_)) {
     stop("'refresh' must be TRUE or FALSE.", call. = FALSE)
   }
-  if (!is.data.frame(reference_anchors) || nrow(reference_anchors) == 0) {
+  if (!is.data.frame(reference_anchors_) || nrow(reference_anchors_) == 0) {
     stop("'reference_anchors' must be a non-empty data frame.", call. = FALSE)
   }
-  if (!is.data.frame(candidate_models)) {
+  if (!is.data.frame(candidate_models_)) {
     stop("'candidate_models' must be a data frame or tibble.", call. = FALSE)
   }
 
-  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
-    report_progress(progress, "Loading cached anchor admissibility from ", cache_path, ".")
-    cached_result <- readRDS(cache_path)
-    if (!admissibility_bundle_is_current(cached_result, config)) {
+  if (!is.null(cache_path_) && file.exists(cache_path_) && !refresh_) {
+    report_progress(progress_, "Loading cached anchor admissibility from ", cache_path_, ".")
+    cached_result <- readRDS(cache_path_)
+    if (!admissibility_bundle_is_current(cached_result, config_)) {
       report_progress(
-        progress,
+        progress_,
         "Cached anchor admissibility at ",
-        cache_path,
+        cache_path_,
         " is stale under the current admissibility logic; rebuilding."
       )
     } else {
@@ -1650,7 +1657,7 @@ screen_admissibility <- function(reference_anchors = NULL,
     }
   }
 
-  cfg <- default_anchor_config(config)
+  cfg <- default_anchor_config(config_)
   report_progress(
     progress,
     "Screening admissibility for ",
@@ -1684,7 +1691,7 @@ screen_admissibility <- function(reference_anchors = NULL,
   }
   if (is.null(sim_obj)) {
     sim_obj <- prepare_similarity_matrix(
-      candidate_models = candidate_models,
+      candidate_models = candidate_models_,
       species_traits = cfg$similarity_species_traits %||% NULL,
       study_traits = cfg$similarity_study_traits %||% NULL,
       alpha = cfg$alpha %||% NULL,
@@ -1703,7 +1710,7 @@ screen_admissibility <- function(reference_anchors = NULL,
   } else {
     dist_obj <- build_gower_distances(sim_obj)
   }
-  candidate_models_prepared <- tibble::as_tibble(sim_obj$candidate_models %||% candidate_models)
+  candidate_models_prepared <- tibble::as_tibble(sim_obj$candidate_models %||% candidate_models_)
   candidate_models_scored <- screen_missing_metadata(
     candidate_models = candidate_models_prepared,
     key_cols = admissibility_key_metadata_cols(cfg)
@@ -1711,14 +1718,14 @@ screen_admissibility <- function(reference_anchors = NULL,
 
   # Evaluate every reference anchor independently and retain both the per-anchor
   # tables and the bound cross-anchor summaries.
-  for (i in seq_len(nrow(reference_anchors))) {
-    anchor_row <- reference_anchors[i, , drop = FALSE]
+  for (i in seq_len(nrow(reference_anchors_))) {
+    anchor_row <- reference_anchors_[i, , drop = FALSE]
     anchor_id <- anchor_model_id(anchor_row, cfg)
     anchor_species <- as.character(anchor_row[[anchor_field(cfg, "species_name")]][[1]])
 
     eval_obj <- screen_one_anchor_admissibility(
       anchor_row = anchor_row,
-      candidate_models = candidate_models,
+      candidate_models = candidate_models_,
       config = cfg,
       registry_path = registry_path,
       sim_obj = sim_obj,

@@ -251,7 +251,7 @@ run_ordination <- function(dist_mat,
       nmds_cluster_k = integer(),
       nmds_cluster_sil = numeric()
     ) |>
-      dplyr::rename(!!species_cluster_col := cluster_id)
+      dplyr::rename(!!species_cluster_col := .data$cluster_id)
     species_pairwise_tests <- tibble::tibble()
     species_lookup <- list()
     species_manifest <- tibble::tibble()
@@ -298,7 +298,7 @@ run_ordination <- function(dist_mat,
       )
 
       species_points <- species_ordination$points |>
-        dplyr::rename(species_name = model_id)
+        dplyr::rename(species_name = .data$model_id)
 
       species_points <- do.call(
         assign_ordination_groups,
@@ -469,7 +469,7 @@ run_ordination <- function(dist_mat,
   # (centroids) rather than $vectors (loadings).
   fit_input <- drop_ordination_synthetic_overlap_traits(trait_table) |>
     expand_envfit_multival_traits() |>
-    dplyr::mutate(dplyr::across(where(is.character), as.factor)) |>
+    dplyr::mutate(dplyr::across(tidyselect::where(is.character), as.factor)) |>
     dplyr::mutate(dplyr::across(
       dplyr::matches("__"),
       function(x) {
@@ -593,7 +593,7 @@ run_ordination <- function(dist_mat,
     )
 
     centroids <- ctr |>
-      dplyr::select(trait, level, MDS1, MDS2) |>
+      dplyr::select("trait", "level", "MDS1", "MDS2") |>
       dplyr::left_join(pvals, by = "trait") |>
       dplyr::left_join(r2, by = "trait")
 
@@ -773,7 +773,7 @@ join_ordination_points <- function(ordination_points,
   out <- points_df |>
     dplyr::left_join(meta_df, by = "model_id") |>
     dplyr::left_join(ref_tbl, by = "model_id") |>
-    dplyr::mutate(is_reference = dplyr::coalesce(is_reference, FALSE))
+    dplyr::mutate(is_reference = dplyr::coalesce(.data$is_reference, FALSE))
 
   do.call(
     assign_ordination_groups,
@@ -811,11 +811,11 @@ extract_ordination_scores <- function(points_df,
 
   tibble::as_tibble(points_df) |>
     dplyr::transmute(
-      model_id_chr = model_id_chr,
-      MDS1 = MDS1,
-      MDS2 = MDS2,
+      model_id_chr = .data$model_id_chr,
+      MDS1 = .data$MDS1,
+      MDS2 = .data$MDS2,
       nmds_cluster = .data[[cluster_col]],
-      species_name = species_name,
+      species_name = .data$species_name,
       is_reference = .data[[reference_col]]
     )
 }
@@ -864,7 +864,7 @@ build_ordination_hulls <- function(points_df,
   tibble::as_tibble(points_df) |>
     dplyr::group_by(.data[[cluster_col]]) |>
     dplyr::filter(dplyr::n() >= as.integer(min_points)) |>
-    dplyr::slice(chull(MDS1, MDS2)) |>
+    dplyr::slice(chull(.data$MDS1, .data$MDS2)) |>
     dplyr::ungroup()
 }
 
@@ -931,12 +931,16 @@ add_ordination_missing <- function(points_df,
   q1 <- stats::quantile(missing_df$missing_trait_fraction, 1 / 3, na.rm = TRUE, names = FALSE)
   q2 <- stats::quantile(missing_df$missing_trait_fraction, 2 / 3, na.rm = TRUE, names = FALSE)
 
+  # Force evaluation
+  force(q1)
+  force(q2)
+
   tibble::as_tibble(points_df) |>
     dplyr::left_join(missing_df, by = "model_id") |>
     dplyr::mutate(
       missingness_group = dplyr::case_when(
-        missing_trait_fraction <= q1 ~ "low",
-        missing_trait_fraction <= q2 ~ "medium",
+        .data$missing_trait_fraction <= q1 ~ "low",
+        .data$missing_trait_fraction <= q2 ~ "medium",
         TRUE ~ "high"
       )
     )
@@ -977,7 +981,7 @@ refine_species_clusters <- function(species_points_df,
   dist_lookup <- if (inherits(dist_mat, "dist")) as.matrix(dist_mat) else dist_mat
 
   out <- tibble::as_tibble(species_points_df) |>
-    dplyr::filter(is.finite(MDS1), is.finite(MDS2)) |>
+    dplyr::filter(is.finite(.data$MDS1), is.finite(.data$MDS2)) |>
     dplyr::distinct(.data[[.data$species_col]], .keep_all = TRUE)
 
   if (nrow(out) < 3 || !cluster_col %in% names(out)) {
@@ -1000,8 +1004,8 @@ refine_species_clusters <- function(species_points_df,
       centroid_tbl <- sub_df |>
         dplyr::group_by(.data[[cluster_col]]) |>
         dplyr::summarise(
-          MDS1 = mean(MDS1, na.rm = TRUE),
-          MDS2 = mean(MDS2, na.rm = TRUE),
+          MDS1 = mean(.data$MDS1, na.rm = TRUE),
+          MDS2 = mean(.data$MDS2, na.rm = TRUE),
           .groups = "drop"
         )
       centroid_dist <- sqrt(diff(centroid_tbl$MDS1)^2 + diff(centroid_tbl$MDS2)^2)
@@ -1010,6 +1014,10 @@ refine_species_clusters <- function(species_points_df,
       if (length(group_sizes) == 2 && all(group_sizes >= 2)) {
         spp <- as.character(sub_df[[species_col]])
         sub_dist <- dist_lookup[spp, spp, drop = FALSE]
+
+        # Force evaluation
+        force(sub_dist)
+
         meta <- data.frame(cluster = factor(sub_df[[cluster_col]]))
         fit <- tryCatch(
           vegan::adonis2(stats::as.dist(sub_dist) ~ cluster, data = meta, permutations = permutations),
@@ -1036,14 +1044,14 @@ refine_species_clusters <- function(species_points_df,
   repeat {
     tests <- compute_pairwise_tests(out)
     non_sig <- tests |>
-      dplyr::filter(!is.finite(p_value) | p_value >= alpha)
+      dplyr::filter(!is.finite(.data$p_value) | .data$p_value >= alpha)
 
     if (nrow(non_sig) == 0) {
       break
     }
 
     merge_pair <- non_sig |>
-      dplyr::arrange(dplyr::desc(dplyr::coalesce(p_value, 1)), centroid_distance) |>
+      dplyr::arrange(dplyr::desc(dplyr::coalesce(.data$p_value, 1)), .data$centroid_distance) |>
       dplyr::slice(1)
 
     out <- out |>
@@ -1067,7 +1075,7 @@ refine_species_clusters <- function(species_points_df,
     dplyr::mutate(!!cluster_col := unname(relabel[.data[[cluster_col]]]))
 
   final_tests <- compute_pairwise_tests(out) |>
-    dplyr::mutate(significant = is.finite(p_value) & p_value < alpha)
+    dplyr::mutate(significant = is.finite(.data$p_value) & .data$p_value < alpha)
 
   points_out <- tibble::as_tibble(species_points_df) |>
     dplyr::left_join(
@@ -1120,7 +1128,7 @@ build_species_lookup <- function(species_points_df,
   }
 
   species_points_df <- tibble::as_tibble(species_points_df) |>
-    dplyr::filter(is.finite(MDS1), is.finite(MDS2)) |>
+    dplyr::filter(is.finite(.data$MDS1), is.finite(.data$MDS2)) |>
     dplyr::distinct(.data[[.data$species_col]], .keep_all = TRUE)
 
   species_levels <- sort(unique(stats::na.omit(as.character(species_points_df[[species_col]]))))
@@ -1129,7 +1137,7 @@ build_species_lookup <- function(species_points_df,
 
   for (spp in species_levels) {
     anchor_df <- species_points_df |>
-      dplyr::filter(.data[[species_col]] == spp, is.finite(MDS1), is.finite(MDS2))
+      dplyr::filter(.data[[species_col]] == spp, is.finite(.data$MDS1), is.finite(.data$MDS2))
 
     if (nrow(anchor_df) == 0) {
       lookup[[spp]] <- character(0)

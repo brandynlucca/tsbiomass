@@ -39,11 +39,11 @@ fetch_worms <- function(species, cache_path = NULL, refresh = FALSE) {
 
   # Standardize the incoming species vector so blank and duplicate queries do
   # not trigger redundant API calls.
-  species <- as.character(species)
-  species <- stringr::str_squish(species)
-  species <- unique(species[!is.na(species) & nzchar(species)])
+  species_ <- as.character(species)
+  species_ <- stringr::str_squish(species_)
+  species_ <- unique(species_[!is.na(species_) & nzchar(species_)])
 
-  if (length(species) == 0) {
+  if (length(species_) == 0) {
     stop("No valid species names were supplied.", call. = FALSE)
   }
 
@@ -98,7 +98,7 @@ fetch_worms <- function(species, cache_path = NULL, refresh = FALSE) {
     return(readRDS(cache_path))
   }
 
-  out <- lapply(species, function(sp) {
+  out <- lapply(species_, function(sp) {
     # Fetch all candidate WoRMS records for the queried species. API errors are
     # converted into a single missing row so batch ingestion can continue.
     rec <- tryCatch(
@@ -238,7 +238,7 @@ read_tsl_table <- function(path, sheet = NULL) {
   dat <- dat |>
     janitor::clean_names() |>
     dplyr::mutate(
-      dplyr::across(where(is.character), ~ stringr::str_squish(.x))
+      dplyr::across(tidyselect::where(is.character), ~ stringr::str_squish(.x))
     )
 
   # Require the core TS-model columns up front so downstream preparation does
@@ -254,10 +254,6 @@ read_tsl_table <- function(path, sheet = NULL) {
       call. = FALSE
     )
   }
-
-  # Rebuild the species name internally for parsing and matching, even though
-  # the returned study table keeps only the canonical analysis columns.
-  species_name <- stringr::str_trim(paste(dat$genus, dat$species))
 
   if ("frequency_khz" %in% names(dat)) {
     dat$frequency_khz <- suppressWarnings(as.numeric(dat$frequency_khz))
@@ -278,28 +274,25 @@ read_tsl_table <- function(path, sheet = NULL) {
   dat$intercept[!is.finite(dat$intercept)] <- NA_real_
 
   if ("pressure_corrected" %in% names(dat)) {
-    pressure_chr <- as.character(dat$pressure_corrected)
     dat$pressure_corrected <- dplyr::case_when(
-      pressure_chr %in% c("1", "1.0", "TRUE", "true") ~ TRUE,
-      pressure_chr %in% c("0", "0.0", "FALSE", "false") ~ FALSE,
+      as.character(dat$pressure_corrected) %in% c("1", "1.0", "TRUE", "true") ~ TRUE,
+      as.character(dat$pressure_corrected) %in% c("0", "0.0", "FALSE", "false") ~ FALSE,
       TRUE ~ NA
     )
   }
 
   if ("active_use" %in% names(dat)) {
-    active_chr <- as.character(dat$active_use)
     dat$active_use <- dplyr::case_when(
-      active_chr %in% c("1", "1.0", "TRUE", "true") ~ TRUE,
-      active_chr %in% c("0", "0.0", "FALSE", "false") ~ FALSE,
+      as.character(dat$active_use) %in% c("1", "1.0", "TRUE", "true") ~ TRUE,
+      as.character(dat$active_use) %in% c("0", "0.0", "FALSE", "false") ~ FALSE,
       TRUE ~ FALSE
     )
   }
 
   if ("stock_assessment" %in% names(dat)) {
-    stock_chr <- as.character(dat$stock_assessment)
     dat$stock_assessment <- dplyr::case_when(
-      stock_chr %in% c("1", "1.0", "TRUE", "true") ~ TRUE,
-      stock_chr %in% c("0", "0.0", "FALSE", "false") ~ FALSE,
+      as.character(dat$stock_assessment) %in% c("1", "1.0", "TRUE", "true") ~ TRUE,
+      as.character(dat$stock_assessment) %in% c("0", "0.0", "FALSE", "false") ~ FALSE,
       TRUE ~ FALSE
     )
   }
@@ -318,8 +311,8 @@ read_tsl_table <- function(path, sheet = NULL) {
     num_chr <- stringr::str_extract_all(x_chr, "\\d+(?:\\.\\d+)?")
 
     vals <- lapply(num_chr, function(z) {
-      z <- suppressWarnings(as.numeric(z))
-      z[is.finite(z)]
+      z_ <- suppressWarnings(as.numeric(z))
+      z_[is.finite(z_)]
     })
 
     out <- tibble::tibble(
@@ -520,11 +513,11 @@ fetch_fishbase <- function(species, cache_path = NULL, refresh = FALSE) {
 
   # Standardize the incoming species vector so blank and duplicate queries do
   # not trigger redundant API calls.
-  species <- as.character(species)
-  species <- stringr::str_squish(species)
-  species <- unique(species[!is.na(species) & nzchar(species)])
+  species_ <- as.character(species)
+  species_ <- stringr::str_squish(species_)
+  species_ <- unique(species_[!is.na(species_) & nzchar(species_)])
 
-  if (length(species) == 0) {
+  if (length(species_) == 0) {
     stop("No valid species names were supplied.", call. = FALSE)
   }
 
@@ -594,15 +587,15 @@ fetch_fishbase <- function(species, cache_path = NULL, refresh = FALSE) {
   # Seed one output row per queried species so direct genus/species identity is
   # preserved even when FishBase returns no usable endpoint match.
   out <- tibble::as_tibble(
-    lapply(template, function(x) rep(x, length(species)))
+    lapply(template, function(x) rep(x, length(species_)))
   )
-  out$species_name_query <- species
+  out$species_name_query <- species_
   if ("genus" %in% names(out)) {
-    out$genus <- stringr::word(species, start = 1, end = 1)
+    out$genus <- stringr::word(species_, start = 1, end = 1)
     out$genus[!nzchar(out$genus)] <- NA_character_
   }
   if ("species" %in% names(out)) {
-    out$species <- stringr::word(species, start = 2, end = 2)
+    out$species <- stringr::word(species_, start = 2, end = 2)
     out$species[!nzchar(out$species)] <- NA_character_
   }
 
@@ -615,13 +608,13 @@ fetch_fishbase <- function(species, cache_path = NULL, refresh = FALSE) {
     )
   }
   endpoints <- list(
-    species = fetch_quietly(rfishbase::species(species_list = species)),
-    morphology = fetch_quietly(rfishbase::morphology(species_list = species)),
-    ecology = fetch_quietly(rfishbase::ecology(species_list = species)),
-    length_weight = fetch_quietly(rfishbase::length_weight(species_list = species)),
-    popgrowth = fetch_quietly(rfishbase::popgrowth(species_list = species)),
-    stocks = fetch_quietly(rfishbase::stocks(species_list = species)),
-    faoareas = fetch_quietly(rfishbase::faoareas(species_list = species))
+    species = fetch_quietly(rfishbase::species(species_list = species_)),
+    morphology = fetch_quietly(rfishbase::morphology(species_list = species_)),
+    ecology = fetch_quietly(rfishbase::ecology(species_list = species_)),
+    length_weight = fetch_quietly(rfishbase::length_weight(species_list = species_)),
+    popgrowth = fetch_quietly(rfishbase::popgrowth(species_list = species_)),
+    stocks = fetch_quietly(rfishbase::stocks(species_list = species_)),
+    faoareas = fetch_quietly(rfishbase::faoareas(species_list = species_))
   )
 
   for (endpoint_name in names(endpoints)) {
@@ -707,18 +700,18 @@ fetch_fishbase <- function(species, cache_path = NULL, refresh = FALSE) {
 
       if (isTRUE(target_multi)) {
         value_df <- value_df |>
-          dplyr::filter(!is.na(value_raw)) |>
-          dplyr::group_by(species_name_query) |>
+          dplyr::filter(!is.na(.data$value_raw)) |>
+          dplyr::group_by(.data$species_name_query) |>
           dplyr::summarise(
-            value = paste(unique(value_raw), collapse = ";"),
+            value = paste(unique(.data$value_raw), collapse = ";"),
             .groups = "drop"
           )
       } else {
         value_df <- value_df |>
-          dplyr::filter(!is.na(value_raw)) |>
-          dplyr::group_by(species_name_query) |>
+          dplyr::filter(!is.na(.data$value_raw)) |>
+          dplyr::group_by(.data$species_name_query) |>
           dplyr::summarise(
-            value = dplyr::first(value_raw),
+            value = dplyr::first(.data$value_raw),
             .groups = "drop"
           )
       }
@@ -809,11 +802,11 @@ read_pelagic_db <- function(species,
 
   # Standardize the incoming species vector so blank and duplicate queries do
   # not trigger redundant processing.
-  species <- as.character(species)
-  species <- stringr::str_squish(species)
-  species <- unique(species[!is.na(species) & nzchar(species)])
+  species_ <- as.character(species)
+  species_ <- stringr::str_squish(species_)
+  species_ <- unique(species_[!is.na(species_) & nzchar(species_)])
 
-  if (length(species) == 0) {
+  if (length(species_) == 0) {
     stop("No valid species names were supplied.", call. = FALSE)
   }
 
@@ -859,15 +852,15 @@ read_pelagic_db <- function(species,
   # identity is preserved even when none of the local source files contains a
   # match.
   out <- tibble::as_tibble(
-    lapply(template, function(x) rep(x, length(species)))
+    lapply(template, function(x) rep(x, length(species_)))
   )
-  out$species_name_query <- species
+  out$species_name_query <- species_
   if ("genus" %in% names(out)) {
-    out$genus <- stringr::word(species, start = 1, end = 1)
+    out$genus <- stringr::word(species_, start = 1, end = 1)
     out$genus[!nzchar(out$genus)] <- NA_character_
   }
   if ("species" %in% names(out)) {
-    out$species <- stringr::word(species, start = 2, end = 2)
+    out$species <- stringr::word(species_, start = 2, end = 2)
     out$species[!nzchar(out$species)] <- NA_character_
   }
 
@@ -959,15 +952,21 @@ read_pelagic_db <- function(species,
         # Reconcile the three body-shape encodings used across the pelagic
         # databases: direct labels, ordinal codes, and one-hot indicators.
         if (source_col == "body_shape_ordinal") {
-          value_num <- suppressWarnings(as.numeric(value_df$value_raw))
-          value_chr <- dplyr::case_when(
-            value_num == 1 ~ "eel_like",
-            value_num == 2 ~ "elongated",
-            value_num == 3 ~ "fusiform",
-            value_num %in% c(4, 6) ~ "short_deep",
-            value_num == 5 ~ "other",
-            TRUE ~ NA_character_
-          )
+          value_chr <- {
+            value_num_tmp <- suppressWarnings(as.numeric(value_df$value_raw))
+
+            # Force evaluation
+            force(value_num_tmp)
+
+            dplyr::case_when(
+              value_num_tmp == 1 ~ "eel_like",
+              value_num_tmp == 2 ~ "elongated",
+              value_num_tmp == 3 ~ "fusiform",
+              value_num_tmp %in% c(4, 6) ~ "short_deep",
+              value_num_tmp == 5 ~ "other",
+              TRUE ~ NA_character_
+            )
+          }
         } else if (source_col %in% c(
           "shape_eel_like",
           "shape_elongated",
@@ -976,23 +975,24 @@ read_pelagic_db <- function(species,
           "shape_compressiform",
           "shape_depressiform"
         )) {
-          value_num <- suppressWarnings(as.numeric(value_df$value_raw))
-          value_chr <- dplyr::case_when(
-            value_num == 1 & source_col == "shape_eel_like" ~ "eel_like",
-            value_num == 1 & source_col == "shape_elongated" ~ "elongated",
-            value_num == 1 & source_col == "shape_fusiform" ~ "fusiform",
-            value_num == 1 & source_col %in% c("shape_globiform", "shape_compressiform") ~ "short_deep",
-            value_num == 1 & source_col == "shape_depressiform" ~ "other",
-            TRUE ~ NA_character_
-          )
+          value_chr <- {
+            value_num_tmp <- suppressWarnings(as.numeric(value_df$value_raw))
+            dplyr::case_when(
+              value_num_tmp == 1 & source_col == "shape_eel_like" ~ "eel_like",
+              value_num_tmp == 1 & source_col == "shape_elongated" ~ "elongated",
+              value_num_tmp == 1 & source_col == "shape_fusiform" ~ "fusiform",
+              value_num_tmp == 1 & source_col %in% c("shape_globiform", "shape_compressiform") ~ "short_deep",
+              value_num_tmp == 1 & source_col == "shape_depressiform" ~ "other",
+              TRUE ~ NA_character_
+            )
+          }
         } else {
-          value_low <- stringr::str_to_lower(value_chr)
           value_chr <- dplyr::case_when(
-            stringr::str_detect(value_low, "eel") ~ "eel_like",
-            stringr::str_detect(value_low, "elong") ~ "elongated",
-            stringr::str_detect(value_low, "fusiform|normal|torpedo|streamline") ~ "fusiform",
-            stringr::str_detect(value_low, "compress|deep|glob|short") ~ "short_deep",
-            stringr::str_detect(value_low, "depress") ~ "other",
+            stringr::str_detect(stringr::str_to_lower(value_chr), "eel") ~ "eel_like",
+            stringr::str_detect(stringr::str_to_lower(value_chr), "elong") ~ "elongated",
+            stringr::str_detect(stringr::str_to_lower(value_chr), "fusiform|normal|torpedo|streamline") ~ "fusiform",
+            stringr::str_detect(stringr::str_to_lower(value_chr), "compress|deep|glob|short") ~ "short_deep",
+            stringr::str_detect(stringr::str_to_lower(value_chr), "depress") ~ "other",
             TRUE ~ NA_character_
           )
         }
@@ -1016,37 +1016,37 @@ read_pelagic_db <- function(species,
       if (target_col %in% c("length_min", "length_max") &&
         "life_stage" %in% names(value_df)) {
         value_df <- value_df |>
-          dplyr::group_by(species_name_query) |>
+          dplyr::group_by(.data$species_name_query) |>
           dplyr::mutate(
-            .adult_available = any(life_stage == "adult" & !is.na(value_raw))
+            .adult_available = any(.data$life_stage == "adult" & !is.na(.data$value_raw))
           ) |>
           dplyr::ungroup() |>
-          dplyr::filter(!.adult_available | life_stage == "adult") |>
-          dplyr::select(-.adult_available)
+          dplyr::filter(!.data$.adult_available | .data$life_stage == "adult") |>
+          dplyr::select(-.data$.adult_available)
       }
 
       if (isTRUE(trait_multi[[target_col]])) {
         value_df <- value_df |>
-          dplyr::filter(!is.na(value_raw)) |>
-          dplyr::group_by(species_name_query) |>
+          dplyr::filter(!is.na(.data$value_raw)) |>
+          dplyr::group_by(.data$species_name_query) |>
           dplyr::summarise(
-            value = paste(unique(value_raw), collapse = ";"),
+            value = paste(unique(.data$value_raw), collapse = ";"),
             .groups = "drop"
           )
       } else if (trait_types[[target_col]] == "numeric") {
         value_df <- value_df |>
-          dplyr::group_by(species_name_query) |>
+          dplyr::group_by(.data$species_name_query) |>
           dplyr::summarise(
-            value = mean(value_raw[is.finite(value_raw)], na.rm = TRUE),
+            value = mean(.data$value_raw[is.finite(.data$value_raw)], na.rm = TRUE),
             .groups = "drop"
           )
         value_df$value[!is.finite(value_df$value)] <- NA_real_
       } else {
         value_df <- value_df |>
-          dplyr::filter(!is.na(value_raw)) |>
-          dplyr::group_by(species_name_query) |>
+          dplyr::filter(!is.na(.data$value_raw)) |>
+          dplyr::group_by(.data$species_name_query) |>
           dplyr::summarise(
-            value = dplyr::first(value_raw),
+            value = dplyr::first(.data$value_raw),
             .groups = "drop"
           )
       }
@@ -1176,11 +1176,11 @@ read_azores_db <- function(species,
 
   # Standardize the incoming species vector so blank and duplicate queries do
   # not trigger redundant processing.
-  species <- as.character(species)
-  species <- stringr::str_squish(species)
-  species <- unique(species[!is.na(species) & nzchar(species)])
+  species_ <- as.character(species)
+  species_ <- stringr::str_squish(species_)
+  species_ <- unique(species_[!is.na(species_) & nzchar(species_)])
 
-  if (length(species) == 0) {
+  if (length(species_) == 0) {
     stop("No valid species names were supplied.", call. = FALSE)
   }
 
@@ -1302,6 +1302,10 @@ read_azores_db <- function(species,
       value_chr <- stringr::str_squish(as.character(value_df$value_raw))
       value_chr[!nzchar(value_chr)] <- NA_character_
       value_low <- stringr::str_to_lower(value_chr)
+
+      # Force evaluation
+      force(value_low)
+
       value_df$value_raw <- dplyr::case_when(
         stringr::str_detect(value_low, "eel") ~ "eel_like",
         stringr::str_detect(value_low, "elong") ~ "elongated",
@@ -1334,26 +1338,26 @@ read_azores_db <- function(species,
 
     if (isTRUE(trait_multi[[target_col]])) {
       value_df <- value_df |>
-        dplyr::filter(!is.na(value_raw)) |>
-        dplyr::group_by(species_name_query) |>
+        dplyr::filter(!is.na(.data$value_raw)) |>
+        dplyr::group_by(.data$species_name_query) |>
         dplyr::summarise(
-          value = paste(unique(value_raw), collapse = ";"),
+          value = paste(unique(.data$value_raw), collapse = ";"),
           .groups = "drop"
         )
     } else if (trait_types[[target_col]] == "numeric") {
       value_df <- value_df |>
-        dplyr::group_by(species_name_query) |>
+        dplyr::group_by(.data$species_name_query) |>
         dplyr::summarise(
-          value = mean(value_raw[is.finite(value_raw)], na.rm = TRUE),
+          value = mean(.data$value_raw[is.finite(.data$value_raw)], na.rm = TRUE),
           .groups = "drop"
         )
       value_df$value[!is.finite(value_df$value)] <- NA_real_
     } else {
       value_df <- value_df |>
-        dplyr::filter(!is.na(value_raw)) |>
-        dplyr::group_by(species_name_query) |>
+        dplyr::filter(!is.na(.data$value_raw)) |>
+        dplyr::group_by(.data$species_name_query) |>
         dplyr::summarise(
-          value = dplyr::first(value_raw),
+          value = dplyr::first(.data$value_raw),
           .groups = "drop"
         )
     }
@@ -1589,6 +1593,10 @@ read_continental_db <- function(species,
       value_chr <- stringr::str_squish(as.character(value_df$value_raw))
       value_chr[!nzchar(value_chr)] <- NA_character_
       value_low <- stringr::str_to_lower(value_chr)
+
+      # Force evaluation
+      force(value_low)
+
       value_df$value_raw <- dplyr::case_when(
         stringr::str_detect(value_low, "eel") ~ "eel_like",
         stringr::str_detect(value_low, "elong") ~ "elongated",
@@ -1610,26 +1618,26 @@ read_continental_db <- function(species,
 
     if (isTRUE(trait_multi[[target_col]])) {
       value_df <- value_df |>
-        dplyr::filter(!is.na(value_raw)) |>
-        dplyr::group_by(species_name_query) |>
+        dplyr::filter(!is.na(.data$value_raw)) |>
+        dplyr::group_by(.data$species_name_query) |>
         dplyr::summarise(
-          value = paste(unique(value_raw), collapse = ";"),
+          value = paste(unique(.data$value_raw), collapse = ";"),
           .groups = "drop"
         )
     } else if (trait_types[[target_col]] == "numeric") {
       value_df <- value_df |>
-        dplyr::group_by(species_name_query) |>
+        dplyr::group_by(.data$species_name_query) |>
         dplyr::summarise(
-          value = mean(value_raw[is.finite(value_raw)], na.rm = TRUE),
+          value = mean(.data$value_raw[is.finite(.data$value_raw)], na.rm = TRUE),
           .groups = "drop"
         )
       value_df$value[!is.finite(value_df$value)] <- NA_real_
     } else {
       value_df <- value_df |>
-        dplyr::filter(!is.na(value_raw)) |>
-        dplyr::group_by(species_name_query) |>
+        dplyr::filter(!is.na(.data$value_raw)) |>
+        dplyr::group_by(.data$species_name_query) |>
         dplyr::summarise(
-          value = dplyr::first(value_raw),
+          value = dplyr::first(.data$value_raw),
           .groups = "drop"
         )
     }
@@ -1871,8 +1879,8 @@ read_mstraits_db <- function(species,
   }
   dat$species_name_query[!nzchar(dat$species_name_query)] <- NA_character_
   dat <- dat |>
-    dplyr::filter(!is.na(species_name_query)) |>
-    dplyr::filter(species_name_query %in% species)
+    dplyr::filter(!is.na(.data$species_name_query)) |>
+    dplyr::filter(.data$species_name_query %in% .data$species)
 
   if (nrow(dat) == 0) {
     out$species_name_query <- NULL
@@ -1912,20 +1920,20 @@ read_mstraits_db <- function(species,
 
     if (isTRUE(trait_multi[[target_col]])) {
       value_df <- value_df |>
-        dplyr::filter(!is.na(value_raw)) |>
-        dplyr::group_by(species_name_query) |>
+        dplyr::filter(!is.na(.data$value_raw)) |>
+        dplyr::group_by(.data$species_name_query) |>
         dplyr::summarise(
-          value = paste(unique(unlist(strsplit(value_raw, ";", fixed = TRUE))), collapse = ";"),
+          value = paste(unique(unlist(strsplit(.data$value_raw, ";", fixed = TRUE))), collapse = ";"),
           .groups = "drop"
         )
       value_df$value <- stringr::str_squish(value_df$value)
       value_df$value[!nzchar(value_df$value)] <- NA_character_
     } else {
       value_df <- value_df |>
-        dplyr::filter(!is.na(value_raw)) |>
-        dplyr::group_by(species_name_query) |>
+        dplyr::filter(!is.na(.data$value_raw)) |>
+        dplyr::group_by(.data$species_name_query) |>
         dplyr::summarise(
-          value = dplyr::first(value_raw),
+          value = dplyr::first(.data$value_raw),
           .groups = "drop"
         )
     }
@@ -2112,6 +2120,10 @@ format_db_entry <- function(entry,
     if (trait_types[[nm]] == "binary") {
       if (is.character(value)) {
         value_low <- stringr::str_to_lower(stringr::str_squish(value))
+
+        # Force evaluation
+        force(value_low)
+
         value <- dplyr::case_when(
           value_low %in% c("1", "true", "yes", "y") ~ TRUE,
           value_low %in% c("0", "false", "no", "n") ~ FALSE,
@@ -2352,8 +2364,8 @@ enrich_species_db <- function(db_list,
     }
 
     dat <- dat |>
-      dplyr::filter(!is.na(genus), !is.na(species)) |>
-      dplyr::mutate(.species_key = paste(genus, species))
+      dplyr::filter(!is.na(.data$genus), !is.na(.data$species)) |>
+      dplyr::mutate(.species_key = paste(.data$genus, .data$species))
 
     species_keys <- unique(dat$.species_key)
     rows <- vector("list", length(species_keys))

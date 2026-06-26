@@ -57,7 +57,7 @@
     if (nrow(manifest_tbl) == 0 || !"status" %in% names(manifest_tbl)) {
       "none"
     } else {
-      status_tbl <- dplyr::arrange(dplyr::count(manifest_tbl, status, name = "n_traits"), dplyr::desc(.data$n_traits), status)
+      status_tbl <- dplyr::arrange(dplyr::count(manifest_tbl, .data$status, name = "n_traits"), dplyr::desc(.data$n_traits), .data$status)
       paste0(status_tbl$status, "=", status_tbl$n_traits, collapse = ", ")
     }
   }

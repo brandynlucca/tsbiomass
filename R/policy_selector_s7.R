@@ -492,21 +492,21 @@ canonicalize_equivalent_policy_rows <- function(policy_tbl) {
 
   policy_tbl |>
     dplyr::mutate(
-      .dedupe_multiplier = signif(suppressWarnings(as.numeric(multiplier_pred)), 12),
-      .dedupe_slope = signif(suppressWarnings(as.numeric(policy_slope_len)), 12),
-      .dedupe_intercept = signif(suppressWarnings(as.numeric(policy_intercept_len)), 12)
+      .dedupe_multiplier = signif(suppressWarnings(as.numeric(.data$multiplier_pred)), 12),
+      .dedupe_slope = signif(suppressWarnings(as.numeric(.data$policy_slope_len)), 12),
+      .dedupe_intercept = signif(suppressWarnings(as.numeric(.data$policy_intercept_len)), 12)
     ) |>
     dplyr::group_by(
-      anchor_model_id,
-      equation_branch_filter,
-      realized_donor_fingerprint,
-      .dedupe_multiplier,
-      .dedupe_slope,
-      .dedupe_intercept
+      .data$anchor_model_id,
+      .data$equation_branch_filter,
+      .data$realized_donor_fingerprint,
+      .data$.dedupe_multiplier,
+      .data$.dedupe_slope,
+      .data$.dedupe_intercept
     ) |>
     dplyr::arrange(
-      specificity_rank,
-      policy,
+      .data$specificity_rank,
+      .data$policy,
       .by_group = TRUE
     ) |>
     dplyr::slice(1) |>
@@ -905,7 +905,6 @@ S7::method(select_policies, PolicySelector) <- function(object,
   }
   model_scores <- ordination_context$model_scores
   species_lookup <- ordination_context$species_lookup
-  anchor_config <- policy_selector_anchor_config(object, config = cfg)
   conf_tbl <- tibble::as_tibble(uncertainty_obj$conf_cal %||% tibble::tibble())
   select_tbl <- tibble::as_tibble(selection_obj$final_ref %||% tibble::tibble())
   benchmark_policy_tbl <- tibble::as_tibble((object@benchmark)$policy_perf %||% tibble::tibble())
@@ -1171,7 +1170,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
       dplyr::mutate(
         anchor_model_id = anchor_id,
         anchor_species = anchor_species,
-        valid_prediction = is.finite(multiplier_pred) & multiplier_pred > 0
+        valid_prediction = is.finite(.data$multiplier_pred) & .data$multiplier_pred > 0
       )
 
     if (nrow(conf_ref_tbl) > 0) {
@@ -1219,9 +1218,9 @@ S7::method(select_policies, PolicySelector) <- function(object,
       }
       policy_tbl <- policy_tbl |>
         dplyr::mutate(
-          coefficient_slope_q95 = dplyr::coalesce(coefficient_slope_q95, coefficient_slope_q95.coefref),
-          coefficient_intercept_q95 = dplyr::coalesce(coefficient_intercept_q95, coefficient_intercept_q95.coefref),
-          coefficient_stability_n = dplyr::coalesce(coefficient_stability_n, coefficient_stability_n.coefref)
+          coefficient_slope_q95 = dplyr::coalesce(.data$coefficient_slope_q95, .data$coefficient_slope_q95.coefref),
+          coefficient_intercept_q95 = dplyr::coalesce(.data$coefficient_intercept_q95, .data$coefficient_intercept_q95.coefref),
+          coefficient_stability_n = dplyr::coalesce(.data$coefficient_stability_n, .data$coefficient_stability_n.coefref)
         ) |>
         dplyr::select(-dplyr::any_of(c(
           "coefficient_slope_q95.coefref",
@@ -1247,7 +1246,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
         max_selection_tolerance = max_selection_tolerance
       )
       selected_row <- policy_tbl |>
-        dplyr::filter(valid_prediction, is_selected)
+        dplyr::filter(.data$valid_prediction, .data$is_selected)
     } else {
       if (!"policy_display" %in% names(policy_tbl)) {
         policy_tbl$policy_display <- policy_tbl$policy
@@ -1261,8 +1260,8 @@ S7::method(select_policies, PolicySelector) <- function(object,
         local_distance_tolerance = local_distance_tolerance
       ) |>
         dplyr::mutate(
-          selected_policy_display = dplyr::coalesce(selected_policy_display, policy_display, selected_policy),
-          selection_tier = dplyr::coalesce(selection_tier, "deterministic_global_screen")
+          selected_policy_display = dplyr::coalesce(.data$selected_policy_display, .data$policy_display, .data$selected_policy),
+          selection_tier = dplyr::coalesce(.data$selection_tier, "deterministic_global_screen")
         )
     }
 
@@ -1391,7 +1390,6 @@ methods::setMethod(
 #' @return Invisibly returns `x`.
 #'
 #' @keywords internal
-#' @export
 S7::method(print_generic, PolicySelector) <- function(x, ...) {
   benchmark_rows <- nrow(tibble::as_tibble((x@benchmark)$policy_perf %||% tibble::tibble()))
   uncertainty_rows <- nrow(tibble::as_tibble((x@uncertainty)$conf_cal %||% tibble::tibble()))

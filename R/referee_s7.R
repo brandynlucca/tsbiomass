@@ -446,21 +446,21 @@ build_recommendation_cards <- function(selected_tbl,
                                        intervals_tbl,
                                        selection_diagnostics = tibble::tibble(),
                                        anchor_missing_gate = tibble::tibble()) {
-  selected_tbl <- tibble::as_tibble(selected_tbl)
-  intervals_tbl <- tibble::as_tibble(intervals_tbl)
-  selection_diagnostics <- tibble::as_tibble(selection_diagnostics)
-  anchor_missing_gate <- tibble::as_tibble(anchor_missing_gate)
+  selected_tbl_ <- tibble::as_tibble(selected_tbl)
+  intervals_tbl_ <- tibble::as_tibble(intervals_tbl)
+  selection_diagnostics_ <- tibble::as_tibble(selection_diagnostics)
+  anchor_missing_gate_ <- tibble::as_tibble(anchor_missing_gate)
 
-  if (nrow(selected_tbl) == 0) {
+  if (nrow(selected_tbl_) == 0) {
     return(tibble::tibble())
   }
 
   width_values <- suppressWarnings(as.numeric(scorecard_pick(
-    selected_tbl,
+    selected_tbl_,
     c("meta_post_selection_interval_log_width", "interval_log_width")
   )))
   support_values <- suppressWarnings(as.numeric(scorecard_pick(
-    selected_tbl,
+    selected_tbl_,
     c("local_effective_support", "combined_local_effective_support")
   )))
   wide_width_cut <- if (sum(is.finite(width_values)) > 0) {
@@ -475,8 +475,8 @@ build_recommendation_cards <- function(selected_tbl,
   }
 
   runner_up_tbl <- tibble::tibble()
-  if (nrow(intervals_tbl) > 0 && "anchor_model_id" %in% names(intervals_tbl)) {
-    intervals_work <- intervals_tbl
+  if (nrow(intervals_tbl_) > 0 && "anchor_model_id" %in% names(intervals_tbl_)) {
+    intervals_work <- intervals_tbl_
     intervals_work$policy_display_resolved <- as.character(scorecard_pick(
       intervals_work,
       c("policy_display", "selected_policy_display", "policy")
@@ -499,31 +499,31 @@ build_recommendation_cards <- function(selected_tbl,
       default = FALSE
     ))
     runner_up_tbl <- intervals_work |>
-      dplyr::filter(!isTRUE(is_selected_resolved)) |>
-      dplyr::group_by(anchor_model_id) |>
+      dplyr::filter(!isTRUE(.data$is_selected_resolved)) |>
+      dplyr::group_by(.data$anchor_model_id) |>
       dplyr::arrange(
-        predicted_transfer_error,
-        interval_log_width_resolved,
-        local_distance_resolved,
+        .data$predicted_transfer_error,
+        .data$interval_log_width_resolved,
+        .data$local_distance_resolved,
         .by_group = TRUE
       ) |>
       dplyr::slice_head(n = 1) |>
       dplyr::ungroup() |>
       dplyr::transmute(
-        anchor_model_id = as.character(anchor_model_id),
-        runner_up_policy = policy_display_resolved,
+        anchor_model_id = as.character(.data$anchor_model_id),
+        runner_up_policy = .data$policy_display_resolved,
         runner_up_branch = if ("equation_branch_filter" %in% names(intervals_work)) {
-          as.character(equation_branch_filter)
+          as.character(.data$equation_branch_filter)
         } else {
           NA_character_
         },
-        runner_up_predicted_transfer_error = predicted_transfer_error,
-        runner_up_interval_log_width = interval_log_width_resolved,
-        runner_up_local_distance = local_distance_resolved
+        runner_up_predicted_transfer_error = .data$predicted_transfer_error,
+        runner_up_interval_log_width = .data$interval_log_width_resolved,
+        runner_up_local_distance = .data$local_distance_resolved
       )
   }
 
-  cards <- selected_tbl
+  cards <- selected_tbl_
   cards$anchor_model_id <- as.character(cards$anchor_model_id)
   cards$anchor_species <- as.character(scorecard_pick(cards, c("anchor_species", "species", "species_name")))
   cards$recommended_policy <- as.character(scorecard_pick(
@@ -607,45 +607,45 @@ build_recommendation_cards <- function(selected_tbl,
   cards$policy_intercept_len_hi_95 <- suppressWarnings(as.numeric(scorecard_pick(cards, c("policy_intercept_len_hi_95"))))
   cards <- cards |>
     dplyr::select(
-      anchor_model_id,
-      anchor_species,
-      recommended_policy,
-      recommended_policy_code,
-      recommended_branch,
-      selection_tier,
-      support_bin,
-      support_bin_code,
-      biomass_multiplier,
-      biomass_multiplier_lo,
-      biomass_multiplier_hi,
-      predicted_transfer_error,
-      total_uncertainty_log,
-      uncertainty_budget_log,
-      interval_log_width,
-      uncertainty_source,
-      uncertainty_fallback,
-      uncertainty_warning,
-      uncertainty_conformal_factor,
-      uncertainty_bin_q_log,
-      local_effective_support,
-      local_distance,
-      expected_length_cm,
-      length_support_min_cm,
-      length_support_max_cm,
-      policy_slope_len,
-      policy_intercept_len,
-      policy_slope_len_lo_95,
-      policy_slope_len_hi_95,
-      policy_intercept_len_lo_95,
-      policy_intercept_len_hi_95
+      "anchor_model_id",
+      "anchor_species",
+      "recommended_policy",
+      "recommended_policy_code",
+      "recommended_branch",
+      "selection_tier",
+      "support_bin",
+      "support_bin_code",
+      "biomass_multiplier",
+      "biomass_multiplier_lo",
+      "biomass_multiplier_hi",
+      "predicted_transfer_error",
+      "total_uncertainty_log",
+      "uncertainty_budget_log",
+      "interval_log_width",
+      "uncertainty_source",
+      "uncertainty_fallback",
+      "uncertainty_warning",
+      "uncertainty_conformal_factor",
+      "uncertainty_bin_q_log",
+      "local_effective_support",
+      "local_distance",
+      "expected_length_cm",
+      "length_support_min_cm",
+      "length_support_max_cm",
+      "policy_slope_len",
+      "policy_intercept_len",
+      "policy_slope_len_lo_95",
+      "policy_slope_len_hi_95",
+      "policy_intercept_len_lo_95",
+      "policy_intercept_len_hi_95"
     ) |>
     dplyr::left_join(runner_up_tbl, by = "anchor_model_id")
 
-  if (nrow(selection_diagnostics) > 0 && "anchor_model_id" %in% names(selection_diagnostics)) {
-    diag_selected <- selection_diagnostics
+  if (nrow(selection_diagnostics_) > 0 && "anchor_model_id" %in% names(selection_diagnostics_)) {
+    diag_selected <- selection_diagnostics_
     if ("is_selected" %in% names(diag_selected)) {
       diag_selected <- diag_selected |>
-        dplyr::filter(dplyr::coalesce(is_selected, FALSE))
+        dplyr::filter(dplyr::coalesce(.data$is_selected, FALSE))
     }
     diag_selected$species_oracle_best_policy <- as.character(scorecard_pick(
       diag_selected,
@@ -659,36 +659,36 @@ build_recommendation_cards <- function(selected_tbl,
       dplyr::left_join(
         diag_selected |>
           dplyr::transmute(
-            anchor_model_id = as.character(anchor_model_id),
-            species_oracle_best_policy = species_oracle_best_policy,
-            selected_delta_to_species_oracle = selected_delta_to_species_oracle
+            anchor_model_id = as.character(.data$anchor_model_id),
+            species_oracle_best_policy = .data$species_oracle_best_policy,
+            selected_delta_to_species_oracle = .data$selected_delta_to_species_oracle
           ) |>
           dplyr::distinct(.data$anchor_model_id, .keep_all = TRUE),
         by = "anchor_model_id"
       )
   }
 
-  if (nrow(anchor_missing_gate) > 0 && "anchor_model_id" %in% names(anchor_missing_gate)) {
-    anchor_missing_gate$n_candidates_total <- suppressWarnings(as.numeric(scorecard_pick(
-      anchor_missing_gate,
+  if (nrow(anchor_missing_gate_) > 0 && "anchor_model_id" %in% names(anchor_missing_gate_)) {
+    anchor_missing_gate_$n_candidates_total <- suppressWarnings(as.numeric(scorecard_pick(
+      anchor_missing_gate_,
       c("n_candidates_total")
     )))
-    anchor_missing_gate$n_candidates_admissible <- suppressWarnings(as.numeric(scorecard_pick(
-      anchor_missing_gate,
+    anchor_missing_gate_$n_candidates_admissible <- suppressWarnings(as.numeric(scorecard_pick(
+      anchor_missing_gate_,
       c("n_candidates_admissible")
     )))
-    anchor_missing_gate$prop_fail_missing_metadata <- suppressWarnings(as.numeric(scorecard_pick(
-      anchor_missing_gate,
+    anchor_missing_gate_$prop_fail_missing_metadata <- suppressWarnings(as.numeric(scorecard_pick(
+      anchor_missing_gate_,
       c("prop_fail_missing_metadata")
     )))
     cards <- cards |>
       dplyr::left_join(
-        anchor_missing_gate |>
+        anchor_missing_gate_ |>
           dplyr::transmute(
-            anchor_model_id = as.character(anchor_model_id),
-            n_candidates_total = n_candidates_total,
-            n_candidates_admissible = n_candidates_admissible,
-            prop_fail_missing_metadata = prop_fail_missing_metadata
+            anchor_model_id = as.character(.data$anchor_model_id),
+            n_candidates_total = .data$n_candidates_total,
+            n_candidates_admissible = .data$n_candidates_admissible,
+            prop_fail_missing_metadata = .data$prop_fail_missing_metadata
           ),
         by = "anchor_model_id"
       )
@@ -881,19 +881,19 @@ build_surrogate_rules <- function(object,
       feature_set = paste(feature_cols, collapse = ", ")
     ) |>
     dplyr::select(
-      surrogate_model,
-      target,
-      row_type,
-      rank,
-      node_id,
-      predicted_policy,
-      n_obs,
-      class_probability,
-      rule,
-      feature,
-      importance,
-      training_rows,
-      feature_set
+      "surrogate_model",
+      "target",
+      "row_type",
+      "rank",
+      "node_id",
+      "predicted_policy",
+      "n_obs",
+      "class_probability",
+      "rule",
+      "feature",
+      "importance",
+      "training_rows",
+      "feature_set"
     )
 }
 
@@ -913,16 +913,16 @@ build_referee_scorecard <- function(object,
                                     allow_partial = FALSE,
                                     progress = NULL) {
   selector <- object@selector
-  predictions <- predictions %||% object@predictions
-  if (is.null(predictions) ||
-    !isTRUE(tryCatch(S7::S7_inherits(predictions, PolicyPredictions), error = function(e) FALSE))) {
+  predictions_ <- predictions %||% object@predictions
+  if (is.null(predictions_) ||
+    !isTRUE(tryCatch(S7::S7_inherits(predictions_, PolicyPredictions), error = function(e) FALSE))) {
     stop("`Referee` requires a `PolicyPredictions` bundle.", call. = FALSE)
   }
-  validate_referee_provenance(selector, predictions)
+  validate_referee_provenance(selector, predictions_)
 
-  selected_tbl <- tibble::as_tibble(predictions@selections)
-  intervals_tbl <- tibble::as_tibble(predictions@intervals)
-  consensus_tbl <- tibble::as_tibble(predictions@consensus)
+  selected_tbl <- tibble::as_tibble(predictions_@selections)
+  intervals_tbl <- tibble::as_tibble(predictions_@intervals)
+  consensus_tbl <- tibble::as_tibble(predictions_@consensus)
   candidate_models <- tibble::as_tibble(selector@candidates@candidate_models)
   anchor_scores <- tibble::as_tibble((selector@candidates@admissibility)$all_scores %||% tibble::tibble())
   ordination_scores <- (selector@candidates@ordination)$model_scores %||% NULL
@@ -940,15 +940,15 @@ build_referee_scorecard <- function(object,
   selected_policy_keys <- selected_tbl |>
     dplyr::transmute(
       policy = dplyr::coalesce(
-        if ("selected_policy" %in% names(selected_tbl)) as.character(selected_policy) else NA_character_,
-        if ("policy" %in% names(selected_tbl)) as.character(policy) else NA_character_
+        if ("selected_policy" %in% names(selected_tbl)) as.character(.data$selected_policy) else NA_character_,
+        if ("policy" %in% names(selected_tbl)) as.character(.data$policy) else NA_character_
       ),
       equation_branch_filter = dplyr::coalesce(
-        if ("selected_equation_branch_filter" %in% names(selected_tbl)) as.character(selected_equation_branch_filter) else NA_character_,
-        if ("equation_branch_filter" %in% names(selected_tbl)) as.character(equation_branch_filter) else NA_character_
+        if ("selected_equation_branch_filter" %in% names(selected_tbl)) as.character(.data$selected_equation_branch_filter) else NA_character_,
+        if ("equation_branch_filter" %in% names(selected_tbl)) as.character(.data$equation_branch_filter) else NA_character_
       )
     ) |>
-    dplyr::filter(!is.na(policy), !is.na(equation_branch_filter)) |>
+    dplyr::filter(!is.na(.data$policy), !is.na(.data$equation_branch_filter)) |>
     dplyr::distinct()
   benchmark_ts_error <- tibble::as_tibble((selector@benchmark)$policy_ts_error %||% tibble::tibble())
   benchmark_policy_perf <- tibble::as_tibble((selector@benchmark)$policy_perf %||% tibble::tibble())
@@ -1052,18 +1052,18 @@ build_referee_scorecard <- function(object,
 
   selected_keys <- selected_tbl |>
     dplyr::transmute(
-      anchor_model_id,
+      anchor_model_id = .data$anchor_model_id,
       policy = if ("selected_policy" %in% names(selected_tbl)) {
-        as.character(selected_policy)
+        as.character(.data$selected_policy)
       } else if ("policy" %in% names(selected_tbl)) {
-        as.character(policy)
+        as.character(.data$policy)
       } else {
         rep(NA_character_, dplyr::n())
       },
       equation_branch_filter = if ("selected_equation_branch_filter" %in% names(selected_tbl)) {
-        as.character(selected_equation_branch_filter)
+        as.character(.data$selected_equation_branch_filter)
       } else if ("equation_branch_filter" %in% names(selected_tbl)) {
-        as.character(equation_branch_filter)
+        as.character(.data$equation_branch_filter)
       } else {
         rep(NA_character_, dplyr::n())
       },
@@ -1178,17 +1178,17 @@ build_referee_scorecard <- function(object,
       consensus_tbl |>
         dplyr::transmute(
           anchor_model_id,
-          combined_consensus_multiplier = consensus_multiplier,
-          combined_multiplier_q05 = multiplier_q05,
-          combined_multiplier_q50 = multiplier_q50,
-          combined_multiplier_q95 = multiplier_q95,
+          combined_consensus_multiplier = .data$consensus_multiplier,
+          combined_multiplier_q05 = .data$multiplier_q05,
+          combined_multiplier_q50 = .data$multiplier_q50,
+          combined_multiplier_q95 = .data$multiplier_q95,
           local_support_mass = if ("local_support_mass" %in% names(consensus_tbl)) {
-            local_support_mass
+            .data$local_support_mass
           } else {
             NA_real_
           },
           local_effective_support = if ("local_effective_support" %in% names(consensus_tbl)) {
-            local_effective_support
+            .data$local_effective_support
           } else {
             NA_real_
           }
@@ -1203,7 +1203,7 @@ build_referee_scorecard <- function(object,
   )
   anchor_audit_result <- referee_component(
     "anchor_audit",
-    build_anchor_audit(predictions, selector = selector),
+    build_anchor_audit(predictions_, selector = selector),
     allow_partial = allow_partial
   )
   key_missing_result <- referee_component(
@@ -1448,7 +1448,7 @@ derive_benchmark_selected_calibration <- function(policy_perf,
     isTRUE(tryCatch(S7::S7_inherits(learner, PolicyLearner), error = function(e) FALSE))
 
   policy_perf |>
-    dplyr::group_split(anchor_model_id, anchor_species, .keep = TRUE) |>
+    dplyr::group_split(.data$anchor_model_id, .data$anchor_species, .keep = TRUE) |>
     purrr::map_dfr(function(.x) {
       selected_row <- if (has_learner) {
         predicted <- tryCatch(
@@ -1463,7 +1463,7 @@ derive_benchmark_selected_calibration <- function(policy_perf,
           tibble::tibble()
         } else {
           tibble::as_tibble(predicted) |>
-            dplyr::filter(dplyr::coalesce(valid_prediction, FALSE), dplyr::coalesce(is_selected, FALSE))
+            dplyr::filter(dplyr::coalesce(.data$valid_prediction, FALSE), dplyr::coalesce(.data$is_selected, FALSE))
         }
       } else {
         tibble::tibble()
@@ -1483,19 +1483,19 @@ derive_benchmark_selected_calibration <- function(policy_perf,
       selected_row |>
         dplyr::mutate(
           selected_policy = dplyr::coalesce(
-            if ("selected_policy" %in% names(selected_row)) as.character(selected_policy) else NA_character_,
-            if ("policy" %in% names(selected_row)) as.character(policy) else NA_character_
+            if ("selected_policy" %in% names(selected_row)) as.character(.data$selected_policy) else NA_character_,
+            if ("policy" %in% names(selected_row)) as.character(.data$policy) else NA_character_
           ),
           selected_equation_branch_filter = dplyr::coalesce(
-            if ("selected_equation_branch_filter" %in% names(selected_row)) as.character(selected_equation_branch_filter) else NA_character_,
-            if ("equation_branch_filter" %in% names(selected_row)) as.character(equation_branch_filter) else NA_character_
+            if ("selected_equation_branch_filter" %in% names(selected_row)) as.character(.data$selected_equation_branch_filter) else NA_character_,
+            if ("equation_branch_filter" %in% names(selected_row)) as.character(.data$equation_branch_filter) else NA_character_
           )
         )
     }) |>
     dplyr::filter(
-      !is.na(anchor_model_id),
-      !is.na(selected_policy),
-      !is.na(selected_equation_branch_filter)
+      !is.na(.data$anchor_model_id),
+      !is.na(.data$selected_policy),
+      !is.na(.data$selected_equation_branch_filter)
     )
 }
 
@@ -1749,13 +1749,13 @@ S7::method(show_generic, Referee) <- function(object) {
     )
     band_tbl <- dplyr::bind_rows(
       curve_tbl |>
-        dplyr::transmute(length_cm, ts_anchor, ts_top_candidate, ts_center, band = "99%", ymin = ts_lo_99, ymax = ts_hi_99),
+        dplyr::transmute(.data$length_cm, .data$ts_anchor, .data$ts_top_candidate, .data$ts_center, band = "99%", ymin = .data$ts_lo_99, ymax = .data$ts_hi_99),
       curve_tbl |>
-        dplyr::transmute(length_cm, ts_anchor, ts_top_candidate, ts_center, band = "95%", ymin = ts_lo_95, ymax = ts_hi_95),
+        dplyr::transmute(.data$length_cm, .data$ts_anchor, .data$ts_top_candidate, .data$ts_center, band = "95%", ymin = .data$ts_lo_95, ymax = .data$ts_hi_95),
       curve_tbl |>
-        dplyr::transmute(length_cm, ts_anchor, ts_top_candidate, ts_center, band = "90%", ymin = ts_lo_90, ymax = ts_hi_90),
+        dplyr::transmute(.data$length_cm, .data$ts_anchor, .data$ts_top_candidate, .data$ts_center, band = "90%", ymin = .data$ts_lo_90, ymax = .data$ts_hi_90),
       curve_tbl |>
-        dplyr::transmute(length_cm, ts_anchor, ts_top_candidate, ts_center, band = "80%", ymin = ts_lo_80, ymax = ts_hi_80)
+        dplyr::transmute(.data$length_cm, .data$ts_anchor, .data$ts_top_candidate, .data$ts_center, band = "80%", ymin = .data$ts_lo_80, ymax = .data$ts_hi_80)
     )
     return(plot_ts_bands(
       band_tbl = band_tbl,
@@ -1810,17 +1810,17 @@ S7::method(show_generic, Referee) <- function(object) {
     )
     plot_df <- plot_df |>
       dplyr::filter(
-        !is.na(anchor_species),
-        is.finite(multiplier_pred),
-        is.finite(multiplier_lo),
-        is.finite(multiplier_hi),
-        multiplier_pred > 0,
-        multiplier_lo > 0,
-        multiplier_hi > 0
+        !is.na(.data$anchor_species),
+        is.finite(.data$multiplier_pred),
+        is.finite(.data$multiplier_lo),
+        is.finite(.data$multiplier_hi),
+        .data$multiplier_pred > 0,
+        .data$multiplier_lo > 0,
+        .data$multiplier_hi > 0
       ) |>
       dplyr::mutate(
-        anchor_label = paste(anchor_species, selected_policy_display, sep = " | "),
-        anchor_label = stats::reorder(anchor_label, multiplier_pred)
+        anchor_label = paste(.data$anchor_species, .data$selected_policy_display, sep = " | "),
+        anchor_label = stats::reorder(.data$anchor_label, .data$multiplier_pred)
       )
     if (nrow(plot_df) == 0) {
       return(
@@ -1839,10 +1839,10 @@ S7::method(show_generic, Referee) <- function(object) {
       ggplot2::ggplot(
         plot_df,
         ggplot2::aes(
-          y = multiplier_pred,
+          y = .data$multiplier_pred,
           x = anchor_label,
-          ymin = multiplier_lo,
-          ymax = multiplier_hi
+          ymin = .data$multiplier_lo,
+          ymax = .data$multiplier_hi
         )
       ) +
         ggplot2::geom_hline(yintercept = 1, linetype = "dashed", colour = "grey45") +
@@ -1874,8 +1874,8 @@ S7::method(show_generic, Referee) <- function(object) {
 
     if (identical(view, "by_policy")) {
       count_tbl <- plot_df |>
-        dplyr::count(selected_policy_display, sort = TRUE) |>
-        dplyr::mutate(selected_policy_display = stats::reorder(selected_policy_display, n))
+        dplyr::count(.data$selected_policy_display, sort = TRUE) |>
+        dplyr::mutate(selected_policy_display = stats::reorder(.data$selected_policy_display, .data$n))
       return(
         ggplot2::ggplot(
           count_tbl,
@@ -1893,11 +1893,11 @@ S7::method(show_generic, Referee) <- function(object) {
     }
 
     count_tbl <- plot_df |>
-      dplyr::count(anchor_species, selected_policy_display) |>
-      dplyr::group_by(anchor_species) |>
-      dplyr::mutate(anchor_total = sum(n)) |>
+      dplyr::count(.data$anchor_species, .data$selected_policy_display) |>
+      dplyr::group_by(.data$anchor_species) |>
+      dplyr::mutate(anchor_total = sum(.data$n)) |>
       dplyr::ungroup() |>
-      dplyr::mutate(anchor_species = stats::reorder(anchor_species, anchor_total))
+      dplyr::mutate(anchor_species = stats::reorder(.data$anchor_species, .data$anchor_total))
     return(
       ggplot2::ggplot(
         count_tbl,
@@ -2024,16 +2024,16 @@ S7::method(plot_generic, Scorecard) <- .plot_scorecard
         dplyr::transmute(
           anchor_model_id,
           policy = if ("selected_policy" %in% names(selected_tbl)) {
-            as.character(selected_policy)
+            as.character(.data$selected_policy)
           } else if ("policy" %in% names(selected_tbl)) {
-            as.character(policy)
+            as.character(.data$policy)
           } else {
             rep(NA_character_, dplyr::n())
           },
           equation_branch_filter = if ("selected_equation_branch_filter" %in% names(selected_tbl)) {
-            as.character(selected_equation_branch_filter)
+            as.character(.data$selected_equation_branch_filter)
           } else if ("equation_branch_filter" %in% names(selected_tbl)) {
-            as.character(equation_branch_filter)
+            as.character(.data$equation_branch_filter)
           } else {
             rep(NA_character_, dplyr::n())
           },
@@ -2075,10 +2075,10 @@ S7::method(plot_generic, Scorecard) <- .plot_scorecard
       dplyr::left_join(
         consensus_tbl |>
           dplyr::transmute(
-            anchor_model_id,
-            combined_multiplier_q05 = multiplier_q05,
-            combined_multiplier_q50 = multiplier_q50,
-            combined_multiplier_q95 = multiplier_q95
+            .data$anchor_model_id,
+            combined_multiplier_q05 = .data$multiplier_q05,
+            combined_multiplier_q50 = .data$multiplier_q50,
+            combined_multiplier_q95 = .data$multiplier_q95
           ),
         by = "anchor_model_id"
       )

@@ -1210,7 +1210,7 @@ prepare_meta_policy_data <- function(policy_perf,
   }
 
   out <- policy_perf |>
-    dplyr::filter(valid_prediction, is.finite(.data[[outcome_col]])) |>
+    dplyr::filter(.data$valid_prediction, is.finite(.data[[outcome_col]])) |>
     dplyr::select(
       dplyr::any_of(meta_policy_context_columns(policy_perf)),
       dplyr::all_of(feature_cols),

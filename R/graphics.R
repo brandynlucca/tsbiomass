@@ -65,12 +65,12 @@ conjurer_metric_value_labels <- function(values,
 #' @keywords internal
 conjurer_trait_labels <- function(traits) {
   # Humanize the stored trait names without changing their underlying keys.
-  traits <- unique(as.character(traits))
-  traits <- traits[!is.na(traits) & nzchar(traits)]
-  labels <- stringr::str_replace_all(traits, "_", " ")
+  traits_ <- unique(as.character(traits))
+  traits_ <- traits_[!is.na(traits_) & nzchar(traits_)]
+  labels <- stringr::str_replace_all(traits_, "_", " ")
   labels <- stringr::str_replace(labels, "^study ", "")
   labels <- stringr::str_to_title(labels)
-  stats::setNames(labels, traits)
+  stats::setNames(labels, traits_)
 }
 
 #' Save a ggplot and continue when rendering fails
@@ -90,8 +90,8 @@ save_plot_if_possible <- function(filename,
                                   height,
                                   dpi = 300,
                                   ...) {
-  if (inherits(plot, "ggplot")) {
-    plot <- plot +
+  plot_ <- if (inherits(plot, "ggplot")) {
+    plot_tmp <- plot +
       ggplot2::labs(title = NULL, subtitle = NULL) +
       ggplot2::theme(
         plot.title = ggplot2::element_blank(),
@@ -99,13 +99,15 @@ save_plot_if_possible <- function(filename,
       )
     # Freeze ggplot objects to grobs before saving so repeated scripted
     # renders cannot accidentally reuse later plot state across files.
-    plot <- ggplot2::ggplotGrob(plot)
+    ggplot2::ggplotGrob(plot_tmp)
+  } else {
+    plot
   }
   ok <- tryCatch(
     {
       ggplot2::ggsave(
         filename = filename,
-        plot = plot,
+        plot = plot_,
         width = width,
         height = height,
         dpi = dpi,
@@ -140,7 +142,7 @@ plot_uncertainty_blocks <- function(dropout_tbl,
       ggplot2::theme_minimal(base_size = 11))
   }
   plot_df <- plot_df |>
-    dplyr::mutate(block = factor(block, levels = rev(unique(block))))
+    dplyr::mutate(block = factor(.data$block, levels = rev(unique(.data$block))))
   plot_df$block <- dplyr::recode(
     as.character(plot_df$block),
     length_coherence = "Length coherence",
@@ -150,13 +152,13 @@ plot_uncertainty_blocks <- function(dropout_tbl,
   )
   if ("component_rank_global" %in% names(plot_df)) {
     block_levels <- plot_df |>
-      dplyr::arrange(component_rank_global, block) |>
+      dplyr::arrange(.data$component_rank_global, .data$block) |>
       dplyr::distinct(.data$block) |>
-      dplyr::pull(block)
+      dplyr::pull(.data$block)
   } else {
     block_levels <- plot_df |>
-      dplyr::arrange(importance_score, block) |>
-      dplyr::pull(block) |>
+      dplyr::arrange(.data$importance_score, .data$block) |>
+      dplyr::pull(.data$block) |>
       unique()
   }
   plot_df$block <- factor(plot_df$block, levels = rev(block_levels))
@@ -262,32 +264,32 @@ plot_top_models <- function(top_tbl,
   }
   plot_df <- plot_df |>
     dplyr::filter(
-      is.finite(w_adm),
-      w_adm > 0,
-      !is.na(model_id_chr)
+      is.finite(.data$w_adm),
+      .data$w_adm > 0,
+      !is.na(.data$model_id_chr)
     ) |>
-    dplyr::arrange(dplyr::desc(.data$w_adm), combined_distance) |>
+    dplyr::arrange(dplyr::desc(.data$w_adm), .data$combined_distance) |>
     dplyr::slice_head(n = 10L) |>
     dplyr::mutate(
       species_label = dplyr::case_when(
-        !is.na(species_name) & nzchar(species_name) & species_name != "NA NA" ~ species_name,
-        !is.na(genus) & nzchar(genus) & genus != "NA" &
-          !is.na(species) & species %in% c("NA", "sp", "sp.", "spp", "spp.") ~ paste0(genus, " sp."),
-        !is.na(genus) & nzchar(genus) & genus != "NA" ~ paste0(genus, " sp."),
+        !is.na(.data$species_name) & nzchar(.data$species_name) & .data$species_name != "NA NA" ~ .data$species_name,
+        !is.na(.data$genus) & nzchar(.data$genus) & .data$genus != "NA" &
+          !is.na(.data$species) & .data$species %in% c("NA", "sp", "sp.", "spp", "spp.") ~ paste0(.data$genus, " sp."),
+        !is.na(.data$genus) & nzchar(.data$genus) & .data$genus != "NA" ~ paste0(.data$genus, " sp."),
         TRUE ~ "Generic"
       ),
-      species_expr = gsub("'", "\\\\'", species_label, fixed = TRUE),
+      species_expr = gsub("'", "\\\\'", .data$species_label, fixed = TRUE),
       candidate_label = paste0(
-        rank_by_weight,
+        .data$rank_by_weight,
         ".~italic('",
-        species_expr,
+        .data$species_expr,
         "')",
-        dplyr::if_else(isTRUE(is_group_model), "~'[group]'", ""),
+        dplyr::if_else(isTRUE(.data$is_group_model), "~'[group]'", ""),
         "~'{m",
-        as.character(model_id_chr),
+        as.character(.data$model_id_chr),
         "}'"
       ),
-      candidate_label = factor(candidate_label, levels = rev(candidate_label))
+      candidate_label = factor(.data$candidate_label, levels = rev(.data$candidate_label))
     )
   if (nrow(plot_df) == 0) {
     return(ggplot2::ggplot() +
@@ -460,7 +462,7 @@ plot_slope_group <- function(slope_tbl) {
       ggplot2::theme_minimal(base_size = 11))
   }
   plot_df <- plot_df |>
-    dplyr::filter(review_group != "Other")
+    dplyr::filter(.data$review_group != "Other")
 
   ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$review_group, y = .data$slope_len_cell, fill = .data$review_group)) +
     ggplot2::geom_hline(yintercept = 20, colour = "#b2182b", linetype = "dashed", linewidth = 0.9) +
@@ -504,7 +506,7 @@ plot_slope_support <- function(support_tbl) {
 
   ggplot2::ggplot(
     plot_df |>
-      dplyr::filter(review_group != "Other"),
+      dplyr::filter(.data$review_group != "Other"),
     ggplot2::aes(x = .data$review_group, y = .data$prop_study_cells, fill = .data$original_reference_class)
   ) +
     ggplot2::geom_col(position = "fill") +
@@ -556,16 +558,19 @@ plot_ordination_clusters <- function(points_tbl,
     cluster_name <- "ordination_cluster"
     plot_df[[cluster_name]] <- "All models"
   }
-  if (!(species_col %in% names(plot_df))) {
-    species_col <- "model_id"
-    if (!(species_col %in% names(plot_df))) {
-      plot_df[[species_col]] <- ""
+  species_col_ <- if (!(species_col %in% names(plot_df))) {
+    sc <- "model_id"
+    if (!(sc %in% names(plot_df))) {
+      plot_df[[sc]] <- ""
     }
+    sc
+  } else {
+    species_col
   }
   if (common_col %in% names(plot_df)) {
-    plot_df$anchor_label <- dplyr::coalesce(as.character(plot_df[[common_col]]), as.character(plot_df[[species_col]]))
+    plot_df$anchor_label <- dplyr::coalesce(as.character(plot_df[[common_col]]), as.character(plot_df[[species_col_]]))
   } else {
-    plot_df$anchor_label <- as.character(plot_df[[species_col]])
+    plot_df$anchor_label <- as.character(plot_df[[species_col_]])
   }
 
   # Process references
@@ -581,8 +586,8 @@ plot_ordination_clusters <- function(points_tbl,
   # Create base layer with the grid setup
   p <- ggplot2::ggplot(
     mapping = ggplot2::aes(
-      x = MDS1,
-      y = MDS2,
+      x = .data$MDS1,
+      y = .data$MDS2,
       color = .data[[cluster_name]]
     ),
     data = plot_df
@@ -669,16 +674,19 @@ plot_ordination_vectors <- function(vec_tbl,
       ggplot2::labs(title = "Global NMDS Variable Loadings", subtitle = "Required plotting fields were not available.", x = "NMDS1", y = "NMDS2") +
       ggplot2::theme_minimal(base_size = 11))
   }
-  if (!(species_col %in% names(point_df))) {
-    species_col <- "model_id"
-    if (!(species_col %in% names(point_df))) {
-      point_df[[species_col]] <- ""
+  species_col_ <- if (!(species_col %in% names(point_df))) {
+    sc <- "model_id"
+    if (!(sc %in% names(point_df))) {
+      point_df[[sc]] <- ""
     }
+    sc
+  } else {
+    species_col
   }
   if (common_col %in% names(point_df)) {
-    point_df$anchor_label <- dplyr::coalesce(as.character(point_df[[common_col]]), as.character(point_df[[species_col]]))
+    point_df$anchor_label <- dplyr::coalesce(as.character(point_df[[common_col]]), as.character(point_df[[species_col_]]))
   } else {
-    point_df$anchor_label <- as.character(point_df[[species_col]])
+    point_df$anchor_label <- as.character(point_df[[species_col_]])
   }
   if (reference_col %in% names(point_df)) {
     ref_flag <- dplyr::coalesce(as.logical(point_df[[reference_col]]), FALSE)
@@ -690,7 +698,7 @@ plot_ordination_vectors <- function(vec_tbl,
 
   ggplot2::ggplot(
     vec_df |>
-      dplyr::mutate(trait_label = stringr::str_replace_all(trait, "_", " ")),
+      dplyr::mutate(trait_label = stringr::str_replace_all(.data$trait, "_", " ")),
     ggplot2::aes(x = 0, y = 0)
   ) +
     ggplot2::geom_hline(yintercept = 0, linetype = "dashed", colour = "grey80") +
@@ -768,40 +776,48 @@ plot_species_ordination <- function(points_tbl,
       ggplot2::labs(x = "NMDS1", y = "NMDS2") +
       ggplot2::theme_minimal(base_size = 11))
   }
-  if (!(species_col %in% names(pts))) {
-    species_col <- "model_id"
-    if (!(species_col %in% names(pts))) {
-      pts[[species_col]] <- ""
+  species_col_ <- if (!(species_col %in% names(pts))) {
+    sc <- "model_id"
+    if (!(sc %in% names(pts))) {
+      pts[[sc]] <- ""
     }
+    sc
+  } else {
+    species_col
   }
-  pts[[species_col]] <- stringr::str_squish(as.character(pts[[species_col]]))
-  label_species <- if ("species" %in% names(pts)) {
+  pts[[species_col_]] <- stringr::str_squish(as.character(pts[[species_col_]]))
+  label_species_ <- if ("species" %in% names(pts)) {
     stringr::str_squish(as.character(pts$species))
   } else {
-    stringr::str_squish(stringr::word(pts[[species_col]], 2, sep = stringr::regex("\\s+")))
+    stringr::str_squish(stringr::word(pts[[species_col_]], 2, sep = stringr::regex("\\s+")))
   }
-  label_genus <- if ("genus" %in% names(pts)) {
+  label_genus_ <- if ("genus" %in% names(pts)) {
     stringr::str_squish(as.character(pts$genus))
   } else {
-    stringr::str_squish(stringr::word(pts[[species_col]], 1, sep = stringr::regex("\\s+")))
+    stringr::str_squish(stringr::word(pts[[species_col_]], 1, sep = stringr::regex("\\s+")))
   }
+
+  # Force evaluation
+  force(label_species_)
+  force(label_genus_)
+
   pts <- pts |>
     dplyr::mutate(
       plot_label = dplyr::case_when(
-        is.na(.data[[species_col]]) | !nzchar(.data[[species_col]]) ~ dplyr::if_else(
-          !is.na(label_genus) & nzchar(label_genus) & label_genus != "NA",
-          paste0(label_genus, " sp."),
+        is.na(.data[[species_col_]]) | !nzchar(.data[[species_col_]]) ~ dplyr::if_else(
+          !is.na(label_genus_) & nzchar(label_genus_) & label_genus_ != "NA",
+          paste0(label_genus_, " sp."),
           "Generic"
         ),
-        .data[[species_col]] == "NA NA" ~ "Generic",
-        !is.na(label_genus) & nzchar(label_genus) & label_genus != "NA" &
-          !is.na(label_species) & label_species %in% c("NA", "sp", "sp.", "spp", "spp.") ~ paste0(label_genus, " sp."),
-        TRUE ~ .data[[species_col]]
+        .data[[species_col_]] == "NA NA" ~ "Generic",
+        !is.na(label_genus_) & nzchar(label_genus_) & label_genus_ != "NA" &
+          !is.na(label_species_) & label_species_ %in% c("NA", "sp", "sp.", "spp", "spp.") ~ paste0(label_genus_, " sp."),
+        TRUE ~ .data[[species_col_]]
       )
     ) |>
     dplyr::filter(
-      !is.na(plot_label),
-      nzchar(plot_label)
+      !is.na(.data$plot_label),
+      nzchar(.data$plot_label)
     )
   if (nrow(pts) == 0) {
     return(ggplot2::ggplot() +
@@ -866,14 +882,12 @@ plot_species_ordination <- function(points_tbl,
   resolved_group_col <- infer_group_col(
     df = pts,
     requested_col = group_col,
-    excluded_cols = c("MDS1", "MDS2", reference_col, species_col, "model_id", "model_id_chr")
+    excluded_cols = c("MDS1", "MDS2", reference_col, species_col_, "model_id", "model_id_chr")
   )
   if (is.character(resolved_group_col) && nzchar(resolved_group_col)) {
     pts$group_val <- dplyr::coalesce(as.character(pts[[resolved_group_col]]), "unknown")
-    group_name <- resolved_group_col
   } else {
     pts$group_val <- "unknown"
-    group_name <- group_col
   }
   if (reference_col %in% names(pts)) {
     pts$ref_flag <- dplyr::coalesce(as.logical(pts[[reference_col]]), FALSE)
@@ -886,15 +900,15 @@ plot_species_ordination <- function(points_tbl,
 
   # Format points to prepare for plotting
   pts <- pts |>
-    dplyr::mutate(.coord_group = paste(round(MDS1, 4), round(MDS2, 4), sep = ":")) |>
-    dplyr::group_by(.coord_group) |>
+    dplyr::mutate(.coord_group = paste(round(.data$MDS1, 4), round(.data$MDS2, 4), sep = ":")) |>
+    dplyr::group_by(.data$.coord_group) |>
     dplyr::mutate(
       .plot_n = dplyr::n(),
       .plot_i = dplyr::row_number(),
-      .plot_angle = 2 * pi * (.plot_i - 1) / pmax(.plot_n, 1),
-      .plot_radius = dplyr::if_else(.plot_n > 1, 0.08 * scale_ref * sqrt(.plot_i / .plot_n), 0),
-      MDS1_plot = MDS1 + .plot_radius * cos(.plot_angle),
-      MDS2_plot = MDS2 + .plot_radius * sin(.plot_angle)
+      .plot_angle = 2 * pi * (.data$.plot_i - 1) / pmax(.data$.plot_n, 1),
+      .plot_radius = dplyr::if_else(.data$.plot_n > 1, 0.08 * scale_ref * sqrt(.data$.plot_i / .data$.plot_n), 0),
+      MDS1_plot = .data$MDS1 + .data$.plot_radius * cos(.data$.plot_angle),
+      MDS2_plot = .data$MDS2 + .data$.plot_radius * sin(.data$.plot_angle)
     ) |>
     dplyr::ungroup()
   label_flag <- pts$ref_flag
@@ -904,8 +918,8 @@ plot_species_ordination <- function(points_tbl,
   label_df <- pts[label_flag, , drop = FALSE]
 
   # Create base layer with the grid setup
-  p <- ggplot2::ggplot(mapping = ggplot2::aes(MDS1_plot,
-    y = MDS2_plot
+  p <- ggplot2::ggplot(mapping = ggplot2::aes(x = .data$MDS1_plot,
+    y = .data$MDS2_plot
   )) +
     ggplot2::geom_hline(yintercept = 0, linetype = "dashed", colour = "grey70") +
     ggplot2::geom_vline(xintercept = 0, linetype = "dashed", colour = "grey70") +
@@ -919,11 +933,11 @@ plot_species_ordination <- function(points_tbl,
       ggplot2::stat_ellipse(
         data = pts,
         mapping = ggplot2::aes(
-          x = MDS1,
-          y = MDS2,
-          fill = group_val,
-          color = group_val,
-          group = group_val
+          x = .data$MDS1,
+          y = .data$MDS2,
+          fill = .data$group_val,
+          color = .data$group_val,
+          group = .data$group_val
         ),
         geom = "polygon",
         inherit.aes = FALSE,
@@ -939,8 +953,8 @@ plot_species_ordination <- function(points_tbl,
   # Optionally add significant loadings
   if (!is.null(vec_tbl) && nrow(vec_tbl) > 0) {
     sig_vec <- drop_ordination_synthetic_overlap_traits(vec_tbl, trait_col = "trait") |>
-      dplyr::filter(is.finite(MDS1), is.finite(MDS2), !is.na(p_value), p_value < 0.05) |>
-      dplyr::mutate(xend = MDS1 * scale_ref, yend = MDS2 * scale_ref)
+      dplyr::filter(is.finite(.data$MDS1), is.finite(.data$MDS2), !is.na(.data$p_value), .data$p_value < 0.05) |>
+      dplyr::mutate(xend = .data$MDS1 * scale_ref, yend = .data$MDS2 * scale_ref)
 
     if (nrow(sig_vec) > 0) {
       p <- p +
@@ -967,8 +981,8 @@ plot_species_ordination <- function(points_tbl,
   # Draw significant factor centroids only when the factor table is supplied.
   if (!is.null(fac_tbl) && nrow(fac_tbl) > 0) {
     sig_fac <- drop_ordination_synthetic_overlap_traits(fac_tbl, trait_col = "trait") |>
-      dplyr::filter(is.finite(MDS1), is.finite(MDS2), !is.na(p_value), p_value < 0.05) |>
-      dplyr::mutate(fac_label = paste0(trait, ": ", level))
+      dplyr::filter(is.finite(.data$MDS1), is.finite(.data$MDS2), !is.na(.data$p_value), .data$p_value < 0.05) |>
+      dplyr::mutate(fac_label = paste0(.data$trait, ": ", .data$level))
 
     if (nrow(sig_fac) > 0) {
       p <- p +
@@ -1016,10 +1030,10 @@ plot_species_ordination <- function(points_tbl,
     ggrepel::geom_label_repel(
       data = label_df,
       ggplot2::aes(
-        label = plot_label,
-        size = ifelse(ref_flag, 2.9, 2.2),
-        fontface = ifelse(ref_flag, "bold.italic", "italic"),
-        colour = ifelse(ref_flag, "black", "grey30")
+        label = .data$plot_label,
+        size = ifelse(.data$ref_flag, 2.9, 2.2),
+        fontface = ifelse(.data$ref_flag, "bold.italic", "italic"),
+        colour = ifelse(.data$ref_flag, "black", "grey30")
       ),
       max.overlaps = Inf,
       box.padding = 0.4,
@@ -1085,19 +1099,22 @@ plot_ordination_centers <- function(fac_tbl,
   }
   fac_df <- fac_df |>
     dplyr::mutate(
-      trait = factor(trait, levels = unique(trait)),
-      centroid_label = paste0(stringr::str_replace_all(trait, "_", " "), ": ", level)
+      trait = factor(.data$trait, levels = unique(.data$trait)),
+      centroid_label = paste0(stringr::str_replace_all(.data$trait, "_", " "), ": ", .data$level)
     )
-  if (!(species_col %in% names(point_df))) {
-    species_col <- "model_id"
-    if (!(species_col %in% names(point_df))) {
-      point_df[[species_col]] <- ""
+  species_col_ <- if (!(species_col %in% names(point_df))) {
+    sc <- "model_id"
+    if (!(sc %in% names(point_df))) {
+      point_df[[sc]] <- ""
     }
+    sc
+  } else {
+    species_col
   }
   if (common_col %in% names(point_df)) {
-    point_df$anchor_label <- dplyr::coalesce(as.character(point_df[[common_col]]), as.character(point_df[[species_col]]))
+    point_df$anchor_label <- dplyr::coalesce(as.character(point_df[[common_col]]), as.character(point_df[[species_col_]]))
   } else {
-    point_df$anchor_label <- as.character(point_df[[species_col]])
+    point_df$anchor_label <- as.character(point_df[[species_col_]])
   }
   if (reference_col %in% names(point_df)) {
     ref_flag <- dplyr::coalesce(as.logical(point_df[[reference_col]]), FALSE)
@@ -1189,11 +1206,11 @@ plot_overlap_heatmap <- function(overlap_tbl,
   }
 
   plot_df <- overlap_df |>
-    dplyr::select(anchor_species, dplyr::any_of(names(metric_labs))) |>
-    tidyr::pivot_longer(cols = -anchor_species, names_to = "metric", values_to = "value") |>
+    dplyr::select("anchor_species", dplyr::any_of(names(metric_labs))) |>
+    tidyr::pivot_longer(cols = !"anchor_species", names_to = "metric", values_to = "value") |>
     dplyr::mutate(
-      anchor_species = factor(anchor_species, levels = sort(unique(anchor_species))),
-      metric = factor(dplyr::recode(metric, !!!metric_labs), levels = unname(metric_labs))
+      anchor_species = factor(.data$anchor_species, levels = sort(unique(.data$anchor_species))),
+      metric = factor(dplyr::recode(.data$metric, !!!metric_labs), levels = unname(metric_labs))
     )
 
   ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$metric, y = .data$anchor_species, fill = .data$value)) +
@@ -1514,7 +1531,7 @@ plot_gate_composition <- function(gate_tbl,
       ggplot2::labs(x = NULL, y = "Proportion of candidate models") +
       ggplot2::theme_minimal(base_size = 11))
   }
-  plot_df <- dplyr::filter(plot_df, dplyr::coalesce(as.character(inadmissible_reason), "") != "self")
+  plot_df <- dplyr::filter(plot_df, dplyr::coalesce(as.character(.data$inadmissible_reason), "") != "self")
   gate_spec <- admissibility_plot_gate_spec(
     config = config,
     observed_reasons = plot_df$inadmissible_reason,
@@ -1528,21 +1545,21 @@ plot_gate_composition <- function(gate_tbl,
 
   plot_df <- plot_df |>
     dplyr::mutate(
-      anchor_species = factor(anchor_species, levels = unique(anchor_species)),
-      inadmissible_reason = factor(inadmissible_reason, levels = gate_levels),
+      anchor_species = factor(.data$anchor_species, levels = unique(.data$anchor_species)),
+      inadmissible_reason = factor(.data$inadmissible_reason, levels = gate_levels),
       gate_label = factor(
-        dplyr::recode(as.character(inadmissible_reason), !!!gate_label_lookup),
+        dplyr::recode(as.character(.data$inadmissible_reason), !!!gate_label_lookup),
         levels = gate_label_levels
       )
     ) |>
     tidyr::complete(
-      anchor_species,
+      .data$anchor_species,
       inadmissible_reason = factor(gate_levels, levels = gate_levels),
       fill = list(n_models = 0)
     ) |>
     dplyr::mutate(
       gate_label = factor(
-        dplyr::recode(as.character(inadmissible_reason), !!!gate_label_lookup),
+        dplyr::recode(as.character(.data$inadmissible_reason), !!!gate_label_lookup),
         levels = gate_label_levels
       )
     )
@@ -1577,7 +1594,7 @@ plot_anchor_ranges <- function(range_tbl) {
   }
   ggplot2::ggplot(
     plot_df,
-    ggplot2::aes(x = .data$reorder(anchor_species, q50_multiplier_admissible), y = q50_multiplier_admissible)
+    ggplot2::aes(x = .data$reorder(.data$anchor_species, .data$q50_multiplier_admissible), y = .data$q50_multiplier_admissible)
   ) +
     ggplot2::geom_hline(yintercept = 1, linetype = "dashed", colour = "grey50") +
     ggplot2::geom_errorbar(ggplot2::aes(ymin = .data$q05_multiplier_admissible, ymax = .data$q95_multiplier_admissible), width = 0.15, colour = "#2171b5") +
@@ -1610,8 +1627,8 @@ plot_policy_boxplot <- function(perf_tbl) {
   }
   plot_df$policy <- resolve_policy_display_names(plot_df)
   plot_df <- plot_df |>
-    dplyr::filter(valid_prediction, is.finite(error_abs_log)) |>
-    dplyr::mutate(plot_error = pmax(error_abs_log, .Machine$double.xmin))
+    dplyr::filter(.data$valid_prediction, is.finite(.data$error_abs_log)) |>
+    dplyr::mutate(plot_error = pmax(.data$error_abs_log, .Machine$double.xmin))
   if (nrow(plot_df) == 0 || !"policy" %in% names(plot_df)) {
     return(ggplot2::ggplot() +
       ggplot2::labs(x = NULL, y = "|log(multiplier prediction)|") +
@@ -1620,7 +1637,7 @@ plot_policy_boxplot <- function(perf_tbl) {
 
   ggplot2::ggplot(
     plot_df,
-    ggplot2::aes(x = .data$reorder(policy, plot_error, FUN = stats::median), y = plot_error, fill = policy)
+    ggplot2::aes(x = .data$reorder(.data$policy, .data$plot_error, FUN = stats::median), y = .data$plot_error, fill = .data$policy)
   ) +
     ggplot2::geom_boxplot(outlier.alpha = 0.18, width = 0.72) +
     ggplot2::coord_flip() +
@@ -1652,8 +1669,8 @@ plot_species_boxplot <- function(perf_tbl) {
   }
   plot_df$policy <- resolve_policy_display_names(plot_df)
   plot_df <- plot_df |>
-    dplyr::filter(valid_prediction, is.finite(error_abs_log)) |>
-    dplyr::mutate(plot_error = pmax(error_abs_log, .Machine$double.xmin))
+    dplyr::filter(.data$valid_prediction, is.finite(.data$error_abs_log)) |>
+    dplyr::mutate(plot_error = pmax(.data$error_abs_log, .Machine$double.xmin))
   if (nrow(plot_df) == 0 || !"policy" %in% names(plot_df)) {
     return(ggplot2::ggplot() +
       ggplot2::labs(x = NULL, y = "|log(multiplier prediction)|") +
@@ -1662,7 +1679,7 @@ plot_species_boxplot <- function(perf_tbl) {
 
   ggplot2::ggplot(
     plot_df,
-    ggplot2::aes(x = .data$reorder(policy, plot_error, FUN = stats::median), y = plot_error, fill = policy)
+    ggplot2::aes(x = .data$reorder(.data$policy, .data$plot_error, FUN = stats::median), y = .data$plot_error, fill = .data$policy)
   ) +
     ggplot2::geom_boxplot(outlier.alpha = 0.18, width = 0.72) +
     ggplot2::coord_flip() +
@@ -1696,9 +1713,9 @@ plot_policy_heatmap <- function(perf_tbl,
   }
   plot_df$policy <- resolve_policy_display_names(plot_df)
   plot_df <- plot_df |>
-    dplyr::filter(valid_prediction, is.finite(error_abs_log)) |>
-    dplyr::group_by(anchor_species, policy) |>
-    dplyr::summarise(median_abs_log_error = stats::median(error_abs_log, na.rm = TRUE), .groups = "drop")
+    dplyr::filter(.data$valid_prediction, is.finite(.data$error_abs_log)) |>
+    dplyr::group_by(.data$anchor_species, .data$policy) |>
+    dplyr::summarise(median_abs_log_error = stats::median(.data$error_abs_log, na.rm = TRUE), .groups = "drop")
   if (nrow(plot_df) == 0 || !all(c("anchor_species", "policy", "median_abs_log_error") %in% names(plot_df))) {
     return(ggplot2::ggplot() +
       ggplot2::labs(x = NULL, y = NULL) +
@@ -1707,20 +1724,20 @@ plot_policy_heatmap <- function(perf_tbl,
 
   if (!is.null(policy_labs)) {
     plot_df <- plot_df |>
-      dplyr::mutate(policy = dplyr::recode(policy, !!!policy_labs))
+      dplyr::mutate(policy = dplyr::recode(.data$policy, !!!policy_labs))
   }
 
   policy_levels <- plot_df |>
-    dplyr::group_by(policy) |>
-    dplyr::summarise(global_median_abs_log = stats::median(median_abs_log_error, na.rm = TRUE), .groups = "drop") |>
-    dplyr::arrange(global_median_abs_log, policy) |>
-    dplyr::pull(policy)
+    dplyr::group_by(.data$policy) |>
+    dplyr::summarise(global_median_abs_log = stats::median(.data$median_abs_log_error, na.rm = TRUE), .groups = "drop") |>
+    dplyr::arrange(.data$global_median_abs_log, .data$policy) |>
+    dplyr::pull(.data$policy)
 
   ggplot2::ggplot(
     plot_df |>
       dplyr::mutate(
-        policy = factor(policy, levels = policy_levels),
-        anchor_species = factor(anchor_species, levels = sort(unique(anchor_species)))
+        policy = factor(.data$policy, levels = policy_levels),
+        anchor_species = factor(.data$anchor_species, levels = sort(unique(.data$anchor_species)))
       ),
     ggplot2::aes(x = .data$policy, y = .data$anchor_species, fill = .data$median_abs_log_error)
   ) +
@@ -1846,10 +1863,10 @@ conjurer_heatmap_plot <- function(x,
 
   # Keep one row per anchor-trait pair before setting display order.
   plot_df <- plot_df |>
-    dplyr::select(anchor_species, trait, value = dplyr::all_of(metric)) |>
+    dplyr::select("anchor_species", "trait", value = dplyr::all_of(metric)) |>
     dplyr::mutate(
-      trait_label = dplyr::recode(trait, !!!trait_labs),
-      value_label = conjurer_metric_value_labels(value, metric)
+      trait_label = dplyr::recode(.data$trait, !!!trait_labs),
+      value_label = conjurer_metric_value_labels(.data$value, metric)
     )
 
   # Order traits by overall magnitude unless the caller supplied one directly.
@@ -1860,10 +1877,10 @@ conjurer_heatmap_plot <- function(x,
       trait_order <- unique(c(trait_order, setdiff(unique(as.character(plot_df$trait_label)), trait_order)))
     } else {
       trait_order <- plot_df |>
-        dplyr::group_by(trait_label) |>
-        dplyr::summarise(metric_mean = mean(value, na.rm = TRUE), .groups = "drop") |>
-        dplyr::arrange(dplyr::desc(.data$metric_mean), trait_label) |>
-        dplyr::pull(trait_label)
+        dplyr::group_by(.data$trait_label) |>
+        dplyr::summarise(metric_mean = mean(.data$value, na.rm = TRUE), .groups = "drop") |>
+        dplyr::arrange(dplyr::desc(.data$metric_mean), .data$trait_label) |>
+        dplyr::pull(.data$trait_label)
     }
   }
 
@@ -1878,8 +1895,8 @@ conjurer_heatmap_plot <- function(x,
 
   plot_df <- plot_df |>
     dplyr::mutate(
-      anchor_species = factor(anchor_species, levels = anchor_order),
-      trait_label = factor(trait_label, levels = trait_order)
+      anchor_species = factor(.data$anchor_species, levels = anchor_order),
+      trait_label = factor(.data$trait_label, levels = trait_order)
     )
 
   # Build the heatmap around one continuous fill scale and optional cell labels.
@@ -2002,23 +2019,23 @@ summarize_species_policy_performance <- function(perf_tbl) {
     policy = sort(unique(as.character(perf_tbl$policy)))
   )
   row_counts <- perf_tbl |>
-    dplyr::group_by(anchor_species, policy) |>
+    dplyr::group_by(.data$anchor_species, .data$policy) |>
     dplyr::summarise(
       n_tested_anchor_rows = dplyr::n(),
-      n_valid_anchor_models = sum(valid_prediction & is.finite(error_abs_log), na.rm = TRUE),
+      n_valid_anchor_models = sum(.data$valid_prediction & is.finite(.data$error_abs_log), na.rm = TRUE),
       .groups = "drop"
     )
 
   valid_summary <- perf_tbl |>
-    dplyr::filter(valid_prediction, is.finite(error_abs_log)) |>
-    dplyr::group_by(anchor_species, policy) |>
+    dplyr::filter(.data$valid_prediction, is.finite(.data$error_abs_log)) |>
+    dplyr::group_by(.data$anchor_species, .data$policy) |>
     dplyr::summarise(
-      median_abs_log_error = stats::median(error_abs_log, na.rm = TRUE),
-      mean_abs_log_error = mean(error_abs_log, na.rm = TRUE),
-      q90_abs_log_error = stats::quantile(error_abs_log, probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
-      median_predicted_multiplier = stats::median(multiplier_pred, na.rm = TRUE),
-      median_local_combined_distance = stats::median(local_weighted_mean_combined_distance, na.rm = TRUE),
-      median_structural_q_abs_log = stats::median(local_structural_q_abs_log, na.rm = TRUE),
+      median_abs_log_error = stats::median(.data$error_abs_log, na.rm = TRUE),
+      mean_abs_log_error = mean(.data$error_abs_log, na.rm = TRUE),
+      q90_abs_log_error = stats::quantile(.data$error_abs_log, probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
+      median_predicted_multiplier = stats::median(.data$multiplier_pred, na.rm = TRUE),
+      median_local_combined_distance = stats::median(.data$local_weighted_mean_combined_distance, na.rm = TRUE),
+      median_structural_q_abs_log = stats::median(.data$local_structural_q_abs_log, na.rm = TRUE),
       .groups = "drop"
     )
 
@@ -2026,25 +2043,25 @@ summarize_species_policy_performance <- function(perf_tbl) {
     dplyr::left_join(row_counts, by = c("anchor_species", "policy")) |>
     dplyr::left_join(valid_summary, by = c("anchor_species", "policy")) |>
     dplyr::mutate(
-      n_tested_anchor_rows = dplyr::coalesce(n_tested_anchor_rows, 0L),
-      n_valid_anchor_models = dplyr::coalesce(n_valid_anchor_models, 0L),
-      n_anchor_models = n_valid_anchor_models,
-      has_valid_prediction = n_valid_anchor_models > 0
+      n_tested_anchor_rows = dplyr::coalesce(.data$n_tested_anchor_rows, 0L),
+      n_valid_anchor_models = dplyr::coalesce(.data$n_valid_anchor_models, 0L),
+      n_anchor_models = .data$n_valid_anchor_models,
+      has_valid_prediction = .data$n_valid_anchor_models > 0
     ) |>
-    dplyr::group_by(anchor_species) |>
+    dplyr::group_by(.data$anchor_species) |>
     dplyr::arrange(
-      !has_valid_prediction,
-      median_abs_log_error,
-      mean_abs_log_error,
-      policy,
+      !.data$has_valid_prediction,
+      .data$median_abs_log_error,
+      .data$mean_abs_log_error,
+      .data$policy,
       .by_group = TRUE
     ) |>
     dplyr::mutate(rank_within_species = dplyr::row_number()) |>
     dplyr::ungroup() |>
-    dplyr::group_by(policy) |>
-    dplyr::mutate(global_median_abs_log_error = stats::median(median_abs_log_error, na.rm = TRUE)) |>
+    dplyr::group_by(.data$policy) |>
+    dplyr::mutate(global_median_abs_log_error = stats::median(.data$median_abs_log_error, na.rm = TRUE)) |>
     dplyr::ungroup() |>
-    dplyr::arrange(anchor_species, rank_within_species)
+    dplyr::arrange(.data$anchor_species, .data$rank_within_species)
 }
 
 #' Plot every species-policy benchmark rank
@@ -2067,30 +2084,30 @@ plot_species_policy_ranked <- function(perf_tbl) {
   }
 
   plot_df <- plot_df |>
-    dplyr::arrange(anchor_species, dplyr::desc(.data$rank_within_species)) |>
-    dplyr::group_by(anchor_species) |>
+    dplyr::arrange(.data$anchor_species, dplyr::desc(.data$rank_within_species)) |>
+    dplyr::group_by(.data$anchor_species) |>
     dplyr::mutate(
       invalid_x_position = {
-        finite_x <- median_abs_log_error[is.finite(median_abs_log_error)]
+        finite_x <- .data$median_abs_log_error[is.finite(.data$median_abs_log_error)]
         if (length(finite_x) == 0) 1 else max(finite_x, na.rm = TRUE) * 1.08
       },
       plot_abs_log_error = dplyr::if_else(
-        is.finite(median_abs_log_error),
-        median_abs_log_error,
-        invalid_x_position
+        is.finite(.data$median_abs_log_error),
+        .data$median_abs_log_error,
+        .data$invalid_x_position
       )
     ) |>
     dplyr::ungroup() |>
     dplyr::mutate(
-      policy_species_key = paste(policy, anchor_species, sep = "__"),
-      policy_species_key = factor(policy_species_key, levels = unique(policy_species_key))
+      policy_species_key = paste(.data$policy, .data$anchor_species, sep = "__"),
+      policy_species_key = factor(.data$policy_species_key, levels = unique(.data$policy_species_key))
     ) |>
     dplyr::filter(
-      !is.na(anchor_species),
-      !is.na(policy),
-      !is.na(has_valid_prediction),
-      is.finite(plot_abs_log_error),
-      is.finite(n_anchor_models)
+      !is.na(.data$anchor_species),
+      !is.na(.data$policy),
+      !is.na(.data$has_valid_prediction),
+      is.finite(.data$plot_abs_log_error),
+      is.finite(.data$n_anchor_models)
     )
   if (nrow(plot_df) == 0) {
     return(ggplot2::ggplot() +
@@ -2101,11 +2118,11 @@ plot_species_policy_ranked <- function(perf_tbl) {
   ggplot2::ggplot(
     plot_df,
     ggplot2::aes(
-      x = plot_abs_log_error,
-      y = policy_species_key,
-      color = median_structural_q_abs_log,
-      size = n_anchor_models,
-      shape = has_valid_prediction
+      x = .data$plot_abs_log_error,
+      y = .data$policy_species_key,
+      color = .data$median_structural_q_abs_log,
+      size = .data$n_anchor_models,
+      shape = .data$has_valid_prediction
     )
   ) +
     ggplot2::geom_point(alpha = 0.88) +
@@ -2162,48 +2179,48 @@ compare_selected_policy_species_rank <- function(species_policy_tbl,
   species_policy_tbl$policy_display <- as.character(species_policy_tbl$policy)
 
   best_tbl <- species_policy_tbl |>
-    dplyr::filter(has_valid_prediction) |>
-    dplyr::group_by(anchor_species) |>
-    dplyr::arrange(rank_within_species, .by_group = TRUE) |>
+    dplyr::filter(.data$has_valid_prediction) |>
+    dplyr::group_by(.data$anchor_species) |>
+    dplyr::arrange(.data$rank_within_species, .by_group = TRUE) |>
     dplyr::slice(1) |>
     dplyr::ungroup() |>
     dplyr::transmute(
-      anchor_species,
-      species_oracle_best_policy = policy,
-      species_oracle_best_median_abs_log_error = median_abs_log_error
+      .data$anchor_species,
+      species_oracle_best_policy = .data$policy,
+      species_oracle_best_median_abs_log_error = .data$median_abs_log_error
     )
 
   selected_tbl |>
     dplyr::filter(
-      !is.na(selected_policy_display),
-      nzchar(as.character(selected_policy_display))
+      !is.na(.data$selected_policy_display),
+      nzchar(as.character(.data$selected_policy_display))
     ) |>
     dplyr::mutate(
-      selected_policy = as.character(selected_policy),
-      selected_policy_display = as.character(selected_policy_display),
+      selected_policy = as.character(.data$selected_policy),
+      selected_policy_display = as.character(.data$selected_policy_display),
       selection_source = selection_source
     ) |>
     dplyr::left_join(
       species_policy_tbl |>
         dplyr::select(
-          anchor_species,
-          selected_policy_display = policy_display,
-          species_rank = rank_within_species,
-          selected_species_median_abs_log_error = median_abs_log_error,
-          selected_species_mean_abs_log_error = mean_abs_log_error,
-          selected_species_q90_abs_log_error = q90_abs_log_error,
-          selected_has_valid_species_prediction = has_valid_prediction,
-          selected_n_valid_anchor_models = n_valid_anchor_models,
-          selected_n_tested_anchor_rows = n_tested_anchor_rows
+          "anchor_species",
+          selected_policy_display = "policy_display",
+          species_rank = "rank_within_species",
+          selected_species_median_abs_log_error = "median_abs_log_error",
+          selected_species_mean_abs_log_error = "mean_abs_log_error",
+          selected_species_q90_abs_log_error = "q90_abs_log_error",
+          selected_has_valid_species_prediction = "has_valid_prediction",
+          selected_n_valid_anchor_models = "n_valid_anchor_models",
+          selected_n_tested_anchor_rows = "n_tested_anchor_rows"
         ),
       by = c("anchor_species", "selected_policy_display")
     ) |>
     dplyr::left_join(best_tbl, by = "anchor_species") |>
     dplyr::mutate(
-      selected_delta_to_species_oracle = selected_species_median_abs_log_error -
-        species_oracle_best_median_abs_log_error
+      selected_delta_to_species_oracle = .data$selected_species_median_abs_log_error -
+        .data$species_oracle_best_median_abs_log_error
     ) |>
-    dplyr::arrange(anchor_species, selection_source, species_rank, selected_policy_display)
+    dplyr::arrange(.data$anchor_species, .data$selection_source, .data$species_rank, .data$selected_policy_display)
 }
 
 #' Plot conformal calibration by policy
@@ -2246,21 +2263,21 @@ plot_conformal_scores <- function(cal_tbl) {
           vapply(branch_defs, function(x) as.character(x$display_name %||% x$key %||% NA_character_), character(1)),
           vapply(branch_defs, function(x) as.character(x$key %||% NA_character_), character(1))
         )
-        branch_vals <- as.character(equation_branch_filter)
+        branch_vals <- as.character(.data$equation_branch_filter)
         branch_labs <- unname(branch_names[branch_vals])
         branch_labs[is.na(branch_labs) | !nzchar(branch_labs)] <- branch_vals[is.na(branch_labs) | !nzchar(branch_labs)]
         branch_labs
       },
       label_colour = ifelse(
-        q_abs_log >= stats::median(q_abs_log, na.rm = TRUE),
+        .data$q_abs_log >= stats::median(.data$q_abs_log, na.rm = TRUE),
         "white",
         "black"
       )
     ) |>
     dplyr::filter(
-      !is.na(policy_display),
-      nzchar(policy_display),
-      is.finite(q_abs_log)
+      !is.na(.data$policy_display),
+      nzchar(.data$policy_display),
+      is.finite(.data$q_abs_log)
     )
   if (nrow(plot_df) == 0) {
     return(ggplot2::ggplot() +
@@ -2269,10 +2286,10 @@ plot_conformal_scores <- function(cal_tbl) {
   }
 
   policy_levels <- plot_df |>
-    dplyr::group_by(policy_display) |>
-    dplyr::summarise(mean_q_abs_log = mean(q_abs_log, na.rm = TRUE), .groups = "drop") |>
-    dplyr::arrange(mean_q_abs_log, policy_display) |>
-    dplyr::pull(policy_display)
+    dplyr::group_by(.data$policy_display) |>
+    dplyr::summarise(mean_q_abs_log = mean(.data$q_abs_log, na.rm = TRUE), .groups = "drop") |>
+    dplyr::arrange(.data$mean_q_abs_log, .data$policy_display) |>
+    dplyr::pull(.data$policy_display)
   branch_levels <- {
     branch_defs <- read_policy_registry()$policy_branches %||% list()
     registry_levels <- vapply(branch_defs, function(x) as.character(x$display_name %||% x$key %||% NA_character_), character(1))
@@ -2286,16 +2303,16 @@ plot_conformal_scores <- function(cal_tbl) {
   ggplot2::ggplot(
     plot_df |>
       dplyr::mutate(
-        policy_display = factor(policy_display, levels = rev(policy_levels)),
-        branch_display = factor(branch_display, levels = branch_levels)
+        policy_display = factor(.data$policy_display, levels = rev(policy_levels)),
+        branch_display = factor(.data$branch_display, levels = branch_levels)
       ),
     ggplot2::aes(x = .data$branch_display, y = .data$policy_display, fill = .data$q_abs_log)
   ) +
     ggplot2::geom_tile(colour = "white", linewidth = 0.6) +
     ggplot2::geom_text(
       ggplot2::aes(
-        label = sprintf("%.2f", q_abs_log),
-        colour = label_colour
+        label = sprintf("%.2f", .data$q_abs_log),
+        colour = .data$label_colour
       ),
       size = 3.1,
       show.legend = FALSE
@@ -2344,30 +2361,30 @@ plot_component_importance <- function(impact_tbl,
     component_levels <- plot_df |>
       dplyr::mutate(
         component_label = dplyr::recode(
-          as.character(component),
+          as.character(.data$component),
           length_coherence = "Length coherence",
           depth_coherence = "Depth coherence",
           frequency_coherence = "Frequency coherence",
-          .default = stringr::str_to_title(stringr::str_replace_all(as.character(component), "_", " "))
+          .default = stringr::str_to_title(stringr::str_replace_all(as.character(.data$component), "_", " "))
         )
       ) |>
-      dplyr::arrange(component_rank_global, component_label) |>
+      dplyr::arrange(.data$component_rank_global, .data$component_label) |>
       dplyr::distinct(.data$component_label) |>
-      dplyr::pull(component_label)
+      dplyr::pull(.data$component_label)
     plot_df <- plot_df |>
       dplyr::mutate(
         component_label = dplyr::recode(
-          as.character(component),
+          as.character(.data$component),
           length_coherence = "Length coherence",
           depth_coherence = "Depth coherence",
           frequency_coherence = "Frequency coherence",
-          .default = stringr::str_to_title(stringr::str_replace_all(as.character(component), "_", " "))
+          .default = stringr::str_to_title(stringr::str_replace_all(as.character(.data$component), "_", " "))
         ),
         component_label = factor(
-          component_label,
+          .data$component_label,
           levels = component_levels
         ),
-        anchor_label = paste0("italic('", gsub("'", "\\\\'", as.character(anchor_species), fixed = TRUE), "')")
+        anchor_label = paste0("italic('", gsub("'", "\\\\'", as.character(.data$anchor_species), fixed = TRUE), "')")
       )
 
     p <- ggplot2::ggplot(
@@ -2406,7 +2423,7 @@ plot_component_importance <- function(impact_tbl,
       ggplot2::theme_minimal(base_size = 11))
   }
   plot_df <- plot_df |>
-    dplyr::filter(component != "full_model")
+    dplyr::filter(.data$component != "full_model")
   if (nrow(plot_df) == 0) {
     return(ggplot2::ggplot() +
       ggplot2::labs(title = "Empirical Component Importance for Similarity Weighting", subtitle = "Required plotting fields were not available.", x = NULL, y = "Delta RMSE after component dropout") +
@@ -2415,7 +2432,7 @@ plot_component_importance <- function(impact_tbl,
 
   if (!is.null(label_map)) {
     plot_df <- plot_df |>
-      dplyr::mutate(component = dplyr::recode(component, !!!label_map))
+      dplyr::mutate(component = dplyr::recode(.data$component, !!!label_map))
   }
 
   ggplot2::ggplot(
@@ -2458,30 +2475,30 @@ plot_uncertainty_heat <- function(dropout_tbl,
   plot_df <- plot_df |>
     dplyr::mutate(
       block = dplyr::recode(
-        as.character(block),
+        as.character(.data$block),
         !!!(block_labs %||% c()),
         length_coherence = "Length coherence",
         depth_coherence = "Depth coherence",
         frequency_coherence = "Frequency coherence",
-        .default = stringr::str_to_title(stringr::str_replace_all(as.character(block), "_", " "))
+        .default = stringr::str_to_title(stringr::str_replace_all(as.character(.data$block), "_", " "))
       )
     )
   if ("component_rank_global" %in% names(plot_df)) {
     block_levels <- plot_df |>
-      dplyr::arrange(component_rank_global, block) |>
+      dplyr::arrange(.data$component_rank_global, .data$block) |>
       dplyr::distinct(.data$block) |>
-      dplyr::pull(block)
+      dplyr::pull(.data$block)
   } else {
     block_levels <- plot_df |>
-      dplyr::group_by(block) |>
-      dplyr::summarise(mean_importance = mean(importance_score, na.rm = TRUE), .groups = "drop") |>
-      dplyr::arrange(dplyr::desc(.data$mean_importance), block) |>
-      dplyr::pull(block)
+      dplyr::group_by(.data$block) |>
+      dplyr::summarise(mean_importance = mean(.data$importance_score, na.rm = TRUE), .groups = "drop") |>
+      dplyr::arrange(dplyr::desc(.data$mean_importance), .data$block) |>
+      dplyr::pull(.data$block)
   }
 
   ggplot2::ggplot(
     plot_df |>
-      dplyr::mutate(block = factor(block, levels = block_levels)),
+      dplyr::mutate(block = factor(.data$block, levels = block_levels)),
     ggplot2::aes(x = .data$block, y = .data$anchor_species, fill = .data$importance_score)
   ) +
     ggplot2::geom_tile(colour = "white") +
@@ -2542,13 +2559,13 @@ plot_selected_intervals <- function(sel_tbl,
   }
   plot_df <- plot_df |>
     dplyr::filter(
-      !is.na(anchor_species),
-      is.finite(multiplier_pred),
-      is.finite(multiplier_lo),
-      is.finite(multiplier_hi),
-      multiplier_pred > 0,
-      multiplier_lo > 0,
-      multiplier_hi > 0
+      !is.na(.data$anchor_species),
+      is.finite(.data$multiplier_pred),
+      is.finite(.data$multiplier_lo),
+      is.finite(.data$multiplier_hi),
+      .data$multiplier_pred > 0,
+      .data$multiplier_lo > 0,
+      .data$multiplier_hi > 0
     )
   if (nrow(plot_df) == 0) {
     return(ggplot2::ggplot() +
@@ -2559,11 +2576,11 @@ plot_selected_intervals <- function(sel_tbl,
   ggplot2::ggplot(
     plot_df,
     ggplot2::aes(
-      x = reorder(anchor_species, multiplier_pred),
-      y = multiplier_pred,
-      ymin = multiplier_lo,
-      ymax = multiplier_hi,
-      colour = selected_policy_display
+      x = reorder(.data$anchor_species, .data$multiplier_pred),
+      y = .data$multiplier_pred,
+      ymin = .data$multiplier_lo,
+      ymax = .data$multiplier_hi,
+      colour = .data$selected_policy_display
     )
   ) +
     ggplot2::geom_hline(yintercept = 1, linetype = "dashed", colour = "grey55") +
@@ -2603,45 +2620,45 @@ plot_anchor_summary <- function(integrated_tbl,
   }
   integrated_df$selected_policy_display <- resolve_selected_policy_names(integrated_df)
   anchor_levels <- integrated_df |>
-    dplyr::group_by(anchor_species) |>
+    dplyr::group_by(.data$anchor_species) |>
     dplyr::summarise(
-      order_value = stats::median(multiplier_pred, na.rm = TRUE),
+      order_value = stats::median(.data$multiplier_pred, na.rm = TRUE),
       .groups = "drop"
     ) |>
-    dplyr::arrange(order_value, anchor_species) |>
-    dplyr::pull(anchor_species) |>
+    dplyr::arrange(.data$order_value, .data$anchor_species) |>
+    dplyr::pull(.data$anchor_species) |>
     unique()
 
   integrated_df <- integrated_df |>
     dplyr::filter(
-      !is.na(anchor_species),
-      is.finite(multiplier_pred),
-      is.finite(multiplier_lo),
-      is.finite(multiplier_hi),
-      is.finite(combined_multiplier_q05),
-      is.finite(combined_multiplier_q50),
-      is.finite(combined_multiplier_q95),
-      multiplier_pred > 0,
-      multiplier_lo > 0,
-      multiplier_hi > 0,
-      combined_multiplier_q05 > 0,
-      combined_multiplier_q50 > 0,
-      combined_multiplier_q95 > 0
+      !is.na(.data$anchor_species),
+      is.finite(.data$multiplier_pred),
+      is.finite(.data$multiplier_lo),
+      is.finite(.data$multiplier_hi),
+      is.finite(.data$combined_multiplier_q05),
+      is.finite(.data$combined_multiplier_q50),
+      is.finite(.data$combined_multiplier_q95),
+      .data$multiplier_pred > 0,
+      .data$multiplier_lo > 0,
+      .data$multiplier_hi > 0,
+      .data$combined_multiplier_q05 > 0,
+      .data$combined_multiplier_q50 > 0,
+      .data$combined_multiplier_q95 > 0
     ) |>
     dplyr::mutate(
-      anchor_species = factor(anchor_species, levels = anchor_levels),
-      x_pos = as.numeric(anchor_species),
+      anchor_species = factor(.data$anchor_species, levels = anchor_levels),
+      x_pos = as.numeric(.data$anchor_species),
       selected_policy_display = if ("selected_policy_display" %in% names(integrated_df)) {
-        selected_policy_display
+        .data$selected_policy_display
       } else {
         NA_character_
       }
     ) |>
-    dplyr::group_by(anchor_species) |>
-    dplyr::arrange(selected_policy_display, .by_group = TRUE) |>
+    dplyr::group_by(.data$anchor_species) |>
+    dplyr::arrange(.data$selected_policy_display, .by_group = TRUE) |>
     dplyr::mutate(
       policy_offset = if (dplyr::n() > 1) seq(-0.07, 0.07, length.out = dplyr::n()) else 0,
-      selected_x_pos = x_pos - 0.12 + policy_offset
+      selected_x_pos = .data$x_pos - 0.12 + .data$policy_offset
     ) |>
     dplyr::ungroup()
   if (nrow(integrated_df) == 0) {
@@ -2652,16 +2669,16 @@ plot_anchor_summary <- function(integrated_tbl,
   red_df <- tibble::as_tibble(score_tbl)
   if (all(c("anchor_species", "admissible", "biomass_multiplier_if_replace") %in% names(red_df))) {
     red_df <- red_df |>
-      dplyr::filter(admissible, is.finite(biomass_multiplier_if_replace), biomass_multiplier_if_replace > 0) |>
-      dplyr::mutate(anchor_species = factor(anchor_species, levels = anchor_levels), x_pos = as.numeric(anchor_species) + 0.12)
+      dplyr::filter(.data$admissible, is.finite(.data$biomass_multiplier_if_replace), .data$biomass_multiplier_if_replace > 0) |>
+      dplyr::mutate(anchor_species = factor(.data$anchor_species, levels = anchor_levels), x_pos = as.numeric(.data$anchor_species) + 0.12)
   } else {
     red_df <- tibble::tibble(x_pos = numeric(), biomass_multiplier_if_replace = numeric())
   }
   blue_df <- tibble::as_tibble(interval_tbl)
   if (all(c("anchor_species", "valid_prediction", "multiplier_pred") %in% names(blue_df))) {
     blue_df <- blue_df |>
-      dplyr::filter(valid_prediction, is.finite(multiplier_pred), multiplier_pred > 0) |>
-      dplyr::mutate(anchor_species = factor(anchor_species, levels = anchor_levels), x_pos = as.numeric(anchor_species) - 0.12)
+      dplyr::filter(.data$valid_prediction, is.finite(.data$multiplier_pred), .data$multiplier_pred > 0) |>
+      dplyr::mutate(anchor_species = factor(.data$anchor_species, levels = anchor_levels), x_pos = as.numeric(.data$anchor_species) - 0.12)
   } else {
     blue_df <- tibble::tibble(x_pos = numeric(), multiplier_pred = numeric())
   }
@@ -2779,71 +2796,68 @@ plot_area_distribution <- function(model_data,
     stop("Argument 'count_type' must either be 'studies' or 'models'.")
   }
 
-  # Load FAO data
-  data(fao_areas)
-
   # Process model data to get counts
   if (count_type == "studies") {
     model_agg <- model_data |>
-      dplyr::nest_by(reference_tsl_short, fao_area) |>
-      dplyr::group_by(fao_area) |>
-      dplyr::reframe(n = length(reference_tsl_short))
+      dplyr::nest_by(.data$reference_tsl_short, .data$fao_area) |>
+      dplyr::group_by(.data$fao_area) |>
+      dplyr::reframe(n = length(.data$reference_tsl_short))
   } else {
     model_agg <- model_data |>
-      dplyr::group_by(fao_area) |>
-      dplyr::reframe(n = length(fao_area))
+      dplyr::group_by(.data$fao_area) |>
+      dplyr::reframe(n = length(.data$fao_area))
   }
 
   # Convert
   fao_df <- sf::st_as_sf(
     fao_areas |>
-      dplyr::mutate(geometry = swap_xy_sfc_if_needed(sf::st_as_sfc(the_geom, crs = 4326))),
+      dplyr::mutate(geometry = swap_xy_sfc_if_needed(sf::st_as_sfc(.data$the_geom, crs = 4326))),
     sf_column_name = "geometry",
     crs = 4326
   ) |>
-    dplyr::filter(F_LEVEL == "MAJOR") |>
+    dplyr::filter(.data$F_LEVEL == "MAJOR") |>
     dplyr::transmute(
-      fao_area_chr = sub("^0+", "", as.character(F_CODE)),
-      area_name = dplyr::coalesce(NAME_EN, F_NAME, F_CODE),
-      geometry
+      fao_area_chr = sub("^0+", "", as.character(.data$F_CODE)),
+      area_name = dplyr::coalesce(.data$NAME_EN, .data$F_NAME, .data$F_CODE),
+      .data$geometry
     ) |>
     dplyr::left_join(
       model_agg |>
-        dplyr::mutate(fao_area_chr = as.character(fao_area)),
+        dplyr::mutate(fao_area_chr = as.character(.data$fao_area)),
       by = "fao_area_chr"
     ) |>
-    dplyr::mutate(n = dplyr::coalesce(n, 0L)) |>
+    dplyr::mutate(n = dplyr::coalesce(.data$n, 0L)) |>
     sfheaders::sf_to_df(fill = TRUE) |>
-    dplyr::group_by(fao_area_chr, sfg_id, multipolygon_id, polygon_id, linestring_id) |>
+    dplyr::group_by(.data$fao_area_chr, .data$sfg_id, .data$multipolygon_id, .data$polygon_id, .data$linestring_id) |>
     dplyr::mutate(
       sequence_id = dplyr::row_number(),
-      UID = paste0(fao_area_chr, "-", area_name, "-", sfg_id, "-", multipolygon_id, "-", polygon_id)
+      UID = paste0(.data$fao_area_chr, "-", .data$area_name, "-", .data$sfg_id, "-", .data$multipolygon_id, "-", .data$polygon_id)
     ) |>
     dplyr::ungroup() |>
-    dplyr::arrange(UID, linestring_id, sequence_id)
+    dplyr::arrange(.data$UID, .data$linestring_id, .data$sequence_id)
 
   # Get non-empty FAO areas
   nonempty <- fao_df |>
-    dplyr::filter(n > 0) |>
-    dplyr::reframe(fao = unique(fao_area_chr))
+    dplyr::filter(.data$n > 0) |>
+    dplyr::reframe(fao = unique(.data$fao_area_chr))
 
   # Get FAO count labels
   fao_labels <- sf::st_as_sf(
     fao_areas |>
-      dplyr::mutate(geometry = swap_xy_sfc_if_needed(sf::st_as_sfc(the_geom, crs = 4326))),
+      dplyr::mutate(geometry = swap_xy_sfc_if_needed(sf::st_as_sfc(.data$the_geom, crs = 4326))),
     sf_column_name = "geometry",
     crs = 4326
   ) |>
-    dplyr::mutate(fao_area = sub("^0+", "", as.character(F_CODE))) |>
-    dplyr::filter(fao_area %in% nonempty$fao) |>
-    dplyr::mutate(centroid = get_centroid(geometry)) |>
-    dplyr::select(fao_area, centroid) |>
+    dplyr::mutate(fao_area = sub("^0+", "", as.character(.data$F_CODE))) |>
+    dplyr::filter(.data$fao_area %in% nonempty$fao) |>
+    dplyr::mutate(centroid = get_centroid(.data$geometry)) |>
+    dplyr::select("fao_area", "centroid") |>
     sf::st_set_geometry("centroid") |>
     {
       \(.) cbind(sf::st_drop_geometry(.), sf::st_coordinates(.))
     }() |>
-    dplyr::rename(longitude = X, latitude = Y) |>
-    dplyr::left_join(model_agg |> dplyr::mutate(fao_area = as.character(fao_area)),
+    dplyr::rename(longitude = .data$X, latitude = .data$Y) |>
+    dplyr::left_join(model_agg |> dplyr::mutate(fao_area = as.character(.data$fao_area)),
       by = "fao_area"
     )
 
@@ -2852,11 +2866,11 @@ plot_area_distribution <- function(model_data,
     ggplot2::geom_polygon(
       data = fao_df,
       mapping = ggplot2::aes(
-        x = x,
-        y = y,
-        group = UID,
-        subgroup = linestring_id,
-        fill = n
+        x = .data$x,
+        y = .data$y,
+        group = .data$UID,
+        subgroup = .data$linestring_id,
+        fill = .data$n
       ),
       color = "black",
       linewidth = 0.5
@@ -2929,79 +2943,79 @@ plot_ts_panel <- function(curve_tbl,
     curve_tbl |>
       dplyr::transmute(
         !!reference_col := .data[[reference_col]],
-        length_cm,
+        .data$length_cm,
         band = "99%",
         shell = "lower",
-        ymin = ts_lo_99,
-        ymax = ts_lo_95
+        ymin = .data$ts_lo_99,
+        ymax = .data$ts_lo_95
       ),
     curve_tbl |>
       dplyr::transmute(
         !!reference_col := .data[[reference_col]],
-        length_cm,
+        .data$length_cm,
         band = "99%",
         shell = "upper",
-        ymin = ts_hi_95,
-        ymax = ts_hi_99
+        ymin = .data$ts_hi_95,
+        ymax = .data$ts_hi_99
       ),
     curve_tbl |>
       dplyr::transmute(
         !!reference_col := .data[[reference_col]],
-        length_cm,
+        .data$length_cm,
         band = "95%",
         shell = "lower",
-        ymin = ts_lo_95,
-        ymax = ts_lo_90
+        ymin = .data$ts_lo_95,
+        ymax = .data$ts_lo_90
       ),
     curve_tbl |>
       dplyr::transmute(
         !!reference_col := .data[[reference_col]],
-        length_cm,
+        .data$length_cm,
         band = "95%",
         shell = "upper",
-        ymin = ts_hi_90,
-        ymax = ts_hi_95
+        ymin = .data$ts_hi_90,
+        ymax = .data$ts_hi_95
       ),
     curve_tbl |>
       dplyr::transmute(
         !!reference_col := .data[[reference_col]],
-        length_cm,
+        .data$length_cm,
         band = "90%",
         shell = "lower",
-        ymin = ts_lo_90,
-        ymax = ts_lo_80
+        ymin = .data$ts_lo_90,
+        ymax = .data$ts_lo_80
       ),
     curve_tbl |>
       dplyr::transmute(
         !!reference_col := .data[[reference_col]],
-        length_cm,
+        .data$length_cm,
         band = "90%",
         shell = "upper",
-        ymin = ts_hi_80,
-        ymax = ts_hi_90
+        ymin = .data$ts_hi_80,
+        ymax = .data$ts_hi_90
       ),
     curve_tbl |>
       dplyr::transmute(
         !!reference_col := .data[[reference_col]],
-        length_cm,
+        .data$length_cm,
         band = "80%",
         shell = "center",
-        ymin = ts_lo_80,
-        ymax = ts_hi_80
+        ymin = .data$ts_lo_80,
+        ymax = .data$ts_hi_80
       )
   ) |>
-    dplyr::filter(is.finite(ymin), is.finite(ymax), ymax > ymin) |>
-    dplyr::mutate(band = factor(band, levels = c("99%", "95%", "90%", "80%")))
+    dplyr::filter(is.finite(.data$ymin), is.finite(.data$ymax), .data$ymax > .data$ymin) |>
+    dplyr::mutate(band = factor(.data$band, levels = c("99%", "95%", "90%", "80%")))
 
   p <- ggplot2::ggplot() +
     ggplot2::geom_ribbon(
       data = band_tbl,
       ggplot2::aes(
-        x = length_cm,
-        ymin = ymin,
-        ymax = ymax,
-        fill = band,
-        group = interaction(.data[[reference_col]], band, shell)
+        x = .data$length_cm,
+        ymin = .data$ymin,
+        ymax = .data$ymax,
+        fill = .data$band,
+        group = interaction(.data[[reference_col]], .data$band, .data$shell)
       ),
       alpha = 1,
       colour = NA
@@ -3111,19 +3125,19 @@ plot_policy_coefficients <- function(coefficient_tbl) {
   post_df <- dplyr::bind_rows(
     plot_df |>
       dplyr::transmute(
-        anchor_species,
+        .data$anchor_species,
         layer = "Post-selection",
         parameter = "Slope",
-        estimate = estimate_slope,
+        estimate = .data$estimate_slope,
         lo = post_slope_bounds$lo,
         hi = post_slope_bounds$hi
       ),
     plot_df |>
       dplyr::transmute(
-        anchor_species,
+        .data$anchor_species,
         layer = "Post-selection",
         parameter = "Intercept",
-        estimate = estimate_intercept,
+        estimate = .data$estimate_intercept,
         lo = post_intercept_bounds$lo,
         hi = post_intercept_bounds$hi
       )
@@ -3148,19 +3162,19 @@ plot_policy_coefficients <- function(coefficient_tbl) {
     dplyr::bind_rows(
       plot_df |>
         dplyr::transmute(
-          anchor_species,
+          .data$anchor_species,
           layer = "Conditional on selected policy",
           parameter = "Slope",
-          estimate = estimate_slope,
+          estimate = .data$estimate_slope,
           lo = conditional_slope_bounds$lo,
           hi = conditional_slope_bounds$hi
         ),
       plot_df |>
         dplyr::transmute(
-          anchor_species,
+          .data$anchor_species,
           layer = "Conditional on selected policy",
           parameter = "Intercept",
-          estimate = estimate_intercept,
+          estimate = .data$estimate_intercept,
           lo = conditional_intercept_bounds$lo,
           hi = conditional_intercept_bounds$hi
         )
@@ -3170,14 +3184,14 @@ plot_policy_coefficients <- function(coefficient_tbl) {
   }
   long_df <- dplyr::bind_rows(conditional_df, post_df) |>
     dplyr::filter(
-      !is.na(anchor_species),
-      is.finite(estimate),
-      is.finite(lo),
-      is.finite(hi)
+      !is.na(.data$anchor_species),
+      is.finite(.data$estimate),
+      is.finite(.data$lo),
+      is.finite(.data$hi)
     ) |>
     dplyr::mutate(
-      anchor_species = factor(anchor_species, levels = unique(plot_df$anchor_species)),
-      layer = factor(layer, levels = c("Conditional on selected policy", "Post-selection"))
+      anchor_species = factor(.data$anchor_species, levels = unique(plot_df$anchor_species)),
+      layer = factor(.data$layer, levels = c("Conditional on selected policy", "Post-selection"))
     )
   if (nrow(long_df) == 0) {
     return(ggplot2::ggplot() +
@@ -3222,14 +3236,14 @@ plot_multiplier_vs_expected_length <- function(anchor_tbl) {
   }
   plot_df <- plot_df |>
     dplyr::filter(
-      !is.na(anchor_species) & nzchar(anchor_species),
-      is.finite(expected_length_cm),
-      is.finite(multiplier_pred),
-      is.finite(meta_post_selection_multiplier_lo),
-      is.finite(meta_post_selection_multiplier_hi),
-      meta_post_selection_multiplier_lo > 0,
-      meta_post_selection_multiplier_hi > 0,
-      multiplier_pred > 0
+      !is.na(.data$anchor_species) & nzchar(.data$anchor_species),
+      is.finite(.data$expected_length_cm),
+      is.finite(.data$multiplier_pred),
+      is.finite(.data$meta_post_selection_multiplier_lo),
+      is.finite(.data$meta_post_selection_multiplier_hi),
+      .data$meta_post_selection_multiplier_lo > 0,
+      .data$meta_post_selection_multiplier_hi > 0,
+      .data$multiplier_pred > 0
     )
   if (nrow(plot_df) == 0) {
     return(ggplot2::ggplot() +
@@ -3240,11 +3254,11 @@ plot_multiplier_vs_expected_length <- function(anchor_tbl) {
   ggplot2::ggplot(
     plot_df,
     ggplot2::aes(
-      x = expected_length_cm,
-      y = multiplier_pred,
-      ymin = meta_post_selection_multiplier_lo,
-      ymax = meta_post_selection_multiplier_hi,
-      label = anchor_species
+      x = .data$expected_length_cm,
+      y = .data$multiplier_pred,
+      ymin = .data$meta_post_selection_multiplier_lo,
+      ymax = .data$meta_post_selection_multiplier_hi,
+      label = .data$anchor_species
     )
   ) +
     ggplot2::geom_hline(yintercept = 1, linetype = "dashed", colour = "grey55") +
@@ -3279,17 +3293,17 @@ plot_multiplier_length_spectrum <- function(curve_tbl,
   }
   plot_df <- curve_tbl |>
     dplyr::mutate(
-      multiplier_at_length = 10^((ts_anchor - ts_pred) / 10),
-      multiplier_lo_95 = 10^((ts_anchor - ts_hi_95) / 10),
-      multiplier_hi_95 = 10^((ts_anchor - ts_lo_95) / 10)
+      multiplier_at_length = 10^((.data$ts_anchor - .data$ts_pred) / 10),
+      multiplier_lo_95 = 10^((.data$ts_anchor - .data$ts_hi_95) / 10),
+      multiplier_hi_95 = 10^((.data$ts_anchor - .data$ts_lo_95) / 10)
     ) |>
     dplyr::filter(
-      is.finite(multiplier_at_length),
-      is.finite(multiplier_lo_95),
-      is.finite(multiplier_hi_95),
-      multiplier_at_length > 0,
-      multiplier_lo_95 > 0,
-      multiplier_hi_95 > 0
+      is.finite(.data$multiplier_at_length),
+      is.finite(.data$multiplier_lo_95),
+      is.finite(.data$multiplier_hi_95),
+      .data$multiplier_at_length > 0,
+      .data$multiplier_lo_95 > 0,
+      .data$multiplier_hi_95 > 0
     )
   if (nrow(plot_df) == 0) {
     return(ggplot2::ggplot() +
@@ -3338,14 +3352,14 @@ plot_all_intervals <- function(interval_tbl,
   }
   plot_df <- plot_df |>
     dplyr::filter(
-      is.finite(multiplier_pred),
-      is.finite(multiplier_lo),
-      is.finite(multiplier_hi),
-      multiplier_pred > 0,
-      multiplier_lo > 0,
-      multiplier_hi > 0
+      is.finite(.data$multiplier_pred),
+      is.finite(.data$multiplier_lo),
+      is.finite(.data$multiplier_hi),
+      .data$multiplier_pred > 0,
+      .data$multiplier_lo > 0,
+      .data$multiplier_hi > 0
     ) |>
-    dplyr::arrange(multiplier_pred, policy_display)
+    dplyr::arrange(.data$multiplier_pred, .data$policy_display)
   if (nrow(plot_df) == 0) {
     return(ggplot2::ggplot() +
       ggplot2::labs(x = NULL, y = "Biomass multiplier") +
@@ -3354,18 +3368,18 @@ plot_all_intervals <- function(interval_tbl,
   policy_levels <- unique(plot_df$policy_display)
   plot_df$policy_display <- factor(plot_df$policy_display, levels = rev(policy_levels))
   background_df <- plot_df |>
-    dplyr::filter(!is_selected)
+    dplyr::filter(!.data$is_selected)
   selected_df <- plot_df |>
-    dplyr::filter(is_selected)
+    dplyr::filter(.data$is_selected)
 
   ggplot2::ggplot(plot_df, ggplot2::aes(y = .data$policy_display)) +
     ggplot2::geom_vline(xintercept = 1, linetype = "dashed", colour = "grey55") +
     ggplot2::geom_segment(
       data = background_df,
       ggplot2::aes(
-        x = multiplier_lo,
-        xend = multiplier_hi,
-        yend = policy_display
+        x = .data$multiplier_lo,
+        xend = .data$multiplier_hi,
+        yend = .data$policy_display
       ),
       linewidth = 0.75,
       colour = "grey70",
@@ -3381,9 +3395,9 @@ plot_all_intervals <- function(interval_tbl,
     ggplot2::geom_segment(
       data = selected_df,
       ggplot2::aes(
-        x = multiplier_lo,
-        xend = multiplier_hi,
-        yend = policy_display
+        x = .data$multiplier_lo,
+        xend = .data$multiplier_hi,
+        yend = .data$policy_display
       ),
       linewidth = 1.05,
       colour = "#2166ac"
@@ -3427,13 +3441,13 @@ plot_interval_panel <- function(interval_tbl) {
   }
   plot_df <- plot_df |>
     dplyr::filter(
-      !is.na(anchor_species),
-      is.finite(multiplier_pred),
-      is.finite(multiplier_lo),
-      is.finite(multiplier_hi),
-      multiplier_pred > 0,
-      multiplier_lo > 0,
-      multiplier_hi > 0
+      !is.na(.data$anchor_species),
+      is.finite(.data$multiplier_pred),
+      is.finite(.data$multiplier_lo),
+      is.finite(.data$multiplier_hi),
+      .data$multiplier_pred > 0,
+      .data$multiplier_lo > 0,
+      .data$multiplier_hi > 0
     ) |>
     dplyr::ungroup()
   if (nrow(plot_df) == 0) {
@@ -3442,28 +3456,28 @@ plot_interval_panel <- function(interval_tbl) {
       ggplot2::theme_minimal(base_size = 11))
   }
   policy_levels <- plot_df |>
-    dplyr::group_by(policy_display) |>
-    dplyr::summarise(order_value = stats::median(multiplier_pred, na.rm = TRUE), .groups = "drop") |>
-    dplyr::arrange(order_value, policy_display) |>
-    dplyr::pull(policy_display)
+    dplyr::group_by(.data$policy_display) |>
+    dplyr::summarise(order_value = stats::median(.data$multiplier_pred, na.rm = TRUE), .groups = "drop") |>
+    dplyr::arrange(.data$order_value, .data$policy_display) |>
+    dplyr::pull(.data$policy_display)
   plot_df <- plot_df |>
     dplyr::mutate(
-      policy_display = factor(policy_display, levels = rev(policy_levels)),
-      anchor_species = factor(anchor_species, levels = unique(anchor_species))
+      policy_display = factor(.data$policy_display, levels = rev(policy_levels)),
+      anchor_species = factor(.data$anchor_species, levels = unique(.data$anchor_species))
     )
   background_df <- plot_df |>
-    dplyr::filter(!is_selected)
+    dplyr::filter(!.data$is_selected)
   selected_df <- plot_df |>
-    dplyr::filter(is_selected)
+    dplyr::filter(.data$is_selected)
 
   ggplot2::ggplot(plot_df, ggplot2::aes(y = .data$policy_display)) +
     ggplot2::geom_vline(xintercept = 1, linetype = "dashed", colour = "grey55") +
     ggplot2::geom_segment(
       data = background_df,
       ggplot2::aes(
-        x = multiplier_lo,
-        xend = multiplier_hi,
-        yend = policy_display
+        x = .data$multiplier_lo,
+        xend = .data$multiplier_hi,
+        yend = .data$policy_display
       ),
       linewidth = 0.65,
       colour = "grey70",
@@ -3479,9 +3493,9 @@ plot_interval_panel <- function(interval_tbl) {
     ggplot2::geom_segment(
       data = selected_df,
       ggplot2::aes(
-        x = multiplier_lo,
-        xend = multiplier_hi,
-        yend = policy_display
+        x = .data$multiplier_lo,
+        xend = .data$multiplier_hi,
+        yend = .data$policy_display
       ),
       linewidth = 0.95,
       colour = "#2166ac"
@@ -3492,7 +3506,7 @@ plot_interval_panel <- function(interval_tbl) {
       size = 2.8,
       colour = "#2166ac"
     ) +
-    ggplot2::facet_grid(cols = ggplot2::vars(anchor_species)) +
+    ggplot2::facet_grid(cols = ggplot2::vars(.data$anchor_species)) +
     ggplot2::scale_x_log10(labels = scales::label_number(accuracy = 0.01)) +
     ggplot2::labs(
       x = "Biomass multiplier",
@@ -3528,10 +3542,10 @@ plot_policy_stability <- function(sens_tbl,
   }
   if (!is.null(scenario_labs)) {
     plot_df <- plot_df |>
-      dplyr::mutate(scenario_label = dplyr::recode(scenario, !!!scenario_labs))
+      dplyr::mutate(scenario_label = dplyr::recode(.data$scenario, !!!scenario_labs))
   } else {
     plot_df <- plot_df |>
-      dplyr::mutate(scenario_label = scenario)
+      dplyr::mutate(scenario_label = .data$scenario)
   }
   if (!"policy_changed" %in% names(plot_df)) plot_df$policy_changed <- FALSE
   if (!"display_changed" %in% names(plot_df)) plot_df$display_changed <- FALSE
@@ -3557,9 +3571,9 @@ plot_policy_stability <- function(sens_tbl,
   anchor_order <- anchor_order[!is.na(anchor_order) & nzchar(anchor_order)]
   plot_df <- plot_df |>
     dplyr::mutate(
-      scenario_label = factor(as.character(scenario_label), levels = unique(as.character(scenario_label))),
-      anchor_species = factor(as.character(anchor_species), levels = anchor_order),
-      equiv_change = dplyr::coalesce(equivalent_set_changed, equiv_set_changed, FALSE),
+      scenario_label = factor(as.character(.data$scenario_label), levels = unique(as.character(.data$scenario_label))),
+      anchor_species = factor(as.character(.data$anchor_species), levels = anchor_order),
+      equiv_change = dplyr::coalesce(.data$equivalent_set_changed, .data$equiv_set_changed, FALSE),
       stability_state = dplyr::case_when(
         as.character(scenario_status) != "ok" ~ "Scenario failed",
         dplyr::coalesce(policy_changed, FALSE) ~ "Selected policy changed",
@@ -3568,7 +3582,7 @@ plot_policy_stability <- function(sens_tbl,
         TRUE ~ "Selection unchanged"
       ),
       stability_state = factor(
-        stability_state,
+        .data$stability_state,
         levels = c(
           "Selection unchanged",
           "Equivalent set changed",
@@ -3624,14 +3638,14 @@ plot_multiplier_drift <- function(sens_tbl,
   }
   if (!is.null(scenario_labs)) {
     plot_df <- plot_df |>
-      dplyr::mutate(scenario_label = dplyr::recode(scenario, !!!scenario_labs))
+      dplyr::mutate(scenario_label = dplyr::recode(.data$scenario, !!!scenario_labs))
   } else {
     plot_df <- plot_df |>
-      dplyr::mutate(scenario_label = scenario)
+      dplyr::mutate(scenario_label = .data$scenario)
   }
 
   base_df <- tibble::as_tibble(baseline_tbl) |>
-    dplyr::select(anchor_model_id, baseline_multiplier = multiplier_pred)
+    dplyr::select("anchor_model_id", baseline_multiplier = "multiplier_pred")
   anchor_order <- unique(c(
     as.character(tibble::as_tibble(baseline_tbl)$anchor_species),
     as.character(plot_df$anchor_species)
@@ -3640,10 +3654,10 @@ plot_multiplier_drift <- function(sens_tbl,
   plot_df <- plot_df |>
     dplyr::left_join(base_df, by = "anchor_model_id") |>
     dplyr::mutate(
-      scenario_label = factor(as.character(scenario_label), levels = unique(as.character(scenario_label))),
-      anchor_species = factor(as.character(anchor_species), levels = anchor_order),
-      delta_log_multiplier = log(multiplier_pred / baseline_multiplier),
-      label = sprintf("%+.2f", delta_log_multiplier)
+      scenario_label = factor(as.character(.data$scenario_label), levels = unique(as.character(.data$scenario_label))),
+      anchor_species = factor(as.character(.data$anchor_species), levels = anchor_order),
+      delta_log_multiplier = log(.data$multiplier_pred / .data$baseline_multiplier),
+      label = sprintf("%+.2f", .data$delta_log_multiplier)
     )
 
   ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$scenario_label, y = .data$anchor_species, fill = .data$delta_log_multiplier)) +
@@ -3720,11 +3734,11 @@ plot_tuning_variation <- function(plot_tbl,
   ggplot2::ggplot(
     plot_df |>
       dplyr::mutate(.block = forcats::fct_reorder(.data[[block_col]], .data$mean_multiplier)),
-    ggplot2::aes(x = .data$mean_multiplier, y = .block)
+    ggplot2::aes(x = .data$mean_multiplier, y = .data$.block)
   ) +
     ggplot2::geom_linerange(ggplot2::aes(xmin = .data$q05_multiplier, xmax = .data$q95_multiplier), linewidth = 1.1, colour = "#6baed6") +
     ggplot2::geom_point(size = 3, colour = "#08519c") +
-    ggplot2::geom_text(ggplot2::aes(label = .data$sprintf("sd=%.2f", sd_multiplier)), nudge_y = 0.22, size = 3, colour = "#444444") +
+    ggplot2::geom_text(ggplot2::aes(label = .data$sprintf("sd=%.2f", .data$sd_multiplier)), nudge_y = 0.22, size = 3, colour = "#444444") +
     ggplot2::labs(
       title = "Tuning Block Multipliers Across Resamples",
       x = "Block multiplier",
@@ -3781,10 +3795,10 @@ plot_anchor_audit <- function(audit_tbl) {
   plot_df <- audit_tbl |>
     dplyr::mutate(anchor_species = forcats::fct_inorder(.data$anchor_species)) |>
     dplyr::select(dplyr::all_of(keep_cols)) |>
-    tidyr::pivot_longer(cols = -c(anchor_species, selected_policy_display), names_to = "metric", values_to = "value") |>
+    tidyr::pivot_longer(cols = -c(.data$anchor_species, .data$selected_policy_display), names_to = "metric", values_to = "value") |>
     dplyr::mutate(
       metric = factor(
-        dplyr::recode(metric, !!!metric_labs),
+        dplyr::recode(.data$metric, !!!metric_labs),
         levels = unname(metric_labs[names(metric_labs) %in% names(audit_tbl)])
       )
     )
@@ -4033,8 +4047,8 @@ plot_ts_ribbon <- function(ribbon_tbl,
   }
   plot_df <- plot_df |>
     dplyr::mutate(
-      ribbon_low = dplyr::coalesce(ts_lo, ts_mean - ts_sd),
-      ribbon_high = dplyr::coalesce(ts_hi, ts_mean + ts_sd)
+      ribbon_low = dplyr::coalesce(.data$ts_lo, .data$ts_mean - .data$ts_sd),
+      ribbon_high = dplyr::coalesce(.data$ts_hi, .data$ts_mean + .data$ts_sd)
     )
 
   ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$length_cm, y = .data$ts_mean)) +
@@ -4075,10 +4089,10 @@ plot_model_weights <- function(weight_tbl,
   if (!"d_species" %in% names(plot_df)) plot_df$d_species <- NA_real_
   plot_df <- plot_df |>
     dplyr::mutate(
-      plot_weight = dplyr::coalesce(w_adm, w_combined),
-      plot_distance = dplyr::coalesce(combined_distance, d_species)
+      plot_weight = dplyr::coalesce(.data$w_adm, .data$w_combined),
+      plot_distance = dplyr::coalesce(.data$combined_distance, .data$d_species)
     ) |>
-    dplyr::filter(is.finite(plot_weight), is.finite(plot_distance), plot_weight >= 0)
+    dplyr::filter(is.finite(.data$plot_weight), is.finite(.data$plot_distance), .data$plot_weight >= 0)
   if (nrow(plot_df) == 0) {
     return(ggplot2::ggplot() +
       ggplot2::labs(x = "Distance to reference", y = "Model weight") +
@@ -4128,12 +4142,12 @@ plot_biomass_sensitivity <- function(sensitivity_tbl,
   if (!"w_adm" %in% names(plot_df)) plot_df$w_adm <- NA_real_
   if (!"w_combined" %in% names(plot_df)) plot_df$w_combined <- NA_real_
   plot_df <- plot_df |>
-    dplyr::mutate(plot_weight = dplyr::coalesce(w_adm, w_combined, 0)) |>
+    dplyr::mutate(plot_weight = dplyr::coalesce(.data$w_adm, .data$w_combined, 0)) |>
     dplyr::filter(
-      is.finite(biomass_multiplier_if_replace),
-      biomass_multiplier_if_replace > 0,
-      is.finite(plot_weight),
-      plot_weight > 0
+      is.finite(.data$biomass_multiplier_if_replace),
+      .data$biomass_multiplier_if_replace > 0,
+      is.finite(.data$plot_weight),
+      .data$plot_weight > 0
     )
   if (nrow(plot_df) == 0) {
     return(ggplot2::ggplot() +
@@ -4190,12 +4204,12 @@ plot_biomass_candidate_map <- function(candidate_tbl,
   if (!"w_adm" %in% names(plot_df)) plot_df$w_adm <- NA_real_
   if (!"w_combined" %in% names(plot_df)) plot_df$w_combined <- NA_real_
   plot_df <- plot_df |>
-    dplyr::mutate(plot_weight = dplyr::coalesce(w_adm, w_combined)) |>
+    dplyr::mutate(plot_weight = dplyr::coalesce(.data$w_adm, .data$w_combined)) |>
     dplyr::filter(
-      is.finite(plot_weight),
-      plot_weight > 0,
-      is.finite(biomass_multiplier_if_replace),
-      biomass_multiplier_if_replace > 0
+      is.finite(.data$plot_weight),
+      .data$plot_weight > 0,
+      is.finite(.data$biomass_multiplier_if_replace),
+      .data$biomass_multiplier_if_replace > 0
     )
   if (nrow(plot_df) == 0) {
     return(ggplot2::ggplot() +
@@ -4264,8 +4278,8 @@ plot_top_ten_model_weights <- function(top_tbl,
   }
   plot_df <- plot_df |>
     dplyr::mutate(
-      label = paste0(species_name, common_suffix, " {m", model_id_chr, "}"),
-      label = factor(label, levels = label)
+      label = paste0(.data$species_name, common_suffix, " {m", .data$model_id_chr, "}"),
+      label = factor(.data$label, levels = .data$label)
     )
 
   ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$label, y = .data$w_adm)) +

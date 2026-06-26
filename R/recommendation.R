@@ -49,14 +49,13 @@ recommendation_policy_set <- function(policy_path = NULL) {
 #' @export
 classify_equation_branch <- function(rows,
                                      tolerance = 1e-8) {
-  rows <- tibble::as_tibble(rows)
-  if (!"slope_len" %in% names(rows)) {
-    return(rep("unknown", nrow(rows)))
+  rows_ <- tibble::as_tibble(rows)
+  if (!"slope_len" %in% names(rows_)) {
+    return(rep("unknown", nrow(rows_)))
   }
-  slope_vals <- suppressWarnings(as.numeric(rows$slope_len))
   dplyr::case_when(
-    !is.finite(slope_vals) ~ "unknown",
-    abs(slope_vals - 20) <= tolerance ~ "fixed20",
+    !is.finite(suppressWarnings(as.numeric(rows_$slope_len))) ~ "unknown",
+    abs(suppressWarnings(as.numeric(rows_$slope_len)) - 20) <= tolerance ~ "fixed20",
     TRUE ~ "free_slope"
   )
 }
@@ -76,27 +75,27 @@ add_recommendation_source_weights <- function(rows,
                                                 "frequency",
                                                 "recommendation_equation_branch"
                                               )) {
-  rows <- tibble::as_tibble(rows)
-  if (!"recommendation_equation_branch" %in% names(rows)) {
-    rows$recommendation_equation_branch <- classify_equation_branch(rows)
+  rows_ <- tibble::as_tibble(rows)
+  if (!"recommendation_equation_branch" %in% names(rows_)) {
+    rows_$recommendation_equation_branch <- classify_equation_branch(rows_)
   }
-  present_cols <- intersect(source_cols, names(rows))
+  present_cols <- intersect(source_cols, names(rows_))
   if (length(present_cols) == 0) {
-    rows$recommendation_source_cell <- seq_len(nrow(rows))
-    rows$recommendation_source_cell_weight <- 1
-    return(rows)
+    rows_$recommendation_source_cell <- seq_len(nrow(rows_))
+    rows_$recommendation_source_cell_weight <- 1
+    return(rows_)
   }
 
-  cell_df <- rows[present_cols]
-  cell_df[] <- lapply(cell_df, function(x) {
-    x <- dplyr::coalesce(as.character(x), "missing")
-    x[!nzchar(x)] <- "missing"
-    x
+  cell_df <- rows_[present_cols]
+  cell_df[] <- lapply(cell_df, function(x_now) {
+    x_now <- dplyr::coalesce(as.character(x_now), "missing")
+    x_now[!nzchar(x_now)] <- "missing"
+    x_now
   })
-  rows$recommendation_source_cell <- do.call(paste, c(cell_df, sep = " | "))
+  rows_$recommendation_source_cell <- do.call(paste, c(cell_df, sep = " | "))
 
-  rows |>
-    dplyr::group_by(recommendation_source_cell) |>
+  rows_ |>
+    dplyr::group_by(.data$recommendation_source_cell) |>
     dplyr::mutate(recommendation_source_cell_weight = 1 / dplyr::n()) |>
     dplyr::ungroup()
 }
@@ -194,39 +193,42 @@ prepare_recommendation_context <- function(candidate_models,
                                            config = NULL,
                                            registry_path = NULL) {
   config_missing <- is.null(config)
-  if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
-    config <- config@data
+  config_ <- if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
+    config@data
+  } else {
+    config
   }
   selector_obj <- if ((inherits(candidate_models, "S7_object") && exists("PolicySelector", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_models, PolicySelector), error = function(e) FALSE)))) candidate_models else NULL
   candidates_obj <- if ((inherits(candidate_models, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_models, Candidates), error = function(e) FALSE)))) candidate_models else NULL
-  raw_config <- config
+  raw_config <- config_
+  candidate_models_ <- candidate_models
   if (!is.null(selector_obj)) {
     if (config_missing) {
       raw_config <- candidates_config_data(selector_obj@candidates)
-      config <- policy_selector_anchor_config(selector_obj)
+      config_ <- policy_selector_anchor_config(selector_obj)
     }
     candidates_obj <- selector_obj@candidates
-    candidate_models <- candidates_obj@candidate_models
+    candidate_models_ <- candidates_obj@candidate_models
   } else if (!is.null(candidates_obj)) {
     if (config_missing) {
       raw_config <- candidates_config_data(candidates_obj)
-      config <- merge_cfg(
+      config_ <- merge_cfg(
         default_anchor_config(list()),
         policy_selector_similarity_defaults(candidates_obj)
       )
     }
-    candidate_models <- candidates_obj@candidate_models
+    candidate_models_ <- candidates_obj@candidate_models
   }
 
-  cfg <- read_similarity_config(config)
-  candidate_models <- add_recommendation_source_weights(candidate_models)
+  cfg <- read_similarity_config(config_)
+  candidate_models_ <- add_recommendation_source_weights(candidate_models_)
   sim_obj <- if (config_missing &&
     !is.null(candidates_obj) &&
     length(candidates_obj@similarity_matrix) > 0) {
     candidates_obj@similarity_matrix
   } else {
     prepare_similarity_matrix(
-      candidate_models = candidate_models,
+      candidate_models = candidate_models_,
       species_traits = cfg$species_traits %||% NULL,
       study_traits = cfg$study_traits %||% NULL,
       alpha = cfg$alpha %||% NULL,
@@ -244,7 +246,7 @@ prepare_recommendation_context <- function(candidate_models,
   } else {
     build_gower_distances(sim_obj)
   }
-  candidate_models_prepared <- tibble::as_tibble(sim_obj$candidate_models %||% candidate_models)
+  candidate_models_prepared <- tibble::as_tibble(sim_obj$candidate_models %||% candidate_models_)
   candidate_models_scored <- screen_missing_metadata(
     candidate_models = candidate_models_prepared,
     key_cols = admissibility_key_metadata_cols(cfg)
@@ -270,11 +272,13 @@ prepare_recommendation_context <- function(candidate_models,
 #' @keywords internal
 recommendation_branch_filter <- function(rows,
                                          equation_branch = NULL) {
-  if (is.null(equation_branch) || length(equation_branch) == 0) {
-    equation_branch <- "all"
+  equation_branch_ <- if (is.null(equation_branch) || length(equation_branch) == 0) {
+    "all"
+  } else {
+    equation_branch
   }
-  equation_branch <- normalize_policy_equation_branch_filters(equation_branch)[[1]]
-  rows <- tibble::as_tibble(rows)
+  equation_branch_ <- normalize_policy_equation_branch_filters(equation_branch_)[[1]]
+  rows_ <- tibble::as_tibble(rows)
   branch_defs <- read_policy_registry()$policy_branches %||% list()
   filter_lookup <- stats::setNames(
     vapply(
@@ -284,16 +288,16 @@ recommendation_branch_filter <- function(rows,
     ),
     vapply(branch_defs, function(x) as.character(x$key %||% NA_character_), character(1))
   )
-  if (!"recommendation_equation_branch" %in% names(rows)) {
-    rows$recommendation_equation_branch <- classify_equation_branch(rows)
+  if (!"recommendation_equation_branch" %in% names(rows_)) {
+    rows_$recommendation_equation_branch <- classify_equation_branch(rows_)
   }
 
-  filter_value <- unname(filter_lookup[equation_branch])
+  filter_value <- unname(filter_lookup[equation_branch_])
   if (is.na(filter_value) || !nzchar(filter_value)) {
-    return(rows)
+    return(rows_)
   }
 
-  dplyr::filter(rows, recommendation_equation_branch == filter_value)
+  dplyr::filter(rows_, .data$recommendation_equation_branch == filter_value)
 }
 
 #' Select the donor pool for one recommendation policy
@@ -367,46 +371,48 @@ recommendation_aggregate_equation <- function(rows,
 #' @keywords internal
 recommendation_overlap_support_summary <- function(rows,
                                                    config = NULL) {
-  rows <- tibble::as_tibble(rows)
-  overlap_cols <- names(rows)[startsWith(names(rows), "overlap_same_")]
+  rows_ <- tibble::as_tibble(rows)
+  overlap_cols <- names(rows_)[startsWith(names(rows_), "overlap_same_")]
   if (length(overlap_cols) == 0) {
     return(tibble::tibble())
   }
 
-  normalize_overlap_key <- function(x) {
-    x <- tolower(as.character(x))
-    x <- sub("_name$", "", x)
-    x <- sub("_type$", "", x)
-    x
+  normalize_overlap_key <- function(x_now) {
+    x_now <- tolower(as.character(x_now))
+    x_now <- sub("_name$", "", x_now)
+    x_now <- sub("_type$", "", x_now)
+    x_now
   }
-  resolve_trait_names <- function(x) {
-    if (is.null(x)) {
+  resolve_trait_names <- function(x_now) {
+    if (is.null(x_now)) {
       return(character(0))
     }
-    if (!is.null(names(x)) && any(!is.na(names(x))) && any(nzchar(names(x)))) {
-      return(names(x))
+    if (!is.null(names(x_now)) && any(!is.na(names(x_now))) && any(nzchar(names(x_now)))) {
+      return(names(x_now))
     }
-    as.character(unlist(x, use.names = FALSE))
+    as.character(unlist(x_now, use.names = FALSE))
   }
 
   active_keys <- character(0)
   if (!is.null(config)) {
-    if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
-      config <- config@data
+    config_ <- if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
+      config@data
+    } else {
+      config
     }
-    similarity_section <- if (is.list(config)) config$similarity %||% list() else list()
-    policy_section <- if (is.list(config)) config$policy %||% list() else list()
+    similarity_section <- if (is.list(config_)) config_$similarity %||% list() else list()
+    policy_section <- if (is.list(config_)) config_$policy %||% list() else list()
     active_traits <- unique(c(
       resolve_trait_names(
         similarity_section$species_traits %||%
           policy_section$species_traits %||%
-          config$species_traits %||%
+          config_$species_traits %||%
           list()
       ),
       resolve_trait_names(
         similarity_section$study_traits %||%
           policy_section$study_traits %||%
-          config$study_traits %||%
+          config_$study_traits %||%
           list()
       )
     ))
@@ -430,7 +436,7 @@ recommendation_overlap_support_summary <- function(rows,
 
   count_values <- vapply(
     overlap_cols,
-    function(nm) as.integer(sum(as.logical(rows[[nm]]), na.rm = TRUE)),
+    function(nm) as.integer(sum(as.logical(rows_[[nm]]), na.rm = TRUE)),
     integer(1)
   )
   count_names <- paste0("n_same_", overlap_keys, "_donors")
@@ -459,51 +465,51 @@ recommendation_support_summary <- function(rows,
                                            pred,
                                            anchor_pdf,
                                            config = NULL) {
-  rows <- valid_equation_rows(rows)
-  n_rows <- nrow(rows)
-  n_cells <- if ("recommendation_source_cell" %in% names(rows)) {
-    dplyr::n_distinct(rows$recommendation_source_cell)
+  rows_ <- valid_equation_rows(rows)
+  n_rows <- nrow(rows_)
+  n_cells <- if ("recommendation_source_cell" %in% names(rows_)) {
+    dplyr::n_distinct(rows_$recommendation_source_cell)
   } else {
     n_rows
   }
-  w <- if ("recommendation_final_weight" %in% names(rows)) {
-    normalized_weights(rows$recommendation_final_weight)
+  w <- if ("recommendation_final_weight" %in% names(rows_)) {
+    normalized_weights(rows_$recommendation_final_weight)
   } else {
     normalized_weights(rep(1, n_rows))
   }
   effective_n <- if (length(w) == 0) NA_real_ else 1 / sum(w^2)
-  finite_min <- function(x) {
-    x <- suppressWarnings(as.numeric(x))
-    x <- x[is.finite(x)]
-    if (length(x) == 0) {
+  finite_min <- function(x_now) {
+    x_now <- suppressWarnings(as.numeric(x_now))
+    x_now <- x_now[is.finite(x_now)]
+    if (length(x_now) == 0) {
       return(NA_real_)
     }
-    min(x)
+    min(x_now)
   }
-  finite_weighted_mean <- function(x, weights) {
-    x <- suppressWarnings(as.numeric(x))
-    weights <- suppressWarnings(as.numeric(weights))
-    ok <- is.finite(x) & is.finite(weights) & weights > 0
+  finite_weighted_mean <- function(x_now, weights_now) {
+    x_now <- suppressWarnings(as.numeric(x_now))
+    weights_now <- suppressWarnings(as.numeric(weights_now))
+    ok <- is.finite(x_now) & is.finite(weights_now) & weights_now > 0
     if (!any(ok)) {
       return(NA_real_)
     }
-    stats::weighted.mean(x[ok], weights[ok])
+    stats::weighted.mean(x_now[ok], weights_now[ok])
   }
   finite_count_branch <- function(branch) {
-    if (!"recommendation_equation_branch" %in% names(rows) || n_rows == 0) {
+    if (!"recommendation_equation_branch" %in% names(rows_) || n_rows == 0) {
       return(0L)
     }
-    as.integer(sum(rows$recommendation_equation_branch == branch, na.rm = TRUE))
+    as.integer(sum(rows_$recommendation_equation_branch == branch, na.rm = TRUE))
   }
 
   structural <- policy_structural_summary(
-    rows = rows,
+    rows = rows_,
     policy_def = list(aggregation_method = as.character(policy_def$aggregation[[1]] %||% NA_character_)),
     pred = pred,
     anchor_pdf = anchor_pdf
   )
   overlap_support <- recommendation_overlap_support_summary(
-    rows = rows,
+    rows = rows_,
     config = config
   )
 
@@ -511,20 +517,20 @@ recommendation_support_summary <- function(rows,
     n_donor_models = n_rows,
     n_independent_source_cells = as.integer(n_cells),
     effective_donor_n = effective_n,
-    min_combined_distance = if (n_rows > 0 && "combined_distance" %in% names(rows)) finite_min(rows$combined_distance) else NA_real_,
-    weighted_mean_combined_distance = if (n_rows > 0 && "combined_distance" %in% names(rows) && length(w) > 0) {
-      finite_weighted_mean(rows$combined_distance, w)
+    min_combined_distance = if (n_rows > 0 && "combined_distance" %in% names(rows_)) finite_min(rows_$combined_distance) else NA_real_,
+    weighted_mean_combined_distance = if (n_rows > 0 && "combined_distance" %in% names(rows_) && length(w) > 0) {
+      finite_weighted_mean(rows_$combined_distance, w)
     } else {
       NA_real_
     },
-    min_taxonomic_distance = if (n_rows > 0 && "taxonomic_distance_to_anchor" %in% names(rows)) finite_min(rows$taxonomic_distance_to_anchor) else NA_real_,
-    weighted_mean_taxonomic_distance = if (n_rows > 0 && "taxonomic_distance_to_anchor" %in% names(rows) && length(w) > 0) {
-      finite_weighted_mean(rows$taxonomic_distance_to_anchor, w)
+    min_taxonomic_distance = if (n_rows > 0 && "taxonomic_distance_to_anchor" %in% names(rows_)) finite_min(rows_$taxonomic_distance_to_anchor) else NA_real_,
+    weighted_mean_taxonomic_distance = if (n_rows > 0 && "taxonomic_distance_to_anchor" %in% names(rows_) && length(w) > 0) {
+      finite_weighted_mean(rows_$taxonomic_distance_to_anchor, w)
     } else {
       NA_real_
     },
-    min_length_overlap_fraction = if (n_rows > 0 && "length_overlap_fraction" %in% names(rows)) finite_min(rows$length_overlap_fraction) else NA_real_,
-    min_depth_overlap_fraction = if (n_rows > 0 && "depth_overlap_fraction" %in% names(rows)) finite_min(rows$depth_overlap_fraction) else NA_real_,
+    min_length_overlap_fraction = if (n_rows > 0 && "length_overlap_fraction" %in% names(rows_)) finite_min(rows_$length_overlap_fraction) else NA_real_,
+    min_depth_overlap_fraction = if (n_rows > 0 && "depth_overlap_fraction" %in% names(rows_)) finite_min(rows_$depth_overlap_fraction) else NA_real_,
     n_fixed20_donors = finite_count_branch("fixed20"),
     n_free_slope_donors = finite_count_branch("free_slope")
   ) |>
@@ -559,40 +565,40 @@ evaluate_recommendation_policies <- function(eval_obj,
   }
   policy_defs <- recommendation_policy_set(policy_path = policy_path)
   if (!is.null(policies)) {
-    policy_defs <- dplyr::filter(policy_defs, policy %in% policies)
+    policy_defs <- dplyr::filter(policy_defs, .data$policy %in% policies)
   }
   equation_branches <- policy_params$equation_branches %||%
     vapply(read_policy_registry()$policy_branches %||% list(), function(x) as.character(x$key %||% NA_character_), character(1))
   equation_branches <- normalize_policy_equation_branch_filters(equation_branches)
 
   all_rows <- tibble::as_tibble(eval_obj$model_eval) |>
-    dplyr::filter(dplyr::coalesce(gate_not_self, TRUE)) |>
+    dplyr::filter(dplyr::coalesce(.data$gate_not_self, TRUE)) |>
     add_recommendation_source_weights()
   admissible_rows <- all_rows |>
-    dplyr::filter(admissible, is.finite(w_combined), w_combined > 0) |>
-    dplyr::group_by(recommendation_source_cell) |>
-    dplyr::mutate(w_recommendation_cell_raw = w_combined / dplyr::n()) |>
+    dplyr::filter(.data$admissible, is.finite(.data$w_combined), .data$w_combined > 0) |>
+    dplyr::group_by(.data$recommendation_source_cell) |>
+    dplyr::mutate(w_recommendation_cell_raw = .data$w_combined / dplyr::n()) |>
     dplyr::ungroup() |>
     dplyr::mutate(
       w_adm = {
-        denom <- sum(w_recommendation_cell_raw, na.rm = TRUE)
+        denom <- sum(.data$w_recommendation_cell_raw, na.rm = TRUE)
         if (is.finite(denom) && denom > 0) {
-          w_recommendation_cell_raw / denom
+          .data$w_recommendation_cell_raw / denom
         } else {
           rep(NA_real_, dplyr::n())
         }
       }
     )
 
-  add_weights <- function(x) {
-    x <- tibble::as_tibble(x)
-    if (!"w_adm" %in% names(x)) {
-      x$w_adm <- 1
+  add_weights <- function(x_now) {
+    x_now <- tibble::as_tibble(x_now)
+    if (!"w_adm" %in% names(x_now)) {
+      x_now$w_adm <- 1
     }
-    x |>
+    x_now |>
       dplyr::mutate(
-        recommendation_final_weight = dplyr::coalesce(w_adm, 0) *
-          dplyr::coalesce(recommendation_source_cell_weight, 1)
+        recommendation_final_weight = dplyr::coalesce(.data$w_adm, 0) *
+          dplyr::coalesce(.data$recommendation_source_cell_weight, 1)
       )
   }
   all_rows <- add_weights(all_rows)
@@ -659,25 +665,25 @@ evaluate_recommendation_policies <- function(eval_obj,
 #' @return Policy-by-branch validation summary.
 #' @export
 summarize_recommendation_validation <- function(policy_perf) {
-  policy_perf <- tibble::as_tibble(policy_perf)
-  if (!all(c("policy", "valid_prediction", "error_abs_log") %in% names(policy_perf))) {
+  policy_perf_ <- tibble::as_tibble(policy_perf)
+  if (!all(c("policy", "valid_prediction", "error_abs_log") %in% names(policy_perf_))) {
     return(tibble::tibble())
   }
-  if (!"recommendation_policy" %in% names(policy_perf)) {
-    policy_perf$recommendation_policy <- sub("__.*$", "", as.character(policy_perf$policy))
+  if (!"recommendation_policy" %in% names(policy_perf_)) {
+    policy_perf_$recommendation_policy <- sub("__.*$", "", as.character(policy_perf_$policy))
   }
-  if (!"equation_branch" %in% names(policy_perf)) {
-    policy_perf$equation_branch <- sub("^.*__", "", as.character(policy_perf$policy))
+  if (!"equation_branch" %in% names(policy_perf_)) {
+    policy_perf_$equation_branch <- sub("^.*__", "", as.character(policy_perf_$policy))
   }
 
-  policy_perf |>
-    dplyr::filter(valid_prediction, is.finite(error_abs_log)) |>
-    dplyr::group_by(policy = recommendation_policy, equation_branch) |>
+  policy_perf_ |>
+    dplyr::filter(.data$valid_prediction, is.finite(.data$error_abs_log)) |>
+    dplyr::group_by(policy = .data$recommendation_policy, equation_branch = .data$equation_branch) |>
     dplyr::summarise(
       validation_n = dplyr::n(),
-      validated_median_abs_log_error = stats::median(error_abs_log, na.rm = TRUE),
-      validated_mean_abs_log_error = mean(error_abs_log, na.rm = TRUE),
-      validated_q90_abs_log_error = stats::quantile(error_abs_log, probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
+      validated_median_abs_log_error = stats::median(.data$error_abs_log, na.rm = TRUE),
+      validated_mean_abs_log_error = mean(.data$error_abs_log, na.rm = TRUE),
+      validated_q90_abs_log_error = stats::quantile(.data$error_abs_log, probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
       .groups = "drop"
     )
 }
@@ -692,17 +698,17 @@ summarize_recommendation_validation <- function(policy_perf) {
 #' @keywords internal
 recommendation_support_component <- function(x,
                                              direction = c("high", "low")) {
-  direction <- match.arg(direction)
-  x <- suppressWarnings(as.numeric(x))
-  out <- rep(NA_real_, length(x))
-  ok <- is.finite(x)
+  direction_ <- match.arg(direction)
+  x_ <- suppressWarnings(as.numeric(x))
+  out <- rep(NA_real_, length(x_))
+  ok <- is.finite(x_)
   if (!any(ok)) {
     return(out)
   }
-  if (identical(direction, "high")) {
-    out[ok] <- 1 - exp(-pmax(x[ok], 0))
+  if (identical(direction_, "high")) {
+    out[ok] <- 1 - exp(-pmax(x_[ok], 0))
   } else {
-    out[ok] <- 1 / (1 + pmax(x[ok], 0))
+    out[ok] <- 1 / (1 + pmax(x_[ok], 0))
   }
   out
 }
@@ -715,14 +721,14 @@ recommendation_support_component <- function(x,
 #'   stronger transfer support.
 #' @export
 recommendation_local_support_score <- function(tbl) {
-  tbl <- tibble::as_tibble(tbl)
-  n <- nrow(tbl)
+  tbl_ <- tibble::as_tibble(tbl)
+  n <- nrow(tbl_)
   if (n == 0) {
     return(numeric())
   }
   num_col <- function(nm) {
-    if (nm %in% names(tbl)) {
-      suppressWarnings(as.numeric(tbl[[nm]]))
+    if (nm %in% names(tbl_)) {
+      suppressWarnings(as.numeric(tbl_[[nm]]))
     } else {
       rep(NA_real_, n)
     }
@@ -793,39 +799,41 @@ recommendation_local_support_score <- function(tbl) {
 assign_recommendation_support_bins <- function(tbl,
                                                cutpoints = NULL,
                                                n_bins = 4L) {
-  tbl <- tibble::as_tibble(tbl)
-  if (nrow(tbl) == 0) {
-    tbl$recommendation_support_score <- numeric()
-    tbl$recommendation_support_bin <- character()
-    return(tbl)
+  tbl_ <- tibble::as_tibble(tbl)
+  if (nrow(tbl_) == 0) {
+    tbl_$recommendation_support_score <- numeric()
+    tbl_$recommendation_support_bin <- character()
+    return(tbl_)
   }
-  score <- recommendation_local_support_score(tbl)
-  if (is.null(cutpoints)) {
-    cutpoints <- unique(stats::quantile(
+  score <- recommendation_local_support_score(tbl_)
+  cutpoints_ <- if (is.null(cutpoints)) {
+    unique(stats::quantile(
       score,
       probs = seq(0, 1, length.out = as.integer(n_bins) + 1L),
       na.rm = TRUE,
       names = FALSE,
       type = 8
     ))
-  }
-  if (length(cutpoints) < 2L || all(!is.finite(cutpoints))) {
-    bin <- rep("support_all", nrow(tbl))
   } else {
-    cutpoints[1] <- -Inf
-    cutpoints[length(cutpoints)] <- Inf
+    cutpoints
+  }
+  if (length(cutpoints_) < 2L || all(!is.finite(cutpoints_))) {
+    bin <- rep("support_all", nrow(tbl_))
+  } else {
+    cutpoints_[1] <- -Inf
+    cutpoints_[length(cutpoints_)] <- Inf
     bin_id <- as.integer(cut(
       score,
-      breaks = cutpoints,
+      breaks = cutpoints_,
       include.lowest = TRUE,
       labels = FALSE
     ))
     bin <- paste0("support_bin_", bin_id)
     bin[!is.finite(bin_id)] <- "support_missing"
   }
-  tbl$recommendation_support_score <- score
-  tbl$recommendation_support_bin <- bin
-  tbl
+  tbl_$recommendation_support_score <- score
+  tbl_$recommendation_support_bin <- bin
+  tbl_
 }
 
 #' Calibrate local recommendation conformal intervals
@@ -845,12 +853,12 @@ calibrate_local_recommendation_conformal <- function(policy_perf,
                                                      n_support_bins = 4L,
                                                      min_policy_bin_scores = 15L,
                                                      min_bin_scores = 30L) {
-  policy_perf <- tibble::as_tibble(policy_perf)
-  if (!all(c("policy", "valid_prediction", "error_abs_log") %in% names(policy_perf))) {
+  policy_perf_ <- tibble::as_tibble(policy_perf)
+  if (!all(c("policy", "valid_prediction", "error_abs_log") %in% names(policy_perf_))) {
     stop("'policy_perf' must include policy, valid_prediction, and error_abs_log.", call. = FALSE)
   }
-  valid <- policy_perf |>
-    dplyr::filter(valid_prediction, is.finite(error_abs_log)) |>
+  valid <- policy_perf_ |>
+    dplyr::filter(.data$valid_prediction, is.finite(.data$error_abs_log)) |>
     dplyr::mutate(
       recommendation_policy = dplyr::coalesce(
         .data$recommendation_policy,
@@ -876,44 +884,44 @@ calibrate_local_recommendation_conformal <- function(policy_perf,
   global_q <- finite_q(valid$error_abs_log, alpha)
 
   bin_quantiles <- valid |>
-    dplyr::group_by(recommendation_support_bin) |>
+    dplyr::group_by(.data$recommendation_support_bin) |>
     dplyr::summarise(
       n_scores = dplyr::n(),
-      q_abs_log_raw = finite_q(error_abs_log, alpha),
-      median_abs_log = stats::median(error_abs_log, na.rm = TRUE),
+      q_abs_log_raw = finite_q(.data$error_abs_log, alpha),
+      median_abs_log = stats::median(.data$error_abs_log, na.rm = TRUE),
       .groups = "drop"
     ) |>
     dplyr::mutate(
       q_abs_log = dplyr::if_else(
-        n_scores >= as.integer(min_bin_scores) & is.finite(q_abs_log_raw),
-        q_abs_log_raw,
+        .data$n_scores >= as.integer(min_bin_scores) & is.finite(.data$q_abs_log_raw),
+        .data$q_abs_log_raw,
         global_q
       ),
       interval_source = dplyr::if_else(
-        n_scores >= as.integer(min_bin_scores) & is.finite(q_abs_log_raw),
+        .data$n_scores >= as.integer(min_bin_scores) & is.finite(.data$q_abs_log_raw),
         "support_bin",
         "global"
       )
     )
 
   policy_quantiles <- valid |>
-    dplyr::group_by(recommendation_policy, equation_branch) |>
+    dplyr::group_by(.data$recommendation_policy, .data$equation_branch) |>
     dplyr::summarise(
       n_scores = dplyr::n(),
-      q_abs_log_raw = finite_q(error_abs_log, alpha),
-      median_abs_log = stats::median(error_abs_log, na.rm = TRUE),
+      q_abs_log_raw = finite_q(.data$error_abs_log, alpha),
+      median_abs_log = stats::median(.data$error_abs_log, na.rm = TRUE),
       .groups = "drop"
     ) |>
     dplyr::mutate(
-      q_abs_log = dplyr::if_else(is.finite(q_abs_log_raw), q_abs_log_raw, global_q)
+      q_abs_log = dplyr::if_else(is.finite(.data$q_abs_log_raw), .data$q_abs_log_raw, global_q)
     )
 
   policy_bin_quantiles <- valid |>
-    dplyr::group_by(recommendation_policy, equation_branch, recommendation_support_bin) |>
+    dplyr::group_by(.data$recommendation_policy, .data$equation_branch, .data$recommendation_support_bin) |>
     dplyr::summarise(
       n_scores = dplyr::n(),
-      q_abs_log_raw = finite_q(error_abs_log, alpha),
-      median_abs_log = stats::median(error_abs_log, na.rm = TRUE),
+      q_abs_log_raw = finite_q(.data$error_abs_log, alpha),
+      median_abs_log = stats::median(.data$error_abs_log, na.rm = TRUE),
       .groups = "drop"
     )
 
@@ -921,33 +929,33 @@ calibrate_local_recommendation_conformal <- function(policy_perf,
     dplyr::left_join(
       bin_quantiles |>
         dplyr::select(
-          recommendation_support_bin,
-          bin_n_scores = n_scores,
-          bin_q_abs_log = q_abs_log
+          "recommendation_support_bin",
+          bin_n_scores = "n_scores",
+          bin_q_abs_log = "q_abs_log"
         ),
       by = "recommendation_support_bin"
     ) |>
     dplyr::left_join(
       policy_quantiles |>
         dplyr::select(
-          recommendation_policy,
-          equation_branch,
-          policy_n_scores = n_scores,
-          policy_q_abs_log = q_abs_log
+          "recommendation_policy",
+          "equation_branch",
+          policy_n_scores = "n_scores",
+          policy_q_abs_log = "q_abs_log"
         ),
       by = c("recommendation_policy", "equation_branch")
     ) |>
     dplyr::mutate(
       q_abs_log = dplyr::case_when(
-        n_scores >= as.integer(min_policy_bin_scores) & is.finite(q_abs_log_raw) ~ q_abs_log_raw,
-        is.finite(bin_q_abs_log) ~ bin_q_abs_log,
-        is.finite(policy_q_abs_log) ~ policy_q_abs_log,
+        .data$n_scores >= as.integer(min_policy_bin_scores) & is.finite(.data$q_abs_log_raw) ~ .data$q_abs_log_raw,
+        is.finite(.data$bin_q_abs_log) ~ .data$bin_q_abs_log,
+        is.finite(.data$policy_q_abs_log) ~ .data$policy_q_abs_log,
         TRUE ~ global_q
       ),
       interval_source = dplyr::case_when(
-        n_scores >= as.integer(min_policy_bin_scores) & is.finite(q_abs_log_raw) ~ "policy_support_bin",
-        is.finite(bin_q_abs_log) ~ "support_bin",
-        is.finite(policy_q_abs_log) ~ "policy_branch",
+        .data$n_scores >= as.integer(min_policy_bin_scores) & is.finite(.data$q_abs_log_raw) ~ "policy_support_bin",
+        is.finite(.data$bin_q_abs_log) ~ "support_bin",
+        is.finite(.data$policy_q_abs_log) ~ "policy_branch",
         TRUE ~ "global"
       )
     )
@@ -955,37 +963,37 @@ calibrate_local_recommendation_conformal <- function(policy_perf,
   coverage_by_bin <- valid |>
     dplyr::left_join(
       bin_quantiles |>
-        dplyr::select(recommendation_support_bin, q_abs_log),
+        dplyr::select("recommendation_support_bin", "q_abs_log"),
       by = "recommendation_support_bin"
     ) |>
-    dplyr::group_by(recommendation_support_bin) |>
+    dplyr::group_by(.data$recommendation_support_bin) |>
     dplyr::summarise(
       n = dplyr::n(),
-      empirical_coverage = mean(error_abs_log <= q_abs_log, na.rm = TRUE),
-      median_abs_log = stats::median(error_abs_log, na.rm = TRUE),
-      q_abs_log = dplyr::first(q_abs_log),
-      interval_factor = exp(dplyr::first(q_abs_log)),
+      empirical_coverage = mean(.data$error_abs_log <= .data$q_abs_log, na.rm = TRUE),
+      median_abs_log = stats::median(.data$error_abs_log, na.rm = TRUE),
+      q_abs_log = dplyr::first(.data$q_abs_log),
+      interval_factor = exp(dplyr::first(.data$q_abs_log)),
       .groups = "drop"
     )
   coverage_by_policy_bin <- valid |>
     dplyr::left_join(
       policy_bin_quantiles |>
         dplyr::select(
-          recommendation_policy,
-          equation_branch,
-          recommendation_support_bin,
-          q_abs_log,
-          interval_source
+          "recommendation_policy",
+          "equation_branch",
+          "recommendation_support_bin",
+          "q_abs_log",
+          "interval_source"
         ),
       by = c("recommendation_policy", "equation_branch", "recommendation_support_bin")
     ) |>
-    dplyr::group_by(recommendation_policy, equation_branch, recommendation_support_bin, interval_source) |>
+    dplyr::group_by(.data$recommendation_policy, .data$equation_branch, .data$recommendation_support_bin, .data$interval_source) |>
     dplyr::summarise(
       n = dplyr::n(),
-      empirical_coverage = mean(error_abs_log <= q_abs_log, na.rm = TRUE),
-      median_abs_log = stats::median(error_abs_log, na.rm = TRUE),
-      q_abs_log = dplyr::first(q_abs_log),
-      interval_factor = exp(dplyr::first(q_abs_log)),
+      empirical_coverage = mean(.data$error_abs_log <= .data$q_abs_log, na.rm = TRUE),
+      median_abs_log = stats::median(.data$error_abs_log, na.rm = TRUE),
+      q_abs_log = dplyr::first(.data$q_abs_log),
+      interval_factor = exp(dplyr::first(.data$q_abs_log)),
       .groups = "drop"
     )
 
@@ -1042,23 +1050,23 @@ add_local_recommendation_intervals <- function(tbl,
     dplyr::left_join(
       calibration_obj$policy_bin_quantiles |>
         dplyr::select(
-          recommendation_policy,
-          equation_branch,
-          recommendation_support_bin,
-          local_conformal_n_scores = n_scores,
-          local_conformal_q_abs_log = q_abs_log,
-          local_conformal_source = interval_source
+          "recommendation_policy",
+          "equation_branch",
+          "recommendation_support_bin",
+          local_conformal_n_scores = "n_scores",
+          local_conformal_q_abs_log = "q_abs_log",
+          local_conformal_source = "interval_source"
         ),
       by = c("recommendation_policy", "equation_branch", "recommendation_support_bin")
     ) |>
     dplyr::mutate(
       local_conformal_q_abs_log = dplyr::coalesce(
-        local_conformal_q_abs_log,
+        .data$local_conformal_q_abs_log,
         calibration_obj$global_q_abs_log
       ),
-      local_conformal_source = dplyr::coalesce(local_conformal_source, "global"),
-      q_abs_log_total = local_conformal_q_abs_log,
-      interval_factor = exp(q_abs_log_total)
+      local_conformal_source = dplyr::coalesce(.data$local_conformal_source, "global"),
+      q_abs_log_total = .data$local_conformal_q_abs_log,
+      interval_factor = exp(.data$q_abs_log_total)
     )
 }
 
@@ -1169,7 +1177,7 @@ finalize_recommendation_selection <- function(selected,
                                               dominance_tolerance = list()) {
   selected <- flag_recommendation_dominance(selected, tolerance = dominance_tolerance)
   selected <- selected |>
-    dplyr::filter(pareto_non_dominated)
+    dplyr::filter(.data$pareto_non_dominated)
   if (nrow(selected) == 0) {
     return(selected)
   }
@@ -1182,25 +1190,25 @@ finalize_recommendation_selection <- function(selected,
   selected <- selected |>
     dplyr::mutate(
       recommendation_validation_sort = dplyr::coalesce(
-        validated_median_abs_log_error,
-        median_abs_log_error
+        .data$validated_median_abs_log_error,
+        .data$median_abs_log_error
       )
     ) |>
     dplyr::arrange(
-      q_abs_log_total,
-      local_structural_q_abs_log,
-      weighted_mean_combined_distance,
-      min_combined_distance,
-      recommendation_validation_sort,
+      .data$q_abs_log_total,
+      .data$local_structural_q_abs_log,
+      .data$weighted_mean_combined_distance,
+      .data$min_combined_distance,
+      .data$recommendation_validation_sort,
       dplyr::desc(.data$n_independent_source_cells),
-      policy,
-      equation_branch
+      .data$policy,
+      .data$equation_branch
     ) |>
     dplyr::mutate(
       selected_recommendation_rank = dplyr::row_number(),
-      primary_recommendation = selected_recommendation_rank == 1L,
+      primary_recommendation = .data$selected_recommendation_rank == 1L,
       recommendation_role = dplyr::if_else(
-        primary_recommendation,
+        .data$primary_recommendation,
         "primary",
         "equivalent_non_dominated_alternative"
       )
@@ -1296,18 +1304,18 @@ recommend_ts_model <- function(target_species,
   )
 
   all_rows <- tibble::as_tibble(eval_obj$model_eval) |>
-    dplyr::filter(model_id_chr != target_id) |>
+    dplyr::filter(.data$model_id_chr != target_id) |>
     add_recommendation_source_weights()
   admissible_rows <- all_rows |>
-    dplyr::filter(admissible, is.finite(w_combined), w_combined > 0) |>
-    dplyr::group_by(recommendation_source_cell) |>
-    dplyr::mutate(w_recommendation_cell_raw = w_combined / dplyr::n()) |>
+    dplyr::filter(.data$admissible, is.finite(.data$w_combined), .data$w_combined > 0) |>
+    dplyr::group_by(.data$recommendation_source_cell) |>
+    dplyr::mutate(w_recommendation_cell_raw = .data$w_combined / dplyr::n()) |>
     dplyr::ungroup() |>
     dplyr::mutate(
       w_adm = {
-        denom <- sum(w_recommendation_cell_raw, na.rm = TRUE)
+        denom <- sum(.data$w_recommendation_cell_raw, na.rm = TRUE)
         if (is.finite(denom) && denom > 0) {
-          w_recommendation_cell_raw / denom
+          .data$w_recommendation_cell_raw / denom
         } else {
           rep(NA_real_, dplyr::n())
         }
@@ -1321,8 +1329,8 @@ recommend_ts_model <- function(target_species,
     }
     x |>
       dplyr::mutate(
-        recommendation_final_weight = dplyr::coalesce(w_adm, 0) *
-          dplyr::coalesce(recommendation_source_cell_weight, 1)
+        recommendation_final_weight = dplyr::coalesce(.data$w_adm, 0) *
+          dplyr::coalesce(.data$recommendation_source_cell_weight, 1)
       )
   }
   all_rows <- add_weights(all_rows)
@@ -1409,21 +1417,21 @@ recommend_ts_model <- function(target_species,
 
   ranked <- ranked |>
     dplyr::mutate(
-      valid_equation = is.finite(policy_slope_len) & is.finite(policy_intercept_len),
-      is_ensemble = !policy_family %in% c("single_model", "study_hierarchical_single_model"),
-      support_pass = valid_equation &
-        (!is_ensemble | n_independent_source_cells >= min_source_cells_ensemble),
+      valid_equation = is.finite(.data$policy_slope_len) & is.finite(.data$policy_intercept_len),
+      is_ensemble = !.data$policy_family %in% c("single_model", "study_hierarchical_single_model"),
+      support_pass = .data$valid_equation &
+        (!.data$is_ensemble | .data$n_independent_source_cells >= min_source_cells_ensemble),
       interval_factor = dplyr::if_else(
-        is.finite(q_abs_log_total),
-        exp(q_abs_log_total),
+        is.finite(.data$q_abs_log_total),
+        exp(.data$q_abs_log_total),
         NA_real_
       ),
       uncertainty_pass = dplyr::if_else(
-        is.finite(interval_factor),
-        interval_factor <= max_interval_factor,
+        is.finite(.data$interval_factor),
+        .data$interval_factor <= max_interval_factor,
         TRUE
       ),
-      selection_eligible = support_pass & uncertainty_pass
+      selection_eligible = .data$support_pass & .data$uncertainty_pass
     )
 
   rank_cols <- intersect(
@@ -1443,15 +1451,15 @@ recommend_ts_model <- function(target_species,
 
   ranked <- ranked |>
     dplyr::arrange(
-      !selection_eligible,
+      !.data$selection_eligible,
       dplyr::across(dplyr::all_of(rank_cols)),
       dplyr::desc(.data$n_independent_source_cells),
-      policy,
-      equation_branch
+      .data$policy,
+      .data$equation_branch
     ) |>
     dplyr::mutate(recommendation_rank = dplyr::row_number())
 
-  eligible <- dplyr::filter(ranked, selection_eligible)
+  eligible <- dplyr::filter(ranked, .data$selection_eligible)
   selected <- if (nrow(eligible) == 0) {
     ranked[0, , drop = FALSE]
   } else {
@@ -1474,20 +1482,20 @@ recommend_ts_model <- function(target_species,
         )
         candidates <- candidates |>
           dplyr::filter(
-            is.finite(q_abs_log_total),
-            q_abs_log_total <= q_threshold
+            is.finite(.data$q_abs_log_total),
+            .data$q_abs_log_total <= q_threshold
           )
       }
       candidates |>
         dplyr::arrange(
-          q_abs_log_total,
-          local_structural_q_abs_log,
-          weighted_mean_combined_distance,
-          min_combined_distance,
+          .data$q_abs_log_total,
+          .data$local_structural_q_abs_log,
+          .data$weighted_mean_combined_distance,
+          .data$min_combined_distance,
           .data[[primary_col[[1]]]],
           dplyr::desc(.data$n_independent_source_cells),
-          policy,
-          equation_branch
+          .data$policy,
+          .data$equation_branch
         )
     } else {
       dplyr::slice(eligible, 1)
@@ -1536,23 +1544,23 @@ summarize_recommendation_diagnostics <- function(recommendation) {
         ))
       ),
     branch_summary = ranked |>
-      dplyr::group_by(equation_branch) |>
+      dplyr::group_by(.data$equation_branch) |>
       dplyr::summarise(
         n_policies = dplyr::n(),
-        n_valid = sum(valid_equation, na.rm = TRUE),
-        n_eligible = sum(selection_eligible, na.rm = TRUE),
-        median_structural_q_abs_log = stats::median(local_structural_q_abs_log, na.rm = TRUE),
+        n_valid = sum(.data$valid_equation, na.rm = TRUE),
+        n_eligible = sum(.data$selection_eligible, na.rm = TRUE),
+        median_structural_q_abs_log = stats::median(.data$local_structural_q_abs_log, na.rm = TRUE),
         .groups = "drop"
       ),
     policy_summary = ranked |>
-      dplyr::group_by(policy) |>
+      dplyr::group_by(.data$policy) |>
       dplyr::summarise(
         n_branches = dplyr::n(),
-        n_valid = sum(valid_equation, na.rm = TRUE),
-        n_eligible = sum(selection_eligible, na.rm = TRUE),
-        best_rank = min(recommendation_rank, na.rm = TRUE),
+        n_valid = sum(.data$valid_equation, na.rm = TRUE),
+        n_eligible = sum(.data$selection_eligible, na.rm = TRUE),
+        best_rank = min(.data$recommendation_rank, na.rm = TRUE),
         .groups = "drop"
       ) |>
-      dplyr::arrange(best_rank)
+      dplyr::arrange(.data$best_rank)
   )
 }

@@ -34,20 +34,20 @@ filter_reference_anchor_rows <- function(candidate_models,
 
   # Standardize the requested model IDs so blanks and duplicates do not affect
   # the anchor selection.
-  model_ids <- stringr::str_squish(model_ids)
-  model_ids <- unique(model_ids[!is.na(model_ids) & nzchar(model_ids)])
+  model_ids_ <- stringr::str_squish(model_ids)
+  model_ids_ <- unique(model_ids_[!is.na(model_ids_) & nzchar(model_ids_)])
 
-  if (length(model_ids) == 0) {
+  if (length(model_ids_) == 0) {
     stop("No valid 'model_ids' were supplied.", call. = FALSE)
   }
 
-  candidate_models <- tibble::as_tibble(candidate_models)
-  candidate_models[[model_id_col]] <- as.character(candidate_models[[model_id_col]])
+  candidate_models_ <- tibble::as_tibble(candidate_models)
+  candidate_models_[[model_id_col]] <- as.character(candidate_models_[[model_id_col]])
 
   # Retain only the requested model IDs and fail clearly when the resulting
   # anchor set is empty.
-  anchor_models <- candidate_models |>
-    dplyr::filter(.data[[model_id_col]] %in% model_ids)
+  anchor_models <- candidate_models_ |>
+    dplyr::filter(.data[[model_id_col]] %in% model_ids_)
 
   if (nrow(anchor_models) == 0) {
     stop(
@@ -140,13 +140,13 @@ reference_anchor_selector_mask <- function(candidate_models,
     stop("'selector' must be a named list.", call. = FALSE)
   }
 
-  candidate_models <- tibble::as_tibble(candidate_models)
-  keep <- rep(TRUE, nrow(candidate_models))
+  candidate_models_ <- tibble::as_tibble(candidate_models)
+  keep <- rep(TRUE, nrow(candidate_models_))
 
   # Apply every configured rule cumulatively so the final anchor set reflects
   # the intersection of the requested column-level constraints.
   for (field_name in names(selector)) {
-    if (!field_name %in% names(candidate_models)) {
+    if (!field_name %in% names(candidate_models_)) {
       stop(
         sprintf("Anchor selector field '%s' was not found in 'candidate_models'.", field_name),
         call. = FALSE
@@ -155,7 +155,7 @@ reference_anchor_selector_mask <- function(candidate_models,
 
     rule <- normalize_anchor_selector_rule(selector[[field_name]], field_name)
     values <- rule$values
-    column <- candidate_models[[field_name]]
+    column <- candidate_models_[[field_name]]
     match_vec <- rep(FALSE, length(column))
 
     if (rule$mode == "in") {
@@ -245,12 +245,12 @@ filter_reference_anchor_rows_by_selector <- function(candidate_models,
     stop("'require_selection' must be TRUE or FALSE.", call. = FALSE)
   }
 
-  candidate_models <- tibble::as_tibble(candidate_models)
+  candidate_models_ <- tibble::as_tibble(candidate_models)
   keep <- reference_anchor_selector_mask(
-    candidate_models = candidate_models,
+    candidate_models = candidate_models_,
     selector = selector
   )
-  anchor_models <- candidate_models[keep, , drop = FALSE]
+  anchor_models <- candidate_models_[keep, , drop = FALSE]
 
   if (isTRUE(require_selection) && nrow(anchor_models) == 0) {
     stop("No reference-anchor models matched the supplied selector.", call. = FALSE)
@@ -326,8 +326,9 @@ set_reference_anchors <- function(object = NULL,
                                   model_id_col = "model_id",
                                   require_selection = TRUE,
                                   candidate_models = NULL) {
-  if (is.null(object) && !is.null(candidate_models)) {
-    object <- candidate_models
+  object_ <- object
+  if (is.null(object_) && !is.null(candidate_models)) {
+    object_ <- candidate_models
   }
 
   if (!is.null(object) && !is.null(candidate_models)) {
@@ -340,85 +341,89 @@ set_reference_anchors <- function(object = NULL,
   # Support both direct table filtering and object-level anchor assignment so
   # the same public function can be used during ad hoc analysis or inside the
   # staged `Candidates` staged object.
-  if ((inherits(object, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(object, Candidates), error = function(e) FALSE)))) {
+  selector_ <- selector
+  model_ids_ <- model_ids
+  model_id_col_ <- model_id_col
+  require_selection_ <- require_selection
+  if ((inherits(object_, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(object_, Candidates), error = function(e) FALSE)))) {
     # When no selector is passed explicitly, fall back to the anchor-selection
     # spec stored on the `Candidates` object itself.
-    if (is.null(model_ids) && is.null(selector)) {
-      selector <- ((object@spec)$anchors)$selector %||% NULL
-      model_ids <- ((object@spec)$anchors)$model_ids %||% NULL
-      model_id_col <- ((object@spec)$anchors)$model_id_col %||% model_id_col
-      require_selection <- ((object@spec)$anchors)$require_selection %||% require_selection
+    if (is.null(model_ids_) && is.null(selector_)) {
+      selector_ <- ((object_@spec)$anchors)$selector %||% NULL
+      model_ids_ <- ((object_@spec)$anchors)$model_ids %||% NULL
+      model_id_col_ <- ((object_@spec)$anchors)$model_id_col %||% model_id_col_
+      require_selection_ <- ((object_@spec)$anchors)$require_selection %||% require_selection_
     }
   }
 
-  if (is.null(model_ids) && is.null(selector)) {
+  if (is.null(model_ids_) && is.null(selector_)) {
     stop(
       "Supply either 'model_ids' or 'selector', or store an anchor spec on the `Candidates` object.",
       call. = FALSE
     )
   }
-  if (!is.null(model_ids) && !is.null(selector)) {
+  if (!is.null(model_ids_) && !is.null(selector_)) {
     stop(
       "Supply either 'model_ids' or 'selector', not both.",
       call. = FALSE
     )
   }
 
-  if ((inherits(object, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(object, Candidates), error = function(e) FALSE)))) {
-    anchor_models <- if (!is.null(selector)) {
+  if ((inherits(object_, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(object_, Candidates), error = function(e) FALSE)))) {
+    anchor_models <- if (!is.null(selector_)) {
       filter_reference_anchor_rows_by_selector(
-        candidate_models = object@candidate_models,
-        selector = selector,
-        require_selection = require_selection
+        candidate_models = object_@candidate_models,
+        selector = selector_,
+        require_selection = require_selection_
       )
     } else {
       filter_reference_anchor_rows(
-        candidate_models = object@candidate_models,
-        model_ids = model_ids,
-        model_id_col = model_id_col
+        candidate_models = object_@candidate_models,
+        model_ids = model_ids_,
+        model_id_col = model_id_col_
       )
     }
-    preserved_admissibility <- if (candidate_admissibility_matches_anchors(object, anchor_models)) {
-      object@admissibility
+    preserved_admissibility <- if (candidate_admissibility_matches_anchors(object_, anchor_models)) {
+      object_@admissibility
     } else {
       list()
     }
 
     return(Candidates(
-      spec = object@spec,
-      study_db = object@study_db,
-      species_vector = object@species_vector,
-      source_dbs = object@source_dbs,
-      species_db = object@species_db,
-      candidate_models = object@candidate_models,
+      spec = object_@spec,
+      study_db = object_@study_db,
+      species_vector = object_@species_vector,
+      source_dbs = object_@source_dbs,
+      species_db = object_@species_db,
+      candidate_models = object_@candidate_models,
       reference_anchors = tibble::as_tibble(anchor_models),
-      similarity_matrix = object@similarity_matrix,
-      gower_distances = object@gower_distances,
+      similarity_matrix = object_@similarity_matrix,
+      gower_distances = object_@gower_distances,
       ordination = list(),
       admissibility = preserved_admissibility,
-      similarity_tuning = object@similarity_tuning
+      similarity_tuning = object_@similarity_tuning
     ))
   }
 
-  if (!is.data.frame(object)) {
+  if (!is.data.frame(object_)) {
     stop(
       "'object' must be a candidate-model data frame/tibble or a `Candidates` object.",
       call. = FALSE
     )
   }
 
-  if (!is.null(selector)) {
+  if (!is.null(selector_)) {
     return(filter_reference_anchor_rows_by_selector(
-      candidate_models = object,
-      selector = selector,
-      require_selection = require_selection
+      candidate_models = object_,
+      selector = selector_,
+      require_selection = require_selection_
     ))
   }
 
   filter_reference_anchor_rows(
-    candidate_models = object,
-    model_ids = model_ids,
-    model_id_col = model_id_col
+    candidate_models = object_,
+    model_ids = model_ids_,
+    model_id_col = model_id_col_
   )
 }
 
@@ -437,9 +442,9 @@ compute_conformal_scores <- function(policy_perf,
                                      alpha = 0.10) {
   # Restrict the calibration set to valid finite policy predictions before
   # summarizing the per-policy absolute log-error distribution.
-  policy_perf <- standardize_policies(policy_perf)
-  policy_perf$policy <- resolve_policy_names(policy_perf)
-  if (nrow(policy_perf) == 0L || !"valid_prediction" %in% names(policy_perf)) {
+  policy_perf_ <- standardize_policies(policy_perf)
+  policy_perf_$policy <- resolve_policy_names(policy_perf_)
+  if (nrow(policy_perf_) == 0L || !"valid_prediction" %in% names(policy_perf_)) {
     return(tibble::tibble(
       policy = character(),
       equation_branch_filter = character(),
@@ -448,7 +453,7 @@ compute_conformal_scores <- function(policy_perf,
       median_abs_log = numeric()
     ))
   }
-  policy_perf |>
+  policy_perf_ |>
     dplyr::filter(.data$valid_prediction, is.finite(.data$error_abs_log)) |>
     dplyr::group_by(.data$policy, .data$equation_branch_filter) |>
     dplyr::summarise(
@@ -487,7 +492,7 @@ summarize_conformal <- function(policy_perf,
   # before computing coverage and interval-width summaries.
   perf_aug <- standardize_policies(policy_perf)
   perf_aug$policy <- resolve_policy_names(perf_aug)
-  conf_cal <- standardize_policies(conf_cal)
+  conf_cal_ <- standardize_policies(conf_cal)
   if (nrow(perf_aug) == 0L || !"valid_prediction" %in% names(perf_aug)) {
     empty <- tibble::tibble(
       policy = character(),
@@ -511,7 +516,7 @@ summarize_conformal <- function(policy_perf,
       is.finite(.data$error_abs_log)
     ) |>
     dplyr::left_join(
-      tibble::as_tibble(conf_cal) |>
+      tibble::as_tibble(conf_cal_) |>
         dplyr::select("policy", "equation_branch_filter", "q_abs_log"),
       by = c("policy", "equation_branch_filter")
     ) |>
@@ -695,15 +700,15 @@ smooth_selected_ts_calibration <- function(ts_cal) {
     return(tibble::as_tibble(ts_cal))
   }
 
-  ts_cal <- tibble::as_tibble(ts_cal)
+  ts_cal_ <- tibble::as_tibble(ts_cal)
   for (nm in c(
     "q80_log_sigma_abs_dev",
     "q90_log_sigma_abs_dev",
     "q95_log_sigma_abs_dev",
     "q99_log_sigma_abs_dev"
   )) {
-    if (!nm %in% names(ts_cal)) {
-      ts_cal[[nm]] <- NA_real_
+    if (!nm %in% names(ts_cal_)) {
+      ts_cal_[[nm]] <- NA_real_
     }
   }
 
@@ -724,7 +729,7 @@ smooth_selected_ts_calibration <- function(ts_cal) {
     out
   }
 
-  ts_cal |>
+  ts_cal_ |>
     dplyr::group_by(
       dplyr::across(dplyr::any_of(c(
         "anchor_model_id",
@@ -777,23 +782,23 @@ smooth_selected_ts_calibration <- function(ts_cal) {
 summarize_selected_ts_calibration <- function(ts_error,
                                               selected_tbl,
                                               policy_perf = NULL) {
-  ts_error <- tibble::as_tibble(ts_error)
-  selected_tbl <- tibble::as_tibble(selected_tbl)
-  if (nrow(ts_error) == 0 || nrow(selected_tbl) == 0) {
+  ts_error_ <- tibble::as_tibble(ts_error)
+  selected_tbl_ <- tibble::as_tibble(selected_tbl)
+  if (nrow(ts_error_) == 0 || nrow(selected_tbl_) == 0) {
     return(tibble::tibble())
   }
 
-  selected_policy_values <- if ("selected_policy" %in% names(selected_tbl)) {
-    as.character(selected_tbl$selected_policy)
-  } else if ("policy" %in% names(selected_tbl)) {
-    as.character(selected_tbl$policy)
+  selected_policy_values <- if ("selected_policy" %in% names(selected_tbl_)) {
+    as.character(selected_tbl_$selected_policy)
+  } else if ("policy" %in% names(selected_tbl_)) {
+    as.character(selected_tbl_$policy)
   } else {
-    rep(NA_character_, nrow(selected_tbl))
+    rep(NA_character_, nrow(selected_tbl_))
   }
-  selected_keys <- selected_tbl |>
+  selected_keys <- selected_tbl_ |>
     dplyr::transmute(
       policy = selected_policy_values,
-      equation_branch_filter = selected_branches(selected_tbl)
+      equation_branch_filter = selected_branches(selected_tbl_)
     ) |>
     dplyr::filter(
       !is.na(.data$policy),
@@ -804,7 +809,7 @@ summarize_selected_ts_calibration <- function(ts_error,
     return(tibble::tibble())
   }
 
-  selected_ts <- standardize_policies(ts_error)
+  selected_ts <- standardize_policies(ts_error_)
   selected_ts$policy <- resolve_policy_names(selected_ts)
   selected_ts <- selected_ts |>
     dplyr::mutate(
@@ -852,41 +857,41 @@ summarize_selected_ts_calibration <- function(ts_error,
 summarize_selected_coefficient_calibration <- function(selected_tbl,
                                                        candidate_models,
                                                        ts_error = NULL) {
-  selected_tbl <- tibble::as_tibble(selected_tbl)
-  candidate_models <- tibble::as_tibble(candidate_models)
-  ts_error <- tibble::as_tibble(ts_error %||% tibble::tibble())
-  if (nrow(selected_tbl) == 0 || nrow(candidate_models) == 0 || nrow(ts_error) == 0) {
+  selected_tbl_ <- tibble::as_tibble(selected_tbl)
+  candidate_models_ <- tibble::as_tibble(candidate_models)
+  ts_error_ <- tibble::as_tibble(ts_error %||% tibble::tibble())
+  if (nrow(selected_tbl_) == 0 || nrow(candidate_models_) == 0 || nrow(ts_error_) == 0) {
     return(tibble::tibble())
   }
 
-  id_col <- if ("model_id_chr" %in% names(candidate_models)) "model_id_chr" else "model_id"
-  selected_policy_values <- if ("selected_policy" %in% names(selected_tbl)) {
-    as.character(selected_tbl$selected_policy)
-  } else if ("policy" %in% names(selected_tbl)) {
-    as.character(selected_tbl$policy)
+  id_col <- if ("model_id_chr" %in% names(candidate_models_)) "model_id_chr" else "model_id"
+  selected_policy_values <- if ("selected_policy" %in% names(selected_tbl_)) {
+    as.character(selected_tbl_$selected_policy)
+  } else if ("policy" %in% names(selected_tbl_)) {
+    as.character(selected_tbl_$policy)
   } else {
-    rep(NA_character_, nrow(selected_tbl))
+    rep(NA_character_, nrow(selected_tbl_))
   }
-  selected_support_bins <- if ("post_selection_support_bin" %in% names(selected_tbl)) {
-    as.character(selected_tbl$post_selection_support_bin)
+  selected_support_bins <- if ("post_selection_support_bin" %in% names(selected_tbl_)) {
+    as.character(selected_tbl_$post_selection_support_bin)
   } else {
-    rep(NA_character_, nrow(selected_tbl))
+    rep(NA_character_, nrow(selected_tbl_))
   }
   candidate_field_or_na <- function(nm, mode = c("numeric", "character")) {
-    mode <- match.arg(mode)
-    if (!nm %in% names(candidate_models)) {
-      if (identical(mode, "character")) {
-        return(rep(NA_character_, nrow(candidate_models)))
+    mode_ <- match.arg(mode)
+    if (!nm %in% names(candidate_models_)) {
+      if (identical(mode_, "character")) {
+        return(rep(NA_character_, nrow(candidate_models_)))
       }
-      return(rep(NA_real_, nrow(candidate_models)))
+      return(rep(NA_real_, nrow(candidate_models_)))
     }
-    if (identical(mode, "character")) {
-      return(as.character(candidate_models[[nm]]))
+    if (identical(mode_, "character")) {
+      return(as.character(candidate_models_[[nm]]))
     }
-    suppressWarnings(as.numeric(candidate_models[[nm]]))
+    suppressWarnings(as.numeric(candidate_models_[[nm]]))
   }
 
-  truth_tbl <- candidate_models |>
+  truth_tbl <- candidate_models_ |>
     dplyr::transmute(
       anchor_model_id = as.character(.data[[id_col]]),
       anchor_species = candidate_field_or_na("species_name", "character"),
@@ -1055,8 +1060,10 @@ summarize_selected_coefficient_calibration <- function(selected_tbl,
 
   benchmark_selected <- benchmark_coefficients |>
     dplyr::inner_join(
-      dplyr::distinct(selected_keys, 
-      dplyr::pick("policy", "equation_branch_filter", "post_selection_support_bin")),
+      dplyr::distinct(
+        selected_keys,
+        dplyr::pick("policy", "equation_branch_filter", "post_selection_support_bin")
+      ),
       by = c("policy", "equation_branch_filter")
     )
   benchmark_selected |>
@@ -2874,34 +2881,34 @@ selection_competition_pool <- function(policy_tbl,
 
   # Helper coalesce to extract the most relevant validation error metric available for each row.
   tidy_coalesce <- function(col, type_fn = as.numeric) {
-    if (col %in% names(policy_tbl)) suppressWarnings(type_fn(policy_tbl[[col]])) else NA    
+    if (col %in% names(policy_tbl)) suppressWarnings(type_fn(policy_tbl[[col]])) else NA
   }
 
   validation_error <- dplyr::coalesce(
-      tidy_coalesce ("anchor_selection_validation_error"),
-      tidy_coalesce ("species_block_median_abs_log_error"),
-      tidy_coalesce ("mean_species_median_abs_log"),
-      tidy_coalesce ("median_abs_log"),
-      tidy_coalesce (".meta_predicted_score")
-    )
+    tidy_coalesce("anchor_selection_validation_error"),
+    tidy_coalesce("species_block_median_abs_log_error"),
+    tidy_coalesce("mean_species_median_abs_log"),
+    tidy_coalesce("median_abs_log"),
+    tidy_coalesce(".meta_predicted_score")
+  )
 
-    uncertainty_width <- dplyr::coalesce(
-      tidy_coalesce("uncertainty_cost_log_width"),
-      tidy_coalesce("interval_log_width")
-    )
+  uncertainty_width <- dplyr::coalesce(
+    tidy_coalesce("uncertainty_cost_log_width"),
+    tidy_coalesce("interval_log_width")
+  )
 
-    selection_valid <- dplyr::coalesce(
-      tidy_coalesce("selection_valid", as.logical),
-      tidy_coalesce("n_valid_models") > 0,
-      tidy_coalesce("n_models") > 0,
-      tidy_coalesce("valid_prediction", as.logical),
-      FALSE
-    )
+  selection_valid <- dplyr::coalesce(
+    tidy_coalesce("selection_valid", as.logical),
+    tidy_coalesce("n_valid_models") > 0,
+    tidy_coalesce("n_models") > 0,
+    tidy_coalesce("valid_prediction", as.logical),
+    FALSE
+  )
 
-    uncertainty_eligible <- dplyr::coalesce(
-      tidy_coalesce("uncertainty_eligible", as.logical),
-      FALSE
-    )
+  uncertainty_eligible <- dplyr::coalesce(
+    tidy_coalesce("uncertainty_eligible", as.logical),
+    FALSE
+  )
 
   pool <- policy_tbl |>
     dplyr::mutate(

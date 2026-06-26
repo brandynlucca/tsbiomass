@@ -111,7 +111,7 @@ candidate_admissibility_matches_anchors <- function(candidates,
       anchor_species = as.character(.data$species_name)
     ) |>
     dplyr::distinct(.data$anchor_model_id, .data$anchor_species) |>
-    dplyr::arrange(anchor_model_id, anchor_species)
+    dplyr::arrange(.data$anchor_model_id, .data$anchor_species)
 
   isTRUE(all.equal(score_keys, anchor_keys, check.attributes = FALSE))
 }
@@ -1287,7 +1287,6 @@ candidates_from_yaml <- function(path,
 #' @return Invisibly returns `x`.
 #'
 #' @keywords internal
-#' @export
 S7::method(print_generic, Candidates) <- function(x, ...) {
   cat("Candidates\n")
   cat("  study_rows: ", nrow(x@study_db), "\n", sep = "")

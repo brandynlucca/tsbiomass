@@ -137,6 +137,10 @@ expand_trait_block <- function(df,
       # columns already supplied as TRUE/FALSE.
       if (is.character(raw_val)) {
         raw_low <- stringr::str_to_lower(stringr::str_squish(raw_val))
+
+        # Force evaluation
+        force(raw_low)
+
         col_val <- dplyr::case_when(
           raw_low %in% c("1", "true", "yes", "y") ~ TRUE,
           raw_low %in% c("0", "false", "no", "n") ~ FALSE,
@@ -1197,8 +1201,8 @@ build_phylo_dist_from_species <- function(species_vec, genus_vec = NULL) {
     {
       tnrs <- suppressWarnings(rotl::tnrs_match_names(uniq, do_approximate_matching = FALSE))
       matched <- tibble::as_tibble(tnrs) |>
-        dplyr::mutate(search_string = as.character(search_string)) |>
-        dplyr::filter(!is.na(ott_id)) |>
+        dplyr::mutate(search_string = as.character(.data$search_string)) |>
+        dplyr::filter(!is.na(.data$ott_id)) |>
         dplyr::distinct(.data$search_string, .keep_all = TRUE)
 
       if (!is.finite(nrow(matched) / length(uniq)) || nrow(matched) / length(uniq) < 0.7) {
@@ -1833,16 +1837,16 @@ build_tuning_subset <- function(candidate_models,
   # Within each species, keep the most complete rows first and use a seeded
   # random tie-break so repeated runs remain reproducible.
   out <- tibble::as_tibble(candidate_models) |>
-    dplyr::filter(is.finite(slope_len), is.finite(intercept_len)) |>
+    dplyr::filter(is.finite(.data$slope_len), is.finite(.data$intercept_len)) |>
     dplyr::mutate(
       .tune_complete = rowSums(!is.na(dplyr::pick(dplyr::all_of(tune_cols))), na.rm = TRUE),
       .tie_break = stats::runif(dplyr::n())
     ) |>
-    dplyr::group_by(species_name) |>
-    dplyr::arrange(dplyr::desc(.tune_complete), .tie_break, .by_group = TRUE) |>
+    dplyr::group_by(.data$species_name) |>
+    dplyr::arrange(dplyr::desc(.data$.tune_complete), .data$.tie_break, .by_group = TRUE) |>
     dplyr::slice_head(n = max_models_per_species) |>
     dplyr::ungroup() |>
-    dplyr::select(-.tune_complete, -.tie_break)
+    dplyr::select(-tidyselect::any_of(c(".tune_complete", ".tie_break")))
 
   if (nrow(out) < 2) {
     stop("The tuning subset must contain at least two usable models.", call. = FALSE)
@@ -1902,12 +1906,12 @@ build_resample_subset <- function(candidate_models,
   # small top-ranked pool so the resampled subsets stay plausible while still
   # varying across repeats.
   out <- tibble::as_tibble(candidate_models) |>
-    dplyr::filter(is.finite(slope_len), is.finite(intercept_len)) |>
+    dplyr::filter(is.finite(.data$slope_len), is.finite(.data$intercept_len)) |>
     dplyr::mutate(
       .tune_complete = rowSums(!is.na(dplyr::pick(dplyr::all_of(tune_cols))), na.rm = TRUE)
     ) |>
-    dplyr::group_by(species_name) |>
-    dplyr::arrange(dplyr::desc(.tune_complete), .by_group = TRUE) |>
+    dplyr::group_by(.data$species_name) |>
+    dplyr::arrange(dplyr::desc(.data$.tune_complete), .by_group = TRUE) |>
     dplyr::group_modify(function(.x, .y) {
       n_take <- min(max_models_per_species, nrow(.x))
       if (nrow(.x) <= n_take) {
@@ -1924,7 +1928,7 @@ build_resample_subset <- function(candidate_models,
         dplyr::slice_sample(n = n_take, replace = FALSE)
     }) |>
     dplyr::ungroup() |>
-    dplyr::select(-.tune_complete)
+    dplyr::select(-tidyselect::all_of(".tune_complete"))
 
   if (nrow(out) < 2) {
     stop("The resampled tuning subset must contain at least two usable models.", call. = FALSE)
@@ -1965,10 +1969,10 @@ similarity_tuning_cache_current <- function(tuning_result) {
 
   valid_rows <- history_tbl |>
     dplyr::filter(
-      is.finite(alpha),
-      is.finite(k_species),
-      is.finite(k_study),
-      is.finite(kernel_scale)
+      is.finite(.data$alpha),
+      is.finite(.data$k_species),
+      is.finite(.data$k_study),
+      is.finite(.data$kernel_scale)
     )
   if (nrow(valid_rows) == 0) {
     return(FALSE)
@@ -2204,10 +2208,6 @@ prepare_similarity_score_basis <- function(models_subset,
     sim_obj$candidate_models,
     c("study_depth_max", "depth_maximum")
   )
-
-  ts_at_len <- function(slope, intercept, length_cm) {
-    as.numeric(slope) * log10(length_cm) + as.numeric(intercept)
-  }
 
   resolve_numeric_col <- function(df_now,
                                   col_nm) {
@@ -3044,7 +3044,7 @@ run_tuning_grid_search <- function(tune_models,
     selected_species <- sample(species_values, size = keep_species, replace = FALSE)
 
     build_tuning_subset(
-      candidate_models = dplyr::filter(candidate_models, species_name %in% selected_species),
+      candidate_models = dplyr::filter(candidate_models, .data$species_name %in% selected_species),
       species_weights = species_weights,
       study_weights = study_weights,
       max_models_per_species = max_models_per_species,
@@ -3078,7 +3078,7 @@ run_tuning_grid_search <- function(tune_models,
 
     for (lvl in seq_len(levels)) {
       best_now <- current_grid |>
-        dplyr::arrange(rmse, mae, dplyr::desc(.data$n_eval)) |>
+        dplyr::arrange(.data$rmse, .data$mae, dplyr::desc(.data$n_eval)) |>
         dplyr::slice(1)
 
       nearest_values <- function(values,
@@ -3117,8 +3117,8 @@ run_tuning_grid_search <- function(tune_models,
       ) |>
         tibble::as_tibble() |>
         dplyr::mutate(
-          k_species = kernel_scale,
-          k_study = kernel_scale,
+          k_species = .data$kernel_scale,
+          k_study = .data$kernel_scale,
           stage = sprintf("search_refine_%s", lvl)
         )
       refined_cube <- apply_coherence_scale(refined_cube)
@@ -3247,9 +3247,9 @@ run_tuning_grid_search <- function(tune_models,
           "."
         )
         current_design <- stage_scores |>
-          dplyr::arrange(rmse, mae, dplyr::desc(.data$n_eval)) |>
+          dplyr::arrange(.data$rmse, .data$mae, dplyr::desc(.data$n_eval)) |>
           dplyr::slice_head(n = survivors_now) |>
-          dplyr::select(alpha, kernel_scale, coherence_scale, k_species, k_study, length_weight, depth_weight, frequency_weight) |>
+          dplyr::select("alpha", "kernel_scale", "coherence_scale", "k_species", "k_study", "length_weight", "depth_weight", "frequency_weight") |>
           dplyr::distinct()
       } else {
         report_progress(
@@ -3336,15 +3336,15 @@ run_tuning_grid_search <- function(tune_models,
 
     out <- dplyr::bind_rows(corner_grid, center_row, latin_rows) |>
       dplyr::filter(
-        is.finite(alpha),
-        is.finite(kernel_scale),
-        alpha > 0,
-        alpha < 1,
-        kernel_scale >= 0
+        is.finite(.data$alpha),
+        is.finite(.data$kernel_scale),
+        .data$alpha > 0,
+        .data$alpha < 1,
+        .data$kernel_scale >= 0
       ) |>
       dplyr::mutate(
-        k_species = kernel_scale,
-        k_study = kernel_scale
+        k_species = .data$kernel_scale,
+        k_study = .data$kernel_scale
       )
     out <- apply_coherence_scale(out)
 
@@ -3410,13 +3410,13 @@ run_tuning_grid_search <- function(tune_models,
     dplyr::mutate(search_round = 1L, .before = 1)
 
   selection_pool <- grid_scores |>
-    dplyr::filter(is.finite(n_eval))
+    dplyr::filter(is.finite(.data$n_eval))
   if (nrow(selection_pool) > 0) {
     selection_pool <- selection_pool |>
-      dplyr::filter(n_eval == max(n_eval, na.rm = TRUE))
+      dplyr::filter(.data$n_eval == max(.data$n_eval, na.rm = TRUE))
   } else {
     selection_pool <- grid_scores |>
-      dplyr::filter(is.finite(rmse))
+      dplyr::filter(is.finite(.data$rmse))
   }
   if (nrow(selection_pool) == 0) {
     selection_pool <- grid_scores
@@ -3431,18 +3431,18 @@ run_tuning_grid_search <- function(tune_models,
     }
     mse_tolerance <- max(best_se, (base_sim$config$rmse_tolerance %||% 0)^2)
     eligible_cfg <- selection_pool |>
-      dplyr::filter(is.finite(mse), mse <= best_mse + mse_tolerance)
+      dplyr::filter(is.finite(.data$mse), .data$mse <= best_mse + mse_tolerance)
   } else {
     eligible_cfg <- selection_pool |>
-      dplyr::filter(is.finite(rmse))
+      dplyr::filter(is.finite(.data$rmse))
   }
   if (nrow(eligible_cfg) == 0) {
     eligible_cfg <- selection_pool |>
-      dplyr::filter(is.finite(rmse))
+      dplyr::filter(is.finite(.data$rmse))
   }
   if (nrow(eligible_cfg) == 0) {
     eligible_cfg <- grid_scores |>
-      dplyr::filter(is.finite(rmse))
+      dplyr::filter(is.finite(.data$rmse))
   }
   if (nrow(eligible_cfg) == 0) {
     eligible_cfg <- grid_scores
@@ -3458,61 +3458,61 @@ run_tuning_grid_search <- function(tune_models,
   }
   eligible_cfg <- eligible_cfg |>
     dplyr::mutate(
-      coherence_scale = dplyr::coalesce(coherence_scale, 1),
-      alpha_deviation = abs(alpha - alpha_center) / alpha_scale,
-      kernel_scale_deviation = abs(log1p(kernel_scale) - log1p(scale_center)) / kernel_scale_width,
+      coherence_scale = dplyr::coalesce(.data$coherence_scale, 1),
+      alpha_deviation = abs(.data$alpha - alpha_center) / alpha_scale,
+      kernel_scale_deviation = abs(log1p(.data$kernel_scale) - log1p(scale_center)) / kernel_scale_width,
       coherence_scale_deviation = if (isTRUE(coherence_block$enabled)) {
-        abs(log1p(coherence_scale) - log1p(coherence_block$center)) / coherence_scale_width
+        abs(log1p(.data$coherence_scale) - log1p(coherence_block$center)) / coherence_scale_width
       } else {
         0
       },
-      alpha_edge_proximity = pmin(alpha - alpha_bounds[[1]], alpha_bounds[[2]] - alpha) / alpha_scale,
+      alpha_edge_proximity = pmin(.data$alpha - alpha_bounds[[1]], alpha_bounds[[2]] - .data$alpha) / alpha_scale,
       kernel_scale_edge_proximity = pmin(
-        abs(log1p(kernel_scale) - log1p(scale_bounds[[1]])),
-        abs(log1p(scale_bounds[[2]]) - log1p(kernel_scale))
+        abs(log1p(.data$kernel_scale) - log1p(scale_bounds[[1]])),
+        abs(log1p(scale_bounds[[2]]) - log1p(.data$kernel_scale))
       ) / kernel_scale_width,
       coherence_scale_edge_proximity = if (isTRUE(coherence_block$enabled)) {
         pmin(
-          abs(log1p(coherence_scale) - log1p(coherence_block$bounds[[1]])),
-          abs(log1p(coherence_block$bounds[[2]]) - log1p(coherence_scale))
+          abs(log1p(.data$coherence_scale) - log1p(coherence_block$bounds[[1]])),
+          abs(log1p(coherence_block$bounds[[2]]) - log1p(.data$coherence_scale))
         ) / coherence_scale_width
       } else {
         Inf
       },
-      alpha_edge_penalty = pmax(0, edge_margin - alpha_edge_proximity) / edge_margin,
-      kernel_scale_edge_penalty = pmax(0, edge_margin - kernel_scale_edge_proximity) / edge_margin,
+      alpha_edge_penalty = pmax(0, edge_margin - .data$alpha_edge_proximity) / edge_margin,
+      kernel_scale_edge_penalty = pmax(0, edge_margin - .data$kernel_scale_edge_proximity) / edge_margin,
       coherence_scale_edge_penalty = if (isTRUE(coherence_block$enabled)) {
-        pmax(0, edge_margin - coherence_scale_edge_proximity) / edge_margin
+        pmax(0, edge_margin - .data$coherence_scale_edge_proximity) / edge_margin
       } else {
         0
       },
-      edge_penalty = alpha_edge_penalty + kernel_scale_edge_penalty + coherence_scale_edge_penalty,
-      stability_penalty = dplyr::if_else(is.finite(se_mse), se_mse, 0),
+      edge_penalty = .data$alpha_edge_penalty + .data$kernel_scale_edge_penalty + .data$coherence_scale_edge_penalty,
+      stability_penalty = dplyr::if_else(is.finite(.data$se_mse), .data$se_mse, 0),
       fit_penalty = if (is.finite(best_rmse_eligible)) {
-        pmax(0, rmse - best_rmse_eligible) / fit_scale
+        pmax(0, .data$rmse - best_rmse_eligible) / fit_scale
       } else {
         0
       },
       complexity_penalty =
-        (regularization_cfg$alpha %||% 0) * alpha_deviation +
-          (regularization_cfg$kernel_scale %||% 0) * kernel_scale_deviation +
-          (regularization_cfg$coherence_scale %||% 0) * coherence_scale_deviation,
-      regularized_objective = rmse +
-        complexity_penalty +
-        (regularization_cfg$stability %||% 0) * stability_penalty +
-        (regularization_cfg$edge %||% 0) * edge_penalty,
-      selection_objective = fit_penalty +
-        complexity_penalty +
-        (regularization_cfg$stability %||% 0) * stability_penalty +
-        (regularization_cfg$edge %||% 0) * edge_penalty
+        (regularization_cfg$alpha %||% 0) * .data$alpha_deviation +
+          (regularization_cfg$kernel_scale %||% 0) * .data$kernel_scale_deviation +
+          (regularization_cfg$coherence_scale %||% 0) * .data$coherence_scale_deviation,
+      regularized_objective = .data$rmse +
+        .data$complexity_penalty +
+        (regularization_cfg$stability %||% 0) * .data$stability_penalty +
+        (regularization_cfg$edge %||% 0) * .data$edge_penalty,
+      selection_objective = .data$fit_penalty +
+        .data$complexity_penalty +
+        (regularization_cfg$stability %||% 0) * .data$stability_penalty +
+        (regularization_cfg$edge %||% 0) * .data$edge_penalty
     )
   best_cfg <- eligible_cfg |>
     # Once candidates are inside the one-standard-error pool, prefer interior,
     # stable settings over edge-hugging minima unless they are materially better.
-    dplyr::arrange(selection_objective, edge_penalty, complexity_penalty, stability_penalty, rmse, mae, dplyr::desc(.data$n_eval), alpha_deviation, kernel_scale_deviation, coherence_scale_deviation, kernel_scale) |>
+    dplyr::arrange(.data$selection_objective, .data$edge_penalty, .data$complexity_penalty, .data$stability_penalty, .data$rmse, .data$mae, dplyr::desc(.data$n_eval), .data$alpha_deviation, .data$kernel_scale_deviation, .data$coherence_scale_deviation, .data$kernel_scale) |>
     dplyr::slice(1)
   response_surface <- eligible_cfg |>
-    dplyr::arrange(selection_objective, edge_penalty, complexity_penalty, stability_penalty, rmse, mae, dplyr::desc(.data$n_eval), alpha_deviation, kernel_scale_deviation, coherence_scale_deviation, kernel_scale)
+    dplyr::arrange(.data$selection_objective, .data$edge_penalty, .data$complexity_penalty, .data$stability_penalty, .data$rmse, .data$mae, dplyr::desc(.data$n_eval), .data$alpha_deviation, .data$kernel_scale_deviation, .data$coherence_scale_deviation, .data$kernel_scale)
   top_candidates <- response_surface |>
     dplyr::slice_head(n = base_sim$config$response_surface_top_n %||% 20L)
 
@@ -3686,8 +3686,8 @@ run_component_dropout <- function(tune_models,
 
   component_impact_summary |>
     dplyr::mutate(
-      delta_rmse = rmse - full_rmse,
-      delta_mae = mae - full_mae
+      delta_rmse = .data$rmse - full_rmse,
+      delta_mae = .data$mae - full_mae
     )
 }
 
@@ -3716,12 +3716,12 @@ apply_component_weights <- function(base_sim,
   # Map each dropped component onto a bounded multiplier, with non-positive
   # impact collapsing to the minimum retained weight.
   component_multiplier <- component_impact_summary |>
-    dplyr::filter(component != "full_model") |>
+    dplyr::filter(.data$component != "full_model") |>
     dplyr::transmute(
-      component,
+      .data$component,
       multiplier = dplyr::if_else(
-        delta_rmse > 0,
-        0.5 + 1.5 * (delta_rmse / max_delta),
+        .data$delta_rmse > 0,
+        0.5 + 1.5 * (.data$delta_rmse / max_delta),
         0.5
       )
     )
@@ -3929,15 +3929,15 @@ collect_component_weights <- function(tune_obj,
   dplyr::bind_rows(species_tbl, study_tbl) |>
     dplyr::mutate(
       multiplier = dplyr::if_else(
-        is.finite(base_weight) & base_weight != 0,
-        tuned_weight / base_weight,
+        is.finite(.data$base_weight) & .data$base_weight != 0,
+        .data$tuned_weight / .data$base_weight,
         NA_real_
       )
     ) |>
     dplyr::bind_rows(coherence_tbl) |>
     dplyr::left_join(
       impact_tbl |>
-        dplyr::select(component, delta_rmse, delta_mae),
+        dplyr::select("component", "delta_rmse", "delta_mae"),
       by = "component"
     ) |>
     dplyr::mutate(resample_id = resample_id, .before = 1)
@@ -4003,12 +4003,12 @@ summarize_tuning_stability <- function(tune_obj) {
   }
 
   weight_summary <- component_tbl |>
-    dplyr::group_by(component, component_type) |>
+    dplyr::group_by(.data$component, .data$component_type) |>
     dplyr::summarise(
-      median_value = stats::median(tuned_weight, na.rm = TRUE),
-      lower_value = stats::quantile(tuned_weight, probs = 0.25, na.rm = TRUE, names = FALSE),
-      upper_value = stats::quantile(tuned_weight, probs = 0.75, na.rm = TRUE, names = FALSE),
-      n_resamples = dplyr::n_distinct(resample_id),
+      median_value = stats::median(.data$tuned_weight, na.rm = TRUE),
+      lower_value = stats::quantile(.data$tuned_weight, probs = 0.25, na.rm = TRUE, names = FALSE),
+      upper_value = stats::quantile(.data$tuned_weight, probs = 0.75, na.rm = TRUE, names = FALSE),
+      n_resamples = dplyr::n_distinct(.data$resample_id),
       .groups = "drop"
     )
 
@@ -4060,13 +4060,13 @@ summarize_similarity_tuning_strata <- function(anchor_rows,
         stratum_type = stratum_type,
         stratum = as.character(dplyr::first(.data[[group_col]])),
         n_anchor = dplyr::n(),
-        rmse = sqrt(mean(sq_error, na.rm = TRUE)),
-        mae = mean(abs_error, na.rm = TRUE),
-        median_abs_error = stats::median(abs_error, na.rm = TRUE),
-        mean_effective_support = mean(effective_support, na.rm = TRUE),
+        rmse = sqrt(mean(.data$sq_error, na.rm = TRUE)),
+        mae = mean(.data$abs_error, na.rm = TRUE),
+        median_abs_error = stats::median(.data$abs_error, na.rm = TRUE),
+        mean_effective_support = mean(.data$effective_support, na.rm = TRUE),
         .groups = "drop"
       ) |>
-      dplyr::select(stratum_type, stratum, n_anchor, rmse, mae, median_abs_error, mean_effective_support)
+      dplyr::select("stratum_type", "stratum", "n_anchor", "rmse", "mae", "median_abs_error", "mean_effective_support")
   }
 
   dplyr::bind_rows(
@@ -4403,7 +4403,7 @@ tune_similarity_matrix <- function(candidate_models,
       )
 
       full_now <- comp_now |>
-        dplyr::filter(component == "full_model") |>
+        dplyr::filter(.data$component == "full_model") |>
         dplyr::slice_tail(n = 1)
 
       summary_rows[[i]] <- tibble::tibble(
@@ -4779,7 +4779,7 @@ tune_similarity_resamples <- function(candidate_models,
     # Record one summary row per resample from the final tuned score and the
     # tuned scalar parameters returned by the inner tuning run.
     final_row <- tune_obj$tuning_history |>
-      dplyr::filter(stage == "final_tuned") |>
+      dplyr::filter(.data$stage == "final_tuned") |>
       dplyr::slice_tail(n = 1)
 
     summary_rows[[length(summary_rows) + 1]] <- tibble::tibble(

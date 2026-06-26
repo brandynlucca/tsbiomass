@@ -8,8 +8,8 @@
 #' @keywords internal
 post_selection_quantile <- function(x,
                                     alpha) {
-  x <- sort(x[is.finite(x)])
-  n <- length(x)
+  x_ <- sort(x[is.finite(x)])
+  n <- length(x_)
   if (n == 0) {
     return(NA_real_)
   }
@@ -19,7 +19,7 @@ post_selection_quantile <- function(x,
     return(Inf)
   }
 
-  x[[q_idx]]
+  x_[[q_idx]]
 }
 
 #' Compute a post-selection support score
@@ -30,8 +30,8 @@ post_selection_quantile <- function(x,
 #'
 #' @keywords internal
 post_selection_support_score <- function(tbl) {
-  tbl <- tibble::as_tibble(tbl)
-  n <- nrow(tbl)
+  tbl_ <- tibble::as_tibble(tbl)
+  n <- nrow(tbl_)
   if (n == 0) {
     return(numeric())
   }
@@ -40,8 +40,8 @@ post_selection_support_score <- function(tbl) {
   # one small accessor so the score can work across both benchmark and anchor
   # prediction tables.
   col_or_na <- function(nm) {
-    if (nm %in% names(tbl)) {
-      tbl[[nm]]
+    if (nm %in% names(tbl_)) {
+      tbl_[[nm]]
     } else {
       rep(NA_real_, n)
     }
@@ -86,60 +86,62 @@ post_selection_support_score <- function(tbl) {
 }
 
 default_post_selection_support_labels <- function(n_bins) {
-  n_bins <- max(1L, as.integer(n_bins)[[1]])
-  switch(as.character(n_bins),
+  n_bins_ <- max(1L, as.integer(n_bins)[[1]])
+  switch(as.character(n_bins_),
     `1` = c("All support"),
     `2` = c("Lower support", "Higher support"),
     `3` = c("Lower support", "Moderate support", "Higher support"),
     `4` = c("Lowest support", "Lower support", "Higher support", "Highest support"),
     `5` = c("Lowest support", "Lower support", "Middle support", "Higher support", "Highest support"),
-    paste("Support tier", seq_len(n_bins))
+    paste("Support tier", seq_len(n_bins_))
   )
 }
 
 resolve_post_selection_support_labels <- function(labels = NULL,
                                                   n_bins = 3L) {
-  n_bins <- max(1L, as.integer(n_bins)[[1]])
-  if (is.null(labels)) {
-    labels <- default_post_selection_support_labels(n_bins)
+  n_bins_ <- max(1L, as.integer(n_bins)[[1]])
+  labels_ <- if (is.null(labels)) {
+    default_post_selection_support_labels(n_bins_)
+  } else {
+    labels
   }
-  labels <- stringr::str_squish(as.character(unlist(labels, use.names = FALSE)))
-  labels <- labels[!is.na(labels) & nzchar(labels)]
-  if (length(labels) != n_bins) {
+  labels_ <- stringr::str_squish(as.character(unlist(labels_, use.names = FALSE)))
+  labels_ <- labels_[!is.na(labels_) & nzchar(labels_)]
+  if (length(labels_) != n_bins_) {
     stop(
       sprintf(
         "'support_bin_labels' must contain exactly %d non-empty label(s).",
-        n_bins
+        n_bins_
       ),
       call. = FALSE
     )
   }
-  if (anyDuplicated(labels)) {
+  if (anyDuplicated(labels_)) {
     stop("'support_bin_labels' must be unique.", call. = FALSE)
   }
-  stats::setNames(labels, paste0("support_bin_", seq_len(n_bins)))
+  stats::setNames(labels_, paste0("support_bin_", seq_len(n_bins_)))
 }
 
 label_post_selection_support_bins <- function(tbl,
                                               labels = NULL,
                                               n_bins = NULL) {
-  tbl <- tibble::as_tibble(tbl)
-  if (!"post_selection_support_bin" %in% names(tbl)) {
-    return(tbl)
+  tbl_ <- tibble::as_tibble(tbl)
+  if (!"post_selection_support_bin" %in% names(tbl_)) {
+    return(tbl_)
   }
-  bin_values <- as.character(tbl$post_selection_support_bin)
-  n_bins <- n_bins %||% max(
+  bin_values <- as.character(tbl_$post_selection_support_bin)
+  n_bins_ <- n_bins %||% max(
     suppressWarnings(as.integer(gsub("^support_bin_", "", bin_values))),
     na.rm = TRUE
   )
-  if (!is.finite(n_bins) || n_bins < 1) {
-    n_bins <- 3L
+  if (!is.finite(n_bins_) || n_bins_ < 1) {
+    n_bins_ <- 3L
   }
-  label_map <- resolve_post_selection_support_labels(labels = labels, n_bins = n_bins)
-  tbl$post_selection_support_label <- unname(label_map[bin_values])
-  tbl$post_selection_support_label[is.na(tbl$post_selection_support_label) & bin_values == "support_bin_missing"] <- "Missing support"
-  tbl$post_selection_support_label[is.na(tbl$post_selection_support_label) & bin_values == "all_support"] <- "All support"
-  tbl
+  label_map <- resolve_post_selection_support_labels(labels = labels, n_bins = n_bins_)
+  tbl_$post_selection_support_label <- unname(label_map[bin_values])
+  tbl_$post_selection_support_label[is.na(tbl_$post_selection_support_label) & bin_values == "support_bin_missing"] <- "Missing support"
+  tbl_$post_selection_support_label[is.na(tbl_$post_selection_support_label) & bin_values == "all_support"] <- "All support"
+  tbl_
 }
 
 #' Assign post-selection support bins
@@ -157,34 +159,36 @@ assign_post_selection_support_bins <- function(tbl,
                                                cutpoints = NULL,
                                                n_bins = 3L,
                                                labels = NULL) {
-  tbl <- tibble::as_tibble(tbl)
-  if (nrow(tbl) == 0) {
-    tbl$post_selection_support_score <- numeric()
-    tbl$post_selection_support_bin <- character()
-    tbl$post_selection_support_label <- character()
-    return(tbl)
+  tbl_ <- tibble::as_tibble(tbl)
+  if (nrow(tbl_) == 0) {
+    tbl_$post_selection_support_score <- numeric()
+    tbl_$post_selection_support_bin <- character()
+    tbl_$post_selection_support_label <- character()
+    return(tbl_)
   }
 
-  n_bins <- max(1L, as.integer(n_bins))
-  score <- post_selection_support_score(tbl)
-  if (is.null(cutpoints)) {
-    probs <- seq(0, 1, length.out = n_bins + 1L)
-    cutpoints <- unique(stats::quantile(
+  n_bins_ <- max(1L, as.integer(n_bins))
+  score <- post_selection_support_score(tbl_)
+  cutpoints_ <- if (is.null(cutpoints)) {
+    probs <- seq(0, 1, length.out = n_bins_ + 1L)
+    unique(stats::quantile(
       score,
       probs = probs,
       na.rm = TRUE,
       names = FALSE,
       type = 8
     ))
-  }
-  if (length(cutpoints) < 2L || all(!is.finite(cutpoints))) {
-    bin <- rep("all_support", nrow(tbl))
   } else {
-    cutpoints[1] <- -Inf
-    cutpoints[length(cutpoints)] <- Inf
+    cutpoints
+  }
+  if (length(cutpoints_) < 2L || all(!is.finite(cutpoints_))) {
+    bin <- rep("all_support", nrow(tbl_))
+  } else {
+    cutpoints_[1] <- -Inf
+    cutpoints_[length(cutpoints_)] <- Inf
     bin_id <- as.integer(cut(
       score,
-      breaks = cutpoints,
+      breaks = cutpoints_,
       include.lowest = TRUE,
       labels = FALSE
     ))
@@ -192,7 +196,7 @@ assign_post_selection_support_bins <- function(tbl,
     bin[!is.finite(bin_id)] <- "support_bin_missing"
   }
 
-  tbl$post_selection_support_score <- score
-  tbl$post_selection_support_bin <- bin
-  label_post_selection_support_bins(tbl, labels = labels, n_bins = n_bins)
+  tbl_$post_selection_support_score <- score
+  tbl_$post_selection_support_bin <- bin
+  label_post_selection_support_bins(tbl_, labels = labels, n_bins = n_bins_)
 }
