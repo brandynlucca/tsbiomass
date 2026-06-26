@@ -31,6 +31,7 @@ Imports:
     stringr,
     tibble,
     tidyr,
+    tidyselect,
     yaml
 Suggests: 
     ape,
@@ -88,3 +89,4 @@ Collate:
     'summary.R'
     's3_bridges.R'
 Config/roxygen2/version: 8.0.0
+RoxygenNote: 7.3.3

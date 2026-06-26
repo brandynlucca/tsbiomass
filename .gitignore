@@ -13,6 +13,7 @@
 *_files
 *.tmp
 *.txt
+.git/
 dev/
 tsbiomass.Rcheck/
 scratch/
@@ -25,3 +26,8 @@ cache/
 inst/docs
 inst/slides
 *.tar.gz
+*.rds
+*.log
+tmp_*
+temp_*
+artifacts/
