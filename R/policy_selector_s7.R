@@ -818,31 +818,9 @@ S7::method(select_policies, PolicySelector) <- function(object,
 #'   learner-backed selection path.
 #' @param reuse_admissibility Logical scalar. If `TRUE`, reuse admissibility
 #'   results already stored on the selector's [Candidates] object.
-#'
-#' @return A [PolicyPredictions] object.
-#'
-#' Predict anchor-level policy outputs from a PolicySelector
-#'
-#' Scores each reference anchor under the active policy set, joins benchmark and
-#' uncertainty summaries, and returns a [PolicyPredictions] bundle.
-#'
-#' @param object A [PolicySelector] object.
-#' @param reference_anchors Optional anchor table override.
-#' @param policies Optional character vector of policy names.
-#' @param config Optional config override.
-#' @param policy_params Optional policy-parameter overrides.
-#' @param policy_path Optional policy-registry path.
-#' @param registry_path Optional trait-registry path.
-#' @param learner Optional fitted [PolicyLearner] used to rank anchor-policy
-#'   rows before retaining the selected rows.
-#' @param use_support_bin_intervals Logical scalar controlling whether the
-#'   learner-backed path uses support-bin conformal lookups when available.
-#' @param max_selection_tolerance Optional numeric tie tolerance for the
-#'   learner-backed selection path.
-#' @param reuse_admissibility Logical scalar. If `TRUE`, reuse admissibility
-#'   results already stored on the selector's [Candidates] object.
 #' @param progress Optional logical scalar controlling stage messages.
 #'
+#' @return A [PolicyPredictions] object.
 .predict_policy_selector <- function(object,
                                      reference_anchors = NULL,
                                      policies = NULL,
