@@ -1168,7 +1168,7 @@ build_selection_table <- function(species_performance_table,
   )
   species_wide <- tidyr::pivot_wider(
     species_level_keyed,
-    id_cols = .data$anchor_species,
+    id_cols = "anchor_species",
     names_from = "policy_key",
     values_from = "species_median_abs_log"
   )
