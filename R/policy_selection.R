@@ -573,8 +573,6 @@ add_policy_intervals <- function(policy_tbl,
 #'   thresholds.
 #' @param local_distance_tolerance Absolute tolerance for retaining local
 #'   support-distance ties after empirical-score and uncertainty screening.
-#' @param uncertainty_relative_tolerance Legacy alias for `u_tol_rel`.
-#' @param uncertainty_absolute_tolerance Legacy alias for `u_tol_abs`.
 #'
 #' @return A tibble of selected policy rows.
 #'
@@ -598,9 +596,7 @@ select_anchor_policies <- function(policy_tbl,
                                    u_tol_abs = 0.05,
                                    score_tol_abs = NULL,
                                    one_se_multiplier = 1,
-                                   local_distance_tolerance = 1e-12,
-                                   uncertainty_relative_tolerance = NULL,
-                                   uncertainty_absolute_tolerance = NULL) {
+                                   local_distance_tolerance = 1e-12) {
   policy_tbl_ <- tibble::as_tibble(policy_tbl)
   if (nrow(policy_tbl_) == 0) {
     return(policy_tbl_)

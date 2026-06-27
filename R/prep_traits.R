@@ -292,7 +292,7 @@ prepare_traits <- function(species_db,
   # standardized slope/intercept outputs in the post-ingestion step.
   out <- convert_to_length_form(out)
 
-  # Materialize legacy-compatible column names as direct copies of the
+  # Materialize compatible column names as direct copies of the
   # canonical fields so downstream pipelines can consume the literal TSLitReview
   # trait names without any translation logic in similarity code.
   alias_pairs <- c(
@@ -535,8 +535,8 @@ fill_interval_derivations <- function(tbl,
 #' Convert TS models to a common length form
 #'
 #' Standardizes compatible TS equations into `slope_len` and `intercept_len`
-#' using the legacy script conversion rules. Inverse-form equations flagged
-#' in `misc_factors` are excluded from direct conversion.
+#' using set conversion rules. Inverse-form equations flagged in `misc_factors` 
+#' are excluded from direct conversion.
 #'
 #' @param tbl Data frame or tibble containing TS-model fields.
 #'

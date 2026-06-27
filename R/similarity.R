@@ -39,8 +39,7 @@ normalize_similarity_data <- function(candidate_models) {
   out$species_name <- stringr::str_squish(as.character(out$species_name))
   out$species_name[!nzchar(out$species_name)] <- NA_character_
 
-  # Rename legacy column variants to their canonical trait coded_names so
-  # config files can use the registry names regardless of source column naming.
+  # Rename column variants to their canonical trait names
   col_renames <- c(
     species_fao_area = "fao_area"
   )
@@ -1872,7 +1871,7 @@ build_resample_subset <- function(candidate_models,
                                   max_models_per_species,
                                   seed) {
   # Mirror the single-pass tuning subset rules so resampling works across
-  # either the new or legacy prepared interval naming scheme.
+  # prepared interval naming scheme.
   study_length_min_col <- resolve_similarity_column_name(
     candidate_models,
     c("study_length_min", "length_minimum")

@@ -72,19 +72,6 @@ test_that("config YAML is validated at ingestion time", {
   )
 })
 
-test_that("legacy config names are rejected at ingestion", {
-  bad_config <- minimal_config_data()
-  bad_config$paths$input_file <- bad_config$paths$input
-  bad_config$paths$input <- NULL
-  yaml_path <- tempfile(fileext = ".yaml")
-  yaml::write_yaml(bad_config, yaml_path)
-
-  expect_error(
-    read_config(yaml_path, base_dir = tempdir()),
-    "legacy field 'input_file'"
-  )
-})
-
 test_that("metalearner super-methods require super_learner selection method", {
   bad_config <- minimal_config_data()
   bad_config$metalearner$selection_super_methods <- c("glm", "rpart")
@@ -117,28 +104,6 @@ test_that("super learner requires squared-error metalearner loss", {
   expect_error(
     read_config(yaml_path, base_dir = tempdir()),
     "metalearner_loss"
-  )
-})
-
-test_that("metalearner legacy width names are rejected at ingestion", {
-  bad_config <- minimal_config_data()
-  bad_config$metalearner$width_method <- "glm"
-  bad_config$metalearner$uncertainty_method <- NULL
-  yaml_path <- tempfile(fileext = ".yaml")
-  yaml::write_yaml(bad_config, yaml_path)
-
-  expect_error(
-    read_config(yaml_path, base_dir = tempdir()),
-    "legacy field 'width_method'"
-  )
-
-  bad_config <- minimal_config_data()
-  bad_config$metalearner$width_feature_cols <- c("local_effective_support")
-  yaml::write_yaml(bad_config, yaml_path)
-
-  expect_error(
-    read_config(yaml_path, base_dir = tempdir()),
-    "legacy field 'width_feature_cols'"
   )
 })
 

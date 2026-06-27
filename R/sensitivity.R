@@ -4,7 +4,7 @@
 #' returns a named list of scenario benchmark objects.
 #'
 #' @param sensitivity_specs Named list of scenario specifications. Each element must
-#'   contain at least `candidate_models` and `config` (or legacy `cfg`).
+#'   contain at least `candidate_models` and `config`.
 #' @param benchmark_fun Benchmark function called once per scenario.
 #' @param baseline_obj Optional precomputed baseline benchmark object.
 #' @param benchmark_args Optional named list of extra arguments passed to

@@ -24,7 +24,6 @@ normalize_config(
 A normalized config list.
 }
 \description{
-Merges user config onto the package defaults, converts legacy trait-weight
-fields, resolves relative paths, and adds compatibility fields used by the
-packaged scripts.
+Merges user config onto the package defaults, resolves relative paths, and
+adds compatibility fields used by the packaged scripts.
 }

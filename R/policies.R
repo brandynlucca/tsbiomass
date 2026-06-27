@@ -1242,8 +1242,8 @@ valid_equation_rows <- function(rows) {
 #'
 #' @keywords internal
 group_model_rows <- function(rows) {
-  # Treat either the prepared boolean flag or the legacy method tag as evidence
-  # that a row represents a generalized or grouped model.
+  # Treat the prepared boolean flagas evidence that a row represents a generalized 
+  # or grouped model.
   out <- tibble::as_tibble(rows)
 
   # Evaluate the optional grouping flags against the materialized tibble so the

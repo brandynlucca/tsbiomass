@@ -4,14 +4,10 @@
 \alias{normalize_trait_map}
 \title{Normalize one config trait map}
 \usage{
-normalize_trait_map(trait_map, trait_cols, trait_weights)
+normalize_trait_map(trait_map)
 }
 \arguments{
 \item{trait_map}{Optional named trait-weight map.}
-
-\item{trait_cols}{Optional character vector of trait names.}
-
-\item{trait_weights}{Optional named trait-weight map.}
 }
 \value{
 Named numeric vector.

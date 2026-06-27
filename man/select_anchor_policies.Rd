@@ -11,9 +11,7 @@ select_anchor_policies(
   u_tol_abs = 0.05,
   score_tol_abs = NULL,
   one_se_multiplier = 1,
-  local_distance_tolerance = 1e-12,
-  uncertainty_relative_tolerance = NULL,
-  uncertainty_absolute_tolerance = NULL
+  local_distance_tolerance = 1e-12
 )
 }
 \arguments{
@@ -36,10 +34,6 @@ thresholds.}
 
 \item{local_distance_tolerance}{Absolute tolerance for retaining local
 support-distance ties after empirical-score and uncertainty screening.}
-
-\item{uncertainty_relative_tolerance}{Legacy alias for \code{u_tol_rel}.}
-
-\item{uncertainty_absolute_tolerance}{Legacy alias for \code{u_tol_abs}.}
 }
 \value{
 A tibble of selected policy rows.

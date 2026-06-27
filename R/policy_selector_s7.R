@@ -284,7 +284,7 @@ policy_selector_similarity_defaults <- function(candidates) {
     ))
   }
 
-  cfg <- default_config(use_canonical_names = TRUE)
+  cfg <- default_config()
   list(
     species_traits = as.list(cfg$similarity$species_traits %||% list()),
     study_traits = as.list(cfg$similarity$study_traits %||% list()),

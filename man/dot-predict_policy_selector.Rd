@@ -50,11 +50,6 @@ results already stored on the selector's \link{Candidates} object.}
 }
 \value{
 A \link{PolicyPredictions} object.
-
-Predict anchor-level policy outputs from a PolicySelector
-
-Scores each reference anchor under the active policy set, joins benchmark and
-uncertainty summaries, and returns a \link{PolicyPredictions} bundle.
 }
 \description{
 Scores each reference anchor under the active policy set, joins benchmark and

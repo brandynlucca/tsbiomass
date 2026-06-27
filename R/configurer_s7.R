@@ -125,9 +125,6 @@ normalize_explicit_config <- function(config,
     stop("'base_dir' must be a single non-empty path.", call. = FALSE)
   }
 
-  if (is.null(config$policies) && !is.null(config$strategies)) {
-    config$policies <- config$strategies
-  }
   config <- normalize_config_aliases(config)
   config <- normalize_similarity_config_shape(config)
   config <- apply_cache_defaults(config)
@@ -180,10 +177,6 @@ normalize_explicit_config <- function(config,
   config$frequency_coherence_weight <- config$policy$frequency_coherence_weight
   config$core_weight_cutoff <- config$policy$core_weight_cutoff
   config$conformal_alpha <- config$policy$conformal_alpha
-  config$species_trait_cols <- names(config$policy$species_traits)
-  config$study_trait_cols <- names(config$policy$study_traits)
-  config$species_trait_weights <- config$policy$species_traits
-  config$study_trait_weights <- config$policy$study_traits
 
   config
 }

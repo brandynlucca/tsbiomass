@@ -240,7 +240,7 @@ policy_learner_config <- function(object,
   # selector@config is merged into object@config at construction time, so we
   # no longer need to access the selector here.
   cfg <- merge_cfg(
-    default_config(use_canonical_names = TRUE),
+    default_config(),
     merge_cfg(object@config, policy_selector_config_data(config))
   )
   cfg$metalearner <- normalize_metalearner_section(cfg$metalearner %||% list())

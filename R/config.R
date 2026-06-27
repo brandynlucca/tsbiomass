@@ -385,112 +385,6 @@ config_aliases <- function() {
   )
 }
 
-#' Return disallowed legacy config names
-#'
-#' @return Named list of legacy-to-current field-name mappings by section.
-#' @keywords internal
-legacy_config_names <- function() {
-  list(
-    paths = c(
-      input_file = "input",
-      out_root = "output_root",
-      output_dir = "output_root",
-      cache_dir = "cache_folder",
-      supplemental_dir = "support_folder",
-      support_dir = "support_folder",
-      fao_polygon_csv = "area_file",
-      log_file = "log_path"
-    ),
-    execution = c(
-      strict_length_pdf = "strict_pdf",
-      run_multiplier_model = "run_multiplier"
-    ),
-    tuning = c(
-      max_models_per_species = "species_model_limit",
-      n_resamples = "resamples"
-    ),
-    policy = c(
-      frequency_coherence_mode = "frequency_mode",
-      require_same_frequency_label = "exact_frequency",
-      max_frequency_gap_khz = "frequency_gap",
-      min_length_overlap_fraction = "length_overlap_min",
-      min_depth_overlap_fraction = "depth_overlap_min",
-      missing_key_metadata_max_fraction = "key_metadata_max",
-      length_overlap_weight = "length_weight",
-      depth_overlap_weight = "depth_weight",
-      frequency_coherence_weight = "frequency_weight"
-    ),
-    policies = c(
-      equation_branch_filters = "branch_filters"
-    )
-  )
-}
-
-#' Reject legacy config names
-#'
-#' @param config Raw config list.
-#'
-#' @return Invisibly returns `NULL`.
-#' @keywords internal
-reject_legacy_config_names <- function(config) {
-  if (!is.list(config)) {
-    return(invisible(NULL))
-  }
-
-  if ("meta_policy" %in% names(config)) {
-    stop(
-      "Config section 'meta_policy' is no longer supported. Use 'metalearner' instead.",
-      call. = FALSE
-    )
-  }
-
-  legacy_map <- legacy_config_names()
-  for (section_name in names(legacy_map)) {
-    section <- config[[section_name]]
-    if (is.null(section) || !is.list(section)) {
-      next
-    }
-    for (legacy_name in names(legacy_map[[section_name]])) {
-      if (!legacy_name %in% names(section)) {
-        next
-      }
-      stop(
-        sprintf(
-          "Config section '%s' uses legacy field '%s'. Use '%s' instead.",
-          section_name,
-          legacy_name,
-          legacy_map[[section_name]][[legacy_name]]
-        ),
-        call. = FALSE
-      )
-    }
-  }
-
-  metalearner_section <- config$metalearner
-  if (is.list(metalearner_section)) {
-    field_map <- c(
-      method = "selection_method",
-      super_methods = "selection_super_methods",
-      width_method = "uncertainty_method",
-      width_feature_cols = "uncertainty_feature_cols"
-    )
-    for (legacy_name in names(field_map)) {
-      if (legacy_name %in% names(metalearner_section)) {
-        stop(
-          sprintf(
-            "Config section 'metalearner' uses legacy field '%s'. Use '%s' instead.",
-            legacy_name,
-            field_map[[legacy_name]]
-          ),
-          call. = FALSE
-        )
-      }
-    }
-  }
-
-  invisible(NULL)
-}
-
 #' Apply config aliases to one section
 #'
 #' @param section Named config subsection.
@@ -1296,9 +1190,6 @@ replace_explicit_trait_maps <- function(merged_cfg,
 #'   trait names.
 #' @param policy_path Optional policy-registry path used to derive one default
 #'   active policy.
-#' @param use_canonical_names Logical scalar controlling whether canonical
-#'   config names are used where legacy aliases are otherwise accepted.
-#'
 #' @return A config list.
 #'
 #' @export
@@ -1306,8 +1197,7 @@ default_config <- function(input_file = "input.xlsx",
                            output_root = "outputs",
                            cache_folder = "cache",
                            registry_path = NULL,
-                           policy_path = NULL,
-                           use_canonical_names = FALSE) {
+                           policy_path = NULL) {
   # Derive the minimal required trait and policy defaults from the registries
   # so the fallback config stays pipeline-agnostic.
   species_traits <- trait_names(scope = "species", registry_path = registry_path)
@@ -1439,13 +1329,7 @@ default_config <- function(input_file = "input.xlsx",
       progress = FALSE
     )
   ) |>
-    (\(cfg_data) {
-      if (isTRUE(use_canonical_names)) {
-        normalize_config_aliases(cfg_data)
-      } else {
-        cfg_data
-      }
-    })()
+    normalize_config_aliases()
 }
 
 #' Read a config YAML file
@@ -1476,7 +1360,6 @@ read_config <- function(path,
   }
 
   raw_config <- yaml::read_yaml(path)
-  reject_legacy_config_names(raw_config)
 
   normalize_config(
     config = raw_config,
@@ -1488,9 +1371,8 @@ read_config <- function(path,
 
 #' Normalize a config
 #'
-#' Merges user config onto the package defaults, converts legacy trait-weight
-#' fields, resolves relative paths, and adds compatibility fields used by the
-#' packaged scripts.
+#' Merges user config onto the package defaults, resolves relative paths, and
+#' adds compatibility fields used by the packaged scripts.
 #'
 #' @param config Config list.
 #' @param base_dir Base directory for relative paths.
@@ -1513,16 +1395,6 @@ normalize_config <- function(config,
     stop("'base_dir' must be a single non-empty path.", call. = FALSE)
   }
 
-  if (is.null(config$policies) && !is.null(config$strategies)) {
-    config$policies <- config$strategies
-  }
-  if (!(is.list(config) &&
-    "alpha" %in% names(config) &&
-    "paths" %in% names(config) &&
-    is.list(config$paths) &&
-    all(c("input_file", "out_root", "cache_dir") %in% names(config$paths)))) {
-    reject_legacy_config_names(config)
-  }
   config <- normalize_config_aliases(config)
   config <- normalize_similarity_config_shape(config)
   config <- normalize_selection_config_shape(config)
@@ -1530,8 +1402,7 @@ normalize_config <- function(config,
   normalized_config <- merge_cfg(
     default_config(
       registry_path = registry_path,
-      policy_path = policy_path,
-      use_canonical_names = TRUE
+      policy_path = policy_path
     ),
     config
   )
@@ -1578,8 +1449,8 @@ normalize_config <- function(config,
     )
   }
 
-  # Add the flattened compatibility fields still used by the preserved script
-  # scripts so the YAML can drive both old and refactored code paths.
+  # Materialize the flat top-level aliases that admissibility and nested
+  # validation still read directly from the config object.
   normalized_config$alpha <- normalized_config$policy$alpha
   normalized_config$k_species <- normalized_config$policy$k_species
   normalized_config$k_study <- normalized_config$policy$k_study
@@ -1597,10 +1468,6 @@ normalize_config <- function(config,
   normalized_config$frequency_coherence_weight <- normalized_config$policy$frequency_coherence_weight
   normalized_config$core_weight_cutoff <- normalized_config$policy$core_weight_cutoff
   normalized_config$conformal_alpha <- normalized_config$selection$conformal_alpha %||% normalized_config$policy$conformal_alpha
-  normalized_config$species_trait_cols <- names(normalized_config$policy$species_traits)
-  normalized_config$study_trait_cols <- names(normalized_config$policy$study_traits)
-  normalized_config$species_trait_weights <- normalized_config$policy$species_traits
-  normalized_config$study_trait_weights <- normalized_config$policy$study_traits
   normalized_config
 }
 
@@ -1629,9 +1496,6 @@ validate_config <- function(config,
     stop("'config' must be a list.", call. = FALSE)
   }
 
-  if (is.null(config$policies) && !is.null(config$strategies)) {
-    config$policies <- config$strategies
-  }
   config <- normalize_config_aliases(config)
 
   config <- normalize_similarity_config_shape(config)
@@ -1730,16 +1594,10 @@ config_option_values <- function(config) {
 #' Normalize one config trait map
 #'
 #' @param trait_map Optional named trait-weight map.
-#' @param trait_cols Optional character vector of trait names.
-#' @param trait_weights Optional named trait-weight map.
 #'
 #' @return Named numeric vector.
 #' @keywords internal
-normalize_trait_map <- function(trait_map,
-                                trait_cols,
-                                trait_weights) {
-  # Start from an explicit trait map when present; otherwise rebuild one from
-  # the older separate trait-column and trait-weight fields.
+normalize_trait_map <- function(trait_map) {
   if (!is.null(trait_map)) {
     if (is.data.frame(trait_map) && all(c("trait", "weight") %in% names(trait_map))) {
       weights <- as.numeric(trait_map$weight)
@@ -1749,36 +1607,18 @@ normalize_trait_map <- function(trait_map,
 
     if (is.list(trait_map) || is.atomic(trait_map)) {
       trait_values <- unlist(trait_map, use.names = FALSE)
-      trait_names_now <- names(trait_map)
-      if (is.null(trait_names_now) || any(!nzchar(trait_names_now))) {
-        trait_names_now <- stringr::str_squish(as.character(trait_values))
-        trait_names_now <- trait_names_now[!is.na(trait_names_now) & nzchar(trait_names_now)]
-        return(stats::setNames(rep(1, length(trait_names_now)), trait_names_now))
+      trait_names <- names(trait_map)
+      if (is.null(trait_names) || any(!nzchar(trait_names))) {
+        trait_names <- stringr::str_squish(as.character(trait_values))
+        trait_names <- trait_names[!is.na(trait_names) & nzchar(trait_names)]
+        return(stats::setNames(rep(1, length(trait_names)), trait_names))
       }
       weights <- suppressWarnings(as.numeric(trait_values))
-      return(stats::setNames(weights, trait_names_now))
+      return(stats::setNames(weights, trait_names))
     }
   }
 
-  # Treat the legacy trait-column vector as a weight-1 seed set, then let any
-  # explicit legacy weight map override those defaults by name.
-  weights <- numeric(0)
-  if (!is.null(trait_cols)) {
-    trait_cols <- stringr::str_squish(as.character(unlist(trait_cols, use.names = FALSE)))
-    trait_cols <- trait_cols[!is.na(trait_cols) & nzchar(trait_cols)]
-    weights <- stats::setNames(rep(1, length(trait_cols)), trait_cols)
-  }
-
-  if (!is.null(trait_weights)) {
-    override_weights <- suppressWarnings(as.numeric(unlist(trait_weights, use.names = FALSE)))
-    override_names <- names(trait_weights)
-    if (is.null(override_names) || any(!nzchar(override_names))) {
-      stop("Trait-weight maps must be named by trait.", call. = FALSE)
-    }
-    weights[override_names] <- override_weights
-  }
-
-  weights
+  numeric(0)
 }
 
 #' Normalize config trait sections
@@ -1797,37 +1637,17 @@ normalize_trait_sections <- function(config) {
   config$similarity <- config$similarity %||% list()
   config$admissibility <- config$admissibility %||% list()
 
-  config$policy$species_traits <- normalize_trait_map(
-    trait_map = config$policy$species_traits,
-    trait_cols = config$policy$species_trait_cols,
-    trait_weights = config$policy$species_trait_weights
-  )
-  config$policy$study_traits <- normalize_trait_map(
-    trait_map = config$policy$study_traits,
-    trait_cols = config$policy$study_trait_cols,
-    trait_weights = config$policy$study_trait_weights
-  )
+  config$policy$species_traits <- normalize_trait_map(config$policy$species_traits)
+  config$policy$study_traits   <- normalize_trait_map(config$policy$study_traits)
   config$similarity$species_traits <- normalize_trait_map(
-    trait_map = config$similarity$species_traits,
-    trait_cols = names(config$policy$species_traits),
-    trait_weights = config$policy$species_traits
+    config$similarity$species_traits %||% config$policy$species_traits
   )
   config$similarity$study_traits <- normalize_trait_map(
-    trait_map = config$similarity$study_traits,
-    trait_cols = names(config$policy$study_traits),
-    trait_weights = config$policy$study_traits
+    config$similarity$study_traits %||% config$policy$study_traits
   )
-  config$admissibility$species_traits <- names(normalize_trait_map(
-    trait_map = config$admissibility$species_traits,
-    trait_cols = NULL,
-    trait_weights = NULL
-  ))
+  config$admissibility$species_traits <- names(normalize_trait_map(config$admissibility$species_traits))
   config$admissibility$species_traits <- unique(config$admissibility$species_traits[!is.na(config$admissibility$species_traits) & nzchar(config$admissibility$species_traits)])
-  config$admissibility$study_traits <- names(normalize_trait_map(
-    trait_map = config$admissibility$study_traits,
-    trait_cols = NULL,
-    trait_weights = NULL
-  ))
+  config$admissibility$study_traits <- names(normalize_trait_map(config$admissibility$study_traits))
   config$admissibility$study_traits <- unique(config$admissibility$study_traits[!is.na(config$admissibility$study_traits) & nzchar(config$admissibility$study_traits)])
 
   config
@@ -2025,15 +1845,6 @@ validate_similarity_section <- function(similarity_section,
     return(invisible(NULL))
   }
 
-  if (!is.null(similarity_section$k_species) || !is.null(similarity_section$k_study) ||
-    !is.null(similarity_section$k_species_range) || !is.null(similarity_section$k_study_range) ||
-    !is.null(similarity_section$k_species_grid) || !is.null(similarity_section$k_study_grid)) {
-    stop(
-      "Similarity fields 'k_species'/'k_study' and their range/grid variants are unsupported legacy fields; use 'kernel_scale', 'kernel_scale_range', and optional 'kernel_scale_grid'.",
-      call. = FALSE
-    )
-  }
-
   scalar_fields <- c("alpha", "kernel_scale", "conformal_alpha")
   for (field_name in scalar_fields) {
     field_value <- similarity_section[[field_name]]
@@ -2186,11 +1997,7 @@ validate_admissibility_section <- function(admissibility_section,
     return(invisible(NULL))
   }
 
-  species_traits <- names(normalize_trait_map(
-    trait_map = admissibility_section$species_traits,
-    trait_cols = NULL,
-    trait_weights = NULL
-  ))
+  species_traits <- names(normalize_trait_map(admissibility_section$species_traits))
   species_traits <- species_traits[!is.na(species_traits) & nzchar(species_traits)]
   registry <- read_similarity_registry(registry_path = registry_path)
   unknown_species <- setdiff(species_traits, registry$species_names)
@@ -2204,11 +2011,7 @@ validate_admissibility_section <- function(admissibility_section,
     )
   }
 
-  study_traits <- names(normalize_trait_map(
-    trait_map = admissibility_section$study_traits,
-    trait_cols = NULL,
-    trait_weights = NULL
-  ))
+  study_traits <- names(normalize_trait_map(admissibility_section$study_traits))
   study_traits <- study_traits[!is.na(study_traits) & nzchar(study_traits)]
   unknown_study <- setdiff(study_traits, registry$study_names)
   if (length(unknown_study) > 0) {

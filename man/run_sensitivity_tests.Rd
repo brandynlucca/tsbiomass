@@ -19,7 +19,7 @@ run_sensitivity_tests(
 }
 \arguments{
 \item{sensitivity_specs}{Named list of scenario specifications. Each element must
-contain at least \code{candidate_models} and \code{config} (or legacy \code{cfg}).}
+contain at least \code{candidate_models} and \code{config}.}
 
 \item{benchmark_fun}{Benchmark function called once per scenario.}
 
