@@ -56,15 +56,13 @@ Config/testthat/edition: 3
 Roxygen: list(markdown = TRUE)
 Collate:
     'utils.R'
-    'logging.R'
-    'show_helpers.R'
+    'io.R'
     'base_generics.R'
     'configurer_s7.R'
     'candidates_s7.R'
     'alchemist_s7.R'
     'admissibility.R'
     'anchors.R'
-    'cli.R'
     'config.R'
     'conjurer_s7.R'
     'data.R'
