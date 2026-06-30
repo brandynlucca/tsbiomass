@@ -124,9 +124,9 @@ conjurer_rebuild <- function(object,
 #' }
 #'
 #' @export
-create_conjurer <- function(selector,
-                            learner = NULL,
-                            config = NULL) {
+build_conjurer <- function(selector,
+                           learner = NULL,
+                           config = NULL) {
   if ((inherits(selector, "S7_object") && exists("Conjurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(selector, Conjurer), error = function(e) FALSE)))) {
     return(selector)
   }
@@ -160,7 +160,7 @@ create_conjurer <- function(selector,
 as_conjurer <- function(selector,
                         learner = NULL,
                         config = NULL) {
-  create_conjurer(
+  build_conjurer(
     selector = selector,
     learner = learner,
     config = config
@@ -864,7 +864,7 @@ conjurer_summarize_draws <- function(selected_draws,
 #' @param policy_path Optional policy-registry path.
 #'
 #' @return An updated [Conjurer] object.
-#' @name simulate.Conjurer
+#' @name simulate_conjurer
 .simulate_conjurer <- function(object,
                                traits = NULL,
                                n_draws = NULL,
@@ -959,9 +959,6 @@ conjurer_summarize_draws <- function(selected_draws,
 }
 
 S7::method(simulate_generic, Conjurer) <- .simulate_conjurer
-
-#' @export
-`simulate.tsbiomass::Conjurer` <- .simulate_conjurer
 
 #' Resolve one top `Conjurer` signal for display
 #'

@@ -32,7 +32,11 @@
 
 \item{metalearner_loss}{Optional super-learner loss name.}
 
-\item{method_settings}{Optional method-settings override.}
+\item{selection_method_settings}{Optional selection-learner method-settings
+override.}
+
+\item{method_settings}{Deprecated shared alias for
+\code{selection_method_settings}.}
 
 \item{workers}{Optional worker count.}
 

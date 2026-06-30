@@ -75,6 +75,7 @@ alchemist_config_from_config <- function(source) {
       },
       outcome_transform = alch$learner$outcome_transform %||% ml$outcome_transform %||% "identity",
       lambda_rule = alch$learner$lambda_rule %||% ml$lambda_rule %||% "min",
+      oof_mode = alch$learner$oof_mode %||% "anchor_species",
       # Preserve the shared learner-family settings and let any Alchemist-
       # specific overrides replace only the fields they explicitly set.
       method_settings = merge_cfg(
@@ -102,6 +103,9 @@ normalize_alchemist_config <- function(config, candidates = NULL) {
       exists("Configurer", inherits = TRUE) &&
       isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
     config <- alchemist_config_from_config(config)
+  } else if (is.list(config) &&
+    any(c("alchemist", "similarity", "metalearner", "policy", "policies") %in% names(config))) {
+    config <- alchemist_config_from_config(config)
   } else if (is.character(config) && length(config) == 1 && file.exists(config)) {
     raw <- yaml::read_yaml(config)
     cfg_obj <- tryCatch(as_configurer(raw), error = function(e) NULL)
@@ -118,6 +122,7 @@ normalize_alchemist_config <- function(config, candidates = NULL) {
   config$learner$seed <- if (!is.null(config$learner$seed)) as.integer(config$learner$seed) else NULL
   config$learner$outcome_transform <- config$learner$outcome_transform %||% "identity"
   config$learner$lambda_rule <- config$learner$lambda_rule %||% "min"
+  config$learner$oof_mode <- config$learner$oof_mode %||% "anchor_species"
   config$learner$workers <- as.integer(config$learner$workers %||% 1L)
   config$distill_workers <- as.integer(config$distill_workers %||% 1L)
   config$feature_type <- config$feature_type %||% "gower"
@@ -364,7 +369,7 @@ squared_col <- function(x) {
 #' Build length PDF for one model row (uniform approximation)
 #'
 #' @keywords internal
-anchor_pdf <- function(lo, hi, n = 400L) {
+build_anchor_pdf <- function(lo, hi, n = 400L) {
   lo <- suppressWarnings(as.numeric(lo))
   hi <- suppressWarnings(as.numeric(hi))
   if (!is.finite(lo) || !is.finite(hi) || lo <= 0 || hi <= 0) {
@@ -768,7 +773,7 @@ build_pair_data <- function(models_df,
   len_max_col <- intersect(c("study_length_max", "length_maximum"), names(models_df))[[1]] %||% NULL
 
   anchor_pdfs <- lapply(seq_len(n), function(j) {
-    anchor_pdf(
+    build_anchor_pdf(
       lo = if (!is.null(len_min_col)) models_df[[len_min_col]][[j]] else NA_real_,
       hi = if (!is.null(len_max_col)) models_df[[len_max_col]][[j]] else NA_real_
     )
@@ -786,11 +791,19 @@ build_pair_data <- function(models_df,
   for (j in seq_len(n)) {
     pdf_j <- anchor_pdfs[[j]]
     if (is.null(pdf_j)) next
-    donor_sigma_mat[, j] <- vapply(
-      seq_len(n),
-      function(i) equation_sigma_mean(slope_vals[[i]], intercept_vals[[i]], pdf_j),
-      numeric(1)
-    )
+    # Evaluate every donor equation against the current anchor PDF in one
+    # vectorized pass rather than calling equation_sigma_mean() once per donor.
+    log_len <- log10(pdf_j$length_cm)
+    f_len <- as.numeric(pdf_j$f_len)
+    f_sum <- sum(f_len, na.rm = TRUE)
+    if (!is.finite(f_sum) || f_sum <= 0) {
+      next
+    }
+    weight_vec <- f_len / f_sum
+    ts_mat <- tcrossprod(slope_vals, log_len)
+    ts_mat <- sweep(ts_mat, 1L, intercept_vals, "+")
+    phi_mat <- 10^(ts_mat / 10)
+    donor_sigma_mat[, j] <- as.numeric(phi_mat %*% weight_vec)
     if (progress && j %in% tick_at) {
       report_progress(
         progress,
@@ -813,50 +826,59 @@ build_pair_data <- function(models_df,
     progress,
     "  [Alchemist] Assembling donor-anchor model pairs (excluding same-species)..."
   )
-  rows <- vector("list", n * n)
-  k <- 0L
-  for (j in seq_len(n)) {
-    ts_j <- target_sigma[[j]]
-    if (!is.finite(ts_j) || ts_j <= 0) next
-    for (i in seq_len(n)) {
-      if (i == j) next
-      if (!is.na(species_names[[i]]) && !is.na(species_names[[j]]) &&
-        species_names[[i]] == species_names[[j]]) {
-        next
-      }
-      ds_ij <- donor_sigma_mat[[i, j]]
-      if (!is.finite(ds_ij) || ds_ij <= 0) next
-      acoustic_dist <- abs(log(ds_ij) - log(ts_j))
-      if (!is.finite(acoustic_dist)) next
-      k <- k + 1L
-      trait_row <- vapply(
-        feature_cols,
-        function(fc) trait_mats[[fc]][[i, j]],
-        numeric(1)
-      )
-      rows[[k]] <- c(
-        list(
-          .anchor_idx = j,
-          .donor_idx = i,
-          .split_group = species_names[[j]],
-          .outcome = acoustic_dist
-        ),
-        as.list(stats::setNames(trait_row, feature_cols))
-      )
-    }
+  valid_mask <- is.finite(donor_sigma_mat) & donor_sigma_mat > 0
+  diag(valid_mask) <- FALSE
+  pair_idx <- which(valid_mask, arr.ind = TRUE)
+  if (nrow(pair_idx) > 0L) {
+    donor_idx <- pair_idx[, 1L]
+    anchor_idx <- pair_idx[, 2L]
+    keep_idx <- !(
+      !is.na(species_names[donor_idx]) &
+        !is.na(species_names[anchor_idx]) &
+        species_names[donor_idx] == species_names[anchor_idx]
+    )
+    pair_idx <- pair_idx[keep_idx, , drop = FALSE]
   }
-  rows <- rows[seq_len(k)]
 
+  if (nrow(pair_idx) == 0L) {
+    stop("No valid donor-anchor pairs found for distance learning.", call. = FALSE)
+  }
+
+  donor_idx <- pair_idx[, 1L]
+  anchor_idx <- pair_idx[, 2L]
+  acoustic_dist <- abs(
+    log(donor_sigma_mat[cbind(donor_idx, anchor_idx)]) -
+      log(target_sigma[anchor_idx])
+  )
+  keep_idx <- is.finite(acoustic_dist)
+  donor_idx <- donor_idx[keep_idx]
+  anchor_idx <- anchor_idx[keep_idx]
+  acoustic_dist <- acoustic_dist[keep_idx]
+  k <- length(acoustic_dist)
   if (k == 0L) {
     stop("No valid donor-anchor pairs found for distance learning.", call. = FALSE)
   }
 
   report_progress(
     progress,
-    "  [Alchemist] Binding ", k, " training pairs into tibble..."
+    "  [Alchemist] Materializing ", k, " training pairs..."
   )
-  training_data <- dplyr::bind_rows(lapply(rows, tibble::as_tibble))
-  rm(rows)
+  training_data <- data.frame(
+    .anchor_idx = as.integer(anchor_idx),
+    .donor_idx = as.integer(donor_idx),
+    .anchor_species = species_names[anchor_idx],
+    .donor_species = species_names[donor_idx],
+    .split_group = species_names[anchor_idx],
+    .outcome = as.numeric(acoustic_dist),
+    stringsAsFactors = FALSE,
+    check.names = FALSE
+  )
+  if (length(feature_cols) > 0L) {
+    for (fc in feature_cols) {
+      training_data[[fc]] <- trait_mats[[fc]][cbind(donor_idx, anchor_idx)]
+    }
+  }
+  training_data <- tibble::as_tibble(training_data)
 
   list(
     training_data = training_data,
@@ -875,6 +897,97 @@ build_pair_data <- function(models_df,
 
 # - Alchemist distance learner -
 
+normalize_alchemist_oof_mode <- function(mode) {
+  match.arg(
+    as.character(mode %||% "anchor_species"),
+    c("anchor_species", "species_purged")
+  )
+}
+
+build_alchemist_oof_splits <- function(training_data,
+                                       inner_folds = 5L,
+                                       seed = NULL,
+                                       oof_mode = "anchor_species") {
+  training_data <- tibble::as_tibble(training_data)
+  n <- nrow(training_data)
+  if (n < 2L) {
+    return(NULL)
+  }
+
+  oof_mode <- normalize_alchemist_oof_mode(oof_mode)
+  inner_folds <- as.integer(inner_folds)
+
+  if (identical(oof_mode, "anchor_species")) {
+    foldid <- if (".split_group" %in% names(training_data)) {
+      grouped_foldid(training_data$.split_group, n_folds = inner_folds, seed = seed)
+    } else {
+      row_foldid(n, n_folds = inner_folds, seed = seed)
+    }
+    if (is.null(foldid)) {
+      return(NULL)
+    }
+    return(lapply(sort(unique(foldid)), function(fold_now) {
+      list(
+        fold_id = as.integer(fold_now),
+        holdout_groups = unique(as.character(training_data$.split_group[foldid == fold_now])),
+        train_idx = which(foldid != fold_now),
+        valid_idx = which(foldid == fold_now)
+      )
+    }))
+  }
+
+  required_cols <- c(".anchor_species", ".donor_species")
+  missing_cols <- setdiff(required_cols, names(training_data))
+  if (length(missing_cols) > 0L) {
+    stop(
+      sprintf(
+        "Strict Alchemist species-purged OOF requires column(s): %s",
+        paste(missing_cols, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+
+  anchor_species <- as.character(training_data$.anchor_species)
+  donor_species <- as.character(training_data$.donor_species)
+  if (any(is.na(anchor_species) | !nzchar(anchor_species)) ||
+    any(is.na(donor_species) | !nzchar(donor_species))) {
+    stop(
+      "Strict Alchemist species-purged OOF requires non-missing anchor and donor species labels.",
+      call. = FALSE
+    )
+  }
+
+  groups <- sort(unique(anchor_species))
+  n_folds_eff <- min(inner_folds, length(groups))
+  if (!is.finite(n_folds_eff) || n_folds_eff < 2L) {
+    return(NULL)
+  }
+  if (!is.null(seed)) {
+    set.seed(as.integer(seed))
+  }
+  shuffled_groups <- sample(groups, length(groups), replace = FALSE)
+  group_fold_tbl <- tibble::tibble(
+    group = shuffled_groups,
+    fold_id = rep(seq_len(n_folds_eff), length.out = length(shuffled_groups))
+  )
+
+  lapply(seq_len(n_folds_eff), function(fold_now) {
+    holdout_groups <- as.character(group_fold_tbl$group[group_fold_tbl$fold_id == fold_now])
+    valid_idx <- which(anchor_species %in% holdout_groups)
+    train_idx <- which(
+      !anchor_species %in% holdout_groups &
+        !donor_species %in% holdout_groups
+    )
+    list(
+      fold_id = as.integer(fold_now),
+      holdout_groups = holdout_groups,
+      train_idx = train_idx,
+      valid_idx = valid_idx
+    )
+  })
+}
+
 #' Resolve and validate Alchemist base learner method names
 #'
 #' Accepts a character vector of method names and returns only those that are
@@ -886,35 +999,34 @@ build_pair_data <- function(models_df,
 #' @return Character vector of validated method names, length >= 1.
 #'
 #' @keywords internal
-resolve_learner_methods <- function(methods) {
-  supported <- c(
-    "glm",
-    "glmnet_ridge", "glmnet_lasso", "glmnet_elasticnet",
-    "gam",
-    "rpart_shallow", "rpart_deep",
-    "ranger_shallow", "ranger_deep",
-    "xgboost_conservative", "xgboost_flexible"
-  )
-  methods <- as.character(methods)
-  methods <- methods[nzchar(methods)]
-  unknown <- setdiff(methods, supported)
+resolve_learner_methods <- function(methods,
+                                    method_settings = NULL) {
+  # Build the public Alchemist method namespace from the shared family catalog
+  # so variant aliases are derived from config rather than hard-coded here.
+  catalog <- meta_policy_method_catalog(method_settings = method_settings)
+  supported_families <- c("glm", "glmnet", "gam", "rpart", "ranger", "xgboost", "quantreg")
+  valid <- names(Filter(function(spec) spec$family %in% supported_families, catalog$specs))
+  defaults <- catalog$default_super_methods[
+    vapply(catalog$default_super_methods, function(method) {
+      spec <- catalog$specs[[method]] %||% NULL
+      is.list(spec) && spec$family %in% supported_families
+    }, logical(1))
+  ]
+
+  methods <- methods %||% defaults
+  methods <- unique(stringr::str_squish(as.character(unlist(methods, use.names = FALSE))))
+  methods <- methods[!is.na(methods) & nzchar(methods)]
+  unknown <- setdiff(methods, valid)
   if (length(unknown) > 0L) {
-    warning(
-      "Ignoring unrecognised Alchemist methods: ",
-      paste(unknown, collapse = ", "),
+    stop(
+      sprintf("Unknown Alchemist base learner method(s): %s", paste(unknown, collapse = ", ")),
       call. = FALSE
     )
   }
-  valid <- intersect(methods, supported)
-  if (length(valid) == 0L) {
-    valid <- c("glmnet_elasticnet", "ranger_shallow", "xgboost_conservative")
-    warning(
-      "No valid Alchemist methods supplied; falling back to: ",
-      paste(valid, collapse = ", "),
-      call. = FALSE
-    )
+  if (length(methods) == 0L) {
+    methods <- c("glmnet_elasticnet", "ranger", "xgboost")
   }
-  valid
+  methods
 }
 
 #' Build a numeric feature matrix from Alchemist training or prediction data
@@ -951,7 +1063,7 @@ feature_matrix <- function(data, feature_cols) {
 #'
 #' @keywords internal
 learner_method_settings <- function(family, method, method_settings) {
-  ms <- as.list(method_settings[[family]] %||% list())
+  ms <- as.list(normalize_meta_policy_method_settings(method_settings)[[family]] %||% list())
   variant <- sub(paste0("^", family, "_?"), "", method)
   if (nzchar(variant) && !is.null(ms$variants[[variant]])) {
     for (nm in names(ms$variants[[variant]])) {
@@ -959,6 +1071,43 @@ learner_method_settings <- function(family, method, method_settings) {
     }
   }
   ms
+}
+
+#' Prepare one dense regression frame for linear-style Alchemist learners
+#'
+#' @param x_train Numeric feature matrix.
+#'
+#' @return A list with pruned `data` and retained `feature_cols`.
+#'
+#' @keywords internal
+prepare_alchemist_regression_frame <- function(x_train) {
+  # Drop constant and aliased columns once so both glm and quantreg use the
+  # same stable predictor frame and do not emit singular-design warnings.
+  df_train <- as.data.frame(x_train, check.names = FALSE)
+  keep_cols <- names(df_train)[vapply(df_train, function(col) {
+    vals <- col[is.finite(col)]
+    length(vals) > 0L && !isTRUE(all(abs(vals - vals[[1]]) <= sqrt(.Machine$double.eps)))
+  }, logical(1))]
+  if (length(keep_cols) == 0L) {
+    keep_cols <- names(df_train)[seq_len(min(1L, ncol(df_train)))]
+  }
+  qr_rank <- tryCatch(
+    {
+      design_mat <- stats::model.matrix(~ . - 1, data = df_train[, keep_cols, drop = FALSE])
+      qr_obj <- qr(design_mat)
+      colnames(design_mat)[qr_obj$pivot[seq_len(qr_obj$rank)]]
+    },
+    error = function(e) keep_cols
+  )
+  qr_rank <- intersect(keep_cols, qr_rank)
+  if (length(qr_rank) == 0L) {
+    qr_rank <- keep_cols
+  }
+
+  list(
+    data = df_train[, qr_rank, drop = FALSE],
+    feature_cols = qr_rank
+  )
 }
 
 #' Fit one Alchemist base learner on a training matrix
@@ -986,23 +1135,20 @@ fit_base_learner <- function(x_train, y_train, method,
   if (!is.null(seed)) {
     set.seed(as.integer(seed))
   }
-  family <- if (grepl("^glmnet", method)) {
-    "glmnet"
-  } else if (grepl("^ranger", method)) {
-    "ranger"
-  } else if (grepl("^rpart", method)) {
-    "rpart"
-  } else if (grepl("^xgboost", method)) {
-    "xgboost"
-  } else {
-    method
-  }
+  # Resolve the family from the shared method catalog so config-defined
+  # variants such as xgboost_conservative and quantreg_q90 behave consistently.
+  family <- meta_policy_method_spec(method, method_settings = method_settings)$family
 
   ms <- learner_method_settings(family, method, method_settings %||% list())
+  feature_cols <- colnames(x_train)
 
   fit <- switch(family,
     glm = {
-      df_train <- as.data.frame(x_train)
+      # Prune the linear predictor frame before fitting so rank-deficient
+      # columns do not leak warnings into downstream prediction calls.
+      prep <- prepare_alchemist_regression_frame(x_train)
+      feature_cols <- prep$feature_cols
+      df_train <- prep$data
       df_train$.y <- y_train
       stats::lm(.y ~ ., data = df_train)
     },
@@ -1023,7 +1169,7 @@ fit_base_learner <- function(x_train, y_train, method,
       )
     },
     gam = {
-      df_train <- as.data.frame(x_train)
+      df_train <- as.data.frame(x_train, check.names = FALSE)
       df_train$.y <- y_train
       feat_nms <- setdiff(names(df_train), ".y")
       terms <- vapply(feat_nms, function(v) {
@@ -1057,7 +1203,7 @@ fit_base_learner <- function(x_train, y_train, method,
     },
     ranger = {
       rf <- ranger::ranger(
-        x = as.data.frame(x_train),
+        x = as.data.frame(x_train, check.names = FALSE),
         y = y_train,
         seed = as.integer(seed),
         num.threads = 1L,
@@ -1073,7 +1219,7 @@ fit_base_learner <- function(x_train, y_train, method,
       rf
     },
     rpart = {
-      df_train <- as.data.frame(x_train)
+      df_train <- as.data.frame(x_train, check.names = FALSE)
       df_train$.y <- y_train
       rpart::rpart(
         .y ~ .,
@@ -1106,6 +1252,23 @@ fit_base_learner <- function(x_train, y_train, method,
         verbose = 0L
       )
     },
+    quantreg = {
+      if (!requireNamespace("quantreg", quietly = TRUE)) {
+        stop("Fitting Alchemist method 'quantreg' requires the suggested package 'quantreg' to be installed.", call. = FALSE)
+      }
+      # Reuse the same pruned predictor frame as glm so quantile fits do not
+      # try to solve a singular design matrix.
+      prep <- prepare_alchemist_regression_frame(x_train)
+      feature_cols <- prep$feature_cols
+      df_train <- prep$data
+      df_train$.y <- y_train
+      quantreg::rq(
+        .y ~ .,
+        data = df_train,
+        tau = as.numeric(ms$tau %||% 0.50),
+        method = as.character(ms$fit_method %||% "fn")
+      )
+    },
     stop(sprintf("Unsupported Alchemist base learner: '%s'.", method), call. = FALSE)
   )
 
@@ -1114,7 +1277,8 @@ fit_base_learner <- function(x_train, y_train, method,
       fit = fit,
       method = method,
       family = family,
-      lambda_rule = lambda_rule
+      lambda_rule = lambda_rule,
+      feature_cols = feature_cols
     ),
     class = "BaseLearner"
   )
@@ -1136,7 +1300,22 @@ predict_base_learner <- function(object, x_new) {
   if (!inherits(object, "BaseLearner")) {
     stop("'object' must be a 'tsb_alchemist_base_learner'.", call. = FALSE)
   }
-  df_new <- as.data.frame(x_new)
+  df_new <- as.data.frame(x_new, check.names = FALSE)
+  if (!is.null(object$feature_cols) && length(object$feature_cols) > 0L) {
+    missing_cols <- setdiff(object$feature_cols, names(df_new))
+    if (length(missing_cols) > 0L) {
+      stop(
+        sprintf(
+          "Prediction data is missing Alchemist feature column(s): %s",
+          paste(missing_cols, collapse = ", ")
+        ),
+        call. = FALSE
+      )
+    }
+    df_new <- df_new[, object$feature_cols, drop = FALSE]
+    x_new <- as.matrix(df_new)
+    mode(x_new) <- "numeric"
+  }
   # Use getFromNamespace throughout to bypass S3 dispatch - on PSOCK workers
   # imported packages are loaded as namespaces but not attached, so
   # stats::predict cannot find their S3 methods via global dispatch.
@@ -1165,6 +1344,10 @@ predict_base_learner <- function(object, x_new) {
       pfn <- utils::getFromNamespace("predict.xgb.Booster", "xgboost")
       as.numeric(pfn(object$fit, dtest))
     },
+    quantreg = {
+      pfn <- utils::getFromNamespace("predict.rq", "quantreg")
+      as.numeric(pfn(object$fit, newdata = df_new))
+    },
     stop(sprintf("Unsupported Alchemist base learner family: '%s'.", object$family),
       call. = FALSE
     )
@@ -1189,16 +1372,31 @@ predict_base_learner <- function(object, x_new) {
 #'   `NULL`), and `error` (character or `NULL`).
 #'
 #' @keywords internal
-run_oof_method <- function(method, x_all, y_all, foldid,
+run_oof_method <- function(method, x_all, y_all, foldid = NULL,
+                           fold_splits = NULL,
                            method_settings, seed, lambda_rule) {
   n <- length(y_all)
   oof_pred <- rep(NA_real_, n)
   ok <- TRUE
   err_msg <- NULL
 
-  for (fold_now in sort(unique(foldid))) {
-    train_idx <- which(foldid != fold_now)
-    valid_idx <- which(foldid == fold_now)
+  if (is.null(fold_splits)) {
+    if (is.null(foldid)) {
+      stop("Either `foldid` or `fold_splits` must be supplied.", call. = FALSE)
+    }
+    fold_splits <- lapply(sort(unique(foldid)), function(fold_now) {
+      list(
+        fold_id = as.integer(fold_now),
+        train_idx = which(foldid != fold_now),
+        valid_idx = which(foldid == fold_now)
+      )
+    })
+  }
+
+  for (fold_spec in fold_splits) {
+    fold_now <- fold_spec$fold_id %||% NA_integer_
+    train_idx <- as.integer(fold_spec$train_idx %||% integer(0))
+    valid_idx <- as.integer(fold_spec$valid_idx %||% integer(0))
     if (length(train_idx) == 0L || length(valid_idx) == 0L) {
       ok <- FALSE
       break
@@ -1276,6 +1474,9 @@ run_oof_method <- function(method, x_all, y_all, foldid,
 #' @param seed Integer random seed for fold assignment and base learner fits.
 #' @param method_settings Named list of per-family tuning overrides (same
 #'   structure as `metalearner.method_settings` in the config YAML).
+#' @param oof_mode Cross-validation split mode. `"anchor_species"` keeps the
+#'   current receiving-species grouping; `"species_purged"` removes the held-out
+#'   species from both anchor and donor roles in each OOF fold.
 #' @param workers Integer number of parallel workers. Workers are assigned one
 #'   method each. `1L` runs sequentially.
 #' @param progress Logical. Emit [tsb_message()] progress lines when `TRUE`.
@@ -1304,24 +1505,27 @@ fit_super_learner <- function(training_data,
                               inner_folds = 5L,
                               seed = NULL,
                               method_settings = NULL,
+                              oof_mode = "anchor_species",
                               workers = 1L,
                               progress = FALSE) {
   training_data <- tibble::as_tibble(training_data)
-  methods <- resolve_learner_methods(methods)
+  methods <- resolve_learner_methods(methods, method_settings = method_settings)
   inner_folds <- as.integer(inner_folds)
   seed <- if (!is.null(seed)) as.integer(seed) else NULL
   workers <- as.integer(workers)
+  oof_mode <- normalize_alchemist_oof_mode(oof_mode)
 
   x_all <- feature_matrix(training_data, feature_cols)
   y_raw <- training_data$.outcome
   y_all <- if (identical(outcome_transform, "log1p")) log1p(y_raw) else y_raw
 
-  foldid <- if (".split_group" %in% names(training_data)) {
-    grouped_foldid(training_data$.split_group, n_folds = inner_folds, seed = seed)
-  } else {
-    row_foldid(nrow(training_data), n_folds = inner_folds, seed = seed)
-  }
-  if (is.null(foldid)) {
+  fold_splits <- build_alchemist_oof_splits(
+    training_data = training_data,
+    inner_folds = inner_folds,
+    seed = seed,
+    oof_mode = oof_mode
+  )
+  if (is.null(fold_splits) || length(fold_splits) == 0L) {
     stop(
       "Alchemist learner requires at least two training rows for CV.",
       call. = FALSE
@@ -1331,7 +1535,8 @@ fit_super_learner <- function(training_data,
   report_progress(
     progress,
     "[Alchemist] Fitting ", length(methods), " base learner(s) with ",
-    inner_folds, "-fold CV",
+    length(fold_splits), "-fold CV",
+    " [mode=", oof_mode, "]",
     if (workers > 1L) paste0(" across ", workers, " workers") else " (sequential)",
     "..."
   )
@@ -1346,7 +1551,7 @@ fit_super_learner <- function(training_data,
         fun = run_oof_method,
         x_all = x_all,
         y_all = y_all,
-        foldid = foldid,
+        fold_splits = fold_splits,
         method_settings = method_settings,
         seed = seed,
         lambda_rule = lambda_rule
@@ -1356,7 +1561,7 @@ fit_super_learner <- function(training_data,
         methods, run_oof_method,
         x_all = x_all,
         y_all = y_all,
-        foldid = foldid,
+        fold_splits = fold_splits,
         method_settings = method_settings,
         seed = seed,
         lambda_rule = lambda_rule
@@ -1367,7 +1572,7 @@ fit_super_learner <- function(training_data,
       methods, run_oof_method,
       x_all = x_all,
       y_all = y_all,
-      foldid = foldid,
+      fold_splits = fold_splits,
       method_settings = method_settings,
       seed = seed,
       lambda_rule = lambda_rule
@@ -1509,7 +1714,7 @@ fit_super_learner <- function(training_data,
       feature_cols = feature_cols,
       outcome_transform = outcome_transform,
       lambda_rule = lambda_rule,
-      inner_foldid = foldid,
+      inner_fold_splits = fold_splits,
       oof_predictions = tibble::as_tibble(oof_mat),
       oof_ensemble_prediction = oof_ensemble_pred,
       oof_performance = perf_tbl
@@ -1683,6 +1888,7 @@ S7::method(forge_distances, Alchemist) <- function(object,
   methods_lbl <- learner_cfg$methods %||% NULL
   folds_lbl <- as.integer(learner_cfg$inner_folds %||% 5L)
   workers_lbl <- as.integer(learner_cfg$workers %||% 1L)
+  oof_mode_lbl <- normalize_alchemist_oof_mode(learner_cfg$oof_mode %||% "anchor_species")
 
   if (identical(feature_type, "mahalanobis")) {
     report_progress(
@@ -1712,6 +1918,7 @@ S7::method(forge_distances, Alchemist) <- function(object,
       inner_folds = folds_lbl,
       seed = if (!is.null(learner_cfg$seed)) as.integer(learner_cfg$seed) else NULL,
       method_settings = learner_cfg$method_settings %||% NULL,
+      oof_mode = oof_mode_lbl,
       workers = workers_lbl,
       progress = progress
     )
@@ -2034,7 +2241,7 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
   importance_rows <- if (!is.null(cl)) {
     parallel::parLapplyLB(cl, trait_names_ordered, fun = function(trait_name) {
       fcs <- trait_groups[[trait_name]]
-      dropout_trait_group <- getFromNamespace("dropout_trait_group", "tsbiomass")
+      dropout_trait_group <- utils::getFromNamespace("dropout_trait_group", "tsbiomass")
       dropout_trait_group(
         fcs = fcs,
         trait_name = trait_name,
@@ -2141,7 +2348,7 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
   trait_cols <- intersect(all_traits, names(candidate_models))
 
   model_trait_table <- if (length(trait_cols) > 0) {
-    tbl <- dplyr::select("candidate_models", dplyr::all_of(trait_cols))
+    tbl <- dplyr::select(candidate_models, dplyr::all_of(trait_cols))
     if ("species" %in% names(tbl) && "genus" %in% names(candidate_models)) {
       g <- trimws(as.character(candidate_models[["genus"]]))
       s <- trimws(as.character(tbl[["species"]]))
@@ -2197,7 +2404,7 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
     )
   ))
   if (length(coh_cols) > 0L) {
-    coh_extra <- dplyr::select("candidate_models", dplyr::all_of(coh_cols)) |>
+    coh_extra <- dplyr::select(candidate_models, dplyr::all_of(coh_cols)) |>
       dplyr::mutate(dplyr::across(
         dplyr::everything(),
         ~ suppressWarnings(as.numeric(.x))
@@ -2528,39 +2735,3 @@ S7::method(show_generic, Alchemist) <- function(object) {
 }
 
 S7::method(plot_generic, Alchemist) <- .plot_alchemist
-
-methods::setMethod(
-  "plot",
-  signature(x = "tsbiomass::Alchemist", y = "missing"),
-  function(x,
-           y,
-           type = c("ordination", "trait_importance", "admissibility"),
-           view = NULL,
-           include_hulls = TRUE,
-           ...) {
-    .plot_alchemist(
-      x = x,
-      y = NULL,
-      type = type,
-      view = view,
-      include_hulls = include_hulls,
-      ...
-    )
-  }
-)
-
-`plot.tsbiomass::Alchemist` <- function(x,
-                                        y = NULL,
-                                        type = c("ordination", "trait_importance", "admissibility"),
-                                        view = NULL,
-                                        include_hulls = TRUE,
-                                        ...) {
-  .plot_alchemist(
-    x = x,
-    y = y,
-    type = type,
-    view = view,
-    include_hulls = include_hulls,
-    ...
-  )
-}

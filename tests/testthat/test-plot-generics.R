@@ -311,7 +311,7 @@ test_that("plot.PolicyPredictions dispatches selected intervals and policy compe
     intervals = tibble::tibble(
       anchor_model_id = c("1", "1", "4", "4"),
       anchor_species = c("Alpha alpha", "Alpha alpha", "Gamma gamma", "Gamma gamma"),
-      policy = c("same_species_closest", "same_genus_weighted", "same_species_closest", "same_genus_weighted"),
+      policy = c("closest_within_species", "weighted_mean_within_genus", "closest_within_species", "weighted_mean_within_genus"),
       multiplier_pred = c(1.10, 1.30, 1.20, 1.38),
       multiplier_lo = c(1.00, 1.12, 1.08, 1.18),
       multiplier_hi = c(1.22, 1.52, 1.34, 1.61),
@@ -321,8 +321,8 @@ test_that("plot.PolicyPredictions dispatches selected intervals and policy compe
     selections = tibble::tibble(
       anchor_model_id = c("1", "4"),
       anchor_species = c("Alpha alpha", "Gamma gamma"),
-      selected_policy = c("same_species_closest", "same_species_closest"),
-      selected_policy_display = c("same_species_closest", "same_species_closest"),
+      selected_policy = c("closest_within_species", "closest_within_species"),
+      selected_policy_display = c("closest_within_species", "closest_within_species"),
       multiplier_pred = c(1.10, 1.20),
       multiplier_lo = c(1.00, 1.08),
       multiplier_hi = c(1.22, 1.34)
@@ -341,8 +341,8 @@ test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
   selected_tbl <- tibble::tibble(
     anchor_model_id = c("1", "4"),
     anchor_species = c("Alpha alpha", "Gamma gamma"),
-    selected_policy = c("same_species_closest", "same_species_closest"),
-    selected_policy_display = c("same_species_closest", "same_species_closest"),
+    selected_policy = c("closest_within_species", "closest_within_species"),
+    selected_policy_display = c("closest_within_species", "closest_within_species"),
     multiplier_pred = c(1.10, 1.20),
     multiplier_lo = c(1.00, 1.08),
     multiplier_hi = c(1.22, 1.34),
@@ -361,7 +361,7 @@ test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
   intervals_tbl <- tibble::tibble(
     anchor_model_id = c("1", "1", "4", "4"),
     anchor_species = c("Alpha alpha", "Alpha alpha", "Gamma gamma", "Gamma gamma"),
-    policy = c("same_species_closest", "same_genus_weighted", "same_species_closest", "same_genus_weighted"),
+    policy = c("closest_within_species", "weighted_mean_within_genus", "closest_within_species", "weighted_mean_within_genus"),
     multiplier_pred = c(1.10, 1.30, 1.20, 1.38),
     multiplier_lo = c(1.00, 1.12, 1.08, 1.18),
     multiplier_hi = c(1.22, 1.52, 1.34, 1.61),
@@ -371,7 +371,7 @@ test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
   ts_panel_tbl <- tibble::tibble(
     anchor_model_id = rep(c("1", "4"), each = 2),
     anchor_species = rep(c("Alpha alpha", "Gamma gamma"), each = 2),
-    selected_policy = rep(c("same_species_closest", "same_species_closest"), each = 2),
+    selected_policy = rep(c("closest_within_species", "closest_within_species"), each = 2),
     length_cm = rep(c(10, 20), 2),
     ts_pred = c(-55, -50, -57, -52),
     ts_anchor = c(-54, -49, -56, -51),
@@ -388,7 +388,7 @@ test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
   anchor_summary_tbl <- tibble::tibble(
     anchor_model_id = c("1", "4"),
     anchor_species = c("Alpha alpha", "Gamma gamma"),
-    selected_policy_display = c("same_species_closest", "same_species_closest"),
+    selected_policy_display = c("closest_within_species", "closest_within_species"),
     multiplier_pred = c(1.10, 1.20),
     multiplier_lo = c(1.00, 1.08),
     multiplier_hi = c(1.22, 1.34),
@@ -398,7 +398,7 @@ test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
   )
   anchor_audit_tbl <- tibble::tibble(
     anchor_species = c("Alpha alpha", "Gamma gamma"),
-    selected_policy_display = c("same_species_closest", "same_species_closest"),
+    selected_policy_display = c("closest_within_species", "closest_within_species"),
     empirical_coverage = c(0.90, 0.88),
     interval_log_width = c(0.20, 0.24),
     local_effective_support = c(3.0, 2.5),
@@ -549,7 +549,7 @@ test_that("plot.Referee uses stored predictions when scorecards are not yet stor
     screen_one_anchor_admissibility = function(...) list(),
     evaluate_policies = function(...) {
       tibble::tibble(
-        policy = c("same_species_closest", "same_genus_weighted"),
+        policy = c("closest_within_species", "weighted_mean_within_genus"),
         equation_branch_filter = "all",
         multiplier_pred = c(1.10, 1.30)
       )
@@ -655,23 +655,23 @@ test_that("plot.PolicySimulator exposes sensitivity summaries", {
     anchor_model_id = c("1", "4", "1", "4"),
     anchor_species = c("Alpha alpha", "Gamma gamma", "Alpha alpha", "Gamma gamma"),
     selected_policy = c(
-      "same_species_closest",
-      "same_genus_closest",
-      "same_species_closest",
-      "same_family_closest"
+      "closest_within_species",
+      "closest_within_genus",
+      "closest_within_species",
+      "closest_within_family"
     ),
     selected_policy_display = c(
-      "same_species_closest",
-      "same_genus_closest",
-      "same_species_closest",
-      "same_family_closest"
+      "closest_within_species",
+      "closest_within_genus",
+      "closest_within_species",
+      "closest_within_family"
     ),
     multiplier_pred = c(1.10, 1.25, 1.18, 1.05),
     equivalence_class_members = c(
-      "same_species_closest",
-      "same_genus_closest",
-      "same_species_closest",
-      "same_family_closest"
+      "closest_within_species",
+      "closest_within_genus",
+      "closest_within_species",
+      "closest_within_family"
     )
   )
   simulator <- PolicySimulator(

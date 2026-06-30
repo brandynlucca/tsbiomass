@@ -205,13 +205,13 @@ policy_selector_rebuild <- function(object,
 #'
 #' @examples
 #' \dontrun{
-#' selector <- create_policy_selector(candidates)
+#' selector <- build_policy_selector(candidates)
 #' selector
 #' }
 #'
 #' @export
-create_policy_selector <- function(candidates,
-                                   config = NULL) {
+build_policy_selector <- function(candidates,
+                                  config = NULL) {
   if ((inherits(candidates, "S7_object") && exists("PolicySelector", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidates, PolicySelector), error = function(e) FALSE)))) {
     return(candidates)
   }
@@ -239,7 +239,7 @@ create_policy_selector <- function(candidates,
 #' @export
 as_policy_selector <- function(candidates,
                                config = NULL) {
-  create_policy_selector(
+  build_policy_selector(
     candidates = candidates,
     config = config
   )
@@ -281,6 +281,22 @@ policy_selector_similarity_defaults <- function(candidates) {
       depth_overlap_weight = sim$config$depth_coherence$weight %||% NULL,
       frequency_coherence_weight = sim$config$frequency_coherence$weight %||% NULL,
       frequency_coherence_mode = sim$config$frequency_coherence$method %||% NULL
+    ))
+  }
+
+  candidate_cfg <- candidates_configuration(candidates) %||% list()
+  if (is.list(candidate_cfg) && length(candidate_cfg) > 0) {
+    cfg <- read_similarity_config(candidate_cfg)
+    return(list(
+      species_traits = cfg$species_traits %||% list(),
+      study_traits = cfg$study_traits %||% list(),
+      alpha = cfg$alpha %||% NULL,
+      k_species = cfg$k_species %||% NULL,
+      k_study = cfg$k_study %||% NULL,
+      length_overlap_weight = cfg$length_coherence$weight %||% NULL,
+      depth_overlap_weight = cfg$depth_coherence$weight %||% NULL,
+      frequency_coherence_weight = cfg$frequency_coherence$weight %||% NULL,
+      frequency_coherence_mode = cfg$frequency_coherence$method %||% NULL
     ))
   }
 
@@ -378,10 +394,23 @@ policy_selector_anchor_config <- function(object,
   )
   overrides <- overrides[!vapply(overrides, is.null, logical(1))]
 
-  merge_cfg(
+  out <- merge_cfg(
     defaults,
     overrides
   )
+
+  for (nm in c(
+    "species_traits",
+    "study_traits",
+    "admissibility_species_traits",
+    "admissibility_study_traits"
+  )) {
+    if (!is.null(overrides[[nm]])) {
+      out[[nm]] <- overrides[[nm]]
+    }
+  }
+
+  out
 }
 
 #' Resolve the active policy set
@@ -695,12 +724,12 @@ S7::method(calibrate_uncertainty, PolicySelector) <- function(object,
   # Reuse the stored benchmark tables unless the caller supplied explicit
   # overrides for conformal calibration.
   cache_path <- cache_path %||%
-    policy_selector_config_value(cfg, "cache_path", sections = c("uncertainty", "selection", "post_selection_conformal"))
+    policy_selector_config_value(cfg, "cache_path", sections = c("uncertainty", "selection"))
   refresh <- refresh %||%
-    policy_selector_config_value(cfg, "refresh", sections = c("uncertainty", "selection", "post_selection_conformal")) %||%
+    policy_selector_config_value(cfg, "refresh", sections = c("uncertainty", "selection")) %||%
     FALSE
   progress <- progress %||%
-    policy_selector_config_value(cfg, "progress", sections = c("uncertainty", "selection", "post_selection_conformal")) %||%
+    policy_selector_config_value(cfg, "progress", sections = c("uncertainty", "selection")) %||%
     FALSE
   report_progress(progress, "Calibrating selector uncertainty.")
 
@@ -713,7 +742,7 @@ S7::method(calibrate_uncertainty, PolicySelector) <- function(object,
       sections = c("selection", "uncertainty", "conformal", "policy")
     ) %||% policy_selector_config_value(
       cfg, "alpha",
-      sections = c("selection", "uncertainty", "post_selection_conformal", "conformal")
+      sections = c("selection", "uncertainty", "conformal")
     ) %||% 0.10,
     pseudo_label = pseudo_label,
     species_label = species_label,
@@ -883,6 +912,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
   }
   model_scores <- ordination_context$model_scores
   species_lookup <- ordination_context$species_lookup
+  anchor_cfg <- policy_selector_anchor_config(object, config = cfg)
   conf_tbl <- tibble::as_tibble(uncertainty_obj$conf_cal %||% tibble::tibble())
   select_tbl <- tibble::as_tibble(selection_obj$final_ref %||% tibble::tibble())
   benchmark_policy_tbl <- tibble::as_tibble((object@benchmark)$policy_perf %||% tibble::tibble())
@@ -915,7 +945,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
     }
     unique(out[!is.na(out) & nzchar(out)])
   }
-  infer_branch_filters <- function(tbl) {
+  infer_equation_branch_filters <- function(tbl) {
     tbl <- tibble::as_tibble(tbl)
     unique(standardize_branches(tbl))
   }
@@ -931,7 +961,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
       active_policies <- infer_policy_bases((object@benchmark)$policy_perf %||% tibble::tibble())
       if (is.null(policy_params$equation_branch_filters) &&
         nrow((object@benchmark)$policy_perf %||% tibble::tibble()) > 0) {
-        policy_params$equation_branch_filters <- infer_branch_filters(
+        policy_params$equation_branch_filters <- infer_equation_branch_filters(
           (object@benchmark)$policy_perf %||% tibble::tibble()
         )
       }
@@ -939,14 +969,14 @@ S7::method(select_policies, PolicySelector) <- function(object,
     if (is.null(active_policies) || length(active_policies) == 0) {
       active_policies <- infer_policy_bases(select_tbl)
       if (is.null(policy_params$equation_branch_filters) && nrow(select_tbl) > 0) {
-        policy_params$equation_branch_filters <- infer_branch_filters(select_tbl)
+        policy_params$equation_branch_filters <- infer_equation_branch_filters(select_tbl)
       }
     }
   } else {
     if (is.null(active_policies) || length(active_policies) == 0) {
       active_policies <- infer_policy_bases(select_tbl)
       if (is.null(policy_params$equation_branch_filters) && nrow(select_tbl) > 0) {
-        policy_params$equation_branch_filters <- infer_branch_filters(select_tbl)
+        policy_params$equation_branch_filters <- infer_equation_branch_filters(select_tbl)
       }
     }
     if ((is.null(active_policies) || length(active_policies) == 0) &&
@@ -954,7 +984,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
       active_policies <- infer_policy_bases((object@benchmark)$policy_perf %||% tibble::tibble())
       if (is.null(policy_params$equation_branch_filters) &&
         nrow((object@benchmark)$policy_perf %||% tibble::tibble()) > 0) {
-        policy_params$equation_branch_filters <- infer_branch_filters(
+        policy_params$equation_branch_filters <- infer_equation_branch_filters(
           (object@benchmark)$policy_perf %||% tibble::tibble()
         )
       }
@@ -967,6 +997,85 @@ S7::method(select_policies, PolicySelector) <- function(object,
   if (!is.null(learner) && !(inherits(learner, "S7_object") && exists("PolicyLearner", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(learner, PolicyLearner), error = function(e) FALSE)))) {
     stop("'learner' must be NULL or a `PolicyLearner` object.", call. = FALSE)
   }
+
+  # Build one augmented similarity basis when held-out anchors are not already
+  # present in the candidate pool so per-anchor prediction does not rebuild it.
+  prediction_candidates <- object@candidates
+  prediction_excluded_model_ids <- character(0)
+  id_col <- if ("model_id_chr" %in% names(anchors_tbl) && "model_id_chr" %in% names(object@candidates@candidate_models)) {
+    "model_id_chr"
+  } else if ("model_id" %in% names(anchors_tbl) && "model_id" %in% names(object@candidates@candidate_models)) {
+    "model_id"
+  } else {
+    NULL
+  }
+  if ("model_id_chr" %in% names(object@candidates@reference_anchors)) {
+    prediction_excluded_model_ids <- c(
+      prediction_excluded_model_ids,
+      as.character(object@candidates@reference_anchors$model_id_chr)
+    )
+  } else if ("model_id" %in% names(object@candidates@reference_anchors)) {
+    prediction_excluded_model_ids <- c(
+      prediction_excluded_model_ids,
+      as.character(object@candidates@reference_anchors$model_id)
+    )
+  }
+  if (!is.null(id_col)) {
+    candidate_ids_now <- unique(as.character(object@candidates@candidate_models[[id_col]]))
+    external_anchor_rows <- anchors_tbl |>
+      dplyr::filter(!(as.character(.data[[id_col]]) %in% candidate_ids_now))
+    if (nrow(external_anchor_rows) > 0) {
+      prediction_excluded_model_ids <- c(
+        prediction_excluded_model_ids,
+        as.character(external_anchor_rows[[id_col]])
+      )
+      augmented_candidates <- Candidates(
+        spec = object@candidates@spec,
+        study_db = object@candidates@study_db,
+        species_vector = unique(c(
+          object@candidates@species_vector,
+          sort(unique(stats::na.omit(as.character(external_anchor_rows$species_name %||% character(0)))))
+        )),
+        source_dbs = object@candidates@source_dbs,
+        species_db = object@candidates@species_db,
+        candidate_models = dplyr::bind_rows(
+          tibble::as_tibble(object@candidates@candidate_models),
+          tibble::as_tibble(external_anchor_rows)
+        ),
+        reference_anchors = object@candidates@reference_anchors,
+        similarity_matrix = list(),
+        gower_distances = list(),
+        ordination = object@candidates@ordination,
+        admissibility = list(),
+        similarity_tuning = object@candidates@similarity_tuning
+      )
+      sim_prediction <- prepare_similarity_matrix(
+        candidate_models = augmented_candidates@candidate_models,
+        species_traits = anchor_cfg$species_traits %||% NULL,
+        study_traits = anchor_cfg$study_traits %||% NULL,
+        alpha = anchor_cfg$alpha %||% NULL,
+        k_species = anchor_cfg$k_species %||% NULL,
+        k_study = anchor_cfg$k_study %||% NULL,
+        config = anchor_cfg,
+        registry_path = registry_path,
+        seed = anchor_cfg$seed %||% NULL
+      )
+      prediction_candidates <- candidates_with_similarity_matrix(
+        augmented_candidates,
+        sim_prediction
+      )
+      prediction_candidates <- candidates_with_gower_distances(
+        prediction_candidates,
+        build_gower_distances(sim_prediction)
+      )
+    }
+  }
+  prediction_excluded_model_ids <- unique(
+    prediction_excluded_model_ids[
+      !is.na(prediction_excluded_model_ids) &
+        nzchar(prediction_excluded_model_ids)
+    ]
+  )
 
   # Resolve all reusable reference tables and scalar thresholds once so the
   # per-anchor loop only performs the work that actually depends on the anchor.
@@ -1119,12 +1228,44 @@ S7::method(select_policies, PolicySelector) <- function(object,
       NULL
     }
     if (is.null(eval_obj)) {
-      eval_obj <- screen_one_anchor_admissibility(
+      eval_obj <- try(screen_one_anchor_admissibility(
         anchor_row = anchor_row,
-        candidate_models = object@candidates,
+        candidate_models = prediction_candidates,
         config = cfg,
-        registry_path = registry_path
+        registry_path = registry_path,
+        excluded_model_ids = prediction_excluded_model_ids
+      ), silent = TRUE)
+    }
+    if (inherits(eval_obj, "try-error")) {
+      # Record an invalid anchor result instead of aborting the whole
+      # prediction pass when one held-out anchor cannot be screened.
+      selected_policy_rows[[length(selected_policy_rows) + 1]] <- tibble::tibble(
+        anchor_model_id = anchor_id,
+        anchor_species = anchor_species,
+        selected_policy = NA_character_,
+        selected_policy_display = NA_character_,
+        equation_branch_filter = NA_character_,
+        multiplier_pred = NA_real_,
+        multiplier_lo = NA_real_,
+        multiplier_hi = NA_real_,
+        valid_prediction = FALSE,
+        selection_tier = if ((inherits(learner, "S7_object") && exists("PolicyLearner", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(learner, PolicyLearner), error = function(e) FALSE)))) {
+          "meta_policy_min_predicted_score"
+        } else {
+          "deterministic_global_screen"
+        },
+        prediction_error_message = as.character(eval_obj)[[1]]
       )
+      consensus_multiplier_rows[[length(consensus_multiplier_rows) + 1]] <- tibble::tibble(
+        anchor_model_id = anchor_id,
+        anchor_species = anchor_species
+      )
+      report_progress(
+        progress,
+        "[Predict]   Skipped [", i, "/", n_anchors, "] ", anchor_species, " (", anchor_id, "): ",
+        as.character(eval_obj)[[1]]
+      )
+      next
     }
 
     ordination_info <- if (is.null(model_scores) || is.null(species_lookup)) {
@@ -1293,70 +1434,6 @@ S7::method(select_policies, PolicySelector) <- function(object,
 #' @usage NULL
 S7::method(predict_generic, PolicySelector) <- .predict_policy_selector
 
-methods::setMethod(
-  "predict",
-  signature(object = "tsbiomass::PolicySelector"),
-  function(object,
-           reference_anchors = NULL,
-           policies = NULL,
-           config = NULL,
-           policy_params = list(),
-           policy_path = NULL,
-           registry_path = NULL,
-           learner = NULL,
-           use_support_bin_intervals = NULL,
-           max_selection_tolerance = NULL,
-           reuse_admissibility = TRUE,
-           progress = NULL,
-           ...) {
-    .predict_policy_selector(
-      object = object,
-      reference_anchors = reference_anchors,
-      policies = policies,
-      config = config,
-      policy_params = policy_params,
-      policy_path = policy_path,
-      registry_path = registry_path,
-      learner = learner,
-      use_support_bin_intervals = use_support_bin_intervals,
-      max_selection_tolerance = max_selection_tolerance,
-      reuse_admissibility = reuse_admissibility,
-      progress = progress
-    )
-  }
-)
-
-# Base `predict()` falls through `UseMethod()` for these S7 class strings in an
-# installed package, so provide an explicit S3 bridge on the literal class name.
-`predict.tsbiomass::PolicySelector` <- function(object,
-                                                reference_anchors = NULL,
-                                                policies = NULL,
-                                                config = NULL,
-                                                policy_params = list(),
-                                                policy_path = NULL,
-                                                registry_path = NULL,
-                                                learner = NULL,
-                                                use_support_bin_intervals = NULL,
-                                                max_selection_tolerance = NULL,
-                                                reuse_admissibility = TRUE,
-                                                progress = NULL,
-                                                ...) {
-  .predict_policy_selector(
-    object = object,
-    reference_anchors = reference_anchors,
-    policies = policies,
-    config = config,
-    policy_params = policy_params,
-    policy_path = policy_path,
-    registry_path = registry_path,
-    learner = learner,
-    use_support_bin_intervals = use_support_bin_intervals,
-    max_selection_tolerance = max_selection_tolerance,
-    reuse_admissibility = reuse_admissibility,
-    progress = progress
-  )
-}
-
 #' Print a `PolicySelector`
 #'
 #' @name print.PolicySelector
@@ -1489,10 +1566,6 @@ S7::method(show_generic, PolicyPredictions) <- function(object) {
 
 S7::method(plot_generic, PolicySelector) <- .plot_policy_selector
 
-`plot.tsbiomass::PolicySelector` <- function(x, y = NULL, ...) {
-  .plot_policy_selector(x, y, ...)
-}
-
 #' Plot a `PolicyPredictions`
 #'
 #' Uses the package's S7 method on [base::plot()] so prediction bundles can be
@@ -1542,7 +1615,3 @@ S7::method(plot_generic, PolicySelector) <- .plot_policy_selector
 }
 
 S7::method(plot_generic, PolicyPredictions) <- .plot_policy_predictions
-
-`plot.tsbiomass::PolicyPredictions` <- function(x, y = NULL, ...) {
-  .plot_policy_predictions(x, y, ...)
-}

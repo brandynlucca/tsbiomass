@@ -858,7 +858,7 @@ normalize_trait_weights <- function(models_tbl,
 #'       species_traits = list(genus = 1, family = 1),
 #'       study_traits = list(frequency = 1, fao_area = 1)
 #'     ),
-#'     policies = list(active = "same_species_closest")
+#'     policies = list(active = "closest_within_species")
 #'   ))
 #' )
 #'
@@ -4147,7 +4147,7 @@ summarize_similarity_tuning_strata <- function(anchor_rows,
 #'     species_traits = list(genus = 1, family = 1),
 #'     study_traits = list(frequency = 1, fao_area = 1)
 #'   ),
-#'   policies = list(active = "same_species_closest")
+#'   policies = list(active = "closest_within_species")
 #' ))
 #'
 #' tune_obj <- tune_similarity_matrix(

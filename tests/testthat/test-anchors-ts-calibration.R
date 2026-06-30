@@ -52,8 +52,6 @@ test_that("TS calibration curve does not fall back to anchor-specific subsets", 
   out <- select_ts_calibration_curve(
     ts_calibration = ts_calibration,
     row_now = row_now,
-    min_u = 2L,
-    min_avg_scores_per_u = 1,
     min_anchor_neighbors = 4L
   )
 
@@ -130,8 +128,6 @@ test_that("TS calibration curve localizes by donor difficulty when available", {
   out <- select_ts_calibration_curve(
     ts_calibration = ts_calibration,
     row_now = row_now,
-    min_u = 2L,
-    min_avg_scores_per_u = 1,
     min_anchor_neighbors = 4L
   )
 

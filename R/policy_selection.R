@@ -478,7 +478,7 @@ first_non_missing_character <- function(x) {
 #' @examples
 #' interval_tbl <- add_policy_intervals(
 #'   tibble::tibble(
-#'     policy = "same_species_closest",
+#'     policy = "closest_within_species",
 #'     multiplier_pred = 1.2,
 #'     q_abs_log = 0.15,
 #'     local_structural_q_abs_log = 0.05
@@ -1135,8 +1135,8 @@ build_selection_table <- function(species_performance_table,
   }
   set.seed(as.integer(seed))
 
-  n_policies_sel <- nrow(dplyr::distinct(.data$species_level, .data$policy, .data$equation_branch_filter))
-  n_species_sel <- nrow(dplyr::distinct(.data$species_level, .data$anchor_species))
+  n_policies_sel <- nrow(dplyr::distinct(species_level, .data$policy, .data$equation_branch_filter))
+  n_species_sel <- nrow(dplyr::distinct(species_level, .data$anchor_species))
   report_progress(
     progress,
     "[Selection] Bootstrapping ", as.integer(n_boot),
@@ -1165,7 +1165,7 @@ build_selection_table <- function(species_performance_table,
   species_wide <- tidyr::pivot_wider(
     species_level_keyed,
     id_cols = "anchor_species",
-    names_from = "policy_key",
+    names_from = ".policy_key",
     values_from = "species_median_abs_log"
   )
   policy_key_order <- setdiff(names(species_wide), "anchor_species")
@@ -1179,6 +1179,9 @@ build_selection_table <- function(species_performance_table,
   boot_means_mat <- apply(boot_idx, 2, function(idx) {
     colMeans(policy_mat[idx, , drop = FALSE], na.rm = TRUE)
   })
+  if (is.null(dim(boot_means_mat))) {
+    boot_means_mat <- matrix(boot_means_mat, nrow = length(policy_key_order))
+  }
   rownames(boot_means_mat) <- policy_key_order
 
   # boot_sum: per-policy quantiles and threshold probability from matrix rows.
@@ -1219,10 +1222,13 @@ build_selection_table <- function(species_performance_table,
         policy_family = .data$policy_family,
         equation_branch_filter = .data$equation_branch_filter
       )
-    ) |>
+  ) |>
     dplyr::pull(.data$specificity_rank)
   secondary_key <- (spec_ranks / (max(spec_ranks, na.rm = TRUE) + 1L)) * 1e-10
   rank_mat <- apply(boot_means_mat + secondary_key, 2, rank, ties.method = "first")
+  if (is.null(dim(rank_mat))) {
+    rank_mat <- matrix(rank_mat, nrow = length(policy_key_order))
+  }
   boot_rank <- dplyr::left_join(
     tibble::tibble(.policy_key = policy_key_order),
     key_lookup,
@@ -1732,6 +1738,45 @@ run_policy_selection <- function(species_performance_table,
     seed = config_values$seed,
     progress = progress
   )
+  if (!all(c("policy", "equation_branch_filter") %in% names(select_ref))) {
+    # Return typed empty selection objects so sparse benchmark folds can fall
+    # through to later deterministic or learner-free fallback logic without
+    # join-column crashes.
+    empty_keys <- tibble::tibble(
+      policy = character(0),
+      equation_branch_filter = character(0)
+    )
+    return(list(
+      select_ref = empty_keys,
+      equiv_ref = list(
+        pairs = tibble::tibble(
+          policy_a = character(0),
+          equation_branch_filter_a = character(0),
+          policy_b = character(0),
+          equation_branch_filter_b = character(0),
+          equivalent_pair = logical(0),
+          paired_mean_diff = numeric(0),
+          paired_mean_diff_q05 = numeric(0),
+          paired_mean_diff_q95 = numeric(0),
+          n_species_overlap = integer(0)
+        ),
+        best_flags = tibble::tibble(
+          policy = character(0),
+          equation_branch_filter = character(0),
+          equivalent_to_best_global = logical(0),
+          paired_mean_diff_to_best = numeric(0)
+        )
+      ),
+      equiv_sets = tibble::tibble(
+        policy = character(0),
+        equation_branch_filter = character(0),
+        equivalence_class_id = integer(0),
+        equivalence_class_size = integer(0),
+        equivalence_class_members = character(0)
+      ),
+      final_ref = empty_keys
+    ))
+  }
   equiv_ref <- build_equivalence_table(
     species_performance_table = species_performance_table,
     select_ref = select_ref,

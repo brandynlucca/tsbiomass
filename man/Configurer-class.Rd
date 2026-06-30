@@ -11,13 +11,12 @@ YAML path or a complete nested R list. No packaged analysis template or
 study-specific default is injected during S7 construction.
 }
 \examples{
-cfg <- create_configurer(list(
+cfg <- build_configurer(list(
   paths = list(
     input = "input.xlsx",
     output_root = "outputs",
     cache_folder = "cache",
     support_folder = "supplemental",
-    area_file = "fao_areas.csv",
     log_path = "outputs/run.log"
   ),
   execution = list(
@@ -51,7 +50,7 @@ cfg <- create_configurer(list(
     )
   ),
   policies = list(
-    active = "same_species_closest"
+    active = "closest_within_species"
   ),
   metalearner = list(
     selection_method = "glm"

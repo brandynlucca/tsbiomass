@@ -474,6 +474,10 @@ default_meta_policy_method_settings <- function() {
       fit_method = "REML",
       select_terms = TRUE
     ),
+    lmer = list(
+      fit_method = "REML",
+      group_cols = c(".split_group", "anchor_species", "anchor_family")
+    ),
     rpart = list(
       cp = 0.01,
       minsplit = 20L,
@@ -586,6 +590,7 @@ meta_policy_method_catalog <- function(method_settings = NULL) {
     quantreg = list(family = "quantreg", variant = NULL),
     glm = list(family = "glm", variant = NULL),
     gam = list(family = "gam", variant = NULL),
+    lmer = list(family = "lmer", variant = NULL),
     rpart = list(family = "rpart", variant = NULL),
     ranger = list(family = "ranger", variant = NULL),
     xgboost = list(family = "xgboost", variant = NULL)
@@ -607,7 +612,7 @@ meta_policy_method_catalog <- function(method_settings = NULL) {
     invisible(NULL)
   }
 
-  for (family_name in c("quantreg", "rpart", "ranger", "xgboost")) {
+  for (family_name in c("quantreg", "lmer", "rpart", "ranger", "xgboost")) {
     add_variant_specs(family_name)
   }
 
@@ -701,6 +706,16 @@ meta_policy_method_arguments <- function(method,
     }
     return(compact_nulls(out))
   }
+  if (identical(method_spec$family, "lmer")) {
+    lmer_cfg <- effective_family_settings("lmer")
+    return(compact_nulls(list(
+      fit_method = as.character(lmer_cfg$fit_method %||% "REML"),
+      group_cols = as.character(unlist(
+        lmer_cfg$group_cols %||% c(".split_group", "anchor_species", "anchor_family"),
+        use.names = FALSE
+      ))
+    )))
+  }
   if (identical(method_spec$family, "rpart")) {
     rpart_cfg <- effective_family_settings("rpart")
     out <- list(
@@ -750,6 +765,46 @@ meta_policy_method_arguments <- function(method,
   }
 
   list()
+}
+
+#' Resolve one mixed-effects grouping column for the meta-policy learner
+#'
+#' @param training_data Prepared learner training table.
+#' @param group_cols Candidate grouping columns in priority order.
+#'
+#' @return A list with the selected grouping column and normalized factor.
+#'
+#' @keywords internal
+resolve_meta_policy_lmer_group <- function(training_data,
+                                           group_cols) {
+  training_data <- tibble::as_tibble(training_data)
+  group_cols <- unique(as.character(unlist(group_cols %||% character(), use.names = FALSE)))
+  group_cols <- group_cols[!is.na(group_cols) & nzchar(group_cols) & group_cols %in% names(training_data)]
+  if (length(group_cols) == 0) {
+    stop(
+      "The mixed-effects meta-policy learner requires at least one available grouping column.",
+      call. = FALSE
+    )
+  }
+
+  # Use the first grouping column with at least two observed levels after
+  # missing values are collapsed into one explicit level.
+  for (group_col in group_cols) {
+    group_values <- as.character(training_data[[group_col]])
+    group_values[is.na(group_values) | !nzchar(group_values)] <- "missing"
+    if (length(unique(group_values)) < 2L) {
+      next
+    }
+    return(list(
+      group_col = group_col,
+      group_factor = factor(group_values)
+    ))
+  }
+
+  stop(
+    "No mixed-effects grouping column had at least two observed levels in the training data.",
+    call. = FALSE
+  )
 }
 
 #' Fit ensemble weights for the meta-policy super learner
@@ -869,17 +924,17 @@ fit_meta_policy_base_safely <- function(training_data,
 #' @return `test_data` with `.meta_predicted_score` appended.
 #'
 #' @keywords internal
-stream_outer_fold_super_learner_predictions <- function(train_data,
-                                                        test_data,
-                                                        feature_cols,
-                                                        outcome_transform,
-                                                        lambda_rule,
-                                                        inner_folds,
-                                                        seed,
-                                                        super_methods = NULL,
-                                                        metalearner_loss = c("squared_error", "absolute_error"),
-                                                        method_settings = NULL,
-                                                        progress = FALSE) {
+stream_super_learner_fold <- function(train_data,
+                                      test_data,
+                                      feature_cols,
+                                      outcome_transform,
+                                      lambda_rule,
+                                      inner_folds,
+                                      seed,
+                                      super_methods = NULL,
+                                      metalearner_loss = c("squared_error", "absolute_error"),
+                                      method_settings = NULL,
+                                      progress = FALSE) {
   train_data <- tibble::as_tibble(train_data)
   test_data <- tibble::as_tibble(test_data)
   metalearner_loss <- match.arg(metalearner_loss)
@@ -1496,6 +1551,64 @@ fit_meta_policy_learner <- function(training_data,
     ))
   }
 
+  if (identical(method_spec$family, "lmer")) {
+    if (!requireNamespace("lme4", quietly = TRUE)) {
+      stop(
+        "Fitting method 'lmer' requires the suggested package 'lme4' to be installed.",
+        call. = FALSE
+      )
+    }
+
+    # Resolve one conservative random-intercept grouping column before fitting.
+    lmer_group <- resolve_meta_policy_lmer_group(
+      training_data = training_data,
+      group_cols = fit_arguments$group_cols %||% c(".split_group", "anchor_species", "anchor_family")
+    )
+    model_data[[lmer_group$group_col]] <- lmer_group$group_factor
+
+    fixed_terms <- setdiff(names(model_frame), lmer_group$group_col)
+    fixed_term_string <- if (length(fixed_terms) == 0) {
+      "1"
+    } else {
+      paste(fixed_terms, collapse = " + ")
+    }
+    formula_now <- stats::as.formula(sprintf(
+      ".outcome_model ~ %s + (1 | `%s`)",
+      fixed_term_string,
+      lmer_group$group_col
+    ))
+
+    fit <- lme4::lmer(
+      formula_now,
+      data = model_data,
+      REML = identical(as.character(fit_arguments$fit_method %||% "REML"), "REML"),
+      ...
+    )
+    return(structure(
+      list(
+        fit = fit,
+        method = method,
+        method_family = method_spec$family,
+        method_variant = method_spec$variant,
+        method_settings = method_settings,
+        method_arguments = fit_arguments,
+        feature_cols = feature_cols,
+        blueprint = prep$blueprint,
+        dropped_model_cols = dropped_model_cols,
+        factor_levels = lapply(
+          model_data[intersect(feature_cols, names(model_data))],
+          function(x) if (is.factor(x)) levels(x) else NULL
+        ),
+        group_col = lmer_group$group_col,
+        group_levels = levels(lmer_group$group_factor),
+        outcome_transform = outcome_transform,
+        prediction_cap = meta_policy_prediction_cap(training_data$.outcome),
+        training_n = nrow(model_data)
+      ),
+      class = "tsb_meta_policy_learner"
+    ))
+  }
+
   fit <- switch(method_spec$family,
     quantreg = quantreg::rq(
       formula_now,
@@ -1643,8 +1756,12 @@ predict_meta_policy_score <- function(object,
       blueprint = object$blueprint
     )
     pred_frame <- prep$data[, setdiff(names(prep$data), object$dropped_model_cols %||% character()), drop = FALSE]
+    fit_xlevels <- tryCatch(
+      object$fit$xlevels,
+      error = function(e) NULL
+    )
     for (nm in intersect(names(object$factor_levels %||% list()), names(pred_frame))) {
-      levels_now <- object$fit$xlevels[[nm]] %||% object$factor_levels[[nm]]
+      levels_now <- fit_xlevels[[nm]] %||% object$factor_levels[[nm]]
       if (!is.null(levels_now)) {
         vals <- as.character(pred_frame[[nm]])
         fallback_level <- if ("missing" %in% levels_now) "missing" else levels_now[[1]]
@@ -1664,6 +1781,23 @@ predict_meta_policy_score <- function(object,
       }
       mm <- mm[, names(coef_now), drop = FALSE]
       pred <- as.numeric(mm %*% coef_now)
+    } else if (identical(method_family, "lmer")) {
+      # Carry the stored grouping column forward and allow new levels so cold
+      # groups fall back to the fixed-effect mean rather than erroring.
+      group_col <- as.character(object$group_col %||% "")[[1]]
+      if (nzchar(group_col)) {
+        group_values <- if (group_col %in% names(prediction_tbl)) {
+          as.character(prediction_tbl[[group_col]])
+        } else {
+          rep("missing", nrow(pred_frame))
+        }
+        group_values[is.na(group_values) | !nzchar(group_values)] <- "missing"
+        pred_frame[[group_col]] <- factor(
+          group_values,
+          levels = unique(c(object$group_levels %||% character(), group_values))
+        )
+      }
+      pred <- as.numeric(stats::predict(object$fit, newdata = pred_frame, allow.new.levels = TRUE))
     } else {
       pred <- as.numeric(stats::predict(object$fit, newdata = pred_frame))
     }
@@ -1817,11 +1951,11 @@ crossfit_meta_policy_learner <- function(policy_perf,
     }
     outer_seed <- if (is.null(seed)) NULL else as.integer(seed) + f
     if (is_super) {
-      stream_outer_fold_super_learner_predictions <- getFromNamespace(
-        "stream_outer_fold_super_learner_predictions",
+      stream_super_learner_fold <- utils::getFromNamespace(
+        "stream_super_learner_fold",
         "tsbiomass"
       )
-      preds <- stream_outer_fold_super_learner_predictions(
+      preds <- stream_super_learner_fold(
         train_data = train,
         test_data = test,
         feature_cols = feature_cols,
@@ -1835,8 +1969,8 @@ crossfit_meta_policy_learner <- function(policy_perf,
         progress = FALSE
       )
     } else {
-      fit_meta_policy_learner <- getFromNamespace("fit_meta_policy_learner", "tsbiomass")
-      predict_meta_policy_score <- getFromNamespace("predict_meta_policy_score", "tsbiomass")
+      fit_meta_policy_learner <- utils::getFromNamespace("fit_meta_policy_learner", "tsbiomass")
+      predict_meta_policy_score <- utils::getFromNamespace("predict_meta_policy_score", "tsbiomass")
       learner <- fit_meta_policy_learner(
         training_data = train,
         method = method,

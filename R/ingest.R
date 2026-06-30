@@ -1880,7 +1880,7 @@ read_mstraits_db <- function(species,
   dat$species_name_query[!nzchar(dat$species_name_query)] <- NA_character_
   dat <- dat |>
     dplyr::filter(!is.na(.data$species_name_query)) |>
-    dplyr::filter(.data$species_name_query %in% .data$species)
+    dplyr::filter(.data$species_name_query %in% species)
 
   if (nrow(dat) == 0) {
     out$species_name_query <- NULL

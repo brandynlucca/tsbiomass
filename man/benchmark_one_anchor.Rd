@@ -15,6 +15,7 @@ benchmark_one_anchor(
   policies,
   policy_params,
   policy_path,
+  policy_execution_plan = NULL,
   sim_obj,
   dist_obj,
   candidate_models_scored,
@@ -24,7 +25,8 @@ benchmark_one_anchor(
   scheme,
   species_block = FALSE,
   group_block_col = NULL,
-  ordination_info = NULL
+  ordination_info = NULL,
+  resolve_ordination = TRUE
 )
 }
 \arguments{
@@ -34,7 +36,8 @@ benchmark_one_anchor(
 
 \item{policy_fun}{Policy-extraction function.}
 
-\item{curve_fun}{Optional policy-curve function.}
+\item{curve_fun}{Optional policy-curve function. Reserved for compatibility;
+TS-error generation is handled in a separate benchmark pass.}
 
 \item{model_scores}{Optional ordination score table.}
 
@@ -47,6 +50,10 @@ benchmark_one_anchor(
 \item{policy_params}{Optional named list of extra policy parameters.}
 
 \item{policy_path}{Optional path to a policy-registry JSON file.}
+
+\item{policy_execution_plan}{Optional prebuilt policy execution plan from
+\code{\link[=build_policy_execution_plan]{build_policy_execution_plan()}}. When supplied, the benchmark reuses the
+same registry and branch expansion across anchors.}
 
 \item{sim_obj}{Optional prebuilt similarity object for the full benchmark
 scenario.}
@@ -71,6 +78,9 @@ schemes.}
 
 \item{ordination_info}{Optional precomputed ordination context for the
 current anchor.}
+
+\item{resolve_ordination}{Logical scalar. If \code{TRUE}, rebuild ordination
+context when \code{ordination_info} was not precomputed by the caller.}
 }
 \value{
 A list with \code{perf}, \code{features}, and \code{ts_error}.

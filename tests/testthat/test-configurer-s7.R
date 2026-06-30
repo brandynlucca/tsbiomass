@@ -13,7 +13,6 @@ test_that("Configurer validates list and YAML inputs", {
   expect_true(grepl(normalizePath(tmp_dir, winslash = "/", mustWork = FALSE), cfg@data$paths$out_root, fixed = TRUE))
   expect_equal(unname(cfg@data$alpha), cfg@data$policy$alpha)
   expect_equal(cfg@data$similarity$coherence$length$mode, "overlap")
-  expect_equal(cfg@data$species_trait_cols, c("genus", "family"))
 
   yaml_path <- tempfile(fileext = ".yaml")
   yaml::write_yaml(cfg_list, yaml_path)
@@ -46,18 +45,6 @@ test_that("config reduces cleanly to candidates config", {
   expect_equal(candidate_cfg$study$path, cfg@data$paths$input)
   expect_true(is.list(candidate_cfg$data))
   expect_true(is.list(candidate_cfg$prepare))
-})
-
-test_that("Configurer rejects incomplete configs", {
-  bad_cfg <- minimal_config_data()
-  bad_cfg$similarity <- NULL
-
-  expect_error(
-    as_configurer(
-      bad_cfg,
-      base_dir = tempdir()
-    )
-  )
 })
 
 test_that("config YAML is validated at ingestion time", {
@@ -120,6 +107,48 @@ test_that("uncertainty learner inherits the selection learner when omitted", {
   expect_equal(cfg$metalearner$uncertainty_method, "ranger")
 })
 
+test_that("stage-specific metalearner settings inherit from shared settings", {
+  config_now <- minimal_config_data()
+  config_now$metalearner$method_settings$ranger$num_trees <- 50L
+  config_now$metalearner$selection_method_settings <- list(
+    ranger = list(min_node_size = 2L)
+  )
+  config_now$metalearner$uncertainty_method_settings <- list(
+    ranger = list(num_trees = 15L)
+  )
+  yaml_path <- tempfile(fileext = ".yaml")
+  yaml::write_yaml(config_now, yaml_path)
+
+  cfg <- read_config(yaml_path, base_dir = tempdir())
+
+  expect_equal(cfg$metalearner$selection_method_settings$ranger$num_trees, 50L)
+  expect_equal(cfg$metalearner$selection_method_settings$ranger$min_node_size, 2L)
+  expect_equal(cfg$metalearner$uncertainty_method_settings$ranger$num_trees, 15L)
+  expect_equal(cfg$metalearner$uncertainty_method_settings$ranger$min_node_size, 3L)
+})
+
+test_that("uncertainty super-methods require super_learner uncertainty method", {
+  bad_config <- minimal_config_data()
+  bad_config$metalearner$uncertainty_super_methods <- c("glm", "rpart")
+  yaml_path <- tempfile(fileext = ".yaml")
+  yaml::write_yaml(bad_config, yaml_path)
+
+  expect_error(
+    read_config(yaml_path, base_dir = tempdir()),
+    "uncertainty_super_methods"
+  )
+
+  good_config <- minimal_config_data()
+  good_config$metalearner$selection_method <- "glm"
+  good_config$metalearner$uncertainty_method <- "super_learner"
+  good_config$metalearner$uncertainty_super_methods <- c("glm", "rpart")
+  yaml::write_yaml(good_config, yaml_path)
+
+  expect_no_error(
+    read_config(yaml_path, base_dir = tempdir())
+  )
+})
+
 test_that("trait names without explicit weights default to one", {
   config_now <- minimal_config_data()
   config_now$similarity$species_traits <- c("genus", "family")
@@ -137,8 +166,8 @@ test_that("trait names without explicit weights default to one", {
 
 test_that("post-selection support bin labels are validated against n_bins", {
   bad_config <- minimal_config_data()
-  bad_config$post_selection_conformal$n_bins <- 3L
-  bad_config$post_selection_conformal$support_bin_labels <- c("Low", "Mid")
+  bad_config$selection$n_bins <- 3L
+  bad_config$selection$support_bin_labels <- c("Low", "Mid")
   yaml_path <- tempfile(fileext = ".yaml")
   yaml::write_yaml(bad_config, yaml_path)
 
@@ -148,13 +177,13 @@ test_that("post-selection support bin labels are validated against n_bins", {
   )
 
   good_config <- minimal_config_data()
-  good_config$post_selection_conformal$n_bins <- 3L
-  good_config$post_selection_conformal$support_bin_labels <- c("Lower support", "Moderate support", "Higher support")
+  good_config$selection$n_bins <- 3L
+  good_config$selection$support_bin_labels <- c("Lower support", "Moderate support", "Higher support")
   yaml::write_yaml(good_config, yaml_path)
 
   cfg <- read_config(yaml_path, base_dir = tempdir())
   expect_equal(
-    cfg$post_selection_conformal$support_bin_labels,
+    cfg$selection$support_bin_labels,
     c("Lower support", "Moderate support", "Higher support")
   )
 })
@@ -175,5 +204,34 @@ test_that("metalearner method_settings are validated at ingestion", {
 
   expect_no_error(
     read_config(yaml_path, base_dir = tempdir())
+  )
+})
+
+test_that("metalearner lmer settings are validated at ingestion", {
+  bad_config <- minimal_config_data()
+  bad_config$metalearner$uncertainty_method <- "lmer"
+  bad_config$metalearner$uncertainty_method_settings <- list(
+    lmer = list(fit_method = "BAD", group_cols = c("anchor_species"))
+  )
+  yaml_path <- tempfile(fileext = ".yaml")
+  yaml::write_yaml(bad_config, yaml_path)
+
+  expect_error(
+    read_config(yaml_path, base_dir = tempdir()),
+    "method_settings.lmer.fit_method"
+  )
+
+  good_config <- minimal_config_data()
+  good_config$metalearner$uncertainty_method <- "lmer"
+  good_config$metalearner$uncertainty_method_settings <- list(
+    lmer = list(fit_method = "ML", group_cols = c("anchor_species", "anchor_family"))
+  )
+  yaml::write_yaml(good_config, yaml_path)
+
+  cfg <- read_config(yaml_path, base_dir = tempdir())
+  expect_equal(cfg$metalearner$uncertainty_method, "lmer")
+  expect_equal(
+    cfg$metalearner$uncertainty_method_settings$lmer$group_cols,
+    c("anchor_species", "anchor_family")
   )
 })

@@ -113,8 +113,8 @@ policy_simulator_rebuild <- function(object,
 #' }
 #'
 #' @export
-create_policy_simulator <- function(selector,
-                                    config = NULL) {
+build_policy_simulator <- function(selector,
+                                   config = NULL) {
   if ((inherits(selector, "S7_object") && exists("PolicySimulator", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(selector, PolicySimulator), error = function(e) FALSE)))) {
     return(selector)
   }
@@ -142,7 +142,7 @@ create_policy_simulator <- function(selector,
 #' @export
 as_policy_simulator <- function(selector,
                                 config = NULL) {
-  create_policy_simulator(
+  build_policy_simulator(
     selector = selector,
     config = config
   )
@@ -199,7 +199,7 @@ policy_simulator_anchor_config <- function(object,
 #' @param progress Logical scalar.
 #'
 #' @return An updated [PolicySimulator] object.
-#' @name simulate.PolicySimulator
+#' @name simulate_policy_simulator
 .simulate_policy_simulator <- function(object,
                                        sensitivity_specs = NULL,
                                        baseline_obj = NULL,
@@ -344,9 +344,6 @@ policy_simulator_anchor_config <- function(object,
 }
 
 S7::method(simulate_generic, PolicySimulator) <- .simulate_policy_simulator
-
-#' @export
-`simulate.tsbiomass::PolicySimulator` <- .simulate_policy_simulator
 
 #' Print a `PolicySimulator`
 #'
@@ -497,7 +494,3 @@ S7::method(show_generic, PolicySimulator) <- function(object) {
 }
 
 S7::method(plot_generic, PolicySimulator) <- .plot_policy_simulator
-
-`plot.tsbiomass::PolicySimulator` <- function(x, y = NULL, ...) {
-  .plot_policy_simulator(x, y, ...)
-}

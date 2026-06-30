@@ -343,114 +343,6 @@ read_similarity_registry <- function(registry_path) {
   )
 }
 
-#' Return config aliases
-#'
-#' Defines the descriptive shorter config keys accepted at ingestion and the
-#' canonical field names they map onto inside the current execution surface.
-#'
-#' @return Named list of alias maps by config section.
-#' @keywords internal
-config_aliases <- function() {
-  list(
-    paths = c(
-      input = "input_file",
-      output_root = "out_root",
-      cache_folder = "cache_dir",
-      support_folder = "supplemental_dir",
-      area_file = "fao_polygon_csv",
-      log_path = "log_file"
-    ),
-    execution = c(
-      strict_pdf = "strict_length_pdf",
-      run_multiplier = "run_multiplier_model"
-    ),
-    tuning = c(
-      species_model_limit = "max_models_per_species",
-      resamples = "n_resamples"
-    ),
-    policy = c(
-      frequency_mode = "frequency_coherence_mode",
-      exact_frequency = "require_same_frequency_label",
-      frequency_gap = "max_frequency_gap_khz",
-      length_overlap_min = "min_length_overlap_fraction",
-      depth_overlap_min = "min_depth_overlap_fraction",
-      key_metadata_max = "missing_key_metadata_max_fraction",
-      length_weight = "length_overlap_weight",
-      depth_weight = "depth_overlap_weight",
-      frequency_weight = "frequency_coherence_weight"
-    ),
-    policies = c(
-      branch_filters = "equation_branch_filters"
-    )
-  )
-}
-
-#' Apply config aliases to one section
-#'
-#' @param section Named config subsection.
-#' @param aliases Named character vector of `short_name = canonical_name`.
-#' @param section_name Section label for error messages.
-#'
-#' @return Normalized subsection.
-#' @keywords internal
-apply_config_aliases <- function(section,
-                                 aliases,
-                                 section_name) {
-  if (is.null(section) || !is.list(section)) {
-    return(section)
-  }
-
-  for (short_name in names(aliases)) {
-    canonical_name <- aliases[[short_name]]
-    if (!short_name %in% names(section)) {
-      next
-    }
-    if (canonical_name %in% names(section)) {
-      stop(
-        sprintf(
-          "Config section '%s' cannot contain both '%s' and '%s'.",
-          section_name,
-          short_name,
-          canonical_name
-        ),
-        call. = FALSE
-      )
-    }
-    section[[canonical_name]] <- section[[short_name]]
-    section[[short_name]] <- NULL
-  }
-
-  section
-}
-
-#' Normalize config aliases
-#'
-#' Rewrites accepted descriptive short keys onto the current canonical field
-#' names before validation and downstream use.
-#'
-#' @param config Config list.
-#'
-#' @return Config list with canonical section keys.
-#' @keywords internal
-normalize_config_aliases <- function(config) {
-  if (!is.list(config)) {
-    return(config)
-  }
-
-  alias_map <- config_aliases()
-  for (section_name in names(alias_map)) {
-    if (section_name %in% names(config)) {
-      config[[section_name]] <- apply_config_aliases(
-        section = config[[section_name]],
-        aliases = alias_map[[section_name]],
-        section_name = section_name
-      )
-    }
-  }
-
-  config
-}
-
 #' Normalize the external similarity config surface
 #'
 #' @param config Config list.
@@ -745,7 +637,7 @@ normalize_active_policy_names <- function(config,
 
   branch_field <- policies_section$branch %||%
     policies_section$branches %||%
-    policies_section$branch_filters %||%
+    policies_section$equation_branch_filters %||%
     policies_section$equation_branch_filters %||%
     NULL
   metric_field <- policies_section$metric %||% policies_section$metrics %||% NULL
@@ -931,7 +823,7 @@ normalize_active_policy_names <- function(config,
     canonical_specs <- list()
     for (group_name in names(group_specs)) {
       canonical_group_name <- tryCatch(
-        as.character(policy_group_definition(group_name, registry = registry)$key %||% group_name)[[1]],
+        as.character(build_policy_group_definition(group_name, registry = registry)$key %||% group_name)[[1]],
         error = function(e) group_name
       )
       spec_now <- group_specs[[group_name]] %||% list()
@@ -969,7 +861,7 @@ normalize_active_policy_names <- function(config,
       metrics_now <- unique(c(global_metrics, group_specs[[group_name]]$metrics %||% character(0)))
       for (metric_name in metrics_now) {
         policy_def <- tryCatch(
-          construct_policy_definition_for_group_metric(
+          build_group_metric_policy(
             group_key = group_name,
             metric_key = metric_name,
             registry = registry
@@ -1077,26 +969,16 @@ normalize_selection_config_shape <- function(config) {
   if (!is.list(selection)) {
     selection <- list()
   }
-  legacy_conformal <- config$post_selection_conformal %||% list()
-  if (!is.list(legacy_conformal)) {
-    legacy_conformal <- list()
-  }
 
   selection$conformal_alpha <- selection$conformal_alpha %||%
-    legacy_conformal$conformal_alpha %||%
-    legacy_conformal$alpha %||%
     (config$policy %||% list())$conformal_alpha %||%
     (config$similarity %||% list())$conformal_alpha %||%
     NULL
-  selection$bin_alpha <- selection$bin_alpha %||% legacy_conformal$bin_alpha %||% NULL
-  selection$min_bin_scores <- selection$min_bin_scores %||% legacy_conformal$min_bin_scores %||% NULL
-  selection$n_bins <- selection$n_bins %||% legacy_conformal$n_bins %||% NULL
-  selection$use_support_bin_intervals <- selection$use_support_bin_intervals %||%
-    legacy_conformal$use_support_bin_intervals %||%
-    NULL
-  selection$support_bin_labels <- selection$support_bin_labels %||%
-    legacy_conformal$support_bin_labels %||%
-    NULL
+  selection$bin_alpha <- selection$bin_alpha %||% NULL
+  selection$min_bin_scores <- selection$min_bin_scores %||% NULL
+  selection$n_bins <- selection$n_bins %||% NULL
+  selection$use_support_bin_intervals <- selection$use_support_bin_intervals %||% NULL
+  selection$support_bin_labels <- selection$support_bin_labels %||% NULL
 
   config$selection <- selection
   config
@@ -1159,8 +1041,8 @@ replace_explicit_trait_maps <- function(merged_cfg,
   if ("branches" %in% names(input_policies)) {
     merged_cfg$policies$branches <- input_policies$branches
   }
-  if ("branch_filters" %in% names(input_policies)) {
-    merged_cfg$policies$branch_filters <- input_policies$branch_filters
+  if ("equation_branch_filters" %in% names(input_policies)) {
+    merged_cfg$policies$equation_branch_filters <- input_policies$equation_branch_filters
   }
   if ("equation_branch_filters" %in% names(input_policies)) {
     merged_cfg$policies$equation_branch_filters <- input_policies$equation_branch_filters
@@ -1211,21 +1093,20 @@ default_config <- function(input_file = "input.xlsx",
 
   list(
     paths = list(
-      input = input_file,
-      output_root = output_root,
-      cache_folder = cache_folder,
-      support_folder = "supplemental",
-      area_file = "fao_areas.csv",
-      log_path = file.path(output_root, "tsbiomass_run.log")
+      input_file = input_file,
+      out_root = output_root,
+      cache_dir = cache_folder,
+      supplemental_dir = "supplemental",
+      log_file = file.path(output_root, "tsbiomass_run.log")
     ),
     execution = list(
-      strict_pdf = FALSE,
-      run_multiplier = FALSE,
+      strict_length_pdf = FALSE,
+      run_multiplier_model = FALSE,
       write_log = FALSE
     ),
     tuning = list(
-      species_model_limit = 2L,
-      resamples = 8L,
+      max_models_per_species = 2L,
+      n_resamples = 8L,
       n_cores = 1L,
       seed = NULL,
       grid_refinement_levels = 1L,
@@ -1264,7 +1145,7 @@ default_config <- function(input_file = "input.xlsx",
     policies = list(
       group = list("species"),
       metric = list("closest"),
-      branch = list("all")
+      equation_branch_filters = list("all")
     ),
     cache = list(
       folder = cache_folder,
@@ -1328,8 +1209,7 @@ default_config <- function(input_file = "input.xlsx",
       method_settings = default_meta_policy_method_settings(),
       progress = FALSE
     )
-  ) |>
-    normalize_config_aliases()
+  )
 }
 
 #' Read a config YAML file
@@ -1371,8 +1251,7 @@ read_config <- function(path,
 
 #' Normalize a config
 #'
-#' Merges user config onto the package defaults, resolves relative paths, and
-#' adds compatibility fields used by the packaged scripts.
+#' Merges user config onto the package defaults and resolves relative paths.
 #'
 #' @param config Config list.
 #' @param base_dir Base directory for relative paths.
@@ -1395,7 +1274,6 @@ normalize_config <- function(config,
     stop("'base_dir' must be a single non-empty path.", call. = FALSE)
   }
 
-  config <- normalize_config_aliases(config)
   config <- normalize_similarity_config_shape(config)
   config <- normalize_selection_config_shape(config)
 
@@ -1407,7 +1285,6 @@ normalize_config <- function(config,
     config
   )
   normalized_config <- replace_explicit_trait_maps(normalized_config, config)
-  normalized_config <- normalize_config_aliases(normalized_config)
   normalized_config <- normalize_similarity_config_shape(normalized_config)
   normalized_config <- normalize_selection_config_shape(normalized_config)
   normalized_config <- apply_cache_defaults(normalized_config)
@@ -1449,7 +1326,7 @@ normalize_config <- function(config,
     )
   }
 
-  # Materialize the flat top-level aliases that admissibility and nested
+  # Materialize the flat top-level fields that admissibility and nested
   # validation still read directly from the config object.
   normalized_config$alpha <- normalized_config$policy$alpha
   normalized_config$k_species <- normalized_config$policy$k_species
@@ -1496,8 +1373,6 @@ validate_config <- function(config,
     stop("'config' must be a list.", call. = FALSE)
   }
 
-  config <- normalize_config_aliases(config)
-
   config <- normalize_similarity_config_shape(config)
   config <- normalize_selection_config_shape(config)
   config <- apply_cache_defaults(config)
@@ -1531,7 +1406,6 @@ validate_config <- function(config,
   validate_selection_section(config$selection %||% NULL)
   validate_stage_section(config$simulation %||% NULL, "Simulation", worker_field = "workers")
   validate_metalearner_section(config$metalearner %||% NULL)
-  validate_post_selection_conformal_section(config$post_selection_conformal %||% NULL)
 
   config
 }
@@ -1547,14 +1421,28 @@ normalize_metalearner_section <- function(metalearner_section) {
     return(metalearner_section)
   }
 
-  selection_method <- metalearner_section$selection_method %||% "glm"
-  metalearner_section$method_settings <- normalize_meta_policy_method_settings(
+  selection_method <- metalearner_section[["selection_method", exact = TRUE]] %||% "glm"
+  uncertainty_method <- metalearner_section[["uncertainty_method", exact = TRUE]] %||% NULL
+  base_method_settings <- normalize_meta_policy_method_settings(
     metalearner_section$method_settings %||% NULL
   )
-  if (is.null(metalearner_section$uncertainty_method) ||
-    (is.character(metalearner_section$uncertainty_method) &&
-      length(metalearner_section$uncertainty_method) == 1 &&
-      !nzchar(stringr::str_squish(metalearner_section$uncertainty_method)))) {
+  metalearner_section$method_settings <- base_method_settings
+  metalearner_section$selection_method_settings <- normalize_meta_policy_method_settings(
+    merge_cfg(
+      base_method_settings,
+      metalearner_section$selection_method_settings %||% list()
+    )
+  )
+  metalearner_section$uncertainty_method_settings <- normalize_meta_policy_method_settings(
+    merge_cfg(
+      base_method_settings,
+      metalearner_section$uncertainty_method_settings %||% list()
+    )
+  )
+  if (is.null(uncertainty_method) ||
+    (is.character(uncertainty_method) &&
+      length(uncertainty_method) == 1 &&
+      !nzchar(stringr::str_squish(uncertainty_method)))) {
     metalearner_section$uncertainty_method <- selection_method
   }
 
@@ -2209,8 +2097,22 @@ validate_metalearner_section <- function(metalearner_section) {
   normalized_method_settings <- normalize_meta_policy_method_settings(
     metalearner_section$method_settings %||% NULL
   )
+  selection_method_settings <- normalize_meta_policy_method_settings(
+    merge_cfg(
+      normalized_method_settings,
+      metalearner_section$selection_method_settings %||% list()
+    )
+  )
+  uncertainty_method_settings <- normalize_meta_policy_method_settings(
+    merge_cfg(
+      normalized_method_settings,
+      metalearner_section$uncertainty_method_settings %||% list()
+    )
+  )
   method_catalog <- meta_policy_method_catalog(
-    method_settings = normalized_method_settings
+    method_settings = normalize_meta_policy_method_settings(
+      merge_cfg(selection_method_settings, uncertainty_method_settings)
+    )
   )
   allowed_methods <- c(
     "super_learner",
@@ -2274,7 +2176,9 @@ validate_metalearner_section <- function(metalearner_section) {
       metalearner_section$selection_super_methods,
       use.names = FALSE
     )))
-    allowed_super_methods <- method_catalog$methods
+    allowed_super_methods <- meta_policy_method_catalog(
+      method_settings = selection_method_settings
+    )$methods
     bad_methods <- setdiff(methods_now, allowed_super_methods)
     if (length(bad_methods) > 0) {
       stop(
@@ -2299,8 +2203,46 @@ validate_metalearner_section <- function(metalearner_section) {
     }
   }
 
+  if (!is.null(metalearner_section$uncertainty_super_methods)) {
+    methods_now <- stringr::str_squish(as.character(unlist(
+      metalearner_section$uncertainty_super_methods,
+      use.names = FALSE
+    )))
+    allowed_super_methods <- meta_policy_method_catalog(
+      method_settings = uncertainty_method_settings
+    )$methods
+    bad_methods <- setdiff(methods_now, allowed_super_methods)
+    if (length(bad_methods) > 0) {
+      stop(
+        sprintf(
+          "Metalearner field 'uncertainty_super_methods' contains unsupported method(s): %s",
+          paste(bad_methods, collapse = ", ")
+        ),
+        call. = FALSE
+      )
+    }
+    uncertainty_method_now <- stringr::str_squish(as.character(
+      metalearner_section$uncertainty_method %||% ""
+    ))
+    if (!identical(uncertainty_method_now, "super_learner")) {
+      stop(
+        paste(
+          "Metalearner field 'uncertainty_super_methods' is only valid when",
+          "'uncertainty_method = \"super_learner\"'."
+        ),
+        call. = FALSE
+      )
+    }
+  }
+
   if (!is.null(metalearner_section$method_settings)) {
     validate_metalearner_method_settings(normalized_method_settings)
+  }
+  if (!is.null(metalearner_section$selection_method_settings)) {
+    validate_metalearner_method_settings(selection_method_settings)
+  }
+  if (!is.null(metalearner_section$uncertainty_method_settings)) {
+    validate_metalearner_method_settings(uncertainty_method_settings)
   }
 
   if (!is.null(metalearner_section$max_selection_tolerance) &&
@@ -2323,7 +2265,7 @@ validate_metalearner_method_settings <- function(method_settings) {
     stop("Metalearner field 'method_settings' must be a named list.", call. = FALSE)
   }
 
-  allowed_sections <- c("glmnet", "quantreg", "gam", "rpart", "ranger", "xgboost")
+  allowed_sections <- c("glmnet", "quantreg", "gam", "lmer", "rpart", "ranger", "xgboost")
   bad_sections <- setdiff(names(method_settings), allowed_sections)
   if (length(bad_sections) > 0) {
     stop(
@@ -2405,6 +2347,37 @@ validate_metalearner_method_settings <- function(method_settings) {
       (!is.logical(settings$select_terms) || length(settings$select_terms) != 1 || is.na(settings$select_terms))) {
       stop(sprintf("Metalearner field '%s.select_terms' must be TRUE or FALSE.", field_label), call. = FALSE)
     }
+  }
+
+  validate_lmer_settings <- function(settings, field_label) {
+    if (!is.list(settings)) {
+      stop(sprintf("Metalearner field '%s' must be a named list.", field_label), call. = FALSE)
+    }
+    if (!is.null(settings$fit_method)) {
+      fit_method <- stringr::str_squish(as.character(settings$fit_method))
+      if (length(fit_method) != 1 || !fit_method %in% c("REML", "ML")) {
+        stop(
+          sprintf(
+            "Metalearner field '%s.fit_method' must be one of: REML, ML.",
+            field_label
+          ),
+          call. = FALSE
+        )
+      }
+    }
+    if (!is.null(settings$group_cols)) {
+      group_cols <- as.character(unlist(settings$group_cols, use.names = FALSE))
+      if (length(group_cols) == 0 || anyNA(group_cols) || any(!nzchar(stringr::str_squish(group_cols)))) {
+        stop(
+          sprintf(
+            "Metalearner field '%s.group_cols' must contain one or more non-empty column names.",
+            field_label
+          ),
+          call. = FALSE
+        )
+      }
+    }
+    validate_variant_block(settings, field_label, validate_lmer_settings)
   }
 
   validate_quantreg_settings <- function(settings, field_label) {
@@ -2532,6 +2505,7 @@ validate_metalearner_method_settings <- function(method_settings) {
   validate_quantreg_settings(method_settings$quantreg %||% list(), "method_settings.quantreg")
   validate_glmnet_settings(method_settings$glmnet %||% list(), "method_settings.glmnet")
   validate_gam_settings(method_settings$gam %||% list(), "method_settings.gam")
+  validate_lmer_settings(method_settings$lmer %||% list(), "method_settings.lmer")
   validate_rpart_settings(method_settings$rpart %||% list(), "method_settings.rpart")
   validate_ranger_settings(method_settings$ranger %||% list(), "method_settings.ranger")
   validate_xgboost_settings(method_settings$xgboost %||% list(), "method_settings.xgboost")
@@ -2540,57 +2514,6 @@ validate_metalearner_method_settings <- function(method_settings) {
 }
 
 #' Validate the post-selection conformal section
-#'
-#' @param conformal_section Config `post_selection_conformal` section.
-#'
-#' @return Invisibly returns `NULL`.
-#' @keywords internal
-validate_post_selection_conformal_section <- function(conformal_section) {
-  if (is.null(conformal_section)) {
-    return(invisible(NULL))
-  }
-
-  for (field_name in c("alpha", "bin_alpha")) {
-    field_value <- conformal_section[[field_name]]
-    if (is.null(field_value)) {
-      next
-    }
-    if (!is.numeric(field_value) || length(field_value) != 1 || !is.finite(field_value) ||
-      field_value <= 0 || field_value >= 1) {
-      stop(sprintf("Post-selection conformal field '%s' must be strictly between 0 and 1.", field_name), call. = FALSE)
-    }
-  }
-
-  for (field_name in c("min_bin_scores", "n_bins")) {
-    field_value <- conformal_section[[field_name]]
-    if (is.null(field_value)) {
-      next
-    }
-    if (!is.numeric(field_value) || length(field_value) != 1 || !is.finite(field_value) || field_value < 1) {
-      stop(sprintf("Post-selection conformal field '%s' must be one finite number >= 1.", field_name), call. = FALSE)
-    }
-  }
-
-  if (!is.null(conformal_section$use_support_bin_intervals) &&
-    (!is.logical(conformal_section$use_support_bin_intervals) ||
-      length(conformal_section$use_support_bin_intervals) != 1 ||
-      is.na(conformal_section$use_support_bin_intervals))) {
-    stop(
-      "Post-selection conformal field 'use_support_bin_intervals' must be TRUE or FALSE.",
-      call. = FALSE
-    )
-  }
-
-  if (!is.null(conformal_section$support_bin_labels)) {
-    resolve_post_selection_support_labels(
-      labels = conformal_section$support_bin_labels,
-      n_bins = conformal_section$n_bins %||% 3L
-    )
-  }
-
-  invisible(NULL)
-}
-
 #' Validate the policy section
 #'
 #' @param policy_section Config `policy` section.
@@ -2674,7 +2597,7 @@ validate_policy_list_section <- function(policies_section,
   unknown_values <- Filter(
     function(policy_name) {
       !policy_name %in% known_values &&
-        !is.list(construct_policy_definition_from_name(policy_name, policy_path = policy_path))
+        !is.list(build_policy_definition_from_name(policy_name, policy_path = policy_path))
     },
     active_values
   )

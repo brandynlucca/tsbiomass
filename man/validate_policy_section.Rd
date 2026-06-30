@@ -2,7 +2,8 @@
 % Please edit documentation in R/config.R
 \name{validate_policy_section}
 \alias{validate_policy_section}
-\title{Validate the policy section}
+\title{Validate the post-selection conformal section
+Validate the policy section}
 \usage{
 validate_policy_section(policy_section, registry_path = NULL)
 }
@@ -15,6 +16,7 @@ validate_policy_section(policy_section, registry_path = NULL)
 Invisibly returns \code{NULL}.
 }
 \description{
+Validate the post-selection conformal section
 Validate the policy section
 }
 \keyword{internal}

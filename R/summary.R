@@ -574,8 +574,7 @@ summarize_slope_effect <- function(candidate_models,
   }
 
   # Derive the generalized-model flag when the prepared model table does not
-  # already carry one. This uses the current package table shape rather than
-  # the old script's `common` column.
+  # already carry one.
   if (!group_col %in% names(models_tbl)) {
     generic_labels <- c(
       "physoclists", "physostomes", "clupeoids", "clupeids",

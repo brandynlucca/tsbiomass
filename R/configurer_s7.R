@@ -6,13 +6,12 @@
 #' study-specific default is injected during S7 construction.
 #'
 #' @examples
-#' cfg <- create_configurer(list(
+#' cfg <- build_configurer(list(
 #'   paths = list(
 #'     input = "input.xlsx",
 #'     output_root = "outputs",
 #'     cache_folder = "cache",
 #'     support_folder = "supplemental",
-#'     area_file = "fao_areas.csv",
 #'     log_path = "outputs/run.log"
 #'   ),
 #'   execution = list(
@@ -46,7 +45,7 @@
 #'     )
 #'   ),
 #'   policies = list(
-#'     active = "same_species_closest"
+#'     active = "closest_within_species"
 #'   ),
 #'   metalearner = list(
 #'     selection_method = "glm"
@@ -125,7 +124,6 @@ normalize_explicit_config <- function(config,
     stop("'base_dir' must be a single non-empty path.", call. = FALSE)
   }
 
-  config <- normalize_config_aliases(config)
   config <- normalize_similarity_config_shape(config)
   config <- apply_cache_defaults(config)
   config <- normalize_active_policy_names(config)
@@ -157,8 +155,7 @@ normalize_explicit_config <- function(config,
     config$paths$fao_polygon_csv <- path_absolute(config$paths$fao_polygon_csv, base_dir = base_dir)
   }
 
-  # Materialize the existing compatibility fields so downstream code can read
-  # the validated S7-backed config without changing the execution layer here.
+  # Materialize the active config fields used by the current execution layer.
   config$alpha <- config$policy$alpha
   config$kernel_scale <- config$similarity$kernel_scale %||% NULL
   config$k_species <- config$similarity$kernel_scale %||% config$policy$k_species
@@ -220,13 +217,12 @@ S7::S4_register(Configurer)
 #'   normalized config list.
 #'
 #' @examples
-#' cfg <- create_configurer(list(
+#' cfg <- build_configurer(list(
 #'   paths = list(
 #'     input = "input.xlsx",
 #'     output_root = "outputs",
 #'     cache_folder = "cache",
 #'     support_folder = "supplemental",
-#'     area_file = "fao_areas.csv",
 #'     log_path = "outputs/run.log"
 #'   ),
 #'   execution = list(
@@ -260,7 +256,7 @@ S7::S4_register(Configurer)
 #'     )
 #'   ),
 #'   policies = list(
-#'     active = "same_species_closest"
+#'     active = "closest_within_species"
 #'   ),
 #'   metalearner = list(
 #'     selection_method = "glm"
@@ -269,10 +265,10 @@ S7::S4_register(Configurer)
 #' cfg@data$paths$out_root
 #'
 #' @export
-create_configurer <- function(config,
-                              base_dir = getwd(),
-                              registry_path = NULL,
-                              policy_path = NULL) {
+build_configurer <- function(config,
+                             base_dir = getwd(),
+                             registry_path = NULL,
+                             policy_path = NULL) {
   if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
     return(config)
   }
@@ -352,7 +348,7 @@ configurer_from_yaml <- function(path,
     stop(sprintf("Config file does not exist: %s", path), call. = FALSE)
   }
 
-  create_configurer(
+  build_configurer(
     config = yaml::read_yaml(path),
     base_dir = base_dir,
     registry_path = registry_path,
@@ -382,11 +378,11 @@ configurer_console_summary <- function(x) {
 
   active_policies <- as.character(unlist((data_list$policies %||% list())$active %||% character(0), use.names = FALSE))
   active_policies <- active_policies[!is.na(active_policies) & nzchar(active_policies)]
-  branch_filters <- as.character(unlist(
-    ((data_list$policies %||% list())$branch_filters %||% (data_list$policies %||% list())$equation_branch_filters %||% character(0)),
+  equation_branch_filters <- as.character(unlist(
+    ((data_list$policies %||% list())$equation_branch_filters %||% (data_list$policies %||% list())$equation_branch_filters %||% character(0)),
     use.names = FALSE
   ))
-  branch_filters <- branch_filters[!is.na(branch_filters) & nzchar(branch_filters)]
+  equation_branch_filters <- equation_branch_filters[!is.na(equation_branch_filters) & nzchar(equation_branch_filters)]
 
   enabled_sections <- names(data_list)[vapply(data_list, function(value) {
     is.list(value) && length(value) > 0
@@ -395,18 +391,18 @@ configurer_console_summary <- function(x) {
 
   cat("Configurer\n")
   cat("  base_dir: ", x@base_dir, "\n", sep = "")
-  cat("  input: ", data_list$paths$input %||% data_list$paths$input_file %||% "", "\n", sep = "")
-  cat("  output_root: ", data_list$paths$output_root %||% data_list$paths$out_root %||% "", "\n", sep = "")
-  cat("  cache_dir: ", data_list$paths$cache_dir %||% data_list$paths$cache_folder %||% "", "\n", sep = "")
+  cat("  input_file: ", data_list$paths$input_file %||% "", "\n", sep = "")
+  cat("  out_root: ", data_list$paths$out_root %||% "", "\n", sep = "")
+  cat("  cache_dir: ", data_list$paths$cache_dir %||% "", "\n", sep = "")
   cat("  species_traits: ", preview_values(species_traits), "\n", sep = "")
   cat("  study_traits: ", preview_values(study_traits), "\n", sep = "")
   cat("  active_policies: ", preview_values(active_policies), "\n", sep = "")
-  cat("  branch_filters: ", preview_values(branch_filters), "\n", sep = "")
+  cat("  equation_branch_filters: ", preview_values(equation_branch_filters), "\n", sep = "")
   cat("  selection_method: ", learner_settings$selection_method %||% "none", "\n", sep = "")
   cat("  uncertainty_method: ", learner_settings$uncertainty_method %||% learner_settings$selection_method %||% "none", "\n", sep = "")
   cat("  alpha: ", policy_section$alpha %||% similarity_section$alpha %||% NA_real_, "\n", sep = "")
   cat("  kernel_scale: ", similarity_section$kernel_scale %||% data_list$kernel_scale %||% NA_real_, "\n", sep = "")
-  cat("  strict_pdf: ", execution_section$strict_pdf %||% NA, "\n", sep = "")
+  cat("  strict_length_pdf: ", execution_section$strict_length_pdf %||% NA, "\n", sep = "")
   cat("  refresh_benchmark: ", benchmark_section$refresh %||% NA, "\n", sep = "")
   cat("  sections: ", preview_values(enabled_sections), "\n", sep = "")
   invisible(x)
@@ -473,7 +469,7 @@ as_configurer <- function(config,
     ))
   }
 
-  create_configurer(
+  build_configurer(
     config = config,
     base_dir = base_dir,
     registry_path = registry_path,

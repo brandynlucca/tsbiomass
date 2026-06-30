@@ -41,7 +41,7 @@ conformal error is similar.
 \examples{
 interval_tbl <- add_policy_intervals(
   tibble::tibble(
-    policy = "same_species_closest",
+    policy = "closest_within_species",
     multiplier_pred = 1.2,
     q_abs_log = 0.15,
     local_structural_q_abs_log = 0.05

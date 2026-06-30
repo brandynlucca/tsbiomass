@@ -9,7 +9,8 @@ evaluate_policies(
   ordination_info = NULL,
   policies = NULL,
   policy_params = list(),
-  policy_path = NULL
+  policy_path = NULL,
+  execution_plan = NULL
 )
 }
 \arguments{
@@ -24,6 +25,9 @@ all policies from the registry.}
 \item{policy_params}{Optional named list of per-policy parameter overrides.}
 
 \item{policy_path}{Optional path to a policy registry JSON file.}
+
+\item{execution_plan}{Optional prebuilt plan from
+\code{\link[=build_policy_execution_plan]{build_policy_execution_plan()}}.}
 }
 \value{
 A tibble with \code{policy}, \code{multiplier_pred}, and \code{n_models}.

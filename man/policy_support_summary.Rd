@@ -4,12 +4,16 @@
 \alias{policy_support_summary}
 \title{Summarize one policy donor pool}
 \usage{
-policy_support_summary(rows, policy_def)
+policy_support_summary(rows, policy_def, summary_rows = NULL)
 }
 \arguments{
 \item{rows}{Candidate-policy row table.}
 
 \item{policy_def}{One policy-definition list.}
+
+\item{summary_rows}{Optional precomputed output from
+\code{\link[=policy_summary_rows]{policy_summary_rows()}}. When supplied, the support summary reuses those
+rows instead of recomputing the method-specific donor subset.}
 }
 \value{
 A one-row tibble of local support diagnostics.

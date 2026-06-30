@@ -6,8 +6,8 @@
 #' @return Character scalar.
 #'
 #' @keywords internal
-anchor_field <- function(config,
-                         key) {
+build_anchor_field <- function(config,
+                               key) {
   # Keep all source-column lookups centralized so anchor screening never needs
   # to hard-code trait names in the function body.
   field_nm <- config$fields[[key]]
@@ -205,11 +205,11 @@ admissibility_key_metadata_cols <- function(config = NULL) {
     ))
   }
 
-  length_min <- anchor_field(cfg, "length_min")
-  length_max <- anchor_field(cfg, "length_max")
-  depth_min <- anchor_field(cfg, "depth_min")
-  depth_max <- anchor_field(cfg, "depth_max")
-  freq_col <- anchor_field(cfg, "frequency")
+  length_min <- build_anchor_field(cfg, "length_min")
+  length_max <- build_anchor_field(cfg, "length_max")
+  depth_min <- build_anchor_field(cfg, "depth_min")
+  depth_max <- build_anchor_field(cfg, "depth_max")
+  freq_col <- build_anchor_field(cfg, "frequency")
 
   min_length_overlap <- suppressWarnings(as.numeric(cfg$min_length_overlap_fraction %||% NA_real_))
   min_depth_overlap <- suppressWarnings(as.numeric(cfg$min_depth_overlap_fraction %||% NA_real_))
@@ -271,13 +271,6 @@ admissibility_bundle_is_current <- function(admissibility_bundle,
       !"frequency_coherence_distance" %in% names(scores_tbl)) {
       return(FALSE)
     }
-    if ("frequency" %in% names(scores_tbl)) {
-      freq_now <- suppressWarnings(as.numeric(scores_tbl$frequency))
-      if (any(is.finite(freq_now) & freq_now > 0, na.rm = TRUE) &&
-        !any(is.finite(scores_tbl$frequency_coherence_distance), na.rm = TRUE)) {
-        return(FALSE)
-      }
-    }
   }
 
   expected_key_cols <- intersect(admissibility_key_metadata_cols(cfg), names(scores_tbl))
@@ -315,9 +308,9 @@ build_anchor_density <- function(anchor_row,
                                  n = 400) {
   # Use only the study-reported anchor length metadata. Missing study lengths
   # remain missing rather than being imputed from species maxima.
-  len_min_col <- anchor_field(config, "length_min")
-  len_max_col <- anchor_field(config, "length_max")
-  len_mid_col <- anchor_field(config, "length_midpoint")
+  len_min_col <- build_anchor_field(config, "length_min")
+  len_max_col <- build_anchor_field(config, "length_max")
+  len_mid_col <- build_anchor_field(config, "length_midpoint")
 
   mins <- suppressWarnings(as.numeric(anchor_row[[len_min_col]]))
   maxs <- suppressWarnings(as.numeric(anchor_row[[len_max_col]]))
@@ -373,7 +366,7 @@ build_anchor_density <- function(anchor_row,
 #' @return A numeric scalar.
 #'
 #' @keywords internal
-calculate_range_overlap <- function(a_min, a_max, b_min, b_max) {
+compute_range_overlap <- function(a_min, a_max, b_min, b_max) {
   if (!is.finite(a_min) || !is.finite(a_max) ||
     !is.finite(b_min) || !is.finite(b_max)) {
     return(NA_real_)
@@ -397,7 +390,7 @@ calculate_range_overlap <- function(a_min, a_max, b_min, b_max) {
 #' @return Numeric vector.
 #'
 #' @keywords internal
-calculate_range_overlap_vec <- function(a_min, a_max, b_min, b_max) {
+compute_range_overlap_vec <- function(a_min, a_max, b_min, b_max) {
   a_min_ <- suppressWarnings(as.numeric(a_min))
   a_max_ <- suppressWarnings(as.numeric(a_max))
   a_min_ <- if (length(a_min_) == 0) NA_real_ else a_min_[[1]]
@@ -431,10 +424,10 @@ calculate_range_overlap_vec <- function(a_min, a_max, b_min, b_max) {
 #' @return Numeric vector.
 #'
 #' @keywords internal
-calculate_frequency_gap <- function(candidate_freq,
-                                    anchor_freq,
-                                    freq_span,
-                                    mode = "overlap") {
+compute_frequency_gap <- function(candidate_freq,
+                                  anchor_freq,
+                                  freq_span,
+                                  mode = "overlap") {
   # Get valid frequencies
   valid_freqs <- is.finite(candidate_freq) & candidate_freq > 0 & is.finite(anchor_freq) & anchor_freq > 0
 
@@ -495,6 +488,119 @@ S7::method(screen_missing_metadata, S7::class_any) <- function(candidate_models,
     )
 }
 
+admissibility_overlap_trait_defs <- local({
+  cache <- new.env(parent = emptyenv())
+
+  function(registry_path = NULL) {
+    cache_key <- if (is.null(registry_path) || !length(registry_path) || is.na(registry_path[[1]]) || !nzchar(as.character(registry_path[[1]]))) {
+      "__default__"
+    } else {
+      as.character(registry_path[[1]])
+    }
+
+    if (exists(cache_key, envir = cache, inherits = FALSE)) {
+      return(get(cache_key, envir = cache, inherits = FALSE))
+    }
+
+    registry <- read_trait_registry(registry_path = registry_path)
+    trait_defs <- c(registry$species_traits %||% list(), registry$study_traits %||% list())
+    trait_defs <- trait_defs[!duplicated(vapply(
+      trait_defs,
+      function(x) as.character(x$coded_name %||% NA_character_)[[1]],
+      character(1)
+    ))]
+
+    assign(cache_key, trait_defs, envir = cache)
+    trait_defs
+  }
+})
+
+#' Prepare overlap-ready trait columns
+#'
+#' @param candidate_models Candidate-model table.
+#' @param config Anchor config list.
+#' @param registry_path Optional trait-registry path.
+#'
+#' @return Candidate-model tibble with temporary normalized overlap helper
+#'   columns prefixed `.ov_`.
+#'
+#' @keywords internal
+prepare_admissibility_overlap_columns <- function(candidate_models,
+                                                  config,
+                                                  registry_path = NULL) {
+  # Normalize the candidate-side trait values once per benchmark/admissibility
+  # scenario so anchor-level overlap checks do not keep re-parsing the same
+  # strings inside every anchor worker.
+  out <- tibble::as_tibble(candidate_models)
+  trait_defs <- admissibility_overlap_trait_defs(registry_path = registry_path)
+  target_traits <- unique(c(
+    as.character(config$species_traits %||% character(0)),
+    as.character(config$study_traits %||% character(0)),
+    "swimbladder_type",
+    "fao_area",
+    "ocean_basin",
+    "equation_form",
+    "derivation_type"
+  ))
+  target_traits <- target_traits[!is.na(target_traits) & nzchar(target_traits)]
+  if (length(target_traits) == 0L) {
+    return(out)
+  }
+
+  trait_defs <- trait_defs[vapply(
+    trait_defs,
+    function(x) {
+      trait_name <- as.character(x$coded_name %||% NA_character_)[[1]]
+      !is.na(trait_name) && trait_name %in% target_traits && trait_name %in% names(out)
+    },
+    logical(1)
+  )]
+  if (length(trait_defs) == 0L) {
+    return(out)
+  }
+
+  parse_set_values <- function(x) {
+    x_chr <- stringr::str_to_lower(stringr::str_squish(as.character(x)))
+    x_chr <- x_chr[!is.na(x_chr) & nzchar(x_chr)]
+    if (length(x_chr) == 0L) {
+      return(character(0))
+    }
+    parts <- unlist(strsplit(x_chr, "[;,]", perl = TRUE), use.names = FALSE)
+    parts <- stringr::str_squish(parts)
+    unique(parts[!is.na(parts) & nzchar(parts)])
+  }
+  coerce_binary_vec <- function(x) {
+    if (is.logical(x) || is.numeric(x) || is.integer(x)) {
+      return(as.logical(x))
+    }
+    x_chr <- stringr::str_to_lower(stringr::str_squish(as.character(x)))
+    out <- rep(NA, length(x_chr))
+    out[x_chr %in% c("1", "true", "yes", "y")] <- TRUE
+    out[x_chr %in% c("0", "false", "no", "n")] <- FALSE
+    out
+  }
+
+  for (trait_def in trait_defs) {
+    trait_name <- as.character(trait_def$coded_name %||% NA_character_)[[1]]
+    trait_type <- as.character(trait_def$data_type %||% NA_character_)[[1]]
+    if (is.na(trait_name) || !nzchar(trait_name) || !trait_name %in% names(out)) {
+      next
+    }
+
+    if (identical(trait_type, "set")) {
+      out[[paste0(".ov_set_", trait_name)]] <- lapply(out[[trait_name]], parse_set_values)
+    } else if (identical(trait_type, "binary")) {
+      out[[paste0(".ov_bin_", trait_name)]] <- coerce_binary_vec(out[[trait_name]])
+    } else if (identical(trait_type, "categorical")) {
+      out[[paste0(".ov_cat_", trait_name)]] <- stringr::str_to_lower(
+        stringr::str_squish(as.character(out[[trait_name]]))
+      )
+    }
+  }
+
+  out
+}
+
 #' Add anchor-relative overlap fields
 #'
 #' Computes anchor-relative taxonomy and study-domain overlap fields for one
@@ -508,7 +614,8 @@ S7::method(screen_missing_metadata, S7::class_any) <- function(candidate_models,
 #' @keywords internal
 add_anchor_overlap <- function(candidate_models,
                                anchor_row,
-                               config) {
+                               config,
+                               registry_path = NULL) {
   # Pull the anchor scalars once so the row-wise overlap calculations below can
   # work against simple local values.
   anchor_numeric_scalar <- function(df,
@@ -541,37 +648,121 @@ add_anchor_overlap <- function(candidate_models,
     }
     value
   }
-  species_col <- anchor_field(config, "species_name")
-  genus_col <- anchor_field(config, "genus")
-  family_col <- anchor_field(config, "family")
-  order_col <- anchor_field(config, "order")
+  species_col <- build_anchor_field(config, "species_name")
+  genus_col <- build_anchor_field(config, "genus")
+  family_col <- build_anchor_field(config, "family")
+  order_col <- build_anchor_field(config, "order")
 
-  len_min_col <- anchor_field(config, "length_min")
-  len_max_col <- anchor_field(config, "length_max")
-  dep_min_col <- anchor_field(config, "depth_min")
-  dep_max_col <- anchor_field(config, "depth_max")
+  len_min_col <- build_anchor_field(config, "length_min")
+  len_max_col <- build_anchor_field(config, "length_max")
+  dep_min_col <- build_anchor_field(config, "depth_min")
+  dep_max_col <- build_anchor_field(config, "depth_max")
 
-  anchor_species <- as.character(anchor_row[[species_col]][[1]])
-  anchor_genus <- as.character(anchor_row[[genus_col]][[1]])
-  anchor_family <- as.character(anchor_row[[family_col]][[1]])
-  anchor_order <- as.character(anchor_row[[order_col]][[1]])
+  anchor_species <- if (is.character(species_col) &&
+    length(species_col) == 1L &&
+    !is.na(species_col) &&
+    nzchar(species_col) &&
+    species_col %in% names(anchor_row)) {
+    as.character(anchor_row[[species_col]][[1]])
+  } else {
+    NA_character_
+  }
+  anchor_genus <- if (is.character(genus_col) &&
+    length(genus_col) == 1L &&
+    !is.na(genus_col) &&
+    nzchar(genus_col) &&
+    genus_col %in% names(anchor_row)) {
+    as.character(anchor_row[[genus_col]][[1]])
+  } else {
+    NA_character_
+  }
+  anchor_family <- if (is.character(family_col) &&
+    length(family_col) == 1L &&
+    !is.na(family_col) &&
+    nzchar(family_col) &&
+    family_col %in% names(anchor_row)) {
+    as.character(anchor_row[[family_col]][[1]])
+  } else {
+    NA_character_
+  }
+  anchor_order <- if (is.character(order_col) &&
+    length(order_col) == 1L &&
+    !is.na(order_col) &&
+    nzchar(order_col) &&
+    order_col %in% names(anchor_row)) {
+    as.character(anchor_row[[order_col]][[1]])
+  } else {
+    NA_character_
+  }
   anchor_len_min <- anchor_numeric_scalar(anchor_row, len_min_col)
   anchor_len_max <- anchor_numeric_scalar(anchor_row, len_max_col)
   anchor_dep_min <- anchor_numeric_scalar(anchor_row, dep_min_col)
   anchor_dep_max <- anchor_numeric_scalar(anchor_row, dep_max_col)
 
   out <- tibble::as_tibble(candidate_models)
-  out$overlap_same_species <- !is.na(out[[species_col]]) & out[[species_col]] == anchor_species
-  out$overlap_same_genus <- !is.na(out[[genus_col]]) & out[[genus_col]] == anchor_genus
-  out$overlap_same_family <- !is.na(out[[family_col]]) & out[[family_col]] == anchor_family
-  out$overlap_same_order <- !is.na(out[[order_col]]) & out[[order_col]] == anchor_order
-  registry <- read_trait_registry(registry_path = NULL)
-  trait_defs <- c(registry$species_traits %||% list(), registry$study_traits %||% list())
-  trait_defs <- trait_defs[!duplicated(vapply(
-    trait_defs,
-    function(x) as.character(x$coded_name %||% NA_character_)[[1]],
-    character(1)
-  ))]
+  # Guard overlap columns so trait ablations can remove taxonomy fields
+  # without breaking anchor-relative screening.
+  out$overlap_same_species <- if (is.character(species_col) &&
+    length(species_col) == 1L &&
+    !is.na(species_col) &&
+    nzchar(species_col) &&
+    species_col %in% names(out) &&
+    species_col %in% names(anchor_row)) {
+    !is.na(out[[species_col]]) & out[[species_col]] == anchor_species
+  } else {
+    rep(FALSE, nrow(out))
+  }
+  out$overlap_same_genus <- if (is.character(genus_col) &&
+    length(genus_col) == 1L &&
+    !is.na(genus_col) &&
+    nzchar(genus_col) &&
+    genus_col %in% names(out) &&
+    genus_col %in% names(anchor_row)) {
+    !is.na(out[[genus_col]]) & out[[genus_col]] == anchor_genus
+  } else {
+    rep(FALSE, nrow(out))
+  }
+  out$overlap_same_family <- if (is.character(family_col) &&
+    length(family_col) == 1L &&
+    !is.na(family_col) &&
+    nzchar(family_col) &&
+    family_col %in% names(out) &&
+    family_col %in% names(anchor_row)) {
+    !is.na(out[[family_col]]) & out[[family_col]] == anchor_family
+  } else {
+    rep(FALSE, nrow(out))
+  }
+  out$overlap_same_order <- if (is.character(order_col) &&
+    length(order_col) == 1L &&
+    !is.na(order_col) &&
+    nzchar(order_col) &&
+    order_col %in% names(out) &&
+    order_col %in% names(anchor_row)) {
+    !is.na(out[[order_col]]) & out[[order_col]] == anchor_order
+  } else {
+    rep(FALSE, nrow(out))
+  }
+  trait_defs <- admissibility_overlap_trait_defs(registry_path = registry_path)
+  target_traits <- unique(c(
+    as.character(config$species_traits %||% character(0)),
+    as.character(config$study_traits %||% character(0)),
+    "swimbladder_type",
+    "fao_area",
+    "ocean_basin",
+    "equation_form",
+    "derivation_type"
+  ))
+  target_traits <- target_traits[!is.na(target_traits) & nzchar(target_traits)]
+  if (length(target_traits) > 0L) {
+    trait_defs <- trait_defs[vapply(
+      trait_defs,
+      function(x) {
+        trait_name <- as.character(x$coded_name %||% NA_character_)[[1]]
+        !is.na(trait_name) && trait_name %in% target_traits
+      },
+      logical(1)
+    )]
+  }
   parse_set_values <- function(x) {
     x_chr <- stringr::str_to_lower(stringr::str_squish(as.character(x)))
     x_chr <- x_chr[!is.na(x_chr) & nzchar(x_chr)]
@@ -581,6 +772,16 @@ add_anchor_overlap <- function(candidate_models,
     parts <- unlist(strsplit(x_chr, "[;,]", perl = TRUE), use.names = FALSE)
     parts <- stringr::str_squish(parts)
     parts[!is.na(parts) & nzchar(parts)]
+  }
+  coerce_binary_vec <- function(x) {
+    if (is.logical(x) || is.numeric(x) || is.integer(x)) {
+      return(as.logical(x))
+    }
+    x_chr <- stringr::str_to_lower(stringr::str_squish(as.character(x)))
+    out <- rep(NA, length(x_chr))
+    out[x_chr %in% c("1", "true", "yes", "y")] <- TRUE
+    out[x_chr %in% c("0", "false", "no", "n")] <- FALSE
+    out
   }
   coerce_binary_scalar <- function(x) {
     if (length(x) == 0 || is.na(x[[1]])) {
@@ -612,34 +813,32 @@ add_anchor_overlap <- function(candidate_models,
     overlap_col <- paste0("overlap_same_", trait_name)
     if (identical(trait_type, "set")) {
       anchor_vals <- parse_set_values(anchor_row[[trait_name]])
-      out[[overlap_col]] <- vapply(
-        out[[trait_name]],
-        function(x) {
-          vals <- parse_set_values(x)
-          length(intersect(anchor_vals, vals)) > 0
-        },
-        logical(1)
-      )
+      helper_col <- paste0(".ov_set_", trait_name)
+      if (helper_col %in% names(out)) {
+        out[[overlap_col]] <- vapply(
+          out[[helper_col]],
+          function(vals) length(intersect(anchor_vals, vals)) > 0,
+          logical(1)
+        )
+      } else {
+        out[[overlap_col]] <- vapply(
+          out[[trait_name]],
+          function(x) {
+            vals <- parse_set_values(x)
+            length(intersect(anchor_vals, vals)) > 0
+          },
+          logical(1)
+        )
+      }
     } else if (identical(trait_type, "binary")) {
       anchor_val <- coerce_binary_scalar(anchor_row[[trait_name]])
-      out[[overlap_col]] <- vapply(
-        out[[trait_name]],
-        function(x) {
-          candidate_val <- coerce_binary_scalar(x)
-          !is.na(candidate_val) && !is.na(anchor_val) && identical(candidate_val, anchor_val)
-        },
-        logical(1)
-      )
+      candidate_val <- out[[paste0(".ov_bin_", trait_name)]] %||% coerce_binary_vec(out[[trait_name]])
+      out[[overlap_col]] <- !is.na(candidate_val) & !is.na(anchor_val) & candidate_val == anchor_val
     } else if (identical(trait_type, "categorical")) {
       anchor_val <- stringr::str_to_lower(stringr::str_squish(as.character(anchor_row[[trait_name]][[1]])))
-      out[[overlap_col]] <- vapply(
-        out[[trait_name]],
-        function(x) {
-          candidate_val <- stringr::str_to_lower(stringr::str_squish(as.character(x[[1]] %||% NA_character_)))
-          !is.na(candidate_val) && nzchar(candidate_val) && !is.na(anchor_val) && nzchar(anchor_val) && identical(candidate_val, anchor_val)
-        },
-        logical(1)
-      )
+      candidate_val <- out[[paste0(".ov_cat_", trait_name)]] %||%
+        stringr::str_to_lower(stringr::str_squish(as.character(out[[trait_name]])))
+      out[[overlap_col]] <- !is.na(candidate_val) & nzchar(candidate_val) & !is.na(anchor_val) & nzchar(anchor_val) & candidate_val == anchor_val
     }
   }
   out$overlap_same_swimbladder <- if ("overlap_same_swimbladder_type" %in% names(out)) {
@@ -667,13 +866,13 @@ add_anchor_overlap <- function(candidate_models,
   } else {
     rep(FALSE, nrow(out))
   }
-  out$length_overlap_fraction <- calculate_range_overlap_vec(
+  out$length_overlap_fraction <- compute_range_overlap_vec(
     a_min = anchor_len_min,
     a_max = anchor_len_max,
     b_min = candidate_numeric_col(out, len_min_col),
     b_max = candidate_numeric_col(out, len_max_col)
   )
-  out$depth_overlap_fraction <- calculate_range_overlap_vec(
+  out$depth_overlap_fraction <- compute_range_overlap_vec(
     a_min = anchor_dep_min,
     a_max = anchor_dep_max,
     b_min = candidate_numeric_col(out, dep_min_col),
@@ -704,12 +903,11 @@ apply_anchor_gates <- function(candidate_models,
   # configured trait gates are resolved from the registry at runtime so
   # categorical/binary traits use exact matching and set-valued traits use
   # overlap without re-hard-coding each allowable field here.
-  id_col <- anchor_field(config, "model_id_chr")
-  anchor_id <- anchor_model_id(anchor_row, config)
+  id_col <- build_anchor_field(config, "model_id_chr")
+  anchor_id <- build_anchor_model_id(anchor_row, config)
 
   out <- tibble::as_tibble(candidate_models)
   out$gate_not_self <- out[[id_col]] != anchor_id
-  registry <- read_similarity_registry(registry_path = registry_path)
   gate_specs <- data.frame(
     trait_name = c(
       as.character(config$species_traits %||% character(0)),
@@ -728,6 +926,7 @@ apply_anchor_gates <- function(candidate_models,
 
   trait_reason <- rep(NA_character_, nrow(out))
   gate_cols <- character(0)
+  registry <- NULL
   parse_set_value <- function(x) {
     x_chr <- stringr::str_to_lower(stringr::str_squish(as.character(x)))
     if (length(x_chr) == 0 || is.na(x_chr[[1]]) || !nzchar(x_chr[[1]])) {
@@ -764,15 +963,31 @@ apply_anchor_gates <- function(candidate_models,
       )
     }
 
+    gate_col <- paste0("gate_trait_", trait_name)
+    fail_reason <- paste0("trait_mismatch:", trait_name)
+    overlap_col <- paste0("overlap_same_", trait_name)
+
+    # Reuse precomputed overlap flags whenever they already exist so the gate
+    # layer does not re-parse the same trait strings for every anchor.
+    if (!identical(trait_name, "frequency") && overlap_col %in% names(out)) {
+      gate_pass <- as.logical(out[[overlap_col]])
+      gate_pass[is.na(gate_pass)] <- FALSE
+      out[[gate_col]] <- gate_pass
+      gate_cols <- c(gate_cols, gate_col)
+      trait_reason[is.na(trait_reason) & !gate_pass] <- fail_reason
+      next
+    }
+
+    if (is.null(registry)) {
+      registry <- read_similarity_registry(registry_path = registry_path)
+    }
     trait_defn <- if (identical(trait_scope, "species")) {
       registry$species_map[[trait_name]]
     } else {
       registry$study_map[[trait_name]]
     }
     trait_type <- trait_defn$data_type %||% "categorical"
-    gate_col <- paste0("gate_trait_", trait_name)
     gate_pass <- rep(FALSE, nrow(out))
-    fail_reason <- paste0("trait_mismatch:", trait_name)
 
     if (identical(trait_name, "frequency")) {
       freq_mode <- stringr::str_to_lower(stringr::str_squish(as.character(config$frequency_coherence_mode %||% "overlap")))[[1]]
@@ -834,7 +1049,7 @@ apply_anchor_gates <- function(candidate_models,
     freq_mode <- stringr::str_to_lower(
       stringr::str_squish(as.character(config$frequency_coherence_mode %||% "overlap"))
     )[[1]]
-    freq_col <- anchor_field(config, "frequency")
+    freq_col <- build_anchor_field(config, "frequency")
     gate_pass <- if (identical(freq_mode, "none")) rep(TRUE, nrow(out)) else rep(FALSE, nrow(out))
     if (!identical(freq_mode, "none") &&
       freq_col %in% names(out) &&
@@ -856,24 +1071,33 @@ apply_anchor_gates <- function(candidate_models,
     }
     gate_pass
   }
-  out$gate_length_overlap <- dplyr::case_when(
-    is.na(suppressWarnings(as.numeric(config$min_length_overlap_fraction %||% NA_real_))) ~ TRUE,
-    is.na(out$length_overlap_fraction) ~ FALSE,
-    TRUE ~ out$length_overlap_fraction >= config$min_length_overlap_fraction
-  )
-  out$gate_depth_overlap <- dplyr::case_when(
-    is.na(suppressWarnings(as.numeric(config$min_depth_overlap_fraction %||% NA_real_))) ~ TRUE,
-    is.na(out$depth_overlap_fraction) ~ FALSE,
-    TRUE ~ out$depth_overlap_fraction >= config$min_depth_overlap_fraction
-  )
-  out$gate_missing_key_metadata <- dplyr::case_when(
-    is.na(out$key_metadata_missing_fraction) ~ TRUE,
-    TRUE ~ out$key_metadata_missing_fraction <= config$missing_key_metadata_max_fraction
-  )
-  out$admissible <- with(
-    out,
-    out$gate_not_self & out$gate_configured_traits & out$gate_frequency & out$gate_length_overlap & out$gate_depth_overlap & out$gate_missing_key_metadata
-  )
+  # Resolve the remaining scalar gate thresholds with direct vectorized checks
+  # so this hot path does not spend time in repeated case_when evaluation.
+  min_length_overlap <- suppressWarnings(as.numeric(config$min_length_overlap_fraction %||% NA_real_))
+  min_depth_overlap <- suppressWarnings(as.numeric(config$min_depth_overlap_fraction %||% NA_real_))
+  max_missing_key <- suppressWarnings(as.numeric(config$missing_key_metadata_max_fraction %||% NA_real_))
+
+  out$gate_length_overlap <- if (is.na(min_length_overlap)) {
+    rep(TRUE, nrow(out))
+  } else {
+    !is.na(out$length_overlap_fraction) & out$length_overlap_fraction >= min_length_overlap
+  }
+  out$gate_depth_overlap <- if (is.na(min_depth_overlap)) {
+    rep(TRUE, nrow(out))
+  } else {
+    !is.na(out$depth_overlap_fraction) & out$depth_overlap_fraction >= min_depth_overlap
+  }
+  out$gate_missing_key_metadata <- if (is.na(max_missing_key)) {
+    rep(TRUE, nrow(out))
+  } else {
+    is.na(out$key_metadata_missing_fraction) | out$key_metadata_missing_fraction <= max_missing_key
+  }
+  out$admissible <- out$gate_not_self &
+    out$gate_configured_traits &
+    out$gate_frequency &
+    out$gate_length_overlap &
+    out$gate_depth_overlap &
+    out$gate_missing_key_metadata
   out$inadmissible_reason <- trait_reason
   out$inadmissible_reason[!out$gate_not_self] <- "self"
   out$inadmissible_reason[is.na(out$inadmissible_reason) & !out$gate_frequency] <- "frequency_nonoverlap"
@@ -968,8 +1192,8 @@ collect_anchor_scores <- function(eval_obj,
                                   anchor_row,
                                   config = NULL) {
   cfg <- default_anchor_config(config)
-  anchor_id <- anchor_model_id(anchor_row, cfg)
-  anchor_species <- as.character(anchor_row[[anchor_field(cfg, "species_name")]][[1]])
+  anchor_id <- build_anchor_model_id(anchor_row, cfg)
+  anchor_species <- as.character(anchor_row[[build_anchor_field(cfg, "species_name")]][[1]])
 
   scored <- tibble::as_tibble(eval_obj$model_eval) |>
     dplyr::mutate(anchor_model_id = anchor_id, anchor_species = anchor_species)
@@ -1013,8 +1237,8 @@ summarize_gate_counts <- function(scored_df,
                                   anchor_row,
                                   config = NULL) {
   cfg <- default_anchor_config(config)
-  anchor_id <- anchor_model_id(anchor_row, cfg)
-  anchor_species <- as.character(anchor_row[[anchor_field(cfg, "species_name")]][[1]])
+  anchor_id <- build_anchor_model_id(anchor_row, cfg)
+  anchor_species <- as.character(anchor_row[[build_anchor_field(cfg, "species_name")]][[1]])
 
   tibble::as_tibble(scored_df) |>
     dplyr::mutate(inadmissible_reason = dplyr::coalesce(.data$inadmissible_reason, "admissible")) |>
@@ -1071,12 +1295,12 @@ summarize_anchor_pool <- function(scored_df) {
 #' @return Character scalar.
 #'
 #' @keywords internal
-anchor_model_id <- function(anchor_row,
-                            config) {
+build_anchor_model_id <- function(anchor_row,
+                                  config) {
   # Prefer an existing character model identifier when present and otherwise
   # fall back to the primary model ID column.
-  id_chr_col <- anchor_field(config, "model_id_chr")
-  id_col <- anchor_field(config, "model_id")
+  id_chr_col <- build_anchor_field(config, "model_id_chr")
+  id_col <- build_anchor_field(config, "model_id")
 
   if (id_chr_col %in% names(anchor_row) &&
     length(anchor_row[[id_chr_col]]) > 0 &&
@@ -1101,8 +1325,8 @@ normalize_anchor_ids <- function(candidate_models,
   # distance lookups depend on it.
   out <- tibble::as_tibble(candidate_models)
 
-  id_col <- anchor_field(config, "model_id")
-  id_chr_col <- anchor_field(config, "model_id_chr")
+  id_col <- build_anchor_field(config, "model_id")
+  id_chr_col <- build_anchor_field(config, "model_id_chr")
 
   if (!id_col %in% names(out)) {
     stop(sprintf("'candidate_models' must contain '%s'.", id_col), call. = FALSE)
@@ -1133,21 +1357,26 @@ build_anchor_table <- function(candidate_models,
                                config) {
   # Apply each standardized length-form model to the anchor length PDF so the
   # screening pipeline works from one comparable sigma_bs quantity.
-  slope_col <- anchor_field(config, "slope")
-  intercept_col <- anchor_field(config, "intercept")
+  slope_col <- build_anchor_field(config, "slope")
+  intercept_col <- build_anchor_field(config, "intercept")
+  out <- normalize_anchor_ids(candidate_models, config)
+  slope_vals <- suppressWarnings(as.numeric(out[[slope_col]]))
+  intercept_vals <- suppressWarnings(as.numeric(out[[intercept_col]]))
+  log_len <- log10(anchor_pdf$length_cm)
+  f_len <- as.numeric(anchor_pdf$f_len)
+  f_sum <- sum(f_len, na.rm = TRUE)
 
-  normalize_anchor_ids(candidate_models, config) |>
-    dplyr::mutate(
-      sigma_bs_model_mean = purrr::map2_dbl(
-        .data[[slope_col]],
-        .data[[intercept_col]],
-        function(s, b) {
-          ts_vec <- s * log10(anchor_pdf$length_cm) + b
-          phi <- 10^(ts_vec / 10)
-          sum(phi * anchor_pdf$f_len, na.rm = TRUE) / sum(anchor_pdf$f_len, na.rm = TRUE)
-        }
-      )
-    )
+  if (!is.finite(f_sum) || f_sum <= 0) {
+    out$sigma_bs_model_mean <- NA_real_
+    return(out)
+  }
+
+  weight_vec <- f_len / f_sum
+  ts_mat <- tcrossprod(slope_vals, log_len)
+  ts_mat <- sweep(ts_mat, 1L, intercept_vals, "+")
+  phi_mat <- 10^(ts_mat / 10)
+  out$sigma_bs_model_mean <- as.numeric(phi_mat %*% weight_vec)
+  out
 }
 
 #' Extract one anchor sigma_bs value
@@ -1164,7 +1393,7 @@ anchor_backscatter <- function(model_eval,
   # Pull the anchor's own sigma_bs value from the scored table so all
   # replacement multipliers are expressed relative to the same reference model.
   anchor_sigma <- model_eval |>
-    dplyr::filter(.data[[anchor_field(config, "model_id_chr")]] == anchor_id) |>
+    dplyr::filter(.data[[build_anchor_field(config, "model_id_chr")]] == anchor_id) |>
     dplyr::pull(.data$sigma_bs_model_mean)
 
   if (length(anchor_sigma) == 0) {
@@ -1190,7 +1419,7 @@ add_anchor_distances <- function(model_eval,
   # Reindex the precomputed species and study distances onto the candidate
   # rows so every later scoring step can work off the row-wise table alone.
   model_eval_ <- model_eval
-  model_ids <- model_eval_[[anchor_field(config, "model_id_chr")]]
+  model_ids <- model_eval_[[build_anchor_field(config, "model_id_chr")]]
   model_eval_$d_species <- as.numeric(dist_obj$species_dist_model[model_ids, anchor_id])
   model_eval_$d_study <- as.numeric(dist_obj$study_dist[model_ids, anchor_id])
 
@@ -1213,40 +1442,52 @@ add_anchor_terms <- function(model_eval,
                              config) {
   # Translate overlap fractions and frequency offsets into coherence penalties,
   # then assemble the row-wise kernel terms used in the final weight.
-  tibble::as_tibble(model_eval) |>
-    dplyr::mutate(
-      length_coherence_distance = dplyr::case_when(
-        is.finite(length_overlap_fraction) ~ pmax(0, 1 - pmin(length_overlap_fraction, 1)),
-        TRUE ~ NA_real_
-      ),
-      depth_coherence_distance = dplyr::case_when(
-        is.finite(depth_overlap_fraction) ~ pmax(0, 1 - pmin(depth_overlap_fraction, 1)),
-        TRUE ~ NA_real_
-      ),
-      frequency_coherence_distance = calculate_frequency_gap(
-        candidate_freq = frequency,
-        anchor_freq = anchor_freq,
-        freq_span = sim_obj$frequency_span,
-        mode = config$frequency_coherence_mode %||% "overlap"
-      ),
-      kernel_species_term = sim_obj$alpha * sim_obj$k_species * .data$d_species,
-      kernel_study_term = (1 - sim_obj$alpha) * sim_obj$k_study * .data$d_study,
-      kernel_length_term = dplyr::if_else(
-        is.finite(.data$length_coherence_distance),
-        config$length_overlap_weight * .data$length_coherence_distance,
-        NA_real_
-      ),
-      kernel_depth_term = dplyr::if_else(
-        is.finite(.data$depth_coherence_distance),
-        config$depth_overlap_weight * .data$depth_coherence_distance,
-        NA_real_
-      ),
-      kernel_frequency_term = dplyr::if_else(
-        is.finite(.data$frequency_coherence_distance),
-        config$frequency_coherence_weight * .data$frequency_coherence_distance,
-        NA_real_
-      )
-    )
+  out <- tibble::as_tibble(model_eval)
+  len_overlap <- suppressWarnings(as.numeric(out$length_overlap_fraction))
+  dep_overlap <- suppressWarnings(as.numeric(out$depth_overlap_fraction))
+  d_species <- suppressWarnings(as.numeric(out$d_species))
+  d_study <- suppressWarnings(as.numeric(out$d_study))
+  alpha <- as.numeric(sim_obj$alpha)
+  k_species <- as.numeric(sim_obj$k_species)
+  k_study <- as.numeric(sim_obj$k_study)
+  len_wt <- as.numeric(config$length_overlap_weight)
+  dep_wt <- as.numeric(config$depth_overlap_weight)
+  freq_wt <- as.numeric(config$frequency_coherence_weight)
+
+  out$length_coherence_distance <- ifelse(
+    is.finite(len_overlap),
+    pmax(0, 1 - pmin(len_overlap, 1)),
+    NA_real_
+  )
+  out$depth_coherence_distance <- ifelse(
+    is.finite(dep_overlap),
+    pmax(0, 1 - pmin(dep_overlap, 1)),
+    NA_real_
+  )
+  out$frequency_coherence_distance <- compute_frequency_gap(
+    candidate_freq = out$frequency,
+    anchor_freq = anchor_freq,
+    freq_span = sim_obj$frequency_span,
+    mode = config$frequency_coherence_mode %||% "overlap"
+  )
+  out$kernel_species_term <- alpha * k_species * d_species
+  out$kernel_study_term <- (1 - alpha) * k_study * d_study
+  out$kernel_length_term <- ifelse(
+    is.finite(out$length_coherence_distance),
+    len_wt * out$length_coherence_distance,
+    NA_real_
+  )
+  out$kernel_depth_term <- ifelse(
+    is.finite(out$depth_coherence_distance),
+    dep_wt * out$depth_coherence_distance,
+    NA_real_
+  )
+  out$kernel_frequency_term <- ifelse(
+    is.finite(out$frequency_coherence_distance),
+    freq_wt * out$frequency_coherence_distance,
+    NA_real_
+  )
+  out
 }
 
 #' Combine anchor distances to final weights
@@ -1263,38 +1504,46 @@ weight_anchor_models <- function(model_eval,
                                  config) {
   # Collapse all active distance blocks to one normalized distance and one
   # exponential kernel weight per candidate model.
-  model_eval_ <- tibble::as_tibble(model_eval) |>
-    dplyr::mutate(
-      combined_distance = (
-        dplyr::coalesce(sim_obj$alpha * .data$d_species, 0) +
-          dplyr::coalesce((1 - sim_obj$alpha) * .data$d_study, 0) +
-          dplyr::coalesce(config$length_overlap_weight * .data$length_coherence_distance, 0) +
-          dplyr::coalesce(config$depth_overlap_weight * .data$depth_coherence_distance, 0) +
-          dplyr::coalesce(config$frequency_coherence_weight * .data$frequency_coherence_distance, 0)
-      ) / (
-        dplyr::if_else(is.finite(.data$d_species), sim_obj$alpha, 0) +
-          dplyr::if_else(is.finite(.data$d_study), 1 - sim_obj$alpha, 0) +
-          dplyr::if_else(is.finite(.data$length_coherence_distance), config$length_overlap_weight, 0) +
-          dplyr::if_else(is.finite(.data$depth_coherence_distance), config$depth_overlap_weight, 0) +
-          dplyr::if_else(is.finite(.data$frequency_coherence_distance), config$frequency_coherence_weight, 0)
-      ),
-      trait_gower_distance = (
-        dplyr::coalesce(sim_obj$alpha * .data$d_species, 0) +
-          dplyr::coalesce((1 - sim_obj$alpha) * .data$d_study, 0)
-      ) / (
-        dplyr::if_else(is.finite(.data$d_species), sim_obj$alpha, 0) +
-          dplyr::if_else(is.finite(.data$d_study), 1 - sim_obj$alpha, 0)
-      ),
-      w_combined_raw = exp(
-        -(
-          dplyr::coalesce(.data$kernel_species_term, 0) +
-            dplyr::coalesce(.data$kernel_study_term, 0) +
-            dplyr::coalesce(.data$kernel_length_term, 0) +
-            dplyr::coalesce(.data$kernel_depth_term, 0) +
-            dplyr::coalesce(.data$kernel_frequency_term, 0)
-        )
-      )
-    )
+  model_eval_ <- tibble::as_tibble(model_eval)
+  alpha <- as.numeric(sim_obj$alpha)
+  len_wt <- as.numeric(config$length_overlap_weight)
+  dep_wt <- as.numeric(config$depth_overlap_weight)
+  freq_wt <- as.numeric(config$frequency_coherence_weight)
+  d_species <- suppressWarnings(as.numeric(model_eval_$d_species))
+  d_study <- suppressWarnings(as.numeric(model_eval_$d_study))
+  len_coh <- suppressWarnings(as.numeric(model_eval_$length_coherence_distance))
+  dep_coh <- suppressWarnings(as.numeric(model_eval_$depth_coherence_distance))
+  freq_coh <- suppressWarnings(as.numeric(model_eval_$frequency_coherence_distance))
+  kernel_species <- suppressWarnings(as.numeric(model_eval_$kernel_species_term))
+  kernel_study <- suppressWarnings(as.numeric(model_eval_$kernel_study_term))
+  kernel_length <- suppressWarnings(as.numeric(model_eval_$kernel_length_term))
+  kernel_depth <- suppressWarnings(as.numeric(model_eval_$kernel_depth_term))
+  kernel_frequency <- suppressWarnings(as.numeric(model_eval_$kernel_frequency_term))
+
+  combined_num <- ifelse(is.finite(d_species), alpha * d_species, 0) +
+    ifelse(is.finite(d_study), (1 - alpha) * d_study, 0) +
+    ifelse(is.finite(len_coh), len_wt * len_coh, 0) +
+    ifelse(is.finite(dep_coh), dep_wt * dep_coh, 0) +
+    ifelse(is.finite(freq_coh), freq_wt * freq_coh, 0)
+  combined_den <- ifelse(is.finite(d_species), alpha, 0) +
+    ifelse(is.finite(d_study), 1 - alpha, 0) +
+    ifelse(is.finite(len_coh), len_wt, 0) +
+    ifelse(is.finite(dep_coh), dep_wt, 0) +
+    ifelse(is.finite(freq_coh), freq_wt, 0)
+  trait_num <- ifelse(is.finite(d_species), alpha * d_species, 0) +
+    ifelse(is.finite(d_study), (1 - alpha) * d_study, 0)
+  trait_den <- ifelse(is.finite(d_species), alpha, 0) +
+    ifelse(is.finite(d_study), 1 - alpha, 0)
+
+  model_eval_$combined_distance <- ifelse(combined_den > 0, combined_num / combined_den, NA_real_)
+  model_eval_$trait_gower_distance <- ifelse(trait_den > 0, trait_num / trait_den, NA_real_)
+  model_eval_$w_combined_raw <- exp(-(
+    ifelse(is.finite(kernel_species), kernel_species, 0) +
+      ifelse(is.finite(kernel_study), kernel_study, 0) +
+      ifelse(is.finite(kernel_length), kernel_length, 0) +
+      ifelse(is.finite(kernel_depth), kernel_depth, 0) +
+      ifelse(is.finite(kernel_frequency), kernel_frequency, 0)
+  ))
 
   # Normalize the raw kernel values only when the anchor pool contains at least
   # one finite positive candidate weight.
@@ -1320,8 +1569,8 @@ build_admissible_pool <- function(model_eval,
                                   config) {
   # Restrict to admissible weighted rows first, then de-duplicate support at
   # the study-cell level before final admissible weights are normalized.
-  study_cell_col <- anchor_field(config, "study_cell")
-  id_chr_col <- anchor_field(config, "model_id_chr")
+  study_cell_col <- build_anchor_field(config, "study_cell")
+  id_chr_col <- build_anchor_field(config, "model_id_chr")
   model_eval_ <- tibble::as_tibble(model_eval)
   if (!study_cell_col %in% names(model_eval_)) {
     model_eval_[[study_cell_col]] <- if (id_chr_col %in% names(model_eval_)) {
@@ -1418,6 +1667,24 @@ screen_one_anchor_admissibility <- function(anchor_row,
   }
 
   cfg <- default_anchor_config(config)
+  anchor_id <- build_anchor_model_id(anchor_row, cfg)
+  model_id_col <- build_anchor_field(cfg, "model_id_chr")
+
+  # For held-out prediction screens, temporarily add the anchor row back into
+  # the local scoring pool so self-backscatter and anchor-relative distances can
+  # be computed against the same matrix basis as the donor rows.
+  if (model_id_col %in% names(candidate_models)) {
+    pool_ids <- as.character(candidate_models[[model_id_col]])
+    if (!anchor_id %in% pool_ids) {
+      candidate_models <- dplyr::bind_rows(
+        tibble::as_tibble(candidate_models),
+        tibble::as_tibble(anchor_row)
+      )
+      candidate_models_scored <- NULL
+      sim_obj <- NULL
+      dist_obj <- NULL
+    }
+  }
 
   # Reuse prebuilt similarity and distance objects when the caller already
   # computed them once for a larger admissibility screen. Fall back to local
@@ -1447,13 +1714,17 @@ screen_one_anchor_admissibility <- function(anchor_row,
       candidate_models = candidate_models_prepared,
       key_cols = admissibility_key_metadata_cols(cfg)
     )
+    candidate_models <- prepare_admissibility_overlap_columns(
+      candidate_models = candidate_models,
+      config = cfg,
+      registry_path = registry_path
+    )
   } else {
     candidate_models <- tibble::as_tibble(candidate_models_scored)
   }
 
-  anchor_id <- anchor_model_id(anchor_row, cfg)
   anchor_pdf <- build_anchor_density(anchor_row, cfg)
-  anchor_freq <- suppressWarnings(as.numeric(anchor_row[[anchor_field(cfg, "frequency")]][[1]]))
+  anchor_freq <- suppressWarnings(as.numeric(anchor_row[[build_anchor_field(cfg, "frequency")]][[1]]))
 
   # Score every candidate model at the anchor PDF, then derive the anchor's own
   # sigma_bs value from that common scoring table.
@@ -1482,7 +1753,7 @@ screen_one_anchor_admissibility <- function(anchor_row,
   excluded_model_ids <- excluded_model_ids[!is.na(excluded_model_ids) & nzchar(excluded_model_ids)]
   if (length(excluded_model_ids) > 0) {
     model_eval <- model_eval |>
-      dplyr::filter(!(.data[[anchor_field(cfg, "model_id_chr")]] %in% excluded_model_ids))
+      dplyr::filter(!(.data[[build_anchor_field(cfg, "model_id_chr")]] %in% excluded_model_ids))
   }
 
   # Add distances, replacement multipliers, overlap fields, coherence terms,
@@ -1501,7 +1772,7 @@ screen_one_anchor_admissibility <- function(anchor_row,
         NA_real_
       )
     ) |>
-    add_anchor_overlap(anchor_row = anchor_row, config = cfg) |>
+    add_anchor_overlap(anchor_row = anchor_row, config = cfg, registry_path = registry_path) |>
     add_anchor_terms(
       anchor_freq = anchor_freq,
       sim_obj = sim_obj,
@@ -1512,6 +1783,13 @@ screen_one_anchor_admissibility <- function(anchor_row,
       config = cfg
     ) |>
     apply_anchor_gates(anchor_row = anchor_row, config = cfg, registry_path = registry_path)
+
+  # Drop temporary overlap-prep helpers before caching or returning the
+  # scored table so downstream objects only carry the public diagnostics.
+  helper_cols <- grep("^\\.ov_(set|bin|cat)_", names(model_eval), value = TRUE)
+  if (length(helper_cols) > 0L) {
+    model_eval <- model_eval[, !names(model_eval) %in% helper_cols, drop = FALSE]
+  }
 
   admissible_df <- build_admissible_pool(
     model_eval = model_eval,
@@ -1715,13 +1993,18 @@ screen_admissibility <- function(reference_anchors = NULL,
     candidate_models = candidate_models_prepared,
     key_cols = admissibility_key_metadata_cols(cfg)
   )
+  candidate_models_scored <- prepare_admissibility_overlap_columns(
+    candidate_models = candidate_models_scored,
+    config = cfg,
+    registry_path = registry_path
+  )
 
   # Evaluate every reference anchor independently and retain both the per-anchor
   # tables and the bound cross-anchor summaries.
   for (i in seq_len(nrow(reference_anchors_))) {
     anchor_row <- reference_anchors_[i, , drop = FALSE]
-    anchor_id <- anchor_model_id(anchor_row, cfg)
-    anchor_species <- as.character(anchor_row[[anchor_field(cfg, "species_name")]][[1]])
+    anchor_id <- build_anchor_model_id(anchor_row, cfg)
+    anchor_species <- as.character(anchor_row[[build_anchor_field(cfg, "species_name")]][[1]])
 
     eval_obj <- screen_one_anchor_admissibility(
       anchor_row = anchor_row,

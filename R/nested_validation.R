@@ -1,26 +1,3 @@
-#' Finite-sample conformal quantile
-#'
-#' @param x Numeric residual vector.
-#' @param alpha Miscoverage level.
-#'
-#' @return Numeric scalar.
-#' @keywords internal
-nested_conformal_quantile <- function(x,
-                                      alpha) {
-  x_ <- sort(x[is.finite(x)])
-  n <- length(x_)
-  if (n == 0) {
-    return(NA_real_)
-  }
-
-  q_idx <- ceiling((n + 1) * (1 - alpha))
-  if (q_idx > n) {
-    return(Inf)
-  }
-
-  x_[[q_idx]]
-}
-
 #' Split species for one nested validation fold
 #'
 #' @param species Character vector of species names.
@@ -193,7 +170,7 @@ summarize_nested_residuals <- function(perf_tbl,
     dplyr::group_by(.data$policy) |>
     dplyr::summarise(
       n = dplyr::n(),
-      q_abs_log = nested_conformal_quantile(.data$error_abs_log, alpha),
+      q_abs_log = conformal_quantile(.data$error_abs_log, alpha),
       interval_log_width = dplyr::if_else(is.finite(.data$q_abs_log), 2 * .data$q_abs_log, NA_real_),
       median_abs_log_error = stats::median(.data$error_abs_log, na.rm = TRUE),
       mean_abs_log_error = mean(.data$error_abs_log, na.rm = TRUE),

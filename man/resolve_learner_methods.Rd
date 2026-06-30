@@ -4,7 +4,7 @@
 \alias{resolve_learner_methods}
 \title{Resolve and validate Alchemist base learner method names}
 \usage{
-resolve_learner_methods(methods)
+resolve_learner_methods(methods, method_settings = NULL)
 }
 \arguments{
 \item{methods}{Character vector of requested method names.}

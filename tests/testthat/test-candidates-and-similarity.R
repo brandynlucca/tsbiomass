@@ -159,6 +159,128 @@ test_that("forge_distances invalidates stale downstream alchemist state", {
   expect_equal(length(rebuilt@admissibility), 0L)
 })
 
+test_that("as_alchemist resolves trait settings from a full workflow config list", {
+  candidates <- make_candidates(seed_similarity_tuning = FALSE)
+  cfg <- minimal_config_data()
+
+  alchemist <- as_alchemist(candidates, config = cfg)
+
+  expect_true(length(alchemist@config$species_traits) > 0L)
+  expect_true(length(alchemist@config$study_traits) > 0L)
+  expect_true(all(c("genus", "family") %in% names(alchemist@config$species_traits)))
+  expect_true(all(c("frequency", "fao_area") %in% names(alchemist@config$study_traits)))
+})
+
+test_that("Alchemist species-purged OOF splits remove held-out species from donor and anchor roles", {
+  training_data <- tibble::tibble(
+    .anchor_species = c("sp1", "sp1", "sp2", "sp2", "sp3", "sp3"),
+    .donor_species = c("sp2", "sp3", "sp1", "sp3", "sp1", "sp2"),
+    .split_group = c("sp1", "sp1", "sp2", "sp2", "sp3", "sp3"),
+    .outcome = seq_len(6),
+    .dist_family = seq(0.1, 0.6, by = 0.1)
+  )
+
+  splits <- tsbiomass:::build_alchemist_oof_splits(
+    training_data = training_data,
+    inner_folds = 3L,
+    seed = 1L,
+    oof_mode = "species_purged"
+  )
+
+  expect_length(splits, 3L)
+  for (fold_now in splits) {
+    heldout <- as.character(fold_now$holdout_groups)
+    train_rows <- training_data[fold_now$train_idx, , drop = FALSE]
+    valid_rows <- training_data[fold_now$valid_idx, , drop = FALSE]
+
+    expect_true(all(valid_rows$.anchor_species %in% heldout))
+    expect_false(any(train_rows$.anchor_species %in% heldout))
+    expect_false(any(train_rows$.donor_species %in% heldout))
+  }
+})
+
+test_that("Alchemist fit_super_learner accepts species-purged OOF splits", {
+  training_data <- tibble::tibble(
+    .anchor_species = c("sp1", "sp1", "sp2", "sp2", "sp3", "sp3"),
+    .donor_species = c("sp2", "sp3", "sp1", "sp3", "sp1", "sp2"),
+    .split_group = c("sp1", "sp1", "sp2", "sp2", "sp3", "sp3"),
+    .outcome = c(0.1, 0.2, 0.3, 0.2, 0.25, 0.35),
+    .dist_family = c(0.1, 0.2, 0.3, 0.2, 0.4, 0.5)
+  )
+
+  fit <- tsbiomass:::fit_super_learner(
+    training_data = training_data,
+    feature_cols = ".dist_family",
+    methods = "glm",
+    outcome_transform = "identity",
+    inner_folds = 3L,
+    seed = 1L,
+    oof_mode = "species_purged",
+    workers = 1L,
+    progress = FALSE
+  )
+
+  expect_true(all(is.finite(fit$oof_ensemble_prediction)))
+  expect_equal(length(fit$oof_ensemble_prediction), nrow(training_data))
+})
+
+test_that("run_ordination works on Alchemist distance objects with model trait tables", {
+  candidates <- make_candidates(seed_similarity_tuning = FALSE)
+  alchemist <- as_alchemist(candidates, config = minimal_config_data())
+
+  testthat::local_mocked_bindings(
+    build_pair_data = function(models_df,
+                               species_trait_names,
+                               study_trait_names,
+                               coherence_cfg = NULL,
+                               taxonomic_distance = FALSE,
+                               feature_type = "gower",
+                               progress = FALSE) {
+      list(
+        training_data = tibble::tibble(
+          .donor_idx = c(1L, 1L, 2L, 2L),
+          .anchor_idx = c(2L, 3L, 3L, 4L),
+          .anchor_species = c("Alpha alpha", "Beta beta", "Beta beta", "Gamma gamma"),
+          .donor_species = c("Beta beta", "Gamma gamma", "Alpha alpha", "Alpha alpha"),
+          .split_group = c("Beta beta", "Beta beta", "Gamma gamma", "Gamma gamma"),
+          .outcome = c(0.2, 0.3, 0.4, 0.5),
+          .dist_family = c(0.1, 0.2, 0.3, 0.4)
+        ),
+        feature_cols = ".dist_family",
+        all_traits = c("family", "frequency"),
+        species_trait_names = "family",
+        species_feature_cols = ".dist_family",
+        n_models = nrow(models_df),
+        model_ids = as.character(seq_len(nrow(models_df))),
+        donor_sigma_matrix = matrix(1, nrow = 4, ncol = 4),
+        target_sigma = rep(1, 4),
+        trait_mats = list(),
+        feature_type = feature_type
+      )
+    },
+    fit_super_learner = function(...) {
+      list(
+        fit = list(),
+        weights = c(glm = 1),
+        feature_cols = ".dist_family",
+        outcome_transform = "identity",
+        lambda_rule = "lambda.1se",
+        inner_fold_splits = list(),
+        oof_predictions = tibble::tibble(glm = c(0.2, 0.3, 0.4, 0.5)),
+        oof_ensemble_prediction = c(0.2, 0.3, 0.4, 0.5),
+        oof_performance = tibble::tibble(method = "mock", rmse = 0.1, mae = 0.1)
+      )
+    },
+    .package = "tsbiomass"
+  )
+
+  alchemist <- forge_distances(alchemist)
+  expect_no_error(
+    ord <- run_ordination(alchemist, include_loadings = FALSE, include_centroids = FALSE)
+  )
+  expect_true(length(ord@ordination) > 0L)
+})
+
 test_that("screen_admissibility preserves arbitrary configured trait gates", {
   cfg <- minimal_config_data()
   cfg$admissibility$species_traits <- c("family")

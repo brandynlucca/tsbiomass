@@ -9,8 +9,7 @@ set_reference_anchors(
   model_ids = NULL,
   selector = NULL,
   model_id_col = "model_id",
-  require_selection = TRUE,
-  candidate_models = NULL
+  require_selection = TRUE
 )
 }
 \arguments{
@@ -28,8 +27,6 @@ for example \code{list(regional_body = list(mode = "regex", pattern = "SWFSC"))}
 
 \item{require_selection}{Whether zero selected anchors should raise an
 error.}
-
-\item{candidate_models}{Deprecated compatibility alias for \code{object}.}
 }
 \value{
 If \code{object} is a data frame, a tibble containing only the selected

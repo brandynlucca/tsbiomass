@@ -4,7 +4,13 @@
 \alias{policy_structural_summary}
 \title{Summarize structural spread in one policy equation}
 \usage{
-policy_structural_summary(rows, policy_def, pred, anchor_pdf)
+policy_structural_summary(
+  rows,
+  policy_def,
+  pred,
+  anchor_pdf,
+  structural_rows = NULL
+)
 }
 \arguments{
 \item{rows}{Candidate-policy row table.}
@@ -14,6 +20,10 @@ policy_structural_summary(rows, policy_def, pred, anchor_pdf)
 \item{pred}{One-row policy prediction from \code{\link[=policy_prediction]{policy_prediction()}}.}
 
 \item{anchor_pdf}{Anchor length-density table.}
+
+\item{structural_rows}{Optional precomputed output from
+\code{policy_structural_rows()}. When supplied, the structural summary reuses
+those rows instead of resolving the donor subset again.}
 }
 \value{
 A one-row tibble of equation-dispersion diagnostics.

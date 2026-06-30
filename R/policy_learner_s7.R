@@ -129,8 +129,8 @@ policy_learner_rebuild <- function(object,
 #' }
 #'
 #' @export
-create_policy_learner <- function(selector,
-                                  config = NULL) {
+build_policy_learner <- function(selector,
+                                 config = NULL) {
   if ((inherits(selector, "S7_object") && exists("PolicyLearner", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(selector, PolicyLearner), error = function(e) FALSE)))) {
     return(selector)
   }
@@ -172,9 +172,9 @@ create_policy_learner <- function(selector,
     interval_alpha <- policy_selector_config_value(
       merged_config,
       "alpha",
-      sections = c("selection", "post_selection_conformal", "uncertainty", "policy")
+      sections = c("selection", "uncertainty", "policy")
     ) %||% 0.10
-    species_block_perf <- augment_benchmark_multiplier_interval_scores(
+    species_block_perf <- augment_multiplier_scores(
       perf_tbl = species_block_perf,
       conf_tbl = benchmark_conf_tbl,
       structural_uncertainty_weight = structural_uncertainty_weight,
@@ -221,7 +221,7 @@ create_policy_learner <- function(selector,
 #' @export
 as_policy_learner <- function(selector,
                               config = NULL) {
-  create_policy_learner(
+  build_policy_learner(
     selector = selector,
     config = config
   )
@@ -245,6 +245,61 @@ policy_learner_config <- function(object,
   )
   cfg$metalearner <- normalize_metalearner_section(cfg$metalearner %||% list())
   cfg
+}
+
+policy_learner_selection_method_settings <- function(cfg,
+                                                     fallback = NULL) {
+  settings_now <- policy_selector_config_value(
+    cfg,
+    "selection_method_settings",
+    sections = c("metalearner", "policy_learner")
+  ) %||% policy_selector_config_value(
+    cfg,
+    "method_settings",
+    sections = c("metalearner", "policy_learner")
+  ) %||% fallback
+
+  normalize_meta_policy_method_settings(settings_now)
+}
+
+policy_learner_uncertainty_method_settings <- function(cfg,
+                                                       fallback = NULL) {
+  settings_now <- policy_selector_config_value(
+    cfg,
+    "uncertainty_method_settings",
+    sections = c("metalearner", "policy_learner")
+  ) %||% policy_selector_config_value(
+    cfg,
+    "selection_method_settings",
+    sections = c("metalearner", "policy_learner")
+  ) %||% policy_selector_config_value(
+    cfg,
+    "method_settings",
+    sections = c("metalearner", "policy_learner")
+  ) %||% fallback
+
+  normalize_meta_policy_method_settings(settings_now)
+}
+
+policy_learner_selection_super_methods <- function(cfg,
+                                                   fallback = NULL) {
+  policy_selector_config_value(
+    cfg,
+    "selection_super_methods",
+    sections = c("metalearner", "policy_learner")
+  ) %||% fallback
+}
+
+policy_learner_uncertainty_super_methods <- function(cfg,
+                                                     fallback = NULL) {
+  policy_selector_config_value(
+    cfg,
+    "uncertainty_super_methods",
+    sections = c("metalearner", "policy_learner")
+  ) %||% policy_learner_selection_super_methods(
+    cfg,
+    fallback = fallback
+  )
 }
 
 #' Require stored benchmark rows for a `PolicyLearner`
@@ -293,10 +348,10 @@ policy_learner_species_perf <- function(object) {
 #' @return A tibble with multiplier interval diagnostics added.
 #'
 #' @keywords internal
-augment_benchmark_multiplier_interval_scores <- function(perf_tbl,
-                                                         conf_tbl,
-                                                         structural_uncertainty_weight = 1,
-                                                         alpha = 0.10) {
+augment_multiplier_scores <- function(perf_tbl,
+                                      conf_tbl,
+                                      structural_uncertainty_weight = 1,
+                                      alpha = 0.10) {
   perf_tbl <- standardize_policies(tibble::as_tibble(perf_tbl))
   conf_tbl <- standardize_policies(tibble::as_tibble(conf_tbl))
   if (nrow(perf_tbl) == 0) {
@@ -540,7 +595,10 @@ policy_learner_uncertainty_feature_cols <- function(cfg,
 #' @param inner_folds Optional number of inner tuning folds.
 #' @param selection_super_methods Optional super-learner base methods.
 #' @param metalearner_loss Optional super-learner loss name.
-#' @param method_settings Optional method-settings override.
+#' @param selection_method_settings Optional selection-learner method-settings
+#'   override.
+#' @param method_settings Deprecated shared alias for
+#'   `selection_method_settings`.
 #' @param workers Optional worker count.
 #' @param package_dir Optional package source directory for worker bootstrap.
 #' @param progress Optional logical scalar controlling progress messages.
@@ -564,6 +622,7 @@ S7::method(crossfit, PolicyLearner) <- function(object,
                                                 inner_folds = NULL,
                                                 selection_super_methods = NULL,
                                                 metalearner_loss = NULL,
+                                                selection_method_settings = NULL,
                                                 method_settings = NULL,
                                                 workers = NULL,
                                                 package_dir = NULL,
@@ -601,15 +660,14 @@ S7::method(crossfit, PolicyLearner) <- function(object,
   inner_folds <- inner_folds %||%
     policy_selector_config_value(cfg, "inner_folds", sections = c("metalearner", "policy_learner"))
   selection_super_methods <- selection_super_methods %||%
-    policy_selector_config_value(cfg, "selection_super_methods", sections = c("metalearner", "policy_learner"))
+    policy_learner_selection_super_methods(cfg)
   metalearner_loss <- metalearner_loss %||%
     policy_selector_config_value(cfg, "metalearner_loss", sections = c("metalearner", "policy_learner"))
-  method_settings <- method_settings %||% normalize_meta_policy_method_settings(
-    policy_selector_config_value(
-      cfg, "method_settings",
-      sections = c("metalearner", "policy_learner")
-    )
-  )
+  # Resolve the selection learner settings explicitly so the cross-fit path no
+  # longer depends on the shared `method_settings` alias.
+  selection_method_settings <- selection_method_settings %||%
+    method_settings %||%
+    policy_learner_selection_method_settings(cfg)
   workers <- workers %||%
     policy_selector_config_value(cfg, "workers", sections = c("metalearner", "policy_learner"))
   progress <- progress %||%
@@ -650,7 +708,7 @@ S7::method(crossfit, PolicyLearner) <- function(object,
     inner_folds = inner_folds,
     super_methods = selection_super_methods,
     metalearner_loss = metalearner_loss,
-    method_settings = method_settings,
+    method_settings = selection_method_settings,
     workers = workers,
     package_dir = package_dir,
     progress = progress
@@ -684,7 +742,8 @@ S7::method(crossfit, PolicyLearner) <- function(object,
       inner_folds = inner_folds,
       selection_super_methods = selection_super_methods,
       metalearner_loss = metalearner_loss,
-      method_settings = method_settings,
+      selection_method_settings = selection_method_settings,
+      method_settings = selection_method_settings,
       n_folds = as.integer(n_folds),
       seed = as.integer(seed)
     ),
@@ -709,7 +768,10 @@ S7::method(crossfit, PolicyLearner) <- function(object,
 #' @param seed Optional integer seed.
 #' @param selection_super_methods Optional super-learner base methods.
 #' @param metalearner_loss Optional super-learner loss name.
-#' @param method_settings Optional method-settings override.
+#' @param selection_method_settings Optional selection-learner method-settings
+#'   override.
+#' @param method_settings Deprecated shared alias for
+#'   `selection_method_settings`.
 #' @param progress Optional logical scalar controlling progress messages.
 #' @param config Optional config override.
 #'
@@ -728,6 +790,7 @@ S7::method(fit, PolicyLearner) <- function(object,
                                            seed = NULL,
                                            selection_super_methods = NULL,
                                            metalearner_loss = NULL,
+                                           selection_method_settings = NULL,
                                            method_settings = NULL,
                                            progress = NULL,
                                            config = NULL) {
@@ -757,16 +820,15 @@ S7::method(fit, PolicyLearner) <- function(object,
   seed <- seed %||% crossfit_obj$seed %||%
     policy_selector_config_value(cfg, "seed", sections = c("metalearner", "policy_learner"))
   selection_super_methods <- selection_super_methods %||% crossfit_obj$selection_super_methods %||%
-    policy_selector_config_value(cfg, "selection_super_methods", sections = c("metalearner", "policy_learner"))
+    policy_learner_selection_super_methods(cfg)
   metalearner_loss <- metalearner_loss %||% crossfit_obj$metalearner_loss %||%
     policy_selector_config_value(cfg, "metalearner_loss", sections = c("metalearner", "policy_learner"))
-  method_settings <- method_settings %||% crossfit_obj$method_settings %||%
-    normalize_meta_policy_method_settings(
-      policy_selector_config_value(
-        cfg, "method_settings",
-        sections = c("metalearner", "policy_learner")
-      )
-    )
+  # Prefer the explicit selection-stage override, then fall back to the stored
+  # cross-fit settings and finally the config defaults.
+  selection_method_settings <- selection_method_settings %||%
+    method_settings %||% crossfit_obj$selection_method_settings %||%
+    crossfit_obj$method_settings %||%
+    policy_learner_selection_method_settings(cfg)
   progress <- progress %||%
     policy_selector_config_value(cfg, "progress", sections = c("metalearner", "policy_learner"))
   report_progress(progress, "Fitting final policy learner.")
@@ -843,7 +905,7 @@ S7::method(fit, PolicyLearner) <- function(object,
     seed = seed,
     super_methods = selection_super_methods,
     metalearner_loss = metalearner_loss,
-    method_settings = method_settings,
+    method_settings = selection_method_settings,
     progress = isTRUE(progress)
   )
   report_progress(progress, "Completed final policy-learner fit.")
@@ -862,7 +924,9 @@ S7::method(fit, PolicyLearner) <- function(object,
       feature_cols = feature_cols,
       group_col = group_col,
       selection_method = selection_method,
-      method_settings = method_settings
+      selection_super_methods = selection_super_methods,
+      selection_method_settings = selection_method_settings,
+      method_settings = selection_method_settings
     ),
     calibration = list()
   )
@@ -1072,16 +1136,32 @@ policy_learner_lookup_specs <- function() {
   )
 }
 
+#' Summarize one local conformal lookup table
+#'
+#' @param tbl Calibration tibble containing the lookup value.
+#' @param group_cols Grouping columns defining one lookup stratum.
+#' @param value_col Numeric calibration column to summarize.
+#' @param alpha Miscoverage level used for the conformal quantile.
+#' @param source_label Character label describing the lookup stratum.
+#' @param min_scores Minimum support used to control shrinkage strength.
+#' @param global_value Global conformal fallback used as the shrinkage target.
+#'
+#' @return A tibble with one pooled conformal factor per lookup stratum.
+#'
+#' @keywords internal
 policy_learner_summarize_lookup_table <- function(tbl,
                                                   group_cols,
                                                   value_col,
                                                   alpha,
-                                                  source_label) {
+                                                  source_label,
+                                                  min_scores = 1L,
+                                                  global_value = NA_real_) {
   tbl <- tibble::as_tibble(tbl)
   if (nrow(tbl) == 0 || !value_col %in% names(tbl) || !all(group_cols %in% names(tbl))) {
     return(tibble::tibble())
   }
 
+  # Keep only finite calibration values before any grouped quantile work.
   value_vec <- suppressWarnings(as.numeric(tbl[[value_col]]))
   tbl[[value_col]] <- value_vec
   tbl <- tbl |>
@@ -1090,20 +1170,57 @@ policy_learner_summarize_lookup_table <- function(tbl,
     return(tibble::tibble())
   }
 
+  min_scores <- suppressWarnings(as.integer(min_scores[[1]] %||% 1L))
+  if (!is.finite(min_scores) || min_scores < 1L) {
+    min_scores <- 1L
+  }
+  global_value <- suppressWarnings(as.numeric(global_value[[1]] %||% NA_real_))
+
+  # Pool thin local groups back toward the global conformal factor rather than
+  # letting a one-row subgroup dominate the lookup cascade.
   tbl |>
     dplyr::group_by(dplyr::across(dplyr::all_of(group_cols))) |>
     dplyr::summarise(
       n_scores = dplyr::n(),
-      .cal_value = post_selection_quantile(.data[[value_col]], alpha = alpha),
+      .cal_value_raw = conformal_quantile(.data[[value_col]], alpha = alpha),
       .groups = "drop"
     ) |>
-    dplyr::mutate(.cal_source = source_label)
+    dplyr::mutate(
+      .cal_weight = pmin(1, .data$n_scores / min_scores),
+      .cal_value = dplyr::if_else(
+        is.finite(global_value) & is.finite(.data$.cal_value_raw),
+        .data$.cal_weight * .data$.cal_value_raw + (1 - .data$.cal_weight) * global_value,
+        dplyr::if_else(
+          is.finite(.data$.cal_value_raw),
+          .data$.cal_value_raw,
+          global_value
+        )
+      ),
+      .cal_source = dplyr::if_else(
+        .data$.cal_weight < 1,
+        paste0(source_label, "_shrunk"),
+        source_label
+      )
+    ) |>
+    dplyr::select(-dplyr::any_of(c(".cal_value_raw", ".cal_weight")))
 }
 
+#' Build pooled local conformal lookup tables
+#'
+#' @param tbl Calibration tibble containing local context columns.
+#' @param value_col Numeric calibration column to summarize.
+#' @param alpha Miscoverage level used for the conformal quantile.
+#' @param global_default Global fallback value used when no local summary exists.
+#' @param min_scores Minimum support used to control shrinkage strength.
+#'
+#' @return A list containing the global fallback and grouped lookup tables.
+#'
+#' @keywords internal
 policy_learner_build_local_lookup <- function(tbl,
                                               value_col,
                                               alpha,
-                                              global_default = NA_real_) {
+                                              global_default = NA_real_,
+                                              min_scores = 1L) {
   valid <- policy_learner_prepare_context(tbl)
   if (!value_col %in% names(valid)) {
     return(list(
@@ -1118,7 +1235,7 @@ policy_learner_build_local_lookup <- function(tbl,
     dplyr::filter(is.finite(.data[[value_col]]))
 
   global_value <- if (nrow(valid) > 0) {
-    post_selection_quantile(valid[[value_col]], alpha = alpha)
+    conformal_quantile(valid[[value_col]], alpha = alpha)
   } else {
     NA_real_
   }
@@ -1130,12 +1247,16 @@ policy_learner_build_local_lookup <- function(tbl,
   lookup_tables <- purrr::imap(
     lookup_specs,
     function(group_cols, source_label) {
+      # Build one lookup per context grain so prediction can fall back from
+      # specific to broad strata without re-fitting anything.
       policy_learner_summarize_lookup_table(
         tbl = valid,
         group_cols = group_cols,
         value_col = value_col,
         alpha = alpha,
-        source_label = source_label
+        source_label = source_label,
+        min_scores = min_scores,
+        global_value = global_value
       )
     }
   )
@@ -1147,6 +1268,17 @@ policy_learner_build_local_lookup <- function(tbl,
   )
 }
 
+#' Apply pooled local conformal lookups to a prediction table
+#'
+#' @param tbl Prediction or calibration tibble.
+#' @param lookup Lookup bundle returned by [policy_learner_build_local_lookup()].
+#' @param value_col Output column receiving the resolved conformal factor.
+#' @param source_col Output column receiving the lookup source label.
+#' @param n_col Output column receiving the lookup support count.
+#'
+#' @return A tibble with resolved local conformal factors attached.
+#'
+#' @keywords internal
 policy_learner_apply_local_lookup <- function(tbl,
                                               lookup,
                                               value_col,
@@ -1163,6 +1295,8 @@ policy_learner_apply_local_lookup <- function(tbl,
   lookup_specs <- policy_learner_lookup_specs()
   used_specs <- character(0)
   for (spec_name in names(lookup_specs)) {
+    # Join every available lookup grain once, then resolve precedence after the
+    # joins so the most specific usable match wins.
     join_tbl <- tibble::as_tibble((lookup$tables %||% list())[[spec_name]] %||% tibble::tibble())
     if (nrow(join_tbl) == 0) {
       next
@@ -1183,9 +1317,11 @@ policy_learner_apply_local_lookup <- function(tbl,
 
   default_value <- suppressWarnings(as.numeric(lookup$global_value %||% NA_real_))
   out[[value_col]] <- rep(default_value, nrow(out))
-  out[[source_col]] <- rep("global", nrow(out))
+  out[[source_col]] <- rep("global_scale_conformal", nrow(out))
   out[[n_col]] <- rep(NA_real_, nrow(out))
 
+  # Apply the lookup tables from broadest to most specific so later passes can
+  # override earlier fallback values when a richer local match exists.
   for (spec_name in rev(used_specs)) {
     temp_value_col <- paste0(".", value_col, "__", spec_name)
     temp_source_col <- paste0(".", source_col, "__", spec_name)
@@ -1229,6 +1365,11 @@ policy_learner_apply_local_lookup <- function(tbl,
 #' @param bin_alpha Optional support-bin conformal alpha.
 #' @param min_bin_scores Optional minimum score count per support bin.
 #' @param n_bins Optional number of support bins.
+#' @param uncertainty_method Optional uncertainty-learner method override.
+#' @param uncertainty_super_methods Optional uncertainty-learner super-learner
+#'   base methods override.
+#' @param uncertainty_method_settings Optional uncertainty-learner
+#'   method-settings override.
 #' @param progress Optional logical scalar controlling progress messages.
 #' @param config Optional config override.
 #'
@@ -1244,6 +1385,9 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
                                                              bin_alpha = NULL,
                                                              min_bin_scores = NULL,
                                                              n_bins = NULL,
+                                                             uncertainty_method = NULL,
+                                                             uncertainty_super_methods = NULL,
+                                                             uncertainty_method_settings = NULL,
                                                              progress = NULL,
                                                              config = NULL) {
   cfg <- policy_learner_config(object, config)
@@ -1256,7 +1400,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   # reducing them to the score-minimizing rows used for post-selection
   # conformal calibration.
   progress <- progress %||%
-    policy_selector_config_value(cfg, "progress", sections = c("metalearner", "selection", "post_selection_conformal", "policy_learner"))
+    policy_selector_config_value(cfg, "progress", sections = c("metalearner", "selection", "policy_learner"))
   report_progress(progress, "Calibrating learner uncertainty.")
   predictions <- tibble::as_tibble(predictions %||% crossfit_obj$result$predictions %||% tibble::tibble())
   outcome_col <- policy_learner_uncertainty_outcome_col(
@@ -1300,12 +1444,12 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   }
   n_bins <- as.integer(
     n_bins %||%
-      policy_selector_config_value(cfg, "n_bins", sections = c("selection", "post_selection_conformal", "metalearner"))
+      policy_selector_config_value(cfg, "n_bins", sections = c("selection", "metalearner"))
   )
   support_bin_labels <- policy_selector_config_value(
     cfg,
     "support_bin_labels",
-    sections = c("selection", "post_selection_conformal", "metalearner")
+    sections = c("selection", "metalearner")
   )
   predictions <- policy_learner_prepare_context(predictions)
   anchor_lookup <- policy_learner_anchor_lookup(predictions)
@@ -1364,8 +1508,8 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     )
 
   alpha <- alpha %||%
-    policy_selector_config_value(cfg, "conformal_alpha", sections = c("selection", "post_selection_conformal", "policy", "metalearner")) %||%
-    policy_selector_config_value(cfg, "alpha", sections = c("selection", "post_selection_conformal", "metalearner"))
+    policy_selector_config_value(cfg, "conformal_alpha", sections = c("selection", "policy", "metalearner")) %||%
+    policy_selector_config_value(cfg, "alpha", sections = c("selection", "metalearner"))
 
   meta_calibration <- meta_selected |>
     dplyr::filter(is.finite(.data[[calibration_outcome_col]])) |>
@@ -1382,11 +1526,11 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       n_selected_rows = dplyr::n(),
       .groups = "drop"
     )
-  meta_q_global <- post_selection_quantile(
+  meta_q_global <- conformal_quantile(
     meta_calibration$selected_score_abs_log,
     alpha = alpha
   )
-  meta_q_simultaneous_global <- post_selection_quantile(
+  meta_q_simultaneous_global <- conformal_quantile(
     meta_simultaneous_calibration$selected_score_abs_log,
     alpha = alpha
   )
@@ -1403,18 +1547,18 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     )
 
   bin_alpha <- bin_alpha %||%
-    policy_selector_config_value(cfg, "bin_alpha", sections = c("selection", "post_selection_conformal", "metalearner")) %||%
-    policy_selector_config_value(cfg, "conformal_alpha", sections = c("selection", "post_selection_conformal", "policy", "metalearner"))
+    policy_selector_config_value(cfg, "bin_alpha", sections = c("selection", "metalearner")) %||%
+    policy_selector_config_value(cfg, "conformal_alpha", sections = c("selection", "policy", "metalearner"))
   min_bin_scores <- as.integer(
     min_bin_scores %||%
-      policy_selector_config_value(cfg, "min_bin_scores", sections = c("selection", "post_selection_conformal", "metalearner"))
+      policy_selector_config_value(cfg, "min_bin_scores", sections = c("selection", "metalearner"))
   )
 
   meta_bin_quantiles <- meta_calibration |>
     dplyr::group_by(post_selection_support_bin) |>
     dplyr::summarise(
       n_scores = dplyr::n(),
-      q_abs_log_raw = post_selection_quantile(
+      q_abs_log_raw = conformal_quantile(
         selected_score_abs_log,
         alpha = bin_alpha
       ),
@@ -1445,18 +1589,25 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   )
 
   width_feature_cols <- policy_learner_uncertainty_feature_cols(cfg, meta_selected)
-  width_method <- policy_selector_config_value(
+  # Resolve the uncertainty learner independently from the selection learner so
+  # calibration can use a simpler or differently tuned model family.
+  width_method <- uncertainty_method %||% policy_selector_config_value(
     cfg, "uncertainty_method",
     sections = c("metalearner", "policy_learner")
   ) %||% (object@fitted_model)$selection_method %||% crossfit_obj$selection_method
-  method_settings <- (object@fitted_model)$method_settings %||%
-    crossfit_obj$method_settings %||%
-    normalize_meta_policy_method_settings(
-      policy_selector_config_value(
-        cfg, "method_settings",
-        sections = c("metalearner", "policy_learner")
-      )
-    )
+  uncertainty_method_settings <- uncertainty_method_settings %||%
+    policy_learner_uncertainty_method_settings(
+    cfg,
+    fallback = (object@fitted_model)$selection_method_settings %||%
+      crossfit_obj$selection_method_settings %||%
+      (object@fitted_model)$method_settings %||%
+      crossfit_obj$method_settings
+  )
+  width_super_methods <- uncertainty_super_methods %||% policy_learner_uncertainty_super_methods(
+    cfg,
+    fallback = (object@fitted_model)$selection_super_methods %||%
+      crossfit_obj$selection_super_methods
+  )
   width_group_col <- crossfit_obj$group_col %||% NULL
   if (!is.null(width_group_col) && !width_group_col %in% names(meta_selected)) {
     width_group_col <- NULL
@@ -1484,9 +1635,9 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
         lambda_rule = crossfit_obj$lambda_rule %||% policy_selector_config_value(cfg, "lambda_rule", sections = c("metalearner", "policy_learner")),
         alpha = crossfit_obj$alpha,
         inner_folds = crossfit_obj$inner_folds %||% policy_selector_config_value(cfg, "inner_folds", sections = c("metalearner", "policy_learner")),
-        super_methods = crossfit_obj$selection_super_methods,
+        super_methods = width_super_methods,
         metalearner_loss = crossfit_obj$metalearner_loss %||% policy_selector_config_value(cfg, "metalearner_loss", sections = c("metalearner", "policy_learner")),
-        method_settings = method_settings,
+        method_settings = uncertainty_method_settings,
         # Keep the uncertainty-width fit in-process. On the current Windows
         # development path, PSOCK workers do not inherit the freshly loaded
         # custom learner registry, which causes a silent fallback away from the
@@ -1510,9 +1661,9 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
         lambda_rule = crossfit_obj$lambda_rule %||% policy_selector_config_value(cfg, "lambda_rule", sections = c("metalearner", "policy_learner")),
         inner_folds = crossfit_obj$inner_folds %||% policy_selector_config_value(cfg, "inner_folds", sections = c("metalearner", "policy_learner")),
         seed = crossfit_obj$seed %||% policy_selector_config_value(cfg, "seed", sections = c("metalearner", "policy_learner")),
-        super_methods = crossfit_obj$selection_super_methods,
+        super_methods = width_super_methods,
         metalearner_loss = crossfit_obj$metalearner_loss %||% policy_selector_config_value(cfg, "metalearner_loss", sections = c("metalearner", "policy_learner")),
-        method_settings = method_settings
+        method_settings = uncertainty_method_settings
       )
 
       width_predictions <- tibble::as_tibble(width_crossfit_result$predictions %||% tibble::tibble())
@@ -1668,7 +1819,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       width_ratio = selected_score_abs_log / predicted_width_abs_log
     )
 
-  width_factor_global <- post_selection_quantile(
+  width_factor_global <- conformal_quantile(
     width_calibration$width_ratio,
     alpha = alpha
   )
@@ -1679,21 +1830,45 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       .groups = "drop"
     ) |>
     dplyr::pull(width_ratio) |>
-    post_selection_quantile(alpha = alpha)
-  width_local_lookup <- NULL
-  width_selected_local <- width_selected |>
+    conformal_quantile(alpha = alpha)
+
+  # Build pooled local conformal factors so thin policy/species cells borrow
+  # strength from the global width ratio instead of using one raw local ratio.
+  width_local_lookup <- policy_learner_build_local_lookup(
+    tbl = width_calibration,
+    value_col = "width_ratio",
+    alpha = alpha,
+    global_default = width_factor_global,
+    min_scores = min_bin_scores
+  )
+  width_selected_local <- policy_learner_apply_local_lookup(
+    tbl = width_selected,
+    lookup = width_local_lookup,
+    value_col = "width_ratio_factor_local",
+    source_col = "width_ratio_factor_source",
+    n_col = "width_ratio_factor_n"
+  ) |>
     dplyr::mutate(
-      width_ratio_factor_local = width_factor_global,
-      width_ratio_factor_source = "global_scale_conformal",
-      width_ratio_factor_n = nrow(width_calibration)
+      width_ratio_factor_local = dplyr::coalesce(
+        suppressWarnings(as.numeric(.data$width_ratio_factor_local)),
+        width_factor_global
+      ),
+      width_ratio_factor_source = dplyr::coalesce(
+        as.character(.data$width_ratio_factor_source),
+        "global_scale_conformal"
+      ),
+      width_ratio_factor_n = dplyr::coalesce(
+        suppressWarnings(as.numeric(.data$width_ratio_factor_n)),
+        suppressWarnings(as.numeric(nrow(width_calibration)))
+      )
     )
 
   width_coverage <- width_selected_local |>
     dplyr::filter(is.finite(.data[[calibration_outcome_col]]), is.finite(.width_predicted_q_abs_log)) |>
     dplyr::mutate(
-      learned_q_abs_log = .width_predicted_q_abs_log * width_factor_global,
+      learned_q_abs_log = .width_predicted_q_abs_log * .data$width_ratio_factor_local,
       learned_q_simultaneous_abs_log = .width_predicted_q_abs_log * pmax(
-        width_factor_global,
+        .data$width_ratio_factor_local,
         width_factor_simultaneous_global,
         na.rm = TRUE
       ),
@@ -1705,6 +1880,9 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       n_calibration_species = dplyr::n_distinct(anchor_species),
       conformal_factor = width_factor_global,
       simultaneous_conformal_factor = width_factor_simultaneous_global,
+      mean_local_conformal_factor = mean(.data$width_ratio_factor_local, na.rm = TRUE),
+      median_local_conformal_factor = stats::median(.data$width_ratio_factor_local, na.rm = TRUE),
+      n_local_lookup_sources = dplyr::n_distinct(.data$width_ratio_factor_source),
       empirical_row_coverage = mean(marginal_covered, na.rm = TRUE),
       empirical_row_coverage_under_simultaneous_interval = mean(simultaneous_covered, na.rm = TRUE),
       median_abs_log_error = stats::median(.data[[calibration_outcome_col]], na.rm = TRUE),
@@ -1731,7 +1909,9 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       width_feature_cols = width_feature_cols,
       width_model = width_model,
       width_crossfit = width_crossfit,
-      method_settings = method_settings,
+      method_settings = uncertainty_method_settings,
+      uncertainty_method_settings = uncertainty_method_settings,
+      uncertainty_super_methods = width_super_methods,
       width_prediction_source = width_prediction_source,
       width_fit_error = width_fit_error,
       width_warning = width_warning,
@@ -1753,7 +1933,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       use_support_bin_intervals = policy_selector_config_value(
         cfg,
         "use_support_bin_intervals",
-        sections = c("selection", "post_selection_conformal", "metalearner", "policy_learner")
+        sections = c("selection", "metalearner", "policy_learner")
       ) %||% FALSE,
       n_bins = as.integer(n_bins),
       support_bin_labels = resolve_post_selection_support_labels(
@@ -1812,7 +1992,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   cfg_use_support_bin_intervals <- policy_selector_config_value(
     cfg,
     "use_support_bin_intervals",
-    sections = c("selection", "post_selection_conformal", "metalearner", "policy_learner")
+    sections = c("selection", "metalearner", "policy_learner")
   )
   use_support_bin_intervals <- use_support_bin_intervals %||%
     cal_obj$use_support_bin_intervals %||%
@@ -1837,7 +2017,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       scored,
       cutpoints = cal_obj$support_cutpoints %||% NULL,
       n_bins = cal_obj$n_bins %||%
-        policy_selector_config_value(cfg, "n_bins", sections = c("selection", "post_selection_conformal", "metalearner")),
+        policy_selector_config_value(cfg, "n_bins", sections = c("selection", "metalearner")),
       labels = cal_obj$support_bin_labels %||% NULL
     )
   } else {
@@ -1897,7 +2077,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   width_model_now <- cal_obj$width_model$model %||% NULL
   if (inherits(width_model_now, "tsb_meta_policy_learner")) {
     width_scored <- predict_meta_policy_score(width_model_now, scored)
-    scored$.width_predicted_q_abs_log <- pmax(width_scored$meta_predicted_score, 0)
+    scored$.width_predicted_q_abs_log <- pmax(width_scored$.meta_predicted_score, 0)
     meta_width_source <- cal_obj$uncertainty_prediction_source %||% cal_obj$width_prediction_source %||% "learned_conditional_width"
   } else {
     scored$.width_predicted_q_abs_log <- pmax(scored$.meta_predicted_score, 0)
@@ -1909,14 +2089,46 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   scored$meta_q_abs_log_local <- NA_real_
   scored$meta_q_abs_log_source <- NA_character_
   scored$meta_q_abs_log_n_scores <- NA_real_
-  scored$meta_q_abs_log_conformal_factor <- rep(
-    suppressWarnings(as.numeric(cal_obj$width_factor_global %||% 1)),
-    nrow(scored)
+  scored$meta_q_abs_log_conformal_factor <- rep(NA_real_, nrow(scored))
+  scored$meta_q_abs_log_factor_source <- rep(NA_character_, nrow(scored))
+  scored$meta_q_abs_log_factor_n_scores <- rep(NA_real_, nrow(scored))
+
+  # Reapply the pooled local width lookup at prediction time so the learned
+  # width model receives a context-aware conformal multiplier with global
+  # fallback when the query lands outside any supported local slice.
+  local_width_lookup <- cal_obj$local_width_lookup %||% NULL
+  if (is.list(local_width_lookup) && length(local_width_lookup) > 0) {
+    scored_local_width <- policy_learner_apply_local_lookup(
+      tbl = scored,
+      lookup = local_width_lookup,
+      value_col = "meta_q_abs_log_conformal_factor",
+      source_col = "meta_q_abs_log_factor_source",
+      n_col = "meta_q_abs_log_factor_n_scores"
+    )
+    scored$meta_q_abs_log_conformal_factor <- suppressWarnings(
+      as.numeric(scored_local_width$meta_q_abs_log_conformal_factor)
+    )
+    scored$meta_q_abs_log_factor_source <- as.character(
+      scored_local_width$meta_q_abs_log_factor_source
+    )
+    scored$meta_q_abs_log_factor_n_scores <- suppressWarnings(
+      as.numeric(scored_local_width$meta_q_abs_log_factor_n_scores)
+    )
+  }
+
+  # Finish with the stored global fallback so unsupported contexts still return
+  # a valid interval scale.
+  scored$meta_q_abs_log_conformal_factor <- dplyr::coalesce(
+    scored$meta_q_abs_log_conformal_factor,
+    suppressWarnings(as.numeric(cal_obj$width_factor_global %||% 1))
   )
-  scored$meta_q_abs_log_factor_source <- rep("global_scale_conformal", nrow(scored))
-  scored$meta_q_abs_log_factor_n_scores <- rep(
-    suppressWarnings(as.numeric(nrow(tibble::as_tibble(cal_obj$selected %||% tibble::tibble())))),
-    nrow(scored)
+  scored$meta_q_abs_log_factor_source <- dplyr::coalesce(
+    scored$meta_q_abs_log_factor_source,
+    "global_scale_conformal"
+  )
+  scored$meta_q_abs_log_factor_n_scores <- dplyr::coalesce(
+    scored$meta_q_abs_log_factor_n_scores,
+    suppressWarnings(as.numeric(nrow(tibble::as_tibble(cal_obj$selected %||% tibble::tibble()))))
   )
 
   # Compute the anchor-level minimum predicted score once, then join it back so
@@ -2152,36 +2364,6 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
 #' @name predict.PolicyLearner
 #' @usage NULL
 S7::method(predict_generic, PolicyLearner) <- .predict_policy_learner
-
-methods::setMethod(
-  "predict",
-  signature(object = "tsbiomass::PolicyLearner"),
-  function(object,
-           new_policy_tbl,
-           use_support_bin_intervals = NULL,
-           max_selection_tolerance = NULL,
-           ...) {
-    .predict_policy_learner(
-      object = object,
-      new_policy_tbl = new_policy_tbl,
-      use_support_bin_intervals = use_support_bin_intervals,
-      max_selection_tolerance = max_selection_tolerance
-    )
-  }
-)
-
-`predict.tsbiomass::PolicyLearner` <- function(object,
-                                               new_policy_tbl,
-                                               use_support_bin_intervals = NULL,
-                                               max_selection_tolerance = NULL,
-                                               ...) {
-  .predict_policy_learner(
-    object = object,
-    new_policy_tbl = new_policy_tbl,
-    use_support_bin_intervals = use_support_bin_intervals,
-    max_selection_tolerance = max_selection_tolerance
-  )
-}
 
 #' Plot a `PolicyLearner`
 #'
@@ -2733,10 +2915,6 @@ methods::setMethod(
 }
 
 S7::method(plot_generic, PolicyLearner) <- .plot_policy_learner
-
-`plot.tsbiomass::PolicyLearner` <- function(x, y = NULL, ...) {
-  .plot_policy_learner(x, y, ...)
-}
 
 #' Print a `PolicyLearner`
 #'

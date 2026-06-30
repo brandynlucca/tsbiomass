@@ -84,8 +84,8 @@ minimal_config_data <- function() {
       )
     ),
     policies = list(
-      active = c("same_species_closest", "same_genus_weighted"),
-      branch_filters = c("all", "fixed20_only")
+      active = c("closest_within_species", "weighted_mean_within_genus"),
+      equation_branch_filters = c("all", "fixed20_only")
     ),
     metalearner = list(
       selection_method = "glm",
@@ -294,10 +294,10 @@ minimal_policy_performance <- function() {
     anchor_model_id = c("1", "1", "4", "4"),
     anchor_species = c("Alpha alpha", "Alpha alpha", "Gamma gamma", "Gamma gamma"),
     policy = c(
-      "same_species_closest",
-      "same_genus_weighted",
-      "same_species_closest",
-      "same_genus_weighted"
+      "closest_within_species",
+      "weighted_mean_within_genus",
+      "closest_within_species",
+      "weighted_mean_within_genus"
     ),
     equation_branch_filter = "all",
     error_abs_log = c(0.10, 0.22, 0.08, 0.18),
@@ -315,10 +315,10 @@ minimal_crossfit_predictions <- function() {
     anchor_model_id = c("1", "1", "4", "4"),
     anchor_species = c("Alpha alpha", "Alpha alpha", "Gamma gamma", "Gamma gamma"),
     policy = c(
-      "same_species_closest",
-      "same_genus_weighted",
-      "same_species_closest",
-      "same_genus_weighted"
+      "closest_within_species",
+      "weighted_mean_within_genus",
+      "closest_within_species",
+      "weighted_mean_within_genus"
     ),
     equation_branch_filter = "all",
     error_abs_log = c(0.11, 0.24, 0.09, 0.19),
@@ -332,7 +332,7 @@ minimal_crossfit_predictions <- function() {
 
 minimal_selection_ref <- function() {
   tibble::tibble(
-    policy = c("same_species_closest", "same_genus_weighted"),
+    policy = c("closest_within_species", "weighted_mean_within_genus"),
     equation_branch_filter = "all",
     mean_species_median_abs_log = c(0.10, 0.20),
     acceptable_one_se = c(TRUE, FALSE),
@@ -347,14 +347,14 @@ minimal_selection_ref <- function() {
     specificity_rank = c(1, 2),
     equivalence_class_id = c("eq1", "eq2"),
     equivalence_class_size = c(1, 1),
-    equivalence_class_members = c("same_species_closest", "same_genus_weighted")
+    equivalence_class_members = c("closest_within_species", "weighted_mean_within_genus")
   )
 }
 
 minimal_uncertainty <- function() {
   list(
     conf_cal = tibble::tibble(
-      policy = c("same_species_closest", "same_genus_weighted"),
+      policy = c("closest_within_species", "weighted_mean_within_genus"),
       equation_branch_filter = "all",
       q_abs_log = c(0.10, 0.20),
       n = c(5L, 5L),
@@ -362,7 +362,7 @@ minimal_uncertainty <- function() {
     ),
     pseudo_sum = list(
       overall = tibble::tibble(
-        policy = c("same_species_closest", "same_genus_weighted"),
+        policy = c("closest_within_species", "weighted_mean_within_genus"),
         equation_branch_filter = "all",
         benchmark_label = "pseudo_anchor",
         empirical_coverage = c(0.95, 0.80),
@@ -371,7 +371,7 @@ minimal_uncertainty <- function() {
     ),
     species_sum = list(
       overall = tibble::tibble(
-        policy = c("same_species_closest", "same_genus_weighted"),
+        policy = c("closest_within_species", "weighted_mean_within_genus"),
         equation_branch_filter = "all",
         benchmark_label = "species_block",
         empirical_coverage = c(0.90, 0.75),
@@ -386,21 +386,21 @@ minimal_predictions <- function() {
     intervals = tibble::tibble(
       anchor_model_id = c("1", "1"),
       anchor_species = c("Alpha alpha", "Alpha alpha"),
-      policy = c("same_species_closest", "same_genus_weighted"),
+      policy = c("closest_within_species", "weighted_mean_within_genus"),
       equation_branch_filter = "all",
       multiplier_pred = c(1.1, 1.3)
     ),
     selections = tibble::tibble(
       anchor_model_id = c("1", "4"),
       anchor_species = c("Alpha alpha", "Gamma gamma"),
-      selected_policy = c("same_species_closest", "same_species_closest"),
-      selected_policy_display = c("same_species_closest", "same_species_closest"),
+      selected_policy = c("closest_within_species", "closest_within_species"),
+      selected_policy_display = c("closest_within_species", "closest_within_species"),
       selected_equation_branch_filter = "all",
-      equivalent_policy_set = c("same_species_closest", "same_species_closest"),
+      equivalent_policy_set = c("closest_within_species", "closest_within_species"),
       equivalent_policy_set_n = c(1L, 1L),
       equivalence_class_id = c("eq1", "eq1"),
       equivalence_class_size = c(1L, 1L),
-      equivalence_class_members = c("same_species_closest", "same_species_closest"),
+      equivalence_class_members = c("closest_within_species", "closest_within_species"),
       multiplier_pred = c(1.1, 1.2),
       multiplier_lo = c(1.0, 1.1),
       multiplier_hi = c(1.2, 1.3),
@@ -463,7 +463,7 @@ make_selector <- function(candidates = make_candidates(),
         missing_key_metadata_max_fraction = 0.25
       ),
       policies = list(
-        active = c("same_species_closest", "same_genus_weighted")
+        active = c("closest_within_species", "weighted_mean_within_genus")
       )
     )
   }

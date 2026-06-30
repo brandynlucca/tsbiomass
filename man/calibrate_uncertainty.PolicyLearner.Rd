@@ -21,6 +21,14 @@ retaining calibration rows.}
 
 \item{n_bins}{Optional number of support bins.}
 
+\item{uncertainty_method}{Optional uncertainty-learner method override.}
+
+\item{uncertainty_super_methods}{Optional uncertainty-learner super-learner
+base methods override.}
+
+\item{uncertainty_method_settings}{Optional uncertainty-learner
+method-settings override.}
+
 \item{progress}{Optional logical scalar controlling progress messages.}
 
 \item{config}{Optional config override.}

@@ -8,7 +8,8 @@ run_oof_method(
   method,
   x_all,
   y_all,
-  foldid,
+  foldid = NULL,
+  fold_splits = NULL,
   method_settings,
   seed,
   lambda_rule

@@ -21,7 +21,7 @@ test_that("selected coefficient calibration pools by policy and branch", {
     equation_branch_filter = "all"
   )
 
-  out <- summarize_selected_coefficient_calibration(
+  out <- summarize_coeff_calibration(
     selected_tbl = selected_tbl,
     candidate_models = candidate_models,
     ts_error = ts_error

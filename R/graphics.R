@@ -1990,10 +1990,6 @@ conjurer_heatmap_plot <- function(x,
 
 S7::method(plot_generic, Conjurer) <- .plot_conjurer
 
-`plot.tsbiomass::Conjurer` <- function(x, y = NULL, ...) {
-  .plot_conjurer(x, y, ...)
-}
-
 #' Summarize species-policy benchmark performance
 #'
 #' @param perf_tbl Species-block benchmark table.
@@ -3551,8 +3547,7 @@ plot_policy_stability <- function(sens_tbl,
   if (!"display_changed" %in% names(plot_df)) plot_df$display_changed <- FALSE
   if (!"scenario_status" %in% names(plot_df)) plot_df$scenario_status <- "ok"
 
-  # Accept either the old or the renamed equivalent-set change field so this
-  # plot works against both sensitivity-table schemas.
+  # Accept the renamed equivalent-set change field
   if (!"equivalent_set_changed" %in% names(plot_df)) {
     plot_df$equivalent_set_changed <- if ("equiv_set_changed" %in% names(plot_df)) {
       plot_df$equiv_set_changed

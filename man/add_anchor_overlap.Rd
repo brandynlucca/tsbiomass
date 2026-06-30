@@ -4,7 +4,7 @@
 \alias{add_anchor_overlap}
 \title{Add anchor-relative overlap fields}
 \usage{
-add_anchor_overlap(candidate_models, anchor_row, config)
+add_anchor_overlap(candidate_models, anchor_row, config, registry_path = NULL)
 }
 \arguments{
 \item{candidate_models}{Candidate-model table.}

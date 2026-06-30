@@ -27,8 +27,8 @@ test_that("PolicySelector methods store benchmark, uncertainty, and selection st
     run_policy_selection = function(...) {
       list(
         final_ref = minimal_selection_ref(),
-        equiv_ref = list(pairs = tibble::tibble(policy = "same_species_closest")),
-        equiv_sets = tibble::tibble(policy = c("same_species_closest", "same_genus_weighted"))
+        equiv_ref = list(pairs = tibble::tibble(policy = "closest_within_species")),
+        equiv_sets = tibble::tibble(policy = c("closest_within_species", "weighted_mean_within_genus"))
       )
     },
     .package = "tsbiomass"
@@ -37,6 +37,49 @@ test_that("PolicySelector methods store benchmark, uncertainty, and selection st
 
   expect_true(length(selector@selection) > 0)
   expect_true("final_ref" %in% names(selector@selection))
+})
+
+test_that("policy selector anchor config replaces explicit trait maps", {
+  candidates_base <- make_candidates(seed_similarity_tuning = FALSE)
+  cfg_defaults <- list(
+    similarity = list(
+      species_traits = list(class = 1, family = 1, genus = 1),
+      study_traits = list(fao_area = 1, frequency = 1)
+    )
+  )
+  candidates <- Candidates(
+    spec = c(candidates_base@spec, list(config_data = cfg_defaults)),
+    study_db = candidates_base@study_db,
+    species_vector = candidates_base@species_vector,
+    source_dbs = candidates_base@source_dbs,
+    species_db = candidates_base@species_db,
+    candidate_models = candidates_base@candidate_models,
+    reference_anchors = candidates_base@reference_anchors,
+    similarity_matrix = list(),
+    gower_distances = candidates_base@gower_distances,
+    ordination = candidates_base@ordination,
+    admissibility = candidates_base@admissibility,
+    similarity_tuning = list()
+  )
+
+  selector <- make_selector(
+    candidates = candidates,
+    config = list(
+      similarity = list(
+        species_traits = list(genus = 1, swimbladder_type = 1),
+        study_traits = list(equation_form = 1)
+      ),
+      admissibility = list(
+        species_traits = "swimbladder_type"
+      )
+    )
+  )
+
+  anchor_cfg <- tsbiomass:::policy_selector_anchor_config(selector)
+
+  expect_named(anchor_cfg$species_traits, c("genus", "swimbladder_type"))
+  expect_named(anchor_cfg$study_traits, "equation_form")
+  expect_equal(anchor_cfg$admissibility_species_traits, "swimbladder_type")
 })
 
 test_that("installed-style S3 bridges are registered for base predict and plot", {
@@ -68,7 +111,7 @@ test_that("predict returns PolicyPredictions and summary helpers use selector st
     screen_one_anchor_admissibility = function(...) list(),
     evaluate_policies = function(...) {
       tibble::tibble(
-        policy = c("same_species_closest", "same_genus_weighted"),
+        policy = c("closest_within_species", "weighted_mean_within_genus"),
         multiplier_pred = c(1.10, 1.30)
       )
     },
@@ -150,7 +193,7 @@ test_that("predict reuses cached anchor admissibility instead of rescreening don
     },
     evaluate_policies = function(eval_obj, ...) {
       tibble::tibble(
-        policy = c("same_species_closest", "same_genus_weighted"),
+        policy = c("closest_within_species", "weighted_mean_within_genus"),
         equation_branch_filter = "all",
         multiplier_pred = c(1.10, 1.30),
         cached_anchor_id = eval_obj$anchor_id %||% NA_character_
@@ -212,7 +255,7 @@ test_that("predict with config overrides still reuses cached anchor admissibilit
     },
     evaluate_policies = function(eval_obj, ...) {
       tibble::tibble(
-        policy = c("same_species_closest", "same_genus_weighted"),
+        policy = c("closest_within_species", "weighted_mean_within_genus"),
         equation_branch_filter = "all",
         multiplier_pred = c(1.10, 1.30),
         cached_anchor_id = eval_obj$anchor_id %||% NA_character_
@@ -255,7 +298,7 @@ test_that("Referee consumes PolicyPredictions after selector prediction", {
     screen_one_anchor_admissibility = function(...) list(),
     evaluate_policies = function(...) {
       tibble::tibble(
-        policy = c("same_species_closest", "same_genus_weighted"),
+        policy = c("closest_within_species", "weighted_mean_within_genus"),
         equation_branch_filter = "all",
         multiplier_pred = c(1.10, 1.30)
       )
@@ -329,7 +372,7 @@ test_that("Referee enforces prediction provenance against selector anchors", {
     screen_one_anchor_admissibility = function(...) list(),
     evaluate_policies = function(...) {
       tibble::tibble(
-        policy = c("same_species_closest", "same_genus_weighted"),
+        policy = c("closest_within_species", "weighted_mean_within_genus"),
         equation_branch_filter = "all",
         multiplier_pred = c(1.10, 1.30)
       )
@@ -380,7 +423,7 @@ test_that("Referee only permits empty-fallback components when partial output is
     screen_one_anchor_admissibility = function(...) list(),
     evaluate_policies = function(...) {
       tibble::tibble(
-        policy = c("same_species_closest", "same_genus_weighted"),
+        policy = c("closest_within_species", "weighted_mean_within_genus"),
         equation_branch_filter = "all",
         multiplier_pred = c(1.10, 1.30)
       )

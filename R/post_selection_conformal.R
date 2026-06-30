@@ -1,27 +1,3 @@
-#' Finite-sample post-selection conformal quantile
-#'
-#' @param x Numeric residual vector.
-#' @param alpha Miscoverage level.
-#'
-#' @return Numeric scalar.
-#'
-#' @keywords internal
-post_selection_quantile <- function(x,
-                                    alpha) {
-  x_ <- sort(x[is.finite(x)])
-  n <- length(x_)
-  if (n == 0) {
-    return(NA_real_)
-  }
-
-  q_idx <- ceiling((n + 1) * (1 - alpha))
-  if (q_idx > n) {
-    return(Inf)
-  }
-
-  x_[[q_idx]]
-}
-
 #' Compute a post-selection support score
 #'
 #' @param tbl Selected policy rows.
@@ -99,6 +75,7 @@ default_post_selection_support_labels <- function(n_bins) {
 
 resolve_post_selection_support_labels <- function(labels = NULL,
                                                   n_bins = 3L) {
+  # Validate the configured labels against the resolved bin count.
   n_bins_ <- max(1L, as.integer(n_bins)[[1]])
   labels_ <- if (is.null(labels)) {
     default_post_selection_support_labels(n_bins_)
@@ -122,9 +99,79 @@ resolve_post_selection_support_labels <- function(labels = NULL,
   stats::setNames(labels_, paste0("support_bin_", seq_len(n_bins_)))
 }
 
+#' Assign generic support bins
+#'
+#' @param tbl Input table.
+#' @param score Numeric support score vector aligned with `tbl`.
+#' @param score_col Name of the output score column.
+#' @param bin_col Name of the output support-bin column.
+#' @param cutpoints Optional numeric cutpoints. When `NULL`, quantile cutpoints
+#'   are computed from `score`.
+#' @param n_bins Number of ordered support bins.
+#' @param all_bin Label used when all rows collapse into one support tier.
+#' @param missing_bin Label used when a row has missing support.
+#'
+#' @return `tbl` with appended score and bin columns.
+#'
+#' @keywords internal
+assign_support_bins <- function(tbl,
+                                score,
+                                score_col,
+                                bin_col,
+                                cutpoints = NULL,
+                                n_bins = 3L,
+                                all_bin = "all_support",
+                                missing_bin = "support_bin_missing") {
+  # Standardize the input table and score before deriving cutpoints.
+  tbl_ <- tibble::as_tibble(tbl)
+  n_bins_ <- max(1L, as.integer(n_bins)[[1]])
+  score_ <- suppressWarnings(as.numeric(score))
+
+  if (nrow(tbl_) == 0) {
+    tbl_[[score_col]] <- numeric()
+    tbl_[[bin_col]] <- character()
+    return(tbl_)
+  }
+
+  # Build quantile cutpoints unless the caller passed fixed breaks.
+  cutpoints_ <- if (is.null(cutpoints)) {
+    probs <- seq(0, 1, length.out = n_bins_ + 1L)
+    unique(stats::quantile(
+      score_,
+      probs = probs,
+      na.rm = TRUE,
+      names = FALSE,
+      type = 8
+    ))
+  } else {
+    suppressWarnings(as.numeric(cutpoints))
+  }
+
+  # Collapse to one bin when the score has no usable spread.
+  if (length(cutpoints_) < 2L || all(!is.finite(cutpoints_))) {
+    bin <- rep(all_bin, nrow(tbl_))
+  } else {
+    cutpoints_[1] <- -Inf
+    cutpoints_[length(cutpoints_)] <- Inf
+    bin_id <- as.integer(cut(
+      score_,
+      breaks = cutpoints_,
+      include.lowest = TRUE,
+      labels = FALSE
+    ))
+    bin <- paste0("support_bin_", bin_id)
+    bin[!is.finite(bin_id)] <- missing_bin
+  }
+
+  tbl_[[score_col]] <- score_
+  tbl_[[bin_col]] <- bin
+  tbl_
+}
+
 label_post_selection_support_bins <- function(tbl,
                                               labels = NULL,
                                               n_bins = NULL) {
+  # Attach human-readable labels after the structural bins are present.
   tbl_ <- tibble::as_tibble(tbl)
   if (!"post_selection_support_bin" %in% names(tbl_)) {
     return(tbl_)
@@ -159,6 +206,7 @@ assign_post_selection_support_bins <- function(tbl,
                                                cutpoints = NULL,
                                                n_bins = 3L,
                                                labels = NULL) {
+  # Score the rows first, then assign support bins from that score.
   tbl_ <- tibble::as_tibble(tbl)
   if (nrow(tbl_) == 0) {
     tbl_$post_selection_support_score <- numeric()
@@ -168,35 +216,15 @@ assign_post_selection_support_bins <- function(tbl,
   }
 
   n_bins_ <- max(1L, as.integer(n_bins))
-  score <- post_selection_support_score(tbl_)
-  cutpoints_ <- if (is.null(cutpoints)) {
-    probs <- seq(0, 1, length.out = n_bins_ + 1L)
-    unique(stats::quantile(
-      score,
-      probs = probs,
-      na.rm = TRUE,
-      names = FALSE,
-      type = 8
-    ))
-  } else {
-    cutpoints
-  }
-  if (length(cutpoints_) < 2L || all(!is.finite(cutpoints_))) {
-    bin <- rep("all_support", nrow(tbl_))
-  } else {
-    cutpoints_[1] <- -Inf
-    cutpoints_[length(cutpoints_)] <- Inf
-    bin_id <- as.integer(cut(
-      score,
-      breaks = cutpoints_,
-      include.lowest = TRUE,
-      labels = FALSE
-    ))
-    bin <- paste0("support_bin_", bin_id)
-    bin[!is.finite(bin_id)] <- "support_bin_missing"
-  }
-
-  tbl_$post_selection_support_score <- score
-  tbl_$post_selection_support_bin <- bin
+  tbl_ <- assign_support_bins(
+    tbl = tbl_,
+    score = post_selection_support_score(tbl_),
+    score_col = "post_selection_support_score",
+    bin_col = "post_selection_support_bin",
+    cutpoints = cutpoints,
+    n_bins = n_bins_,
+    all_bin = "all_support",
+    missing_bin = "support_bin_missing"
+  )
   label_post_selection_support_bins(tbl_, labels = labels, n_bins = n_bins_)
 }

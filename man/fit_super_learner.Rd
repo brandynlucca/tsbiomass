@@ -13,6 +13,7 @@ fit_super_learner(
   inner_folds = 5L,
   seed = NULL,
   method_settings = NULL,
+  oof_mode = "anchor_species",
   workers = 1L,
   progress = FALSE
 )
@@ -41,6 +42,10 @@ One of \code{"lambda.1se"} or \code{"lambda.min"}.}
 
 \item{method_settings}{Named list of per-family tuning overrides (same
 structure as \code{metalearner.method_settings} in the config YAML).}
+
+\item{oof_mode}{Cross-validation split mode. \code{"anchor_species"} keeps the
+current receiving-species grouping; \code{"species_purged"} removes the held-out
+species from both anchor and donor roles in each OOF fold.}
 
 \item{workers}{Integer number of parallel workers. Workers are assigned one
 method each. \code{1L} runs sequentially.}

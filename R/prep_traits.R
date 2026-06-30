@@ -288,8 +288,7 @@ prepare_traits <- function(species_db,
   )
 
   # Convert compatible TS models into a shared TS-length form after the study
-  # and species traits have been merged. This preserves the old script's
-  # standardized slope/intercept outputs in the post-ingestion step.
+  # and species traits have been merged. 
   out <- convert_to_length_form(out)
 
   # Materialize compatible column names as direct copies of the
@@ -370,8 +369,7 @@ prepare_traits <- function(species_db,
     rep(NA_real_, nrow(out))
   }
 
-  # Generate the same coarse study-condition labels used in the old script,
-  # but built from the canonical study fields now present in the prepared table.
+  # Generate the same coarse study-condition labels
   out$freq_label <- dplyr::case_when(
     !is.finite(out$frequency) ~ "unknown",
     TRUE ~ paste0("FREQ_", as.integer(round(out$frequency)))

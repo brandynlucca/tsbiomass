@@ -1,16 +1,16 @@
 paths:
-  input: &study_file C:/Users/Brandyn/Downloads/fishery_survey_tsl.xlsx
-  output_root: outputs_swfscfish
-  cache_folder: cache
-  support_folder: &support_folder C:/Users/Brandyn/Downloads/
+  input_file: &study_file C:/Users/Brandyn/Downloads/fishery_survey_tsl.xlsx
+  out_root: outputs_swfscfish
+  cache_dir: cache
+  supplemental_dir: &support_folder C:/Users/Brandyn/Downloads/
   azores_file: &azores_file C:/Users/Brandyn/Downloads/Azores_FishTraits_2023.tab
   mstraits_file: &mstraits_file C:/Users/Brandyn/Downloads/marineSpeciesTraits.RData
   continental_file: &continental_file C:/Users/Brandyn/Downloads/TraitCollectionFishNAtlanticNEPacificContShelf.xlsx
-  log_path: outputs_swfscfish/tsbiomass_run.log
+  log_file: outputs_swfscfish/tsbiomass_run.log
 
 execution:
-  strict_pdf: false
-  run_multiplier: false
+  strict_length_pdf: false
+  run_multiplier_model: false
   write_log: false
 
 cache:
@@ -55,8 +55,8 @@ candidates:
       regional_body: SWFSC
 
 tuning:
-  species_model_limit: 2
-  resamples: 5
+  max_models_per_species: 2
+  n_resamples: 5
   n_cores: 8
   grid_refinement_levels: 2
   response_surface_top_n: 25

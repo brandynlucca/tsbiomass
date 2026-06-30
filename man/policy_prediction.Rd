@@ -9,7 +9,8 @@ policy_prediction(
   policy_def,
   anchor_sigma,
   anchor_pdf,
-  anchor_pdf_precomp = NULL
+  anchor_pdf_precomp = NULL,
+  equation_row = NULL
 )
 }
 \arguments{
@@ -20,6 +21,13 @@ policy_prediction(
 \item{anchor_sigma}{Anchor mean backscatter.}
 
 \item{anchor_pdf}{Anchor length-density table.}
+
+\item{anchor_pdf_precomp}{Optional precomputed anchor-PDF terms reused across
+policies for the same anchor.}
+
+\item{equation_row}{Optional precomputed equation row from
+\code{\link[=policy_equation]{policy_equation()}}. When supplied, the prediction reuses that equation
+instead of recomputing the aggregator output.}
 }
 \value{
 One-row tibble.

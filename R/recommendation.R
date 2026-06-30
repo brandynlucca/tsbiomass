@@ -799,41 +799,23 @@ recommendation_local_support_score <- function(tbl) {
 assign_recommendation_support_bins <- function(tbl,
                                                cutpoints = NULL,
                                                n_bins = 4L) {
+  # Reuse the shared support-binning logic with recommendation-specific names.
   tbl_ <- tibble::as_tibble(tbl)
   if (nrow(tbl_) == 0) {
     tbl_$recommendation_support_score <- numeric()
     tbl_$recommendation_support_bin <- character()
     return(tbl_)
   }
-  score <- recommendation_local_support_score(tbl_)
-  cutpoints_ <- if (is.null(cutpoints)) {
-    unique(stats::quantile(
-      score,
-      probs = seq(0, 1, length.out = as.integer(n_bins) + 1L),
-      na.rm = TRUE,
-      names = FALSE,
-      type = 8
-    ))
-  } else {
-    cutpoints
-  }
-  if (length(cutpoints_) < 2L || all(!is.finite(cutpoints_))) {
-    bin <- rep("support_all", nrow(tbl_))
-  } else {
-    cutpoints_[1] <- -Inf
-    cutpoints_[length(cutpoints_)] <- Inf
-    bin_id <- as.integer(cut(
-      score,
-      breaks = cutpoints_,
-      include.lowest = TRUE,
-      labels = FALSE
-    ))
-    bin <- paste0("support_bin_", bin_id)
-    bin[!is.finite(bin_id)] <- "support_missing"
-  }
-  tbl_$recommendation_support_score <- score
-  tbl_$recommendation_support_bin <- bin
-  tbl_
+  assign_support_bins(
+    tbl = tbl_,
+    score = recommendation_local_support_score(tbl_),
+    score_col = "recommendation_support_score",
+    bin_col = "recommendation_support_bin",
+    cutpoints = cutpoints,
+    n_bins = n_bins,
+    all_bin = "support_all",
+    missing_bin = "support_missing"
+  )
 }
 
 #' Calibrate local recommendation conformal intervals
@@ -879,7 +861,7 @@ calibrate_local_recommendation_conformal <- function(policy_perf,
   ))
 
   finite_q <- function(x, alpha_now) {
-    post_selection_quantile(x, alpha = alpha_now)
+    conformal_quantile(x, alpha = alpha_now)
   }
   global_q <- finite_q(valid$error_abs_log, alpha)
 

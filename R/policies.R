@@ -365,8 +365,8 @@ build_constructed_policy_definition <- function(group_def,
 #'
 #' @return One policy-group definition list.
 #' @keywords internal
-policy_group_definition <- function(group_key,
-                                    registry) {
+build_policy_group_definition <- function(group_key,
+                                          registry) {
   group_key <- stringr::str_squish(as.character(group_key %||% ""))[[1]]
   if (!nzchar(group_key)) {
     stop("'group_key' must be a non-empty character scalar.", call. = FALSE)
@@ -664,9 +664,9 @@ policy_group_definition <- function(group_key,
 #'
 #' @return One policy-definition list.
 #' @keywords internal
-construct_policy_definition_for_group_metric <- function(group_key,
-                                                         metric_key,
-                                                         registry) {
+build_group_metric_policy <- function(group_key,
+                                      metric_key,
+                                      registry) {
   metric_lookup <- stats::setNames(
     registry$policy_metrics %||% list(),
     vapply(registry$policy_metrics %||% list(), function(x) as.character(x$key %||% NA_character_), character(1))
@@ -676,7 +676,7 @@ construct_policy_definition_for_group_metric <- function(group_key,
     stop(sprintf("Unknown policy constructor metric key: %s", metric_key), call. = FALSE)
   }
 
-  group_def <- policy_group_definition(group_key = group_key, registry = registry)
+  group_def <- build_policy_group_definition(group_key = group_key, registry = registry)
   match_traits_now <- as.character(unlist((group_def$fixed_parameters %||% list())$match_traits %||% character(0), use.names = FALSE))
   if (identical(metric_key, "species_distance") &&
     (identical(group_key, "species") || "species" %in% match_traits_now)) {
@@ -693,70 +693,6 @@ construct_policy_definition_for_group_metric <- function(group_key,
   )
 }
 
-legacy_policy_definition_from_name <- function(policy_name,
-                                               registry) {
-  policy_name <- stringr::str_squish(as.character(policy_name %||% ""))[[1]]
-  if (is.na(policy_name) || !nzchar(policy_name) || !is.list(registry)) {
-    return(NULL)
-  }
-
-  normalize_group_key <- function(group_key) {
-    group_key <- stringr::str_squish(as.character(group_key %||% ""))[[1]]
-    group_aliases <- c(
-      fao_area = "fao",
-      swimbladder_type = "swimbladder",
-      derivation_type = "derivation"
-    )
-    if (group_key %in% names(group_aliases)) {
-      unname(group_aliases[group_key])
-    } else {
-      group_key
-    }
-  }
-
-  try_legacy_group_metric <- function(group_key,
-                                      metric_key) {
-    tryCatch(
-      construct_policy_definition_for_group_metric(
-        group_key = normalize_group_key(group_key),
-        metric_key = metric_key,
-        registry = registry
-      ),
-      error = function(e) NULL
-    )
-  }
-
-  legacy_patterns <- list(
-    list(pattern = "^same_(.+)_closest$", metric_key = "closest"),
-    list(pattern = "^same_(.+)_weighted$", metric_key = "weighted_mean"),
-    list(pattern = "^same_(.+)_unweighted$", metric_key = "unweighted_mean"),
-    list(pattern = "^(.+)_closest$", metric_key = "closest"),
-    list(pattern = "^(.+)_weighted$", metric_key = "weighted_mean"),
-    list(pattern = "^(.+)_unweighted$", metric_key = "unweighted_mean")
-  )
-
-  for (pattern_now in legacy_patterns) {
-    match_now <- stringr::str_match(policy_name, pattern_now$pattern)
-    group_key <- if (is.matrix(match_now) && nrow(match_now) >= 1L && ncol(match_now) >= 2L) {
-      stringr::str_squish(as.character(match_now[1, 2] %||% ""))[[1]]
-    } else {
-      ""
-    }
-    if (!nzchar(group_key)) {
-      next
-    }
-    policy_def <- try_legacy_group_metric(
-      group_key = group_key,
-      metric_key = pattern_now$metric_key
-    )
-    if (is.list(policy_def)) {
-      return(policy_def)
-    }
-  }
-
-  NULL
-}
-
 #' Build one policy definition from its canonical name
 #'
 #' @param policy_name Canonical policy name.
@@ -765,22 +701,15 @@ legacy_policy_definition_from_name <- function(policy_name,
 #'
 #' @return One policy-definition list or `NULL`.
 #' @keywords internal
-construct_policy_definition_from_name <- function(policy_name,
-                                                  policy_path = NULL,
-                                                  registry = NULL) {
+build_policy_definition_from_name <- function(policy_name,
+                                              policy_path = NULL,
+                                              registry = NULL) {
   policy_name <- stringr::str_squish(as.character(policy_name %||% ""))[[1]]
   if (is.na(policy_name) || !nzchar(policy_name)) {
     return(NULL)
   }
   if (!is.list(registry)) {
     registry <- read_policy_registry(policy_path = policy_path)
-  }
-  legacy_def <- legacy_policy_definition_from_name(
-    policy_name = policy_name,
-    registry = registry
-  )
-  if (is.list(legacy_def)) {
-    return(legacy_def)
   }
   metric_defs <- registry$policy_metrics %||% list()
   prefixes <- vapply(metric_defs, function(x) as.character(x$coded_prefix %||% NA_character_), character(1))
@@ -804,7 +733,7 @@ construct_policy_definition_from_name <- function(policy_name,
     suffix
   }
   tryCatch(
-    construct_policy_definition_for_group_metric(
+    build_group_metric_policy(
       group_key = group_key,
       metric_key = as.character(metric_def$key %||% NA_character_)[[1]],
       registry = registry
@@ -1016,7 +945,7 @@ explain <- function(policy,
 
   out <- purrr::map_dfr(policy_vals, function(policy_now) {
     policy_def <- lookup[[policy_now]] %||%
-      construct_policy_definition_from_name(policy_now, policy_path = policy_path) %||%
+      build_policy_definition_from_name(policy_now, policy_path = policy_path) %||%
       NULL
     if (!is.list(policy_def)) {
       stop(sprintf("Unknown policy name: %s", policy_now), call. = FALSE)
@@ -1106,7 +1035,7 @@ canonical_policy_name <- local({
         return(cached)
       }
       policy_def <- lookup[[policy_now]] %||%
-        construct_policy_definition_from_name(policy_now, registry = registry) %||%
+        build_policy_definition_from_name(policy_now, registry = registry) %||%
         NULL
       result <- as.character(policy_def$coded_name %||% policy_now)[[1]]
       .cache[[cache_key]] <- result
@@ -1230,8 +1159,13 @@ valid_multiplier_rows <- function(rows) {
 #'
 #' @keywords internal
 valid_equation_rows <- function(rows) {
+  if (isTRUE(attr(rows, "tsb_valid_equations"))) {
+    return(rows)
+  }
   keep <- is.finite(rows$slope_len) & is.finite(rows$intercept_len)
-  rows[keep, , drop = FALSE]
+  out <- rows[keep, , drop = FALSE]
+  attr(out, "tsb_valid_equations") <- TRUE
+  out
 }
 
 #' Identify generalized-model rows
@@ -1398,7 +1332,7 @@ policy_display_label <- function(policy_name,
     policy_now <- policy_vals[[i]]
     branch_now <- branch_vals[[i]]
     policy_def <- policy_lookup_table()[[policy_now]] %||%
-      construct_policy_definition_from_name(policy_now) %||%
+      build_policy_definition_from_name(policy_now) %||%
       NULL
 
     if (is.list(policy_def)) {
@@ -1444,6 +1378,13 @@ policy_rows <- function(rows,
   if (!"model_id_chr" %in% names(policy_rows_) && "model_id" %in% names(policy_rows_)) {
     policy_rows_$model_id_chr <- as.character(policy_rows_$model_id)
   }
+  subset_flag <- function(flag_col) {
+    if (!flag_col %in% names(policy_rows_)) {
+      return(policy_rows_[0, , drop = FALSE])
+    }
+    keep <- as.logical(policy_rows_[[flag_col]]) %in% TRUE
+    policy_rows_[keep, , drop = FALSE]
+  }
 
   selected_rows <- NULL
   if (identical(pool_name, "all_admissible")) {
@@ -1453,19 +1394,18 @@ policy_rows <- function(rows,
     selected_rows <- policy_rows_
   }
   if (is.null(selected_rows) && identical(pool_name, "same_species")) {
-    selected_rows <- dplyr::filter(policy_rows_, .data$overlap_same_species)
+    selected_rows <- subset_flag("overlap_same_species")
   }
   if (is.null(selected_rows) && identical(pool_name, "match_all_traits")) {
     selected_rows <- policy_rows_
   }
   if (is.null(selected_rows) && identical(pool_name, "nearest_phylogenetic")) {
-    for (expr in list(
-      quote(overlap_same_species),
-      quote(overlap_same_genus & !overlap_same_species),
-      quote(overlap_same_family & !overlap_same_genus),
-      quote(overlap_same_order & !overlap_same_family)
+    for (out in list(
+      subset_flag("overlap_same_species"),
+      policy_rows_[(as.logical(policy_rows_$overlap_same_genus) %in% TRUE) & !(as.logical(policy_rows_$overlap_same_species) %in% TRUE), , drop = FALSE],
+      policy_rows_[(as.logical(policy_rows_$overlap_same_family) %in% TRUE) & !(as.logical(policy_rows_$overlap_same_genus) %in% TRUE), , drop = FALSE],
+      policy_rows_[(as.logical(policy_rows_$overlap_same_order) %in% TRUE) & !(as.logical(policy_rows_$overlap_same_family) %in% TRUE), , drop = FALSE]
     )) {
-      out <- dplyr::filter(policy_rows_, !!expr)
       if (nrow(out) > 0) {
         selected_rows <- out
         break
@@ -1476,24 +1416,23 @@ policy_rows <- function(rows,
     }
   }
   if (is.null(selected_rows) && identical(pool_name, "phylogenetic_neighborhood")) {
-    out <- dplyr::filter(policy_rows_, !.data$overlap_same_species)
+    out <- policy_rows_[!(as.logical(policy_rows_$overlap_same_species) %in% TRUE), , drop = FALSE]
     if (!is.null(policy_params$phylo_radius)) {
-      out <- dplyr::filter(
-        out,
-        is.finite(.data$taxonomic_distance_to_anchor),
-        .data$taxonomic_distance_to_anchor <= as.numeric(policy_params$phylo_radius)
-      )
+      radius <- as.numeric(policy_params$phylo_radius)
+      keep <- is.finite(out$taxonomic_distance_to_anchor) &
+        suppressWarnings(as.numeric(out$taxonomic_distance_to_anchor)) <= radius
+      out <- out[keep, , drop = FALSE]
     }
     selected_rows <- out
   }
   if (is.null(selected_rows) && identical(pool_name, "same_genus")) {
-    selected_rows <- dplyr::filter(policy_rows_, .data$overlap_same_genus)
+    selected_rows <- subset_flag("overlap_same_genus")
   }
   if (is.null(selected_rows) && identical(pool_name, "same_family")) {
-    selected_rows <- dplyr::filter(policy_rows_, .data$overlap_same_family)
+    selected_rows <- subset_flag("overlap_same_family")
   }
   if (is.null(selected_rows) && identical(pool_name, "same_order")) {
-    selected_rows <- dplyr::filter(policy_rows_, .data$overlap_same_order)
+    selected_rows <- subset_flag("overlap_same_order")
   }
   if (is.null(selected_rows) && identical(pool_name, "same_nmds_cluster")) {
     score_tbl <- tibble::as_tibble(ordination_info$model_scores %||% tibble::tibble())
@@ -1501,19 +1440,14 @@ policy_rows <- function(rows,
       is.na(ordination_info$anchor_cluster)) {
       selected_rows <- policy_rows_[0, , drop = FALSE]
     } else {
-      cluster_ids <- score_tbl |>
-        dplyr::filter(.data$nmds_cluster == ordination_info$anchor_cluster) |>
-        dplyr::pull(.data$model_id_chr) |>
-        unique()
-      selected_rows <- dplyr::filter(policy_rows_, .data$model_id_chr %in% cluster_ids)
+      cluster_ids <- unique(as.character(score_tbl$model_id_chr[score_tbl$nmds_cluster == ordination_info$anchor_cluster]))
+      selected_rows <- policy_rows_[as.character(policy_rows_$model_id_chr) %in% cluster_ids, , drop = FALSE]
     }
   }
   if (is.null(selected_rows) && identical(pool_name, "same_species_ellipse")) {
-    selected_rows <- dplyr::filter(
-      policy_rows_,
-      .data$model_id_chr %in% ordination_info$species_ellipse_ids,
-      !.data$overlap_same_species
-    )
+    keep <- as.character(policy_rows_$model_id_chr) %in% ordination_info$species_ellipse_ids &
+      !(as.logical(policy_rows_$overlap_same_species) %in% TRUE)
+    selected_rows <- policy_rows_[keep, , drop = FALSE]
   }
   if (is.null(selected_rows) && identical(pool_name, "generalized_models_only")) {
     selected_rows <- group_model_rows(policy_rows_)
@@ -1537,16 +1471,16 @@ policy_rows <- function(rows,
     }
   }
   if (is.null(selected_rows) && identical(pool_name, "same_fao_area")) {
-    selected_rows <- dplyr::filter(policy_rows_, .data$overlap_same_fao_area)
+    selected_rows <- subset_flag("overlap_same_fao_area")
   }
   if (is.null(selected_rows) && identical(pool_name, "same_ocean_basin")) {
-    selected_rows <- dplyr::filter(policy_rows_, .data$overlap_same_ocean_basin)
+    selected_rows <- subset_flag("overlap_same_ocean_basin")
   }
   if (is.null(selected_rows) && identical(pool_name, "same_equation_form")) {
-    selected_rows <- dplyr::filter(policy_rows_, .data$overlap_same_equation_form)
+    selected_rows <- subset_flag("overlap_same_equation_form")
   }
   if (is.null(selected_rows) && identical(pool_name, "same_derivation")) {
-    selected_rows <- dplyr::filter(policy_rows_, .data$overlap_same_derivation)
+    selected_rows <- subset_flag("overlap_same_derivation")
   }
 
   if (is.null(selected_rows)) {
@@ -1588,8 +1522,8 @@ policy_rows <- function(rows,
 #' @return One-row tibble.
 #'
 #' @keywords internal
-policy_equation_row <- function(slope,
-                                intercept) {
+build_policy_equation_row <- function(slope,
+                                      intercept) {
   list(
     policy_slope_len = as.numeric(slope),
     policy_intercept_len = as.numeric(intercept)
@@ -1606,14 +1540,14 @@ policy_equation_row <- function(slope,
 nearest_equation <- function(rows) {
   keep_rows <- valid_equation_rows(rows)
   if (nrow(keep_rows) == 0) {
-    return(policy_equation_row(NA_real_, NA_real_))
+    return(build_policy_equation_row(NA_real_, NA_real_))
   }
   if ("taxonomic_distance_to_anchor" %in% names(keep_rows)) {
     i <- which.min(keep_rows$combined_distance + keep_rows$taxonomic_distance_to_anchor * 1e-9)
   } else {
     i <- which.min(keep_rows$combined_distance)
   }
-  policy_equation_row(keep_rows$slope_len[[i]], keep_rows$intercept_len[[i]])
+  build_policy_equation_row(keep_rows$slope_len[[i]], keep_rows$intercept_len[[i]])
 }
 
 #' Compute one nearest trait-Gower equation
@@ -1626,7 +1560,7 @@ nearest_equation <- function(rows) {
 nearest_trait_gower_equation <- function(rows) {
   keep_rows <- valid_equation_rows(rows)
   if (nrow(keep_rows) == 0) {
-    return(policy_equation_row(NA_real_, NA_real_))
+    return(build_policy_equation_row(NA_real_, NA_real_))
   }
   if ("trait_gower_distance" %in% names(keep_rows)) {
     ok <- is.finite(keep_rows$trait_gower_distance)
@@ -1637,9 +1571,9 @@ nearest_trait_gower_equation <- function(rows) {
     i <- which.min(sub$combined_distance)
   }
   if (length(i) == 0) {
-    return(policy_equation_row(NA_real_, NA_real_))
+    return(build_policy_equation_row(NA_real_, NA_real_))
   }
-  policy_equation_row(sub$slope_len[[i]], sub$intercept_len[[i]])
+  build_policy_equation_row(sub$slope_len[[i]], sub$intercept_len[[i]])
 }
 
 #' Compute one nearest taxonomic-distance equation
@@ -1652,7 +1586,7 @@ nearest_trait_gower_equation <- function(rows) {
 nearest_taxonomic_equation <- function(rows) {
   keep_rows <- valid_equation_rows(rows)
   if (nrow(keep_rows) == 0) {
-    return(policy_equation_row(NA_real_, NA_real_))
+    return(build_policy_equation_row(NA_real_, NA_real_))
   }
   if ("taxonomic_distance_to_anchor" %in% names(keep_rows)) {
     ok <- is.finite(keep_rows$taxonomic_distance_to_anchor)
@@ -1663,9 +1597,9 @@ nearest_taxonomic_equation <- function(rows) {
     i <- which.min(sub$combined_distance)
   }
   if (length(i) == 0) {
-    return(policy_equation_row(NA_real_, NA_real_))
+    return(build_policy_equation_row(NA_real_, NA_real_))
   }
-  policy_equation_row(sub$slope_len[[i]], sub$intercept_len[[i]])
+  build_policy_equation_row(sub$slope_len[[i]], sub$intercept_len[[i]])
 }
 
 #' Compute one nearest species-distance equation
@@ -1678,7 +1612,7 @@ nearest_taxonomic_equation <- function(rows) {
 nearest_species_distance_equation <- function(rows) {
   keep_rows <- valid_equation_rows(rows)
   if (nrow(keep_rows) == 0) {
-    return(policy_equation_row(NA_real_, NA_real_))
+    return(build_policy_equation_row(NA_real_, NA_real_))
   }
   if ("d_species" %in% names(keep_rows)) {
     ok <- is.finite(keep_rows$d_species)
@@ -1689,9 +1623,9 @@ nearest_species_distance_equation <- function(rows) {
     i <- which.min(sub$combined_distance)
   }
   if (length(i) == 0) {
-    return(policy_equation_row(NA_real_, NA_real_))
+    return(build_policy_equation_row(NA_real_, NA_real_))
   }
-  policy_equation_row(sub$slope_len[[i]], sub$intercept_len[[i]])
+  build_policy_equation_row(sub$slope_len[[i]], sub$intercept_len[[i]])
 }
 
 #' Compute one weighted equation
@@ -1707,10 +1641,10 @@ weighted_equation <- function(rows) {
   weights <- normalized_weights(keep_rows$w_adm)
 
   if (nrow(keep_rows) == 0 || length(weights) == 0) {
-    return(policy_equation_row(NA_real_, NA_real_))
+    return(build_policy_equation_row(NA_real_, NA_real_))
   }
 
-  policy_equation_row(
+  build_policy_equation_row(
     sum(weights * keep_rows$slope_len),
     sum(weights * keep_rows$intercept_len)
   )
@@ -1800,8 +1734,21 @@ study_ensemble_rows <- function(rows,
     )
 }
 
+#' Resolve the donor rows used for a policy structural summary
+#'
+#' @param rows Candidate donor rows for one policy evaluation.
+#' @param policy_def One policy-definition list.
+#' @param summary_rows Optional precomputed method-specific donor summary rows.
+#'
+#' @return A tibble of donor rows carrying structural weights.
+#'
+#' @keywords internal
 policy_structural_rows <- function(rows,
-                                   policy_def) {
+                                   policy_def,
+                                   summary_rows = NULL) {
+  # Start from the valid donor equations once, then reuse any precomputed
+  # method-specific summary rows so nearest-style policies do not resolve the
+  # same winning donor twice.
   method_name <- as.character(policy_def$aggregation_method)[[1]]
   source_rows <- valid_equation_rows(rows)
   if (nrow(source_rows) == 0) {
@@ -1817,7 +1764,7 @@ policy_structural_rows <- function(rows,
     "nearest_by_species_distance",
     "nearest_study_then_model"
   )) {
-    out <- policy_summary_rows(source_rows, policy_def)
+    out <- summary_rows %||% policy_summary_rows(source_rows, policy_def)
     out$.structural_weight <- 1
     return(out)
   }
@@ -1873,9 +1820,9 @@ study_weighted_equation <- function(rows) {
     dplyr::filter(is.finite(.data$w_adm), .data$w_adm > 0)
   weights <- normalized_weights(keep_rows$w_adm)
   if (nrow(keep_rows) == 0 || length(weights) == 0) {
-    return(policy_equation_row(NA_real_, NA_real_))
+    return(build_policy_equation_row(NA_real_, NA_real_))
   }
-  policy_equation_row(
+  build_policy_equation_row(
     sum(weights * keep_rows$slope_len),
     sum(weights * keep_rows$intercept_len)
   )
@@ -1884,9 +1831,9 @@ study_weighted_equation <- function(rows) {
 study_equal_equation <- function(rows) {
   keep_rows <- study_ensemble_rows(rows, group_weight = "max", within_weight = "kernel")
   if (nrow(keep_rows) == 0) {
-    return(policy_equation_row(NA_real_, NA_real_))
+    return(build_policy_equation_row(NA_real_, NA_real_))
   }
-  policy_equation_row(
+  build_policy_equation_row(
     mean(keep_rows$slope_len, na.rm = TRUE),
     mean(keep_rows$intercept_len, na.rm = TRUE)
   )
@@ -1906,7 +1853,7 @@ nearest_study_then_model_equation <- function(rows) {
     ) |>
     dplyr::arrange(.data$study_distance)
   if (nrow(study_rank) == 0 || !is.finite(study_rank$study_distance[[1]])) {
-    return(policy_equation_row(NA_real_, NA_real_))
+    return(build_policy_equation_row(NA_real_, NA_real_))
   }
   selected_study <- study_rank[1, group_cols, drop = FALSE]
   for (nm in group_cols) {
@@ -1932,10 +1879,10 @@ arithmetic_equation <- function(rows) {
   keep_rows <- valid_equation_rows(rows)
 
   if (nrow(keep_rows) == 0) {
-    return(policy_equation_row(NA_real_, NA_real_))
+    return(build_policy_equation_row(NA_real_, NA_real_))
   }
 
-  policy_equation_row(
+  build_policy_equation_row(
     mean(keep_rows$slope_len, na.rm = TRUE),
     mean(keep_rows$intercept_len, na.rm = TRUE)
   )
@@ -1955,10 +1902,10 @@ median_equation <- function(rows) {
   keep_rows <- valid_equation_rows(rows)
 
   if (nrow(keep_rows) == 0) {
-    return(policy_equation_row(NA_real_, NA_real_))
+    return(build_policy_equation_row(NA_real_, NA_real_))
   }
 
-  policy_equation_row(
+  build_policy_equation_row(
     stats::median(keep_rows$slope_len, na.rm = TRUE),
     stats::median(keep_rows$intercept_len, na.rm = TRUE)
   )
@@ -2069,15 +2016,19 @@ policy_summary_rows <- function(rows,
 #'
 #' @param rows Candidate-policy row table.
 #' @param policy_def One policy-definition list.
+#' @param summary_rows Optional precomputed output from
+#'   [policy_summary_rows()]. When supplied, the support summary reuses those
+#'   rows instead of recomputing the method-specific donor subset.
 #'
 #' @return A one-row tibble of local support diagnostics.
 #' @keywords internal
 policy_support_summary <- function(rows,
-                                   policy_def) {
+                                   policy_def,
+                                   summary_rows = NULL) {
   # These diagnostics expose how local the selected donor pool is for the
   # current anchor. They are intentionally separate from historical conformal
   # calibration so final strategy selection can balance both quantities.
-  keep_rows <- policy_summary_rows(rows, policy_def)
+  keep_rows <- summary_rows %||% policy_summary_rows(rows, policy_def)
 
   finite_min <- function(x) {
     x <- suppressWarnings(as.numeric(x))
@@ -2171,18 +2122,22 @@ policy_support_summary <- function(rows,
 #' @param policy_def One policy-definition list.
 #' @param pred One-row policy prediction from [policy_prediction()].
 #' @param anchor_pdf Anchor length-density table.
+#' @param structural_rows Optional precomputed output from
+#'   `policy_structural_rows()`. When supplied, the structural summary reuses
+#'   those rows instead of resolving the donor subset again.
 #'
 #' @return A one-row tibble of equation-dispersion diagnostics.
 #' @keywords internal
 policy_structural_summary <- function(rows,
                                       policy_def,
                                       pred,
-                                      anchor_pdf) {
+                                      anchor_pdf,
+                                      structural_rows = NULL) {
   # These diagnostics quantify disagreement among the donor equations that
   # actually enter a policy. They are intentionally computed after constructing
   # the policy equation so ensemble policies carry local structural uncertainty
   # rather than appearing precise only because coefficients were averaged.
-  keep_rows <- policy_structural_rows(rows, policy_def)
+  keep_rows <- structural_rows %||% policy_structural_rows(rows, policy_def)
   method_name <- as.character(policy_def$aggregation_method)[[1]]
   n_valid <- nrow(keep_rows)
   pred_scalar <- function(name) {
@@ -2366,12 +2321,12 @@ equal_equation <- function(rows) {
 random_draw_equation <- function(rows, n_draws = 100L, seed = NULL) {
   keep_rows <- valid_equation_rows(rows)
   if (nrow(keep_rows) == 0L) {
-    return(policy_equation_row(NA_real_, NA_real_))
+    return(build_policy_equation_row(NA_real_, NA_real_))
   }
   n_draws <- as.integer(n_draws)
   if (!is.null(seed)) set.seed(seed)
   idx <- sample.int(nrow(keep_rows), size = n_draws, replace = TRUE)
-  policy_equation_row(
+  build_policy_equation_row(
     mean(keep_rows$slope_len[idx], na.rm = TRUE),
     mean(keep_rows$intercept_len[idx], na.rm = TRUE)
   )
@@ -2522,6 +2477,11 @@ policy_equation <- function(rows,
 #' @param policy_def One policy-definition list.
 #' @param anchor_sigma Anchor mean backscatter.
 #' @param anchor_pdf Anchor length-density table.
+#' @param anchor_pdf_precomp Optional precomputed anchor-PDF terms reused across
+#'   policies for the same anchor.
+#' @param equation_row Optional precomputed equation row from
+#'   [policy_equation()]. When supplied, the prediction reuses that equation
+#'   instead of recomputing the aggregator output.
 #'
 #' @return One-row tibble.
 #'
@@ -2530,8 +2490,11 @@ policy_prediction <- function(rows,
                               policy_def,
                               anchor_sigma,
                               anchor_pdf,
-                              anchor_pdf_precomp = NULL) {
-  eq <- policy_equation(rows, policy_def)
+                              anchor_pdf_precomp = NULL,
+                              equation_row = NULL) {
+  # Reuse a precomputed policy equation when the caller already needed that
+  # aggregation output for adjacent diagnostics in the same benchmark pass.
+  eq <- equation_row %||% policy_equation(rows, policy_def)
   c(eq, equation_multiplier(
     slope = eq$policy_slope_len[[1]],
     intercept = eq$policy_intercept_len[[1]],
@@ -2550,9 +2513,9 @@ policy_prediction <- function(rows,
 #' @return Numeric vector.
 #'
 #' @keywords internal
-policy_curve <- function(rows,
-                         policy_def,
-                         lengths_cm) {
+build_policy_curve <- function(rows,
+                               policy_def,
+                               lengths_cm) {
   # Predict the curve from the selected/aggregated standardized TS equation so
   # curve outputs and biomass-multiplier outputs represent the same policy.
   eq <- policy_equation(rows, policy_def)
@@ -2561,6 +2524,115 @@ policy_curve <- function(rows,
   }
 
   ts_at_length(eq$policy_slope_len[[1]], eq$policy_intercept_len[[1]], lengths_cm)
+}
+
+#' Build a policy execution plan
+#'
+#' @param policies Optional character vector of policy names. `NULL` means use
+#'   all policies from the registry.
+#' @param policy_params Optional named list of per-policy parameter overrides.
+#' @param policy_path Optional path to a policy registry JSON file.
+#'
+#' @return A list with a `plan` tibble plus shared registry metadata.
+#'
+#' @keywords internal
+build_policy_execution_plan <- function(policies = NULL,
+                                        policy_params = list(),
+                                        policy_path = NULL) {
+  # Resolve the active policy set, per-policy parameters, and branch-filter
+  # expansions once so anchor-level evaluation can focus only on donor rows.
+  policy_lookup <- policy_lookup_table(policy_path = policy_path)
+  selected <- stringr::str_squish(as.character(unlist(policies %||% names(policy_lookup), use.names = FALSE)))
+  selected <- selected[!is.na(selected) & nzchar(selected)]
+
+  if (!is.character(selected) || any(!nzchar(selected))) {
+    stop("'policies' must be NULL or a character vector of policy names.", call. = FALSE)
+  }
+
+  shared_registry <- read_policy_registry(policy_path = policy_path)
+  policy_defs <- stats::setNames(
+    lapply(selected, function(policy_name) {
+      policy_lookup[[policy_name]] %||%
+        build_policy_definition_from_name(policy_name, registry = shared_registry) %||%
+        NULL
+    }),
+    selected
+  )
+  unknown <- names(policy_defs)[!vapply(policy_defs, is.list, logical(1))]
+  if (length(unknown) > 0) {
+    stop(sprintf("Unknown policy name(s): %s", paste(unknown, collapse = ", ")), call. = FALSE)
+  }
+
+  default_equation_branch_filters <- normalize_policy_equation_branch_filters(
+    policy_params$equation_branch_filters %||% NULL
+  )
+  branch_defs <- shared_registry$policy_branches %||% list()
+  branch_display_tags <- stats::setNames(
+    vapply(branch_defs, function(x) as.character(x$display_tag %||% x$key %||% NA_character_), character(1)),
+    vapply(branch_defs, function(x) as.character(x$key %||% NA_character_), character(1))
+  )
+
+  plan_rows <- list()
+  row_id <- 1L
+  for (policy_name in selected) {
+    # Expand each policy to one row per requested branch filter so the plan
+    # captures exactly what anchor-level evaluation must execute.
+    policy_def <- policy_defs[[policy_name]]
+    params <- policy_parameters(policy_name, policy_def, policy_params = policy_params)
+    equation_branch_filters_now <- normalize_policy_equation_branch_filters(
+      params$equation_branch_filters %||%
+        params$equation_branch_filters %||%
+        default_equation_branch_filters
+    )
+    canonical_name <- as.character(policy_def$coded_name %||% policy_name)[[1]]
+    display_name <- as.character(policy_def$display_name %||% NA_character_)[[1]]
+    if (is.na(display_name) || !nzchar(display_name)) {
+      display_name <- stringr::str_to_title(stringr::str_replace_all(canonical_name, "_", " "))
+    }
+    match_traits <- as.character(unlist(params$match_traits %||% character(0), use.names = FALSE))
+    match_traits <- match_traits[!is.na(match_traits) & nzchar(match_traits)]
+    match_traits_sig <- paste(match_traits, collapse = ",")
+
+    for (branch_filter in equation_branch_filters_now) {
+      branch_display <- unname(branch_display_tags[branch_filter] %||% branch_filter)
+      if (is.na(branch_display) || !nzchar(branch_display)) {
+        branch_display <- branch_filter
+      }
+
+      plan_rows[[row_id]] <- tibble::tibble(
+        requested_policy = policy_name,
+        policy = canonical_name,
+        policy_base = canonical_name,
+        display_name = display_name,
+        policy_display = paste0(display_name, " [", branch_display, "]"),
+        equation_branch_filter = branch_filter,
+        policy_family = as.character(policy_def$policy_family %||% NA_character_)[[1]],
+        candidate_pool = as.character(policy_def$candidate_pool)[[1]],
+        aggregation_method = as.character(policy_def$aggregation_method)[[1]],
+        candidate_pool_definition = as.character(policy_def$candidate_pool_definition %||% NA_character_)[[1]],
+        aggregation_definition = as.character(policy_def$aggregation_definition %||% NA_character_)[[1]],
+        plain_language_definition = as.character(policy_def$plain_language_definition %||% NA_character_)[[1]],
+        phylo_radius = suppressWarnings(as.numeric(params$phylo_radius %||% NA_real_)),
+        match_traits_signature = match_traits_sig,
+        donor_cache_key = paste(
+          as.character(policy_def$candidate_pool)[[1]],
+          branch_filter,
+          as.character(params$phylo_radius %||% NA_real_),
+          match_traits_sig,
+          sep = "|"
+        ),
+        policy_def = list(policy_def),
+        policy_params = list(params)
+      )
+      row_id <- row_id + 1L
+    }
+  }
+
+  list(
+    plan = dplyr::bind_rows(plan_rows),
+    policy_defs = policy_defs,
+    branch_display_tags = branch_display_tags
+  )
 }
 
 #' Evaluate registered policies
@@ -2575,6 +2647,8 @@ policy_curve <- function(rows,
 #'   all policies from the registry.
 #' @param policy_params Optional named list of per-policy parameter overrides.
 #' @param policy_path Optional path to a policy registry JSON file.
+#' @param execution_plan Optional prebuilt plan from
+#'   [build_policy_execution_plan()].
 #'
 #' @return A tibble with `policy`, `multiplier_pred`, and `n_models`.
 #'
@@ -2583,50 +2657,26 @@ evaluate_policies <- function(eval_obj,
                               ordination_info = NULL,
                               policies = NULL,
                               policy_params = list(),
-                              policy_path = NULL) {
-  # Validate the evaluation object and read the registry once before iterating
-  # over the selected policy set.
+                              policy_path = NULL,
+                              execution_plan = NULL) {
+  # Validate the evaluation object once, then rely on a shared execution plan
+  # so anchor-level evaluation avoids repeated registry and parameter work.
   if (!is.list(eval_obj) || is.null(eval_obj$admissible_df) || !is.data.frame(eval_obj$admissible_df)) {
     stop("'eval_obj' must contain an 'admissible_df' data frame.", call. = FALSE)
   }
-
-  policy_lookup <- policy_lookup_table(policy_path = policy_path)
-  selected <- stringr::str_squish(as.character(unlist(policies %||% names(policy_lookup), use.names = FALSE)))
-  selected <- selected[!is.na(selected) & nzchar(selected)]
-
-  if (!is.character(selected) || any(!nzchar(selected))) {
-    stop("'policies' must be NULL or a character vector of policy names.", call. = FALSE)
-  }
-  shared_registry <- read_policy_registry(policy_path = policy_path)
-  policy_defs <- stats::setNames(
-    lapply(selected, function(policy_name) {
-      policy_lookup[[policy_name]] %||%
-        construct_policy_definition_from_name(policy_name, registry = shared_registry) %||%
-        NULL
-    }),
-    selected
+  execution_plan <- execution_plan %||% build_policy_execution_plan(
+    policies = policies,
+    policy_params = policy_params,
+    policy_path = policy_path
   )
-  unknown <- names(policy_defs)[!vapply(policy_defs, is.list, logical(1))]
-  if (length(unknown) > 0) {
-    stop(sprintf("Unknown policy name(s): %s", paste(unknown, collapse = ", ")), call. = FALSE)
+  if (!is.list(execution_plan) || !is.data.frame(execution_plan$plan %||% NULL)) {
+    stop("'execution_plan' must be NULL or a plan built by `build_policy_execution_plan()`.", call. = FALSE)
   }
 
   context <- resolve_policy_context(ordination_info = ordination_info)
   admissible_rows <- tibble::as_tibble(eval_obj$admissible_df)
-  default_branch_filters <- normalize_policy_equation_branch_filters(
-    policy_params$equation_branch_filters %||% NULL
-  )
-  per_policy_branch_filters <- lapply(selected, function(policy_name) {
-    policy_def <- policy_defs[[policy_name]]
-    params <- policy_parameters(policy_name, policy_def, policy_params = policy_params)
-    normalize_policy_equation_branch_filters(
-      params$equation_branch_filters %||%
-        params$branch_filters %||%
-        default_branch_filters
-    )
-  })
-  names(per_policy_branch_filters) <- selected
-  equation_branch_filters <- unique(unlist(per_policy_branch_filters, use.names = FALSE))
+  plan_tbl <- tibble::as_tibble(execution_plan$plan)
+  equation_branch_filters <- unique(as.character(plan_tbl$equation_branch_filter))
   branch_cache <- stats::setNames(
     lapply(equation_branch_filters, function(branch_filter) {
       policy_branch_filter(admissible_rows, branch_filter)
@@ -2634,15 +2684,6 @@ evaluate_policies <- function(eval_obj,
     equation_branch_filters
   )
   donor_cache <- new.env(parent = emptyenv())
-
-  branch_display_tags <- local({
-    branch_defs <- shared_registry$policy_branches %||% list()
-    tags <- stats::setNames(
-      vapply(branch_defs, function(x) as.character(x$display_tag %||% x$key %||% NA_character_), character(1)),
-      vapply(branch_defs, function(x) as.character(x$key %||% NA_character_), character(1))
-    )
-    tags
-  })
 
   anchor_pdf_precomp <- local({
     pdf <- eval_obj$anchor_pdf
@@ -2660,80 +2701,77 @@ evaluate_policies <- function(eval_obj,
     }
   })
 
-  # Evaluate each selected policy independently so the returned table is ready
-  # for the benchmark layer without any additional reshaping.
-  rows_list <- vector("list", length(selected))
-  for (pi in seq_along(selected)) {
-    policy_name <- selected[[pi]]
-    policy_def <- policy_defs[[policy_name]]
-    canonical_name <- as.character(policy_def$coded_name %||% policy_name)[[1]]
-    params <- policy_parameters(policy_name, policy_def, policy_params = policy_params)
-    branch_filters_now <- per_policy_branch_filters[[policy_name]] %||% default_branch_filters
+  # Evaluate one planned policy-branch row at a time so anchor-level work only
+  # resolves donor subsets and aggregators that the shared plan requested.
+  rows_list <- vector("list", nrow(plan_tbl))
+  for (pi in seq_len(nrow(plan_tbl))) {
+    plan_row <- plan_tbl[pi, , drop = FALSE]
+    policy_def <- plan_row$policy_def[[1]]
+    params <- plan_row$policy_params[[1]]
+    cache_key <- as.character(plan_row$donor_cache_key[[1]])
+    branch_filter <- as.character(plan_row$equation_branch_filter[[1]])
 
-    branch_list <- vector("list", length(branch_filters_now))
-    for (bi in seq_along(branch_filters_now)) {
-      branch_filter <- branch_filters_now[[bi]]
-      cache_key <- paste(
-        as.character(policy_def$candidate_pool)[[1]],
-        branch_filter,
-        as.character(params$phylo_radius %||% NA_real_),
-        paste(as.character(unlist(params$match_traits %||% character(0), use.names = FALSE)), collapse = ","),
-        sep = "|"
+    if (exists(cache_key, envir = donor_cache, inherits = FALSE)) {
+      donor_rows <- get(cache_key, envir = donor_cache, inherits = FALSE)
+    } else {
+      donor_rows <- policy_rows(
+        rows = branch_cache[[branch_filter]],
+        policy_def = policy_def,
+        policy_params = params,
+        ordination_info = context
       )
-
-      if (exists(cache_key, envir = donor_cache, inherits = FALSE)) {
-        donor_rows <- get(cache_key, envir = donor_cache, inherits = FALSE)
-      } else {
-        donor_rows <- policy_rows(
-          rows = branch_cache[[branch_filter]],
-          policy_def = policy_def,
-          policy_params = params,
-          ordination_info = context
-        )
-        assign(cache_key, donor_rows, envir = donor_cache)
-      }
-
-      pred <- policy_prediction(
-        donor_rows,
-        policy_def,
-        anchor_sigma = eval_obj$anchor_sigma,
-        anchor_pdf = eval_obj$anchor_pdf,
-        anchor_pdf_precomp = anchor_pdf_precomp
-      )
-
-      branch_display <- unname(branch_display_tags[branch_filter] %||% branch_filter)
-      if (is.na(branch_display) || !nzchar(branch_display)) branch_display <- branch_filter
-      display_name <- as.character(policy_def$display_name %||% NA_character_)[[1]]
-      if (is.na(display_name) || !nzchar(display_name)) {
-        display_name <- stringr::str_to_title(stringr::str_replace_all(canonical_name, "_", " "))
-      }
-      policy_display <- paste0(display_name, " [", branch_display, "]")
-
-      branch_list[[bi]] <- c(
-        list(
-          policy = canonical_name,
-          policy_base = canonical_name,
-          policy_display = policy_display,
-          equation_branch_filter = branch_filter,
-          n_models = as.integer(nrow(donor_rows)),
-          policy_family = as.character(policy_def$policy_family %||% NA_character_)[[1]],
-          candidate_pool = as.character(policy_def$candidate_pool)[[1]],
-          aggregation_method = as.character(policy_def$aggregation_method)[[1]],
-          candidate_pool_definition = as.character(policy_def$candidate_pool_definition %||% NA_character_)[[1]],
-          aggregation_definition = as.character(policy_def$aggregation_definition %||% NA_character_)[[1]],
-          plain_language_definition = as.character(policy_def$plain_language_definition %||% NA_character_)[[1]]
-        ),
-        pred,
-        policy_support_summary(donor_rows, policy_def),
-        policy_structural_summary(
-          rows = donor_rows,
-          policy_def = policy_def,
-          pred = as.data.frame(pred),
-          anchor_pdf = eval_obj$anchor_pdf
-        )
-      )
+      assign(cache_key, donor_rows, envir = donor_cache)
     }
-    rows_list[[pi]] <- dplyr::bind_rows(branch_list)
+    donor_rows_valid <- valid_equation_rows(donor_rows)
+
+    # Compute the method-specific summary rows, structural rows, and equation
+    # once so prediction and diagnostics do not re-scan the same donor pool.
+    summary_rows <- policy_summary_rows(donor_rows_valid, policy_def)
+    structural_rows <- policy_structural_rows(
+      donor_rows_valid,
+      policy_def,
+      summary_rows = summary_rows
+    )
+    equation_row <- policy_equation(donor_rows_valid, policy_def)
+    pred <- policy_prediction(
+      donor_rows_valid,
+      policy_def,
+      anchor_sigma = eval_obj$anchor_sigma,
+      anchor_pdf = eval_obj$anchor_pdf,
+      anchor_pdf_precomp = anchor_pdf_precomp,
+      equation_row = equation_row
+    )
+
+    rows_list[[pi]] <- c(
+      list(
+        policy = as.character(plan_row$policy[[1]]),
+        policy_base = as.character(plan_row$policy_base[[1]]),
+        policy_display = as.character(plan_row$policy_display[[1]]),
+        equation_branch_filter = branch_filter,
+        n_models = as.integer(nrow(donor_rows_valid)),
+        policy_family = as.character(plan_row$policy_family[[1]]),
+        candidate_pool = as.character(plan_row$candidate_pool[[1]]),
+        aggregation_method = as.character(plan_row$aggregation_method[[1]]),
+        candidate_pool_definition = as.character(plan_row$candidate_pool_definition[[1]]),
+        aggregation_definition = as.character(plan_row$aggregation_definition[[1]]),
+        plain_language_definition = as.character(plan_row$plain_language_definition[[1]]),
+        display_name = as.character(plan_row$display_name[[1]]),
+        requested_policy = as.character(plan_row$requested_policy[[1]])
+      ),
+      pred,
+      policy_support_summary(
+        donor_rows_valid,
+        policy_def,
+        summary_rows = summary_rows
+      ),
+      policy_structural_summary(
+        rows = donor_rows_valid,
+        policy_def = policy_def,
+        pred = as.data.frame(pred),
+        anchor_pdf = eval_obj$anchor_pdf,
+        structural_rows = structural_rows
+      )
+    )
   }
   dplyr::bind_rows(rows_list)
 }
@@ -2779,7 +2817,7 @@ predict_policy_curve <- function(policy,
 
   policy <- stringr::str_squish(as.character(policy))[[1]]
   policy_def <- policy_lookup[[policy]] %||%
-    construct_policy_definition_from_name(policy, policy_path = policy_path) %||%
+    build_policy_definition_from_name(policy, policy_path = policy_path) %||%
     NULL
   if (!is.list(policy_def)) {
     stop(sprintf("Unknown policy name: %s", policy), call. = FALSE)
@@ -2794,5 +2832,5 @@ predict_policy_curve <- function(policy,
     ordination_info = context
   )
 
-  policy_curve(donor_rows, policy_def, lengths_cm)
+  build_policy_curve(donor_rows, policy_def, lengths_cm)
 }

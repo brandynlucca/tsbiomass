@@ -211,6 +211,77 @@ referee_rebuild <- function(object,
   )
 }
 
+#' Build a slim selector bundle for referee scoring
+#'
+#' @param selector A [PolicySelector] object.
+#'
+#' @return A reduced [PolicySelector] object that retains only the state needed
+#'   for scorecard validation and construction.
+#'
+#' @keywords internal
+slim_referee_selector <- function(selector) {
+  # Keep only the selector payload required once policy predictions already
+  # exist, rather than retaining the full benchmark and candidate-workflow
+  # state inside the Referee.
+  candidates_now <- selector@candidates
+  slim_candidates <- Candidates(
+    spec = candidates_now@spec,
+    study_db = tibble::tibble(),
+    species_vector = candidates_now@species_vector,
+    source_dbs = list(),
+    species_db = tibble::tibble(),
+    candidate_models = candidates_now@candidate_models,
+    reference_anchors = candidates_now@reference_anchors,
+    similarity_matrix = list(),
+    gower_distances = list(),
+    ordination = candidates_now@ordination,
+    admissibility = list(
+      all_scores = (candidates_now@admissibility %||% list())$all_scores %||% tibble::tibble()
+    ),
+    similarity_tuning = list()
+  )
+
+  policy_selector_rebuild(
+    selector,
+    candidates = slim_candidates,
+    benchmark = list(
+      policy_perf = (selector@benchmark %||% list())$policy_perf %||% tibble::tibble(),
+      policy_ts_error = (selector@benchmark %||% list())$policy_ts_error %||% tibble::tibble(),
+      species_block_perf = (selector@benchmark %||% list())$species_block_perf %||% tibble::tibble()
+    ),
+    uncertainty = list(
+      conf_cal = (selector@uncertainty %||% list())$conf_cal %||% tibble::tibble(),
+      species_sum = (selector@uncertainty %||% list())$species_sum %||% list()
+    ),
+    selection = list(
+      final_ref = (selector@selection %||% list())$final_ref %||% tibble::tibble()
+    )
+  )
+}
+
+#' Build a slim learner bundle for referee scoring
+#'
+#' @param learner A [PolicyLearner] object.
+#' @param keep_prediction_state Logical scalar. When `TRUE`, retain the fitted
+#'   model and cross-fit payload; otherwise keep only calibration state.
+#'
+#' @return A reduced [PolicyLearner] object.
+#'
+#' @keywords internal
+slim_referee_learner <- function(learner,
+                                 keep_prediction_state = FALSE) {
+  # Keep only the calibration payload once selector predictions are already
+  # materialized; otherwise preserve the state needed to score the learner.
+  policy_learner_rebuild(
+    learner,
+    selector = NULL,
+    training_data = tibble::tibble(),
+    crossfit = if (isTRUE(keep_prediction_state)) learner@crossfit else list(),
+    fitted_model = if (isTRUE(keep_prediction_state)) learner@fitted_model else list(),
+    calibration = learner@calibration
+  )
+}
+
 #' Build a `Referee`
 #'
 #' @param selector A [PolicySelector] object.
@@ -230,10 +301,10 @@ referee_rebuild <- function(object,
 #' }
 #'
 #' @export
-create_referee <- function(selector,
-                           learner = NULL,
-                           predictions = NULL,
-                           config = NULL) {
+build_referee <- function(selector,
+                          learner = NULL,
+                          predictions = NULL,
+                          config = NULL) {
   if ((inherits(selector, "S7_object") && exists("Referee", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(selector, Referee), error = function(e) FALSE)))) {
     return(selector)
   }
@@ -246,6 +317,14 @@ create_referee <- function(selector,
   if (!is.null(predictions) &&
     !isTRUE(tryCatch(S7::S7_inherits(predictions, PolicyPredictions), error = function(e) FALSE))) {
     stop("'predictions' must be NULL or a `PolicyPredictions` object.", call. = FALSE)
+  }
+  if (!is.null(predictions)) {
+    # Once predictions exist, trim the retained selector and learner state so
+    # the Referee does not duplicate the full upstream workflow payload.
+    selector <- slim_referee_selector(selector)
+    if (!is.null(learner)) {
+      learner <- slim_referee_learner(learner, keep_prediction_state = FALSE)
+    }
   }
 
   Referee(
@@ -271,7 +350,7 @@ as_referee <- function(selector,
                        learner = NULL,
                        predictions = NULL,
                        config = NULL) {
-  create_referee(
+  build_referee(
     selector = selector,
     learner = learner,
     predictions = predictions,
@@ -1019,7 +1098,7 @@ build_referee_scorecard <- function(object,
   }
   report_progress(progress, "[Referee] Summarizing selected-row coefficient calibration...")
   selected_coefficient_calibration <- if (nrow(coefficient_calibration_source) > 0) {
-    summarize_selected_coefficient_calibration(
+    summarize_coeff_calibration(
       selected_tbl = coefficient_calibration_source,
       candidate_models = candidate_models,
       ts_error = benchmark_policy_perf
@@ -1103,7 +1182,7 @@ build_referee_scorecard <- function(object,
     species_lookup = ordination_species_lookup
   )
   report_progress(progress, "[Referee] Reconstructing selected-row conditional coefficient intervals...")
-  selected_tbl <- augment_policy_conditional_coefficient_intervals(
+  selected_tbl <- augment_conditional_coeff_intervals(
     policy_tbl = selected_tbl,
     candidate_models = candidate_models,
     anchor_scores = anchor_scores,
@@ -1367,37 +1446,6 @@ build_referee_scorecard <- function(object,
 #' @name predict.Referee
 #' @usage NULL
 S7::method(predict_generic, Referee) <- .predict_referee
-
-methods::setMethod(
-  "predict",
-  signature(object = "tsbiomass::Referee"),
-  function(object,
-           predictions = NULL,
-           allow_partial = FALSE,
-           progress = NULL,
-           ...) {
-    .predict_referee(
-      object = object,
-      predictions = predictions,
-      allow_partial = allow_partial,
-      progress = progress
-    )
-  }
-)
-
-`predict.tsbiomass::Referee` <- function(object,
-                                         predictions = NULL,
-                                         allow_partial = FALSE,
-                                         progress = NULL,
-                                         ...) {
-  .predict_referee(
-    object = object,
-    predictions = predictions,
-    allow_partial = allow_partial,
-    progress = progress
-  )
-}
-
 derive_benchmark_selected_calibration <- function(policy_perf,
                                                   config = NULL,
                                                   learner = NULL) {
@@ -1945,10 +1993,6 @@ S7::method(show_generic, Referee) <- function(object) {
 
 S7::method(plot_generic, Scorecard) <- .plot_scorecard
 
-`plot.tsbiomass::Scorecard` <- function(x, y = NULL, ...) {
-  .plot_scorecard(x, y, ...)
-}
-
 #' Plot a `Referee`
 #'
 #' Uses the package's S7 method on [base::plot()] so the integrated
@@ -2214,7 +2258,3 @@ S7::method(plot_generic, Scorecard) <- .plot_scorecard
 }
 
 S7::method(plot_generic, Referee) <- .plot_referee
-
-`plot.tsbiomass::Referee` <- function(x, y = NULL, ...) {
-  .plot_referee(x, y, ...)
-}

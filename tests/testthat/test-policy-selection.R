@@ -110,7 +110,7 @@ test_that("default_anchor_config is idempotent for normalized anchor configs", {
   expect_equal(cfg2$missing_key_metadata_max_fraction, 0.25)
 })
 
-test_that("summarize_selected_coefficient_calibration recovers coefficients from TS benchmark metadata", {
+test_that("summarize_coeff_calibration recovers coefficients from TS benchmark metadata", {
   selected_tbl <- tibble::tibble(
     anchor_model_id = c("11", "12"),
     anchor_species = c("Alpha alpha", "Beta beta"),
@@ -135,7 +135,7 @@ test_that("summarize_selected_coefficient_calibration recovers coefficients from
     ts_error = c(1, 1, 2, 2)
   )
 
-  out <- tsbiomass:::summarize_selected_coefficient_calibration(
+  out <- tsbiomass:::summarize_coeff_calibration(
     selected_tbl = selected_tbl,
     candidate_models = candidate_models,
     ts_error = ts_error
@@ -209,7 +209,7 @@ test_that("conditional coefficient intervals lock the slope for fixed20 policies
     intercept_resid = c(-3, -2, 2, 3)
   )
 
-  out <- tsbiomass:::augment_policy_conditional_coefficient_intervals(
+  out <- tsbiomass:::augment_conditional_coeff_intervals(
     policy_tbl = policy_tbl,
     candidate_models = candidate_models,
     anchor_scores = tibble::tibble(),
