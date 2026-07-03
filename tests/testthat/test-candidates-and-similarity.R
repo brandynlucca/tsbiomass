@@ -60,7 +60,7 @@ test_that("prepare_similarity_matrix stores prepared state on Candidates", {
 
 test_that("prepare_similarity_matrix preserves tuning state and trims stored candidate table", {
   candidates <- make_candidates(seed_similarity_tuning = TRUE)
-  candidates@spec$config_data <- tsbiomass:::merge_cfg(
+  candidates@spec$config_data <- tsbiomass:::merge_config_sections(
     minimal_config_data(),
     list(
       similarity = list(
@@ -286,7 +286,7 @@ test_that("screen_admissibility preserves arbitrary configured trait gates", {
   cfg$admissibility$species_traits <- c("family")
   cfg$admissibility$study_traits <- character(0)
   cfg$admissibility$coherence$frequency$mode <- "none"
-  cfg_obj <- as_configurer(cfg, base_dir = tempdir())
+  cfg_obj <- build_configurer(cfg, base_dir = tempdir())
 
   candidates <- set_reference_anchors(
     make_candidates(seed_similarity_tuning = FALSE),
@@ -543,9 +543,37 @@ test_that("anchor density uses study interval or midpoint without Lmax fallback"
   )
 })
 
+test_that("reference anchor PDFs can be set from raw empirical lengths", {
+  candidates <- make_candidates(seed_similarity_tuning = FALSE)
+  candidates <- set_reference_anchors(candidates, model_ids = c("1", "4"))
+
+  anchors_before <- fetch_reference_anchors(candidates)
+  expect_true(all(anchors_before$length_pdf == "uniform"))
+
+  candidates <- set_reference_length_pdf(
+    candidates,
+    length_pdf = list("1" = c(10, 10, 20, 30))
+  )
+
+  anchors_after <- fetch_reference_anchors(candidates)
+  expect_equal(
+    anchors_after$length_pdf[anchors_after$model_id_chr == "1"],
+    "user"
+  )
+  expect_equal(
+    anchors_after$length_pdf[anchors_after$model_id_chr == "4"],
+    "uniform"
+  )
+
+  row_one <- dplyr::filter(anchors_after, .data$model_id_chr == "1")
+  pdf_one <- tsbiomass:::build_anchor_density(row_one, tsbiomass:::default_anchor_config())
+  expect_equal(pdf_one$length_cm, c(10, 20, 30))
+  expect_equal(pdf_one$f_len, c(0.5, 0.25, 0.25))
+})
+
 test_that("candidate trimming removes unused configured traits", {
   candidate_specification <- list(
-    config_data = tsbiomass:::merge_cfg(
+    config_data = tsbiomass:::merge_config_sections(
       minimal_config_data(),
       list(
         similarity = list(
@@ -634,13 +662,13 @@ test_that("candidate trimming removes unused configured traits", {
   expect_false("temperature_min" %in% names(trimmed_candidates))
   expect_false("temperature_max" %in% names(trimmed_candidates))
   expect_false("sample_size" %in% names(trimmed_candidates))
-  expect_true(all(c("model_id", "slope_len", "intercept_len", "frequency", "equation_form", "fao_area", "season", "diel", "pressure_corrected") %in% names(trimmed_candidates)))
+  expect_true(all(c("model_id", "slope_standard", "intercept_standard", "frequency", "equation_form", "fao_area", "season", "diel", "pressure_corrected") %in% names(trimmed_candidates)))
 })
 
 test_that("class printing is compact and informative", {
   candidates <- make_candidates()
   selector <- make_selector(candidates = candidates)
-  learner <- as_policy_learner(selector)
+  learner <- as_policylearner(selector)
 
   expect_output(print(candidates), "^Candidates")
   expect_output(print(selector), "^PolicySelector")
@@ -673,7 +701,7 @@ test_that("equal-weight starts preserve trait names from named numeric maps", {
 
 test_that("tune_similarity_matrix accepts Configurer trait maps under equal starts", {
   candidates <- make_candidates(seed_similarity_tuning = FALSE)
-  cfg <- as_configurer(minimal_config_data(), base_dir = tempdir())
+  cfg <- build_configurer(minimal_config_data(), base_dir = tempdir())
 
   testthat::local_mocked_bindings(
     build_tuning_subset = function(candidate_models, ...) {

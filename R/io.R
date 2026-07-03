@@ -11,7 +11,8 @@
 #'
 #' @return A logger list.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 build_run_logger <- function(log_file = NULL,
                              write_log = FALSE,
                              append = FALSE) {
@@ -54,14 +55,15 @@ build_run_logger <- function(log_file = NULL,
 #' Emits a message to the console and, when enabled, appends the same message
 #' to the run log file.
 #'
-#' @param logger Logger object from [build_run_logger()].
+#' @param logger Logger object from `build_run_logger()`.
 #' @param ... Message fragments.
 #' @param timestamp Logical scalar. If `TRUE`, prefix the file log entry with a
 #'   timestamp.
 #'
 #' @return Invisibly returns `NULL`.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 log_message <- function(logger,
                         ...,
                         timestamp = TRUE) {
@@ -99,12 +101,13 @@ log_message <- function(logger,
 #'
 #' Writes a standard run header block through a run logger.
 #'
-#' @param logger Logger object from [build_run_logger()].
+#' @param logger Logger object from `build_run_logger()`.
 #' @param title Header title text.
 #'
 #' @return Invisibly returns `NULL`.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 log_header <- function(logger,
                        title = "TS Biomass Model Transferability Run") {
   # Emit a small standard header so command-line runs have a recognizable
@@ -124,6 +127,7 @@ log_header <- function(logger,
 #' @return Character scalar.
 #'
 #' @keywords internal
+#' @noRd
 preview_values <- function(values,
                            limit = 5L) {
   values <- unique(as.character(values %||% character(0)))
@@ -151,10 +155,11 @@ preview_values <- function(values,
 #'
 #' @return A list describing the requested command-line action.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 parse_command_line <- function(arguments = commandArgs(trailingOnly = TRUE)) {
-  # Accept either a config-driven invocation or the older positional-argument
-  # form so the packaged script wrapper can remain backward compatible.
+  # Accept either a config-driven invocation or the positional-argument form
+  # supported by the script wrapper.
   if (length(arguments) == 0) {
     return(list(
       action = "run",
@@ -208,7 +213,8 @@ parse_command_line <- function(arguments = commandArgs(trailingOnly = TRUE)) {
 #'
 #' @return A normalized config, or the written template path.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 resolve_command_line <- function(arguments = commandArgs(trailingOnly = TRUE),
                                  base_dir = getwd(),
                                  registry_path = NULL,
@@ -273,8 +279,8 @@ resolve_command_line <- function(arguments = commandArgs(trailingOnly = TRUE),
 #'   active policy.
 #'
 #' @return The written path, invisibly.
-#'
-#' @export
+#' @keywords internal
+#' @noRd
 write_config_yaml <- function(path,
                               overwrite = FALSE,
                               input_file = "input.xlsx",
@@ -320,7 +326,8 @@ write_config_yaml <- function(path,
 #'
 #' @return A list with `command` and `args`.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 script_call_from_config <- function(config_path,
                                     script_name = "swfscfish.R",
                                     rscript_path = NULL) {
@@ -356,7 +363,8 @@ script_call_from_config <- function(config_path,
 #'
 #' @return The `system2()` exit status.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 run_script_from_config <- function(config_path,
                                    script_name = "swfscfish.R",
                                    rscript_path = NULL,
@@ -387,6 +395,7 @@ run_script_from_config <- function(config_path,
 #' @param appendLF Passed to `base::message()`.
 #' @return Invisibly returns `NULL`.
 #' @keywords internal
+#' @noRd
 tsb_message <- function(..., timestamp = TRUE, appendLF = TRUE) {
   if (isTRUE(timestamp)) {
     base::message("[", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "] ", paste0(..., collapse = ""), appendLF = appendLF)

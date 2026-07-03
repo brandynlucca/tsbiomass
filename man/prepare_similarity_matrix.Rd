@@ -70,14 +70,14 @@ calculations.
 }
 \examples{
 \dontrun{
-candidates <- as_candidates(list(
+candidates <- build_candidates(list(
   study = list(path = "input.xlsx"),
   anchors = list(selector = list(regional_body = "SWFSC"))
 ))
 
 candidates <- prepare_similarity_matrix(
   candidate_models = candidates,
-  config = as_configurer(list(
+  config = build_configurer(list(
     paths = list(
       input_file = "input.xlsx",
       out_root = "outputs",

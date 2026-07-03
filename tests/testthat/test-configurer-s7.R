@@ -3,7 +3,7 @@ test_that("Configurer validates list and YAML inputs", {
   tmp_dir <- tempfile("config-")
   dir.create(tmp_dir)
 
-  cfg <- as_configurer(
+  cfg <- build_configurer(
     cfg_list,
     base_dir = tmp_dir
   )
@@ -35,7 +35,7 @@ test_that("Configurer validates list and YAML inputs", {
 })
 
 test_that("config reduces cleanly to candidates config", {
-  cfg <- as_configurer(
+  cfg <- build_configurer(
     minimal_config_data(),
     base_dir = tempdir()
   )
@@ -162,6 +162,27 @@ test_that("trait names without explicit weights default to one", {
   expect_equal(cfg$similarity$study_traits, c(frequency = 1, fao_area = 1))
   expect_equal(cfg$policy$species_traits, c(genus = 1, family = 1))
   expect_equal(cfg$policy$study_traits, c(frequency = 1, fao_area = 1))
+})
+
+test_that("policy group construction only allows active configured study traits", {
+  registry <- tsbiomass:::read_policy_registry()
+
+  expect_error(
+    tsbiomass:::build_policy_group_definition(
+      "genus_diel",
+      registry = registry,
+      active_study_traits = c("frequency", "fao_area", "equation_form")
+    ),
+    "unsupported filter trait"
+  )
+
+  expect_no_error(
+    tsbiomass:::build_policy_group_definition(
+      "genus_equation_form",
+      registry = registry,
+      active_study_traits = c("frequency", "fao_area", "equation_form")
+    )
+  )
 })
 
 test_that("post-selection support bin labels are validated against n_bins", {

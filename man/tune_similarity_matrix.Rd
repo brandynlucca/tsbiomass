@@ -80,12 +80,12 @@ to derive tuned weight multipliers.
 }
 \examples{
 \dontrun{
-candidates <- as_candidates(list(
+candidates <- build_candidates(list(
   study = list(path = "input.xlsx"),
   anchors = list(selector = list(regional_body = "SWFSC"))
 ))
 
-cfg_data <- as_configurer(list(
+cfg_data <- build_configurer(list(
   paths = list(
     input_file = "input.xlsx",
     out_root = "outputs",

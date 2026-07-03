@@ -5,6 +5,7 @@
 #' @return Character scalar.
 #'
 #' @keywords internal
+#' @noRd
 conjurer_metric_label <- function(metric) {
   # Translate the stored summary metric names to concise display labels.
   metric_map <- c(
@@ -36,6 +37,7 @@ conjurer_metric_label <- function(metric) {
 #' @return Character vector.
 #'
 #' @keywords internal
+#' @noRd
 conjurer_metric_value_labels <- function(values,
                                          metric) {
   # Format percentages separately so switch-rate cells read cleanly in figures.
@@ -63,6 +65,7 @@ conjurer_metric_value_labels <- function(values,
 #' @return Named character vector.
 #'
 #' @keywords internal
+#' @noRd
 conjurer_trait_labels <- function(traits) {
   # Humanize the stored trait names without changing their underlying keys.
   traits_ <- unique(as.character(traits))
@@ -84,12 +87,14 @@ conjurer_trait_labels <- function(traits) {
 #'
 #' @return Logical success flag, invisibly.
 #' @keywords internal
+#' @noRd
 save_plot_if_possible <- function(filename,
                                   plot,
                                   width,
                                   height,
-                                  dpi = 300,
+                                  dpi = 450,
                                   ...) {
+  save_args <- list(...)
   plot_ <- if (inherits(plot, "ggplot")) {
     plot_tmp <- plot +
       ggplot2::labs(title = NULL, subtitle = NULL) +
@@ -105,13 +110,20 @@ save_plot_if_possible <- function(filename,
   }
   ok <- tryCatch(
     {
-      ggplot2::ggsave(
-        filename = filename,
-        plot = plot_,
-        width = width,
-        height = height,
-        dpi = dpi,
-        ...
+      if (grepl("\\.png$", filename, ignore.case = TRUE) &&
+        is.null(save_args$device) &&
+        requireNamespace("ragg", quietly = TRUE)) {
+        save_args$device <- ragg::agg_png
+      }
+      do.call(
+        ggplot2::ggsave,
+        c(list(
+          filename = filename,
+          plot = plot_,
+          width = width,
+          height = height,
+          dpi = dpi,
+        ), save_args)
       )
       TRUE
     },
@@ -123,6 +135,127 @@ save_plot_if_possible <- function(filename,
   invisible(ok)
 }
 
+#' Stack a custom legend above a plot grob
+#'
+#' @param plot A ggplot or grob.
+#' @param legend_grob A grob to place above the plot.
+#' @param legend_height Relative height allocated to the legend strip.
+#'
+#' @return A grob tree.
+#' @keywords internal
+#' @noRd
+stack_plot_with_top_grob <- function(plot,
+                                     legend_grob,
+                                     legend_height = 0.16) {
+  plot_grob <- if (inherits(plot, "ggplot")) {
+    ggplot2::ggplotGrob(plot)
+  } else {
+    plot
+  }
+  plot_height <- 1 - legend_height
+  grid::grobTree(
+    grid::grobTree(
+      legend_grob,
+      vp = grid::viewport(
+        x = 0.5,
+        y = 1 - legend_height / 2,
+        width = 1,
+        height = legend_height,
+        just = c("center", "center")
+      )
+    ),
+    grid::grobTree(
+      plot_grob,
+      vp = grid::viewport(
+        x = 0.5,
+        y = plot_height / 2,
+        width = 1,
+        height = plot_height,
+        just = c("center", "center")
+      )
+    )
+  )
+}
+
+#' Build the custom biomass-change legend grob
+#'
+#' @return A grob tree.
+#' @keywords internal
+#' @noRd
+biomass_change_legend_grob <- function() {
+  black <- "#1b1b1b"
+  red <- "#b2182b"
+  light_red <- scales::alpha(red, 0.25)
+  txt <- function(label, x, y, just = "left", fontsize = 14) {
+    grid::textGrob(
+      label,
+      x = grid::unit(x, "npc"),
+      y = grid::unit(y, "npc"),
+      just = just,
+      gp = grid::gpar(col = "black", fontsize = fontsize)
+    )
+  }
+  pt <- function(x, y, col, alpha = 1, size = 2.2) {
+    grid::pointsGrob(
+      x = grid::unit(x, "npc"),
+      y = grid::unit(y, "npc"),
+      pch = 16,
+      size = grid::unit(size, "mm"),
+      gp = grid::gpar(col = scales::alpha(col, alpha))
+    )
+  }
+  seg <- function(x0, x1, y, col, lwd = 2.5, alpha = 1) {
+    grid::segmentsGrob(
+      x0 = grid::unit(x0, "npc"),
+      x1 = grid::unit(x1, "npc"),
+      y0 = grid::unit(y, "npc"),
+      y1 = grid::unit(y, "npc"),
+      gp = grid::gpar(col = scales::alpha(col, alpha), lwd = lwd, lineend = "butt")
+    )
+  }
+  err <- function(x0, x1, y, col, lwd = 0.8, cap = 0.06) {
+    grid::grobTree(
+      grid::segmentsGrob(
+        x0 = grid::unit(x0, "npc"),
+        x1 = grid::unit(x1, "npc"),
+        y0 = grid::unit(y, "npc"),
+        y1 = grid::unit(y, "npc"),
+        gp = grid::gpar(col = col, lwd = lwd, lineend = "butt")
+      ),
+      grid::segmentsGrob(
+        x0 = grid::unit(c(x0, x1), "npc"),
+        x1 = grid::unit(c(x0, x1), "npc"),
+        y0 = grid::unit(c(y - cap, y - cap), "npc"),
+        y1 = grid::unit(c(y + cap, y + cap), "npc"),
+        gp = grid::gpar(col = col, lwd = lwd)
+      )
+    )
+  }
+  grid::grobTree(
+    grid::rectGrob(
+      x = 0.5,
+      y = 0.5,
+      width = 1,
+      height = 1,
+      gp = grid::gpar(fill = "white", col = NA)
+    ),
+    pt(0.06, 0.79, black, 0.55, 2.1),
+    txt("Admissible models", 0.064, 0.79, fontsize = 14.5),
+    seg(0.34, 0.40, 0.79, red, 1.8, 1),
+    pt(0.37, 0.79, red, 1, 2.3),
+    txt("Selected strategy", 0.405, 0.79, fontsize = 14.5),
+    txt("Admissible model quantiles", 0.058, 0.49, fontsize = 14.5),
+    pt(0.34, 0.49, red, 0.25, 2.1),
+    txt("All tested strategies", 0.352, 0.49, fontsize = 14.5),
+    seg(0.09, 0.122, 0.24, black, 3.0, 1),
+    txt("80%", 0.106, 0.11, just = "center", fontsize = 13.0),
+    seg(0.132, 0.164, 0.24, black, 1.5, 0.90),
+    txt("90%", 0.152, 0.11, just = "center", fontsize = 13.0),
+    err(0.178, 0.210, 0.24, black, 1.0, 0.032),
+    txt("95%", 0.198, 0.11, just = "center", fontsize = 13.0)
+  )
+}
+
 #' Plot uncertainty blocks
 #'
 #' @param dropout_tbl Uncertainty dropout table.
@@ -130,16 +263,26 @@ save_plot_if_possible <- function(filename,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_uncertainty_blocks <- function(dropout_tbl,
                                     anchor_label) {
   # Convert the block labels to a plotting order before building the chart so
   # the most important blocks appear first.
   plot_df <- tibble::as_tibble(dropout_tbl)
-  if (nrow(plot_df) == 0 || !all(c("block", "importance_score", "delta_log_spread") %in% names(plot_df))) {
-    return(ggplot2::ggplot() +
-      ggplot2::labs(title = paste0("Local Dropout Sensitivity [", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = NULL, y = "Heuristic importance") +
-      ggplot2::theme_minimal(base_size = 11))
+  if (nrow(plot_df) == 0 ||
+    !all(c("block", "importance_score", "delta_log_spread") %in%
+      names(plot_df))) {
+    return(
+      ggplot2::ggplot() +
+        ggplot2::labs(
+          title = paste0("Local Dropout Sensitivity [", anchor_label, "]"),
+          subtitle = "Required plotting fields were not available.",
+          x = NULL,
+          y = "Heuristic importance"
+        ) +
+        ggplot2::theme_minimal(base_size = 11)
+    )
   }
   plot_df <- plot_df |>
     dplyr::mutate(block = factor(.data$block, levels = rev(unique(.data$block))))
@@ -148,7 +291,7 @@ plot_uncertainty_blocks <- function(dropout_tbl,
     length_coherence = "Length coherence",
     depth_coherence = "Depth coherence",
     frequency_coherence = "Frequency coherence",
-    .default = stringr::str_to_title(stringr::str_replace_all(as.character(plot_df$block), "_", " "))
+    .default = snake_title(as.character(plot_df$block))
   )
   if ("component_rank_global" %in% names(plot_df)) {
     block_levels <- plot_df |>
@@ -163,19 +306,36 @@ plot_uncertainty_blocks <- function(dropout_tbl,
   }
   plot_df$block <- factor(plot_df$block, levels = rev(block_levels))
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$block, y = .data$importance_score, fill = .data$delta_log_spread)) +
+  ggplot2::ggplot(
+    plot_df,
+    ggplot2::aes(
+      x = .data$block,
+      y = .data$importance_score,
+      fill = .data$delta_log_spread
+    )
+  ) +
     ggplot2::geom_col() +
     ggplot2::coord_flip() +
-    ggplot2::scale_fill_gradient2(low = "#2166ac", mid = "#f7f7f7", high = "#b2182b", midpoint = 0) +
+    ggplot2::scale_fill_gradient2(
+      low = "#2166ac",
+      mid = "#f7f7f7",
+      high = "#b2182b",
+      midpoint = 0
+    ) +
     ggplot2::labs(
       title = paste0("Local Dropout Sensitivity [", anchor_label, "]"),
-      subtitle = "Composite from block-level changes in spread, consensus, and admissible support.",
+      subtitle = paste(
+        "Composite from block-level changes in spread, consensus,",
+        "and admissible support."
+      ),
       x = NULL,
       y = "Heuristic importance",
       fill = "Delta log-spread"
     ) +
     ggplot2::theme_minimal(base_size = 11) +
-    ggplot2::theme(plot.subtitle = ggplot2::element_text(size = 8, colour = "grey40"))
+    ggplot2::theme(
+      plot.subtitle = ggplot2::element_text(size = 8, colour = "grey40")
+    )
 }
 
 #' Plot the admissible similarity map
@@ -185,33 +345,59 @@ plot_uncertainty_blocks <- function(dropout_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_similarity_map <- function(map_tbl,
                                 anchor_label) {
   # Build the point map from the already filtered admissible donor table so the
   # plot function does only plotting work.
   plot_df <- tibble::as_tibble(map_tbl)
-  if (nrow(plot_df) == 0 || !all(c("d_species", "d_study", "w_combined", "overlap_same_species") %in% names(plot_df))) {
-    return(ggplot2::ggplot() +
-      ggplot2::labs(title = paste0("Admissible Similarity Map [", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = "Species dissimilarity", y = "Study dissimilarity") +
-      ggplot2::theme_minimal(base_size = 11))
+  if (nrow(plot_df) == 0 ||
+    !all(c(
+      "d_species",
+      "d_study",
+      "w_combined",
+      "overlap_same_species"
+    ) %in% names(plot_df))) {
+    return(
+      ggplot2::ggplot() +
+        ggplot2::labs(
+          title = paste0("Admissible Similarity Map [", anchor_label, "]"),
+          subtitle = "Required plotting fields were not available.",
+          x = "Species dissimilarity",
+          y = "Study dissimilarity"
+        ) +
+        ggplot2::theme_minimal(base_size = 11)
+    )
   }
   ggplot2::ggplot(
     plot_df,
-    ggplot2::aes(x = .data$d_species, y = .data$d_study, size = .data$w_combined, colour = .data$overlap_same_species)
+    ggplot2::aes(
+      x = .data$d_species,
+      y = .data$d_study,
+      size = .data$w_combined,
+      colour = .data$overlap_same_species
+    )
   ) +
     ggplot2::geom_point(alpha = 0.75) +
-    ggplot2::scale_colour_manual(values = c("TRUE" = "#b2182b", "FALSE" = "#2166ac")) +
+    ggplot2::scale_colour_manual(
+      values = c("TRUE" = "#b2182b", "FALSE" = "#2166ac")
+    ) +
     ggplot2::labs(
       title = paste0("Admissible Similarity Map [", anchor_label, "]"),
-      subtitle = "Species vs study dissimilarity among admissible candidate models.",
+      subtitle = paste(
+        "Species vs study dissimilarity among admissible",
+        "candidate models."
+      ),
       x = "Species dissimilarity",
       y = "Study dissimilarity",
       size = "Combined kernel weight",
       colour = "Same species"
     ) +
     ggplot2::theme_minimal(base_size = 11) +
-    ggplot2::theme(plot.subtitle = ggplot2::element_text(size = 8, colour = "grey40"))
+    ggplot2::theme(
+      plot.subtitle = ggplot2::element_text(size = 8, colour = "grey40")
+    )
 }
 
 #' Plot top candidate weights
@@ -221,7 +407,8 @@ plot_similarity_map <- function(map_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_top_models <- function(top_tbl,
                             anchor_label) {
   # Expect the caller to supply the ranked admissible donor table so this
@@ -250,8 +437,8 @@ plot_top_models <- function(top_tbl,
   if (!"is_group_model" %in% names(plot_df)) {
     plot_df$is_group_model <- FALSE
   }
-  if (!"model_id_chr" %in% names(plot_df)) {
-    plot_df$model_id_chr <- dplyr::coalesce(plot_df$model_id, seq_len(nrow(plot_df)))
+  if (!"model_id" %in% names(plot_df)) {
+    plot_df$model_id <- seq_len(nrow(plot_df))
   }
   if (!"biomass_multiplier_if_replace" %in% names(plot_df)) {
     plot_df$biomass_multiplier_if_replace <- NA_real_
@@ -266,16 +453,22 @@ plot_top_models <- function(top_tbl,
     dplyr::filter(
       is.finite(.data$w_adm),
       .data$w_adm > 0,
-      !is.na(.data$model_id_chr)
+      !is.na(.data$model_id)
     ) |>
     dplyr::arrange(dplyr::desc(.data$w_adm), .data$combined_distance) |>
     dplyr::slice_head(n = 10L) |>
     dplyr::mutate(
       species_label = dplyr::case_when(
-        !is.na(.data$species_name) & nzchar(.data$species_name) & .data$species_name != "NA NA" ~ .data$species_name,
+        !is.na(.data$species_name) &
+          nzchar(.data$species_name) &
+          .data$species_name != "NA NA" ~ .data$species_name,
         !is.na(.data$genus) & nzchar(.data$genus) & .data$genus != "NA" &
-          !is.na(.data$species) & .data$species %in% c("NA", "sp", "sp.", "spp", "spp.") ~ paste0(.data$genus, " sp."),
-        !is.na(.data$genus) & nzchar(.data$genus) & .data$genus != "NA" ~ paste0(.data$genus, " sp."),
+          !is.na(.data$species) &
+          .data$species %in% c("NA", "sp", "sp.", "spp", "spp.") ~
+          paste0(.data$genus, " sp."),
+        !is.na(.data$genus) &
+          nzchar(.data$genus) &
+          .data$genus != "NA" ~ paste0(.data$genus, " sp."),
         TRUE ~ "Generic"
       ),
       species_expr = gsub("'", "\\\\'", .data$species_label, fixed = TRUE),
@@ -286,10 +479,13 @@ plot_top_models <- function(top_tbl,
         "')",
         dplyr::if_else(isTRUE(.data$is_group_model), "~'[group]'", ""),
         "~'{m",
-        as.character(.data$model_id_chr),
+        as.character(.data$model_id),
         "}'"
       ),
-      candidate_label = factor(.data$candidate_label, levels = rev(.data$candidate_label))
+      candidate_label = factor(
+        .data$candidate_label,
+        levels = rev(.data$candidate_label)
+      )
     )
   if (nrow(plot_df) == 0) {
     return(ggplot2::ggplot() +
@@ -297,7 +493,14 @@ plot_top_models <- function(top_tbl,
       ggplot2::theme_minimal(base_size = 11))
   }
 
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$candidate_label, y = .data$w_adm, fill = .data$biomass_multiplier_if_replace)) +
+  ggplot2::ggplot(
+    plot_df,
+    ggplot2::aes(
+      x = .data$candidate_label,
+      y = .data$w_adm,
+      fill = .data$biomass_multiplier_if_replace
+    )
+  ) +
     ggplot2::geom_col(width = 0.72) +
     ggplot2::coord_flip() +
     ggplot2::scale_fill_viridis_c(
@@ -326,7 +529,8 @@ plot_top_models <- function(top_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_ts_bands <- function(band_tbl,
                           curve_tbl,
                           anchor_label,
@@ -424,7 +628,8 @@ plot_ts_bands <- function(band_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_slope_distribution <- function(slope_tbl) {
   # Plot the study-cell slope distribution directly from the prepared summary
   # table so this function is only responsible for rendering.
@@ -451,7 +656,8 @@ plot_slope_distribution <- function(slope_tbl) {
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_slope_group <- function(slope_tbl) {
   # Drop the catch-all group before plotting so the focal review groups remain
   # visually comparable on one axis.
@@ -483,7 +689,8 @@ plot_slope_group <- function(slope_tbl) {
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_slope_support <- function(support_tbl) {
   # Apply the paper color mapping to the prepared support table before drawing
   # the stacked group-wise proportions.
@@ -531,7 +738,8 @@ plot_slope_support <- function(support_tbl) {
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_ordination_clusters <- function(points_tbl,
                                      cluster_col = "policy_cluster_id",
                                      reference_col = "is_reference",
@@ -634,7 +842,7 @@ plot_ordination_clusters <- function(points_tbl,
       palette = "Dark2",
       name = "Cluster",
       limits = cluster_limits,
-      labels = function(x) stringr::str_to_title(stringr::str_replace_all(x, "_", " "))
+      labels = snake_title
     ) +
     ggplot2::scale_fill_brewer(
       palette = "Dark2",
@@ -657,7 +865,8 @@ plot_ordination_clusters <- function(points_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_ordination_vectors <- function(vec_tbl,
                                     points_tbl,
                                     reference_col = "is_reference",
@@ -759,7 +968,8 @@ plot_ordination_vectors <- function(vec_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_species_ordination <- function(points_tbl,
                                     vec_tbl = NULL,
                                     fac_tbl = NULL,
@@ -882,7 +1092,7 @@ plot_species_ordination <- function(points_tbl,
   resolved_group_col <- infer_group_col(
     df = pts,
     requested_col = group_col,
-    excluded_cols = c("MDS1", "MDS2", reference_col, species_col_, "model_id", "model_id_chr")
+    excluded_cols = c("MDS1", "MDS2", reference_col, species_col_, "model_id", "model_id")
   )
   if (is.character(resolved_group_col) && nzchar(resolved_group_col)) {
     pts$group_val <- dplyr::coalesce(as.character(pts[[resolved_group_col]]), "unknown")
@@ -918,7 +1128,8 @@ plot_species_ordination <- function(points_tbl,
   label_df <- pts[label_flag, , drop = FALSE]
 
   # Create base layer with the grid setup
-  p <- ggplot2::ggplot(mapping = ggplot2::aes(x = .data$MDS1_plot,
+  p <- ggplot2::ggplot(mapping = ggplot2::aes(
+    x = .data$MDS1_plot,
     y = .data$MDS2_plot
   )) +
     ggplot2::geom_hline(yintercept = 0, linetype = "dashed", colour = "grey70") +
@@ -1051,7 +1262,7 @@ plot_species_ordination <- function(points_tbl,
     ggplot2::scale_fill_brewer(
       palette = "Set1",
       name = colorbar_name,
-      labels = function(x) stringr::str_to_title(stringr::str_replace_all(x, "_", " "))
+      labels = snake_title
     ) +
     ggplot2::guides(
       fill = ggplot2::guide_legend(override.aes = list(
@@ -1077,7 +1288,8 @@ plot_species_ordination <- function(points_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_ordination_centers <- function(fac_tbl,
                                     points_tbl,
                                     reference_col = "is_reference",
@@ -1172,7 +1384,8 @@ plot_ordination_centers <- function(fac_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_overlap_heatmap <- function(overlap_tbl,
                                  metric_labs = NULL) {
   # Reshape the overlap summary to a long heatmap table so all overlap metrics
@@ -1231,20 +1444,15 @@ plot_overlap_heatmap <- function(overlap_tbl,
 #'
 #' @return Named list.
 #' @keywords internal
+#' @noRd
 admissibility_plot_config_data <- function(config = NULL) {
-  if (inherits(config, "S7_object") &&
-    exists("Candidates", inherits = TRUE) &&
-    isTRUE(tryCatch(S7::S7_inherits(config, Candidates), error = function(e) FALSE))) {
+  if (is_s7_instance(config, "Candidates")) {
     return(candidates_config_data(config) %||% list())
   }
-  if (inherits(config, "S7_object") &&
-    exists("Alchemist", inherits = TRUE) &&
-    isTRUE(tryCatch(S7::S7_inherits(config, Alchemist), error = function(e) FALSE))) {
+  if (is_s7_instance(config, "Alchemist")) {
     return((config@config)$config_data %||% list())
   }
-  if (inherits(config, "S7_object") &&
-    exists("Configurer", inherits = TRUE) &&
-    isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE))) {
+  if (is_s7_instance(config, "Configurer")) {
     return(config@data %||% list())
   }
   if (is.list(config) && is.list(config$config_data %||% NULL)) {
@@ -1262,6 +1470,7 @@ admissibility_plot_config_data <- function(config = NULL) {
 #'
 #' @return Named list.
 #' @keywords internal
+#' @noRd
 admissibility_plot_section <- function(config = NULL) {
   raw_cfg <- admissibility_plot_config_data(config)
   if (is.list(raw_cfg$admissibility %||% NULL)) {
@@ -1284,6 +1493,7 @@ admissibility_plot_section <- function(config = NULL) {
 #'
 #' @return Character vector.
 #' @keywords internal
+#' @noRd
 admissibility_plot_trait_names <- function(x) {
   if (is.null(x)) {
     return(character(0))
@@ -1304,6 +1514,7 @@ admissibility_plot_trait_names <- function(x) {
 #'
 #' @return Logical scalar.
 #' @keywords internal
+#' @noRd
 admissibility_plot_coherence_active <- function(section,
                                                 dimension = c("length", "depth", "frequency")) {
   dimension <- match.arg(dimension)
@@ -1338,6 +1549,7 @@ admissibility_plot_coherence_active <- function(section,
 #'
 #' @return Logical scalar.
 #' @keywords internal
+#' @noRd
 admissibility_plot_missing_active <- function(section) {
   threshold <- section$key_metadata_max %||% section$missing_key_metadata_max_fraction %||% NA_real_
   is.finite(suppressWarnings(as.numeric(threshold)))
@@ -1349,6 +1561,7 @@ admissibility_plot_missing_active <- function(section) {
 #'
 #' @return Character scalar.
 #' @keywords internal
+#' @noRd
 admissibility_plot_trait_label <- function(trait) {
   trait <- as.character(trait %||% "")[[1]]
   if (!nzchar(trait)) {
@@ -1369,6 +1582,7 @@ admissibility_plot_trait_label <- function(trait) {
 #'
 #' @return Character scalar.
 #' @keywords internal
+#' @noRd
 admissibility_plot_gate_label <- function(reason) {
   reason <- as.character(reason %||% "")[[1]]
   if (!nzchar(reason)) {
@@ -1390,7 +1604,7 @@ admissibility_plot_gate_label <- function(reason) {
   if (!is.null(out) && nzchar(out)) {
     return(out)
   }
-  stringr::str_to_title(stringr::str_replace_all(reason, "_", " "))
+  snake_title(reason)
 }
 
 #' Resolve default colors for admissibility gate labels
@@ -1399,6 +1613,7 @@ admissibility_plot_gate_label <- function(reason) {
 #'
 #' @return Named character vector keyed by display label.
 #' @keywords internal
+#' @noRd
 admissibility_plot_gate_colors <- function(reasons) {
   reasons <- unique(as.character(reasons))
   reasons <- reasons[!is.na(reasons) & nzchar(reasons)]
@@ -1440,6 +1655,7 @@ admissibility_plot_gate_colors <- function(reasons) {
 #'
 #' @return Tibble with `reason`, `label`, and `color`.
 #' @keywords internal
+#' @noRd
 admissibility_plot_gate_spec <- function(config = NULL,
                                          observed_reasons = character(0),
                                          gate_labs = NULL,
@@ -1518,7 +1734,8 @@ admissibility_plot_gate_spec <- function(config = NULL,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_gate_composition <- function(gate_tbl,
                                   config = NULL,
                                   gate_labs = NULL,
@@ -1582,7 +1799,8 @@ plot_gate_composition <- function(gate_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_anchor_ranges <- function(range_tbl) {
   # Draw the admissible-range summary on a log scale so multiplicative changes
   # above and below one are visually comparable.
@@ -1615,7 +1833,8 @@ plot_anchor_ranges <- function(range_tbl) {
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_policy_boxplot <- function(perf_tbl) {
   # Restrict the boxplot to valid finite predictions before ranking policies
   # by their median error.
@@ -1657,7 +1876,8 @@ plot_policy_boxplot <- function(perf_tbl) {
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_species_boxplot <- function(perf_tbl) {
   # Plot the leave-one-species-out benchmark on the same error scale as the
   # pseudo-anchor benchmark for direct comparison.
@@ -1700,7 +1920,8 @@ plot_species_boxplot <- function(perf_tbl) {
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_policy_heatmap <- function(perf_tbl,
                                 policy_labs = NULL) {
   # Collapse the held-out benchmark to one median error per species-policy
@@ -1770,6 +1991,7 @@ plot_policy_heatmap <- function(perf_tbl,
 #' @return A ggplot object.
 #'
 #' @keywords internal
+#' @noRd
 conjurer_heatmap_plot <- function(x,
                                   metric = "mean_abs_db_shift",
                                   trait_labs = NULL,
@@ -1782,7 +2004,7 @@ conjurer_heatmap_plot <- function(x,
                                   na_value = "grey90",
                                   tile_colour = "white") {
   # Accept either the staged class or a plain summary table for figure work.
-  conjurer_obj <- (inherits(x, "S7_object") && exists("Conjurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(x, Conjurer), error = function(e) FALSE)))
+  conjurer_obj <- is_s7_instance(x, "Conjurer")
   plot_df <- if (conjurer_obj) {
     tibble::as_tibble(x@summary)
   } else {
@@ -1988,6 +2210,13 @@ conjurer_heatmap_plot <- function(x,
   )
 }
 
+#' Register the `Conjurer` plot method
+#'
+#' @name plot.Conjurer
+#' @usage NULL
+#'
+#' @keywords internal
+#' @noRd
 S7::method(plot_generic, Conjurer) <- .plot_conjurer
 
 #' Summarize species-policy benchmark performance
@@ -1995,7 +2224,8 @@ S7::method(plot_generic, Conjurer) <- .plot_conjurer
 #' @param perf_tbl Species-block benchmark table.
 #'
 #' @return A tibble with one row per held-out species and policy.
-#' @export
+#' @keywords internal
+#' @noRd
 summarize_species_policy_performance <- function(perf_tbl) {
   perf_tbl <- tibble::as_tibble(perf_tbl)
   if (!all(c("anchor_species", "policy", "valid_prediction", "error_abs_log") %in% names(perf_tbl))) {
@@ -2063,10 +2293,11 @@ summarize_species_policy_performance <- function(perf_tbl) {
 #' Plot every species-policy benchmark rank
 #'
 #' @param perf_tbl Species-block benchmark table or output from
-#'   [summarize_species_policy_performance()].
+#'   `summarize_species_policy_performance()`.
 #'
 #' @return A ggplot object.
-#' @export
+#' @keywords internal
+#' @noRd
 plot_species_policy_ranked <- function(perf_tbl) {
   plot_df <- tibble::as_tibble(perf_tbl)
   if (!all(c("rank_within_species", "median_abs_log_error") %in% names(plot_df))) {
@@ -2153,12 +2384,13 @@ plot_species_policy_ranked <- function(perf_tbl) {
 #' Compare selected policies against species-block oracle ranks
 #'
 #' @param species_policy_tbl Output from
-#'   [summarize_species_policy_performance()].
+#'   `summarize_species_policy_performance()`.
 #' @param selected_tbl Anchor selected-policy table.
 #' @param selection_source Label for the selection source.
 #'
 #' @return A tibble.
-#' @export
+#' @keywords internal
+#' @noRd
 compare_selected_policy_species_rank <- function(species_policy_tbl,
                                                  selected_tbl,
                                                  selection_source = "selected") {
@@ -2225,7 +2457,8 @@ compare_selected_policy_species_rank <- function(species_policy_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_conformal_scores <- function(cal_tbl) {
   # Accept either the raw calibration tibble or the stored uncertainty bundle,
   # then draw the policy-by-branch calibration surface directly.
@@ -2340,7 +2573,8 @@ plot_conformal_scores <- function(cal_tbl) {
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_component_importance <- function(impact_tbl,
                                       label_map = NULL) {
   # Support both the global benchmark dropout summary and the anchor-level
@@ -2361,7 +2595,7 @@ plot_component_importance <- function(impact_tbl,
           length_coherence = "Length coherence",
           depth_coherence = "Depth coherence",
           frequency_coherence = "Frequency coherence",
-          .default = stringr::str_to_title(stringr::str_replace_all(as.character(.data$component), "_", " "))
+          .default = snake_title(as.character(.data$component))
         )
       ) |>
       dplyr::arrange(.data$component_rank_global, .data$component_label) |>
@@ -2374,7 +2608,7 @@ plot_component_importance <- function(impact_tbl,
           length_coherence = "Length coherence",
           depth_coherence = "Depth coherence",
           frequency_coherence = "Frequency coherence",
-          .default = stringr::str_to_title(stringr::str_replace_all(as.character(.data$component), "_", " "))
+          .default = snake_title(as.character(.data$component))
         ),
         component_label = factor(
           .data$component_label,
@@ -2457,7 +2691,8 @@ plot_component_importance <- function(impact_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_uncertainty_heat <- function(dropout_tbl,
                                   block_labs = NULL) {
   # Apply optional relabeling and preserve the global component order so the
@@ -2476,7 +2711,7 @@ plot_uncertainty_heat <- function(dropout_tbl,
         length_coherence = "Length coherence",
         depth_coherence = "Depth coherence",
         frequency_coherence = "Frequency coherence",
-        .default = stringr::str_to_title(stringr::str_replace_all(as.character(.data$block), "_", " "))
+        .default = snake_title(as.character(.data$block))
       )
     )
   if ("component_rank_global" %in% names(plot_df)) {
@@ -2517,13 +2752,45 @@ plot_uncertainty_heat <- function(dropout_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_selected_intervals <- function(sel_tbl,
                                     reference_label = "Reference") {
+  multiplier_axis_breaks <- function(values) {
+    finite_vals <- values[is.finite(values) & values > 0]
+    if (length(finite_vals) == 0) {
+      return(c(0.1, 1, 10, 100))
+    }
+    lower_pow <- floor(min(log10(finite_vals), na.rm = TRUE))
+    upper_pow <- ceiling(max(log10(finite_vals), na.rm = TRUE))
+    10^seq(lower_pow, upper_pow, by = 1)
+  }
+  multiplier_axis_labels <- function(x) {
+    vapply(x, function(value) {
+      if (!is.finite(value) || value <= 0) {
+        return(NA_character_)
+      }
+      if (abs(value - 1) < 1e-12) {
+        return("1 (Reference)")
+      }
+      if (value < 1) {
+        inv <- gsub("\\s+", "", formatC(1 / value, format = "fg", digits = 6))
+        return(paste0("-", inv))
+      }
+      paste0("+", gsub("\\s+", "", formatC(value, format = "fg", digits = 6)))
+    }, character(1))
+  }
   # Normalize the displayed policy label once before drawing the selected
   # interval summary.
   plot_df <- tibble::as_tibble(sel_tbl)
   plot_df$selected_policy_display <- resolve_selected_policy_names(plot_df)
+  q_log <- dplyr::coalesce(
+    if ("meta_q_abs_log_total" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_q_abs_log_total)) else rep(NA_real_, nrow(plot_df)),
+    if ("q_abs_log_total" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$q_abs_log_total)) else rep(NA_real_, nrow(plot_df)),
+    if ("meta_q_abs_log" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_q_abs_log)) else rep(NA_real_, nrow(plot_df)),
+    if ("q_abs_log" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$q_abs_log)) else rep(NA_real_, nrow(plot_df))
+  )
+  multiplier_pred <- suppressWarnings(as.numeric(plot_df$multiplier_pred))
   plot_df$multiplier_lo <- dplyr::coalesce(
     if ("meta_post_selection_multiplier_lo" %in% names(plot_df)) {
       suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_lo))
@@ -2536,6 +2803,10 @@ plot_selected_intervals <- function(sel_tbl,
       rep(NA_real_, nrow(plot_df))
     }
   )
+  derive_lo <- !is.finite(plot_df$multiplier_lo) &
+    is.finite(multiplier_pred) & multiplier_pred > 0 &
+    is.finite(q_log) & q_log > 0
+  plot_df$multiplier_lo[derive_lo] <- multiplier_pred[derive_lo] * exp(-q_log[derive_lo])
   plot_df$multiplier_hi <- dplyr::coalesce(
     if ("meta_post_selection_multiplier_hi" %in% names(plot_df)) {
       suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_hi))
@@ -2548,6 +2819,10 @@ plot_selected_intervals <- function(sel_tbl,
       rep(NA_real_, nrow(plot_df))
     }
   )
+  derive_hi <- !is.finite(plot_df$multiplier_hi) &
+    is.finite(multiplier_pred) & multiplier_pred > 0 &
+    is.finite(q_log) & q_log > 0
+  plot_df$multiplier_hi[derive_hi] <- multiplier_pred[derive_hi] * exp(q_log[derive_hi])
   if (nrow(plot_df) == 0 || !all(c("anchor_species", "multiplier_pred", "multiplier_lo", "multiplier_hi", "selected_policy_display") %in% names(plot_df))) {
     return(ggplot2::ggplot() +
       ggplot2::labs(x = NULL, y = "Biomass multiplier") +
@@ -2568,11 +2843,28 @@ plot_selected_intervals <- function(sel_tbl,
       ggplot2::labs(x = NULL, y = "Biomass multiplier") +
       ggplot2::theme_minimal(base_size = 11))
   }
+  plot_df <- plot_df |>
+    dplyr::mutate(
+      anchor_species = factor(
+        .data$anchor_species,
+        levels = plot_df |>
+          dplyr::group_by(.data$anchor_species) |>
+          dplyr::summarise(order_value = stats::median(.data$multiplier_pred, na.rm = TRUE), .groups = "drop") |>
+          dplyr::arrange(.data$order_value, .data$anchor_species) |>
+          dplyr::pull(.data$anchor_species) |>
+          unique()
+      )
+    )
+  axis_breaks <- multiplier_axis_breaks(c(
+    plot_df$multiplier_lo,
+    plot_df$multiplier_hi,
+    plot_df$multiplier_pred
+  ))
 
   ggplot2::ggplot(
     plot_df,
     ggplot2::aes(
-      x = reorder(.data$anchor_species, .data$multiplier_pred),
+      x = .data$anchor_species,
       y = .data$multiplier_pred,
       ymin = .data$multiplier_lo,
       ymax = .data$multiplier_hi,
@@ -2580,17 +2872,45 @@ plot_selected_intervals <- function(sel_tbl,
     )
   ) +
     ggplot2::geom_hline(yintercept = 1, linetype = "dashed", colour = "grey55") +
+    ggplot2::geom_vline(
+      xintercept = seq_along(levels(plot_df$anchor_species)),
+      linewidth = 0.35,
+      colour = "grey88"
+    ) +
     ggplot2::geom_errorbar(width = 0.14) +
     ggplot2::geom_point(size = 2.8) +
     ggplot2::coord_flip() +
-    ggplot2::scale_y_log10() +
-    ggplot2::scale_x_discrete(labels = function(x) parse(text = paste0("italic('", x, "')"))) +
+    ggplot2::scale_y_log10(
+      breaks = axis_breaks,
+      labels = multiplier_axis_labels
+    ) +
+    ggplot2::annotation_logticks(sides = "b") +
+    ggplot2::scale_x_discrete(
+      labels = function(x) parse(text = paste0("italic('", x, "')")),
+      expand = ggplot2::expansion(mult = c(0.02, 0.02))
+    ) +
     ggplot2::labs(
       x = NULL,
       y = "Biomass multiplier",
       colour = "Displayed\nselection"
     ) +
-    ggplot2::theme_minimal(base_size = 11)
+    ggplot2::theme_bw(base_size = 12) +
+    ggplot2::theme(
+      panel.grid = ggplot2::element_blank(),
+      axis.title = ggplot2::element_text(size = 15.75),
+      axis.text = ggplot2::element_text(size = 14, colour = "black"),
+      axis.ticks = ggplot2::element_line(linewidth = 0.4, colour = "black"),
+      legend.text = ggplot2::element_text(size = 14, colour = "black"),
+      legend.title = ggplot2::element_text(size = 15.75, colour = "black"),
+      legend.position = "top",
+      legend.direction = "horizontal"
+    ) +
+    ggplot2::guides(
+      colour = ggplot2::guide_legend(
+        nrow = 2,
+        byrow = TRUE
+      )
+    )
 }
 
 #' Plot integrated anchor summary
@@ -2601,15 +2921,60 @@ plot_selected_intervals <- function(sel_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_anchor_summary <- function(integrated_tbl,
                                 score_tbl,
                                 interval_tbl) {
-  # Align all three layers to the same anchor ordering before drawing the two
-  # interval summaries and both point clouds on one log-scale axis.
+  multiplier_axis_breaks <- function(values) {
+    finite_vals <- values[is.finite(values) & values > 0]
+    if (length(finite_vals) == 0) {
+      return(c(0.1, 1, 10, 100))
+    }
+    lower_pow <- floor(min(log10(finite_vals), na.rm = TRUE))
+    upper_pow <- ceiling(max(log10(finite_vals), na.rm = TRUE))
+    10^seq(lower_pow, upper_pow, by = 1)
+  }
+  multiplier_axis_labels <- function(x) {
+    vapply(x, function(value) {
+      if (!is.finite(value) || value <= 0) {
+        return(NA_character_)
+      }
+      if (abs(value - 1) < 1e-12) {
+        return("1 (Reference)")
+      }
+      if (value < 1) {
+        inv <- gsub("\\s+", "", formatC(1 / value, format = "fg", digits = 6))
+        return(paste0("-", inv))
+      }
+      paste0("+", gsub("\\s+", "", formatC(value, format = "fg", digits = 6)))
+    }, character(1))
+  }
+  # Align all three layers to the same anchor ordering before drawing the
+  # selected-strategy interval, the all-tested strategy cloud, and the nested
+  # admissible-pool intervals on one log-scale axis.
   integrated_df <- tibble::as_tibble(integrated_tbl)
+  q_log <- dplyr::coalesce(
+    if ("meta_q_abs_log_total" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$meta_q_abs_log_total)) else rep(NA_real_, nrow(integrated_df)),
+    if ("q_abs_log_total" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$q_abs_log_total)) else rep(NA_real_, nrow(integrated_df)),
+    if ("meta_q_abs_log" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$meta_q_abs_log)) else rep(NA_real_, nrow(integrated_df)),
+    if ("q_abs_log" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$q_abs_log)) else rep(NA_real_, nrow(integrated_df))
+  )
+  multiplier_pred <- suppressWarnings(as.numeric(integrated_df$multiplier_pred))
+  integrated_df$multiplier_lo <- dplyr::coalesce(
+    if ("meta_post_selection_multiplier_lo" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$meta_post_selection_multiplier_lo)) else rep(NA_real_, nrow(integrated_df)),
+    if ("multiplier_lo" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$multiplier_lo)) else rep(NA_real_, nrow(integrated_df))
+  )
+  miss_lo <- !is.finite(integrated_df$multiplier_lo) & is.finite(multiplier_pred) & multiplier_pred > 0 & is.finite(q_log) & q_log > 0
+  integrated_df$multiplier_lo[miss_lo] <- multiplier_pred[miss_lo] * exp(-q_log[miss_lo])
+  integrated_df$multiplier_hi <- dplyr::coalesce(
+    if ("meta_post_selection_multiplier_hi" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$meta_post_selection_multiplier_hi)) else rep(NA_real_, nrow(integrated_df)),
+    if ("multiplier_hi" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$multiplier_hi)) else rep(NA_real_, nrow(integrated_df))
+  )
+  miss_hi <- !is.finite(integrated_df$multiplier_hi) & is.finite(multiplier_pred) & multiplier_pred > 0 & is.finite(q_log) & q_log > 0
+  integrated_df$multiplier_hi[miss_hi] <- multiplier_pred[miss_hi] * exp(q_log[miss_hi])
   if (nrow(integrated_df) == 0 ||
-    !all(c("anchor_species", "multiplier_pred", "multiplier_lo", "multiplier_hi", "combined_multiplier_q05", "combined_multiplier_q50", "combined_multiplier_q95") %in% names(integrated_df))) {
+    !all(c("anchor_species", "multiplier_pred", "multiplier_lo", "multiplier_hi") %in% names(integrated_df))) {
     return(ggplot2::ggplot() +
       ggplot2::labs(title = "Integrated Anchor-Level Biomass Multiplier Summary", subtitle = "Required plotting fields were not available.", x = NULL, y = "Biomass multiplier") +
       ggplot2::theme_minimal(base_size = 11))
@@ -2631,15 +2996,9 @@ plot_anchor_summary <- function(integrated_tbl,
       is.finite(.data$multiplier_pred),
       is.finite(.data$multiplier_lo),
       is.finite(.data$multiplier_hi),
-      is.finite(.data$combined_multiplier_q05),
-      is.finite(.data$combined_multiplier_q50),
-      is.finite(.data$combined_multiplier_q95),
       .data$multiplier_pred > 0,
       .data$multiplier_lo > 0,
-      .data$multiplier_hi > 0,
-      .data$combined_multiplier_q05 > 0,
-      .data$combined_multiplier_q50 > 0,
-      .data$combined_multiplier_q95 > 0
+      .data$multiplier_hi > 0
     ) |>
     dplyr::mutate(
       anchor_species = factor(.data$anchor_species, levels = anchor_levels),
@@ -2678,55 +3037,189 @@ plot_anchor_summary <- function(integrated_tbl,
   } else {
     blue_df <- tibble::tibble(x_pos = numeric(), multiplier_pred = numeric())
   }
+  admissible_interval_df <- if (nrow(red_df) > 0) {
+    red_df |>
+      dplyr::group_by(.data$anchor_species, .data$x_pos) |>
+      dplyr::summarise(
+        q025 = stats::quantile(.data$biomass_multiplier_if_replace, probs = 0.025, na.rm = TRUE, names = FALSE, type = 8),
+        q05 = stats::quantile(.data$biomass_multiplier_if_replace, probs = 0.05, na.rm = TRUE, names = FALSE, type = 8),
+        q10 = stats::quantile(.data$biomass_multiplier_if_replace, probs = 0.10, na.rm = TRUE, names = FALSE, type = 8),
+        q50 = stats::quantile(.data$biomass_multiplier_if_replace, probs = 0.50, na.rm = TRUE, names = FALSE, type = 8),
+        q90 = stats::quantile(.data$biomass_multiplier_if_replace, probs = 0.90, na.rm = TRUE, names = FALSE, type = 8),
+        q95 = stats::quantile(.data$biomass_multiplier_if_replace, probs = 0.95, na.rm = TRUE, names = FALSE, type = 8),
+        q975 = stats::quantile(.data$biomass_multiplier_if_replace, probs = 0.975, na.rm = TRUE, names = FALSE, type = 8),
+        .groups = "drop"
+      ) |>
+      tidyr::pivot_longer(
+        cols = c("q10", "q05", "q025"),
+        names_to = "lower_key",
+        values_to = "ymin"
+      ) |>
+      dplyr::mutate(
+        ymax = dplyr::case_when(
+          .data$lower_key == "q10" ~ .data$q90,
+          .data$lower_key == "q05" ~ .data$q95,
+          .data$lower_key == "q025" ~ .data$q975,
+          TRUE ~ NA_real_
+        ),
+        interval_level = dplyr::case_when(
+          .data$lower_key == "q10" ~ "80%",
+          .data$lower_key == "q05" ~ "90%",
+          .data$lower_key == "q025" ~ "95%",
+          TRUE ~ NA_character_
+        )
+      ) |>
+      dplyr::select(.data$anchor_species, .data$x_pos, .data$q50, .data$ymin, .data$ymax, .data$interval_level) |>
+      dplyr::filter(
+        is.finite(.data$ymin),
+        is.finite(.data$ymax),
+        .data$ymin > 0,
+        .data$ymax > 0
+      ) |>
+      dplyr::mutate(
+        interval_level = factor(.data$interval_level, levels = c("80%", "90%", "95%"))
+      )
+  } else {
+    tibble::tibble()
+  }
+  axis_values <- c(
+    integrated_df$multiplier_lo,
+    integrated_df$multiplier_hi,
+    admissible_interval_df$ymin,
+    admissible_interval_df$ymax,
+    red_df$biomass_multiplier_if_replace,
+    blue_df$multiplier_pred
+  )
+  axis_breaks <- multiplier_axis_breaks(axis_values)
 
   ggplot2::ggplot(integrated_df, ggplot2::aes(x = .data$x_pos)) +
+    ggplot2::geom_vline(
+      xintercept = seq_along(anchor_levels),
+      linewidth = 0.35,
+      colour = "grey88"
+    ) +
     ggplot2::geom_hline(yintercept = 1, linetype = "dashed", colour = "grey55") +
     ggplot2::geom_point(
       data = red_df,
-      ggplot2::aes(x = .data$x_pos, y = .data$biomass_multiplier_if_replace),
+      ggplot2::aes(
+        x = .data$x_pos,
+        y = .data$biomass_multiplier_if_replace
+      ),
       inherit.aes = FALSE,
       position = ggplot2::position_jitter(width = 0.035, height = 0),
-      colour = "#b2182b",
-      alpha = 0.18,
+      colour = "#1b1b1b",
+      alpha = 0.14,
       size = 1.2
     ) +
     ggplot2::geom_point(
       data = blue_df,
-      ggplot2::aes(x = .data$x_pos, y = .data$multiplier_pred),
+      ggplot2::aes(
+        x = .data$x_pos,
+        y = .data$multiplier_pred
+      ),
       inherit.aes = FALSE,
       position = ggplot2::position_jitter(width = 0.028, height = 0),
-      colour = "#2166ac",
-      alpha = 0.22,
+      colour = "#b2182b",
+      alpha = 0.18,
       size = 1.5
     ) +
-    ggplot2::geom_errorbar(
-      ggplot2::aes(x = .data$selected_x_pos, ymin = .data$multiplier_lo, ymax = .data$multiplier_hi),
-      width = 0.12,
-      colour = "#2166ac"
+    ggplot2::geom_segment(
+      data = admissible_interval_df |>
+        dplyr::filter(.data$interval_level == "80%"),
+      ggplot2::aes(
+        x = .data$x_pos + 0.12,
+        xend = .data$x_pos + 0.12,
+        y = .data$ymin,
+        yend = .data$ymax
+      ),
+      colour = "#1b1b1b",
+      linewidth = 5.0,
+      alpha = 1.00,
+      lineend = "butt",
+      show.legend = FALSE
     ) +
-    ggplot2::geom_point(ggplot2::aes(x = .data$selected_x_pos, y = .data$multiplier_pred), colour = "#2166ac", size = 2.5) +
+    ggplot2::geom_segment(
+      data = admissible_interval_df |>
+        dplyr::filter(.data$interval_level == "90%"),
+      ggplot2::aes(
+        x = .data$x_pos + 0.12,
+        xend = .data$x_pos + 0.12,
+        y = .data$ymin,
+        yend = .data$ymax
+      ),
+      colour = "#1b1b1b",
+      linewidth = 2.5,
+      alpha = 0.90,
+      lineend = "butt",
+      show.legend = FALSE
+    ) +
     ggplot2::geom_errorbar(
-      ggplot2::aes(ymin = .data$combined_multiplier_q05, ymax = .data$combined_multiplier_q95),
-      width = 0.12,
+      data = admissible_interval_df |>
+        dplyr::filter(.data$interval_level == "95%"),
+      ggplot2::aes(
+        x = .data$x_pos + 0.12,
+        ymin = .data$ymin,
+        ymax = .data$ymax
+      ),
+      colour = "#1b1b1b",
+      linewidth = 1.0,
+      alpha = 0.80,
+      width = 0.040,
+      show.legend = FALSE
+    ) +
+    ggplot2::geom_point(
+      data = admissible_interval_df |>
+        dplyr::filter(.data$interval_level == "80%"),
+      ggplot2::aes(
+        x = .data$x_pos + 0.12,
+        y = .data$q50
+      ),
+      colour = "#1b1b1b",
+      size = 1.6
+    ) +
+    ggplot2::geom_errorbar(
+      ggplot2::aes(
+        x = .data$selected_x_pos,
+        ymin = .data$multiplier_lo,
+        ymax = .data$multiplier_hi
+      ),
       colour = "#b2182b",
-      position = ggplot2::position_nudge(x = 0.12)
+      width = 0.12,
     ) +
-    ggplot2::geom_point(ggplot2::aes(y = .data$combined_multiplier_q50), colour = "#b2182b", size = 2.5, position = ggplot2::position_nudge(x = 0.12)) +
+    ggplot2::geom_point(
+      ggplot2::aes(
+        x = .data$selected_x_pos,
+        y = .data$multiplier_pred
+      ),
+      colour = "#b2182b",
+      size = 2.5
+    ) +
     ggplot2::coord_flip() +
     ggplot2::scale_x_continuous(
       breaks = seq_along(anchor_levels),
       labels = function(x) {
         lab <- anchor_levels[match(x, seq_along(anchor_levels))]
         parse(text = paste0("italic('", lab, "')"))
-      }
+      },
+      expand = ggplot2::expansion(mult = c(0.02, 0.02))
     ) +
-    ggplot2::scale_y_log10() +
+    ggplot2::scale_y_log10(
+      breaks = axis_breaks,
+      labels = multiplier_axis_labels
+    ) +
+    ggplot2::annotation_logticks(sides = "b") +
     ggplot2::labs(
-      title = "Integrated Anchor-Level Biomass Multiplier Summary",
       x = NULL,
       y = "Biomass multiplier"
     ) +
-    ggplot2::theme_minimal(base_size = 11)
+    ggplot2::theme_bw(base_size = 12) +
+    ggplot2::theme(
+      panel.grid = ggplot2::element_blank(),
+      axis.title = ggplot2::element_text(size = 15.75),
+      axis.text = ggplot2::element_text(size = 14, colour = "black"),
+      axis.ticks = ggplot2::element_line(linewidth = 0.4, colour = "black"),
+      legend.position = "none"
+    )
 }
 
 #' Plot FAO study distribution map
@@ -2738,7 +3231,8 @@ plot_anchor_summary <- function(integrated_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_area_distribution <- function(model_data,
                                    count_type = "studies") {
   # Define helpers
@@ -2795,9 +3289,9 @@ plot_area_distribution <- function(model_data,
   # Process model data to get counts
   if (count_type == "studies") {
     model_agg <- model_data |>
-      dplyr::nest_by(.data$reference_tsl_short, .data$fao_area) |>
+      dplyr::nest_by(.data$citation, .data$fao_area) |>
       dplyr::group_by(.data$fao_area) |>
-      dplyr::reframe(n = length(.data$reference_tsl_short))
+      dplyr::reframe(n = length(.data$citation))
   } else {
     model_agg <- model_data |>
       dplyr::group_by(.data$fao_area) |>
@@ -2903,7 +3397,8 @@ plot_area_distribution <- function(model_data,
 #' plot_ts_panel(panel_tbl)
 #' }
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_ts_panel <- function(curve_tbl,
                           reference_col = "anchor_species",
                           show_top_candidate = FALSE) {
@@ -2932,6 +3427,26 @@ plot_ts_panel <- function(curve_tbl,
     if ("ts_center" %in% names(curve_tbl)) suppressWarnings(as.numeric(curve_tbl$ts_center)) else rep(NA_real_, nrow(curve_tbl)),
     suppressWarnings(as.numeric(curve_tbl$ts_pred))
   )
+  for (lev in c("80", "90", "95", "99")) {
+    q_col <- paste0("q", lev, "_log_length")
+    lo_col <- paste0("ts_lo_", lev)
+    hi_col <- paste0("ts_hi_", lev)
+    if (q_col %in% names(curve_tbl)) {
+      q_now <- suppressWarnings(as.numeric(curve_tbl[[q_col]]))
+      if (lo_col %in% names(curve_tbl)) {
+        lo_now <- suppressWarnings(as.numeric(curve_tbl[[lo_col]]))
+        miss_lo <- !is.finite(lo_now) & is.finite(curve_tbl$ts_panel_center) & is.finite(q_now)
+        lo_now[miss_lo] <- curve_tbl$ts_panel_center[miss_lo] - q_now[miss_lo]
+        curve_tbl[[lo_col]] <- lo_now
+      }
+      if (hi_col %in% names(curve_tbl)) {
+        hi_now <- suppressWarnings(as.numeric(curve_tbl[[hi_col]]))
+        miss_hi <- !is.finite(hi_now) & is.finite(curve_tbl$ts_panel_center) & is.finite(q_now)
+        hi_now[miss_hi] <- curve_tbl$ts_panel_center[miss_hi] + q_now[miss_hi]
+        curve_tbl[[hi_col]] <- hi_now
+      }
+    }
+  }
 
   # Draw non-overlapping shells for the nested intervals. This avoids the
   # misleading mixed colours produced by stacking translucent full ribbons.
@@ -3003,28 +3518,45 @@ plot_ts_panel <- function(curve_tbl,
     dplyr::filter(is.finite(.data$ymin), is.finite(.data$ymax), .data$ymax > .data$ymin) |>
     dplyr::mutate(band = factor(.data$band, levels = c("99%", "95%", "90%", "80%")))
 
-  p <- ggplot2::ggplot() +
-    ggplot2::geom_ribbon(
-      data = band_tbl,
-      ggplot2::aes(
-        x = .data$length_cm,
-        ymin = .data$ymin,
-        ymax = .data$ymax,
-        fill = .data$band,
-        group = interaction(.data[[reference_col]], .data$band, .data$shell)
-      ),
-      alpha = 1,
-      colour = NA
-    ) +
-    ggplot2::scale_fill_manual(
-      values = c(
-        "99%" = "#eef2f7",
-        "95%" = "#d9e0ea",
-        "90%" = "#bcc7d6",
-        "80%" = "#96a6bc"
-      ),
-      name = "Prediction band"
-    ) +
+  label_tbl <- curve_tbl |>
+    dplyr::group_by(.data[[reference_col]]) |>
+    dplyr::summarise(
+      x_min = min(.data$length_cm, na.rm = TRUE),
+      x_max = max(.data$length_cm, na.rm = TRUE),
+      label_expr = paste0("italic('", dplyr::first(.data[[reference_col]]), "')"),
+      .groups = "drop"
+    ) |>
+    dplyr::mutate(
+      x_label = .data$x_max - 0.04 * (.data$x_max - .data$x_min),
+      y_label = -60
+    )
+
+  p <- ggplot2::ggplot()
+  if (nrow(band_tbl) > 0) {
+    p <- p +
+      ggplot2::geom_ribbon(
+        data = band_tbl,
+        ggplot2::aes(
+          x = .data$length_cm,
+          ymin = .data$ymin,
+          ymax = .data$ymax,
+          fill = .data$band,
+          group = interaction(.data[[reference_col]], .data$band, .data$shell)
+        ),
+        alpha = 1,
+        colour = NA
+      ) +
+      ggplot2::scale_fill_manual(
+        values = c(
+          "99%" = "#eef2f7",
+          "95%" = "#d9e0ea",
+          "90%" = "#bcc7d6",
+          "80%" = "#96a6bc"
+        ),
+        name = "Uncertainty interval"
+      )
+  }
+  p <- p +
     ggplot2::geom_line(data = curve_tbl, ggplot2::aes(x = .data$length_cm, y = .data$ts_panel_center, colour = "Selected policy", linetype = "Selected policy"), linewidth = 0.85)
   if (isTRUE(show_top_candidate) && "ts_top_candidate" %in% names(curve_tbl)) {
     p <- p +
@@ -3038,16 +3570,16 @@ plot_ts_panel <- function(curve_tbl,
   p <- p +
     ggplot2::geom_line(
       data = curve_tbl,
-      ggplot2::aes(x = .data$length_cm, y = .data$ts_anchor),
-      linewidth = 1.35,
-      colour = "white",
-      linetype = "longdash",
-      alpha = 0.95
-    ) +
-    ggplot2::geom_line(
-      data = curve_tbl,
       ggplot2::aes(x = .data$length_cm, y = .data$ts_anchor, colour = "Anchor", linetype = "Anchor"),
       linewidth = 0.75
+    ) +
+    ggplot2::geom_text(
+      data = label_tbl,
+      ggplot2::aes(x = .data$x_label, y = .data$y_label, label = .data$label_expr),
+      parse = TRUE,
+      hjust = 1,
+      vjust = -0.25,
+      size = 5.2
     )
   colour_values <- c(
     "Selected policy" = "#0057b8",
@@ -3063,15 +3595,33 @@ plot_ts_panel <- function(curve_tbl,
   }
 
   p +
-    ggplot2::scale_colour_manual(values = colour_values, name = "Curve") +
-    ggplot2::scale_linetype_manual(values = linetype_values, name = "Curve") +
+    ggplot2::scale_colour_manual(
+      values = colour_values,
+      name = expression(italic(TS)~predictions),
+      labels = c("Selected policy" = "Selected policy", "Anchor" = "SWFSC", "Top candidate" = "Top candidate")
+    ) +
+    ggplot2::scale_linetype_manual(
+      values = linetype_values,
+      name = expression(italic(TS)~predictions),
+      labels = c("Selected policy" = "Selected policy", "Anchor" = "SWFSC", "Top candidate" = "Top candidate")
+    ) +
     ggplot2::facet_wrap(stats::as.formula(paste("~", reference_col)), ncol = 2, scales = "free_x") +
     ggplot2::labs(
       x = "Length (cm)",
-      y = "TS (dB re 1 m^2)"
+      y = expression(italic(TS)~(dB~re.~1~m^2))
     ) +
-    ggplot2::theme_minimal(base_size = 11) +
-    ggplot2::theme(strip.text = ggplot2::element_text(face = "italic"))
+    ggplot2::coord_cartesian(expand = FALSE) +
+    ggplot2::theme_bw(base_size = 12) +
+    ggplot2::theme(
+      panel.grid = ggplot2::element_blank(),
+      strip.background = ggplot2::element_blank(),
+      strip.text = ggplot2::element_blank(),
+      axis.title = ggplot2::element_text(size = 15.75),
+      axis.text = ggplot2::element_text(size = 14, colour = "black"),
+      axis.ticks = ggplot2::element_line(linewidth = 0.4, colour = "black"),
+      legend.title = ggplot2::element_text(size = 15.75),
+      legend.text = ggplot2::element_text(size = 14)
+    )
 }
 
 #' Plot selected-policy coefficient intervals
@@ -3080,19 +3630,10 @@ plot_ts_panel <- function(curve_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_policy_coefficients <- function(coefficient_tbl) {
   plot_df <- tibble::as_tibble(coefficient_tbl)
-  center_interval <- function(estimate, lo, hi) {
-    estimate <- suppressWarnings(as.numeric(estimate))
-    lo <- suppressWarnings(as.numeric(lo))
-    hi <- suppressWarnings(as.numeric(hi))
-    radius <- pmax(abs(estimate - lo), abs(hi - estimate), na.rm = TRUE)
-    list(
-      lo = estimate - radius,
-      hi = estimate + radius
-    )
-  }
   resolve_one <- function(df, candidates) {
     for (nm in candidates) {
       if (nm %in% names(df)) {
@@ -3108,34 +3649,34 @@ plot_policy_coefficients <- function(coefficient_tbl) {
   }
   plot_df$estimate_slope <- resolve_one(plot_df, c("policy_slope_len"))
   plot_df$estimate_intercept <- resolve_one(plot_df, c("policy_intercept_len"))
-  post_slope_bounds <- center_interval(
-    estimate = plot_df$estimate_slope,
-    lo = resolve_one(plot_df, c("policy_slope_len_lo_95", "policy_slope_len_lo_95.x", "policy_slope_len_lo_95.y")),
-    hi = resolve_one(plot_df, c("policy_slope_len_hi_95", "policy_slope_len_hi_95.x", "policy_slope_len_hi_95.y"))
-  )
-  post_intercept_bounds <- center_interval(
-    estimate = plot_df$estimate_intercept,
-    lo = resolve_one(plot_df, c("policy_intercept_len_lo_95", "policy_intercept_len_lo_95.x", "policy_intercept_len_lo_95.y")),
-    hi = resolve_one(plot_df, c("policy_intercept_len_hi_95", "policy_intercept_len_hi_95.x", "policy_intercept_len_hi_95.y"))
-  )
+  plot_df$anchor_slope <- suppressWarnings(as.numeric(resolve_one(
+    plot_df,
+    c("anchor_slope_standard", "anchor_slope_len")
+  )))
+  plot_df$anchor_intercept <- suppressWarnings(as.numeric(resolve_one(
+    plot_df,
+    c("anchor_intercept_standard", "anchor_intercept_len")
+  )))
   post_df <- dplyr::bind_rows(
     plot_df |>
       dplyr::transmute(
         .data$anchor_species,
-        layer = "Post-selection",
+        interval_type = "Plausible competing strategies",
         parameter = "Slope",
         estimate = .data$estimate_slope,
-        lo = post_slope_bounds$lo,
-        hi = post_slope_bounds$hi
+        lo = resolve_one(plot_df, c("policy_slope_len_lo_95", "policy_slope_len_lo_95.x", "policy_slope_len_lo_95.y")),
+        hi = resolve_one(plot_df, c("policy_slope_len_hi_95", "policy_slope_len_hi_95.x", "policy_slope_len_hi_95.y")),
+        competitor_n = suppressWarnings(as.numeric(resolve_one(plot_df, c("policy_coefficient_competitor_n"))))
       ),
     plot_df |>
       dplyr::transmute(
         .data$anchor_species,
-        layer = "Post-selection",
+        interval_type = "Plausible competing strategies",
         parameter = "Intercept",
         estimate = .data$estimate_intercept,
-        lo = post_intercept_bounds$lo,
-        hi = post_intercept_bounds$hi
+        lo = resolve_one(plot_df, c("policy_intercept_len_lo_95", "policy_intercept_len_lo_95.x", "policy_intercept_len_lo_95.y")),
+        hi = resolve_one(plot_df, c("policy_intercept_len_hi_95", "policy_intercept_len_hi_95.x", "policy_intercept_len_hi_95.y")),
+        competitor_n = suppressWarnings(as.numeric(resolve_one(plot_df, c("policy_coefficient_competitor_n"))))
       )
   )
   conditional_available <- all(c(
@@ -3145,39 +3686,47 @@ plot_policy_coefficients <- function(coefficient_tbl) {
     "conditional_policy_intercept_len_hi_95"
   ) %in% names(plot_df))
   conditional_df <- if (isTRUE(conditional_available)) {
-    conditional_slope_bounds <- center_interval(
-      estimate = plot_df$estimate_slope,
-      lo = plot_df$conditional_policy_slope_len_lo_95,
-      hi = plot_df$conditional_policy_slope_len_hi_95
-    )
-    conditional_intercept_bounds <- center_interval(
-      estimate = plot_df$estimate_intercept,
-      lo = plot_df$conditional_policy_intercept_len_lo_95,
-      hi = plot_df$conditional_policy_intercept_len_hi_95
-    )
     dplyr::bind_rows(
       plot_df |>
         dplyr::transmute(
           .data$anchor_species,
-          layer = "Conditional on selected policy",
+          interval_type = "Selected strategy",
           parameter = "Slope",
           estimate = .data$estimate_slope,
-          lo = conditional_slope_bounds$lo,
-          hi = conditional_slope_bounds$hi
+          lo = .data$conditional_policy_slope_len_lo_95,
+          hi = .data$conditional_policy_slope_len_hi_95,
+          competitor_n = 1
         ),
       plot_df |>
         dplyr::transmute(
           .data$anchor_species,
-          layer = "Conditional on selected policy",
+          interval_type = "Selected strategy",
           parameter = "Intercept",
           estimate = .data$estimate_intercept,
-          lo = conditional_intercept_bounds$lo,
-          hi = conditional_intercept_bounds$hi
+          lo = .data$conditional_policy_intercept_len_lo_95,
+          hi = .data$conditional_policy_intercept_len_hi_95,
+          competitor_n = 1
         )
     )
   } else {
     tibble::tibble()
   }
+  conditional_key <- conditional_df |>
+    dplyr::select(.data$anchor_species, .data$parameter, conditional_lo = .data$lo, conditional_hi = .data$hi)
+  post_df <- post_df |>
+    dplyr::left_join(conditional_key, by = c("anchor_species", "parameter")) |>
+    dplyr::mutate(
+      show_post = dplyr::coalesce(.data$competitor_n, 1) > 1 &
+        (
+          !is.finite(.data$conditional_lo) |
+            !is.finite(.data$conditional_hi) |
+            abs(.data$lo - .data$conditional_lo) > 1e-8 |
+            abs(.data$hi - .data$conditional_hi) > 1e-8
+        )
+    ) |>
+    dplyr::filter(.data$show_post) |>
+    dplyr::select(-dplyr::any_of(c("conditional_lo", "conditional_hi", "show_post")))
+
   long_df <- dplyr::bind_rows(conditional_df, post_df) |>
     dplyr::filter(
       !is.na(.data$anchor_species),
@@ -3186,8 +3735,31 @@ plot_policy_coefficients <- function(coefficient_tbl) {
       is.finite(.data$hi)
     ) |>
     dplyr::mutate(
-      anchor_species = factor(.data$anchor_species, levels = unique(plot_df$anchor_species)),
-      layer = factor(.data$layer, levels = c("Conditional on selected policy", "Post-selection"))
+      anchor_species = factor(.data$anchor_species, levels = rev(unique(plot_df$anchor_species))),
+      parameter = factor(.data$parameter, levels = c("Slope", "Intercept")),
+      interval_type = factor(.data$interval_type, levels = c("Selected strategy", "Plausible competing strategies"))
+    )
+  swfsc_df <- dplyr::bind_rows(
+    plot_df |>
+      dplyr::transmute(
+        .data$anchor_species,
+        parameter = "Slope",
+        estimate = .data$anchor_slope
+      ),
+    plot_df |>
+      dplyr::transmute(
+        .data$anchor_species,
+        parameter = "Intercept",
+        estimate = .data$anchor_intercept
+      )
+  ) |>
+    dplyr::filter(
+      !is.na(.data$anchor_species),
+      is.finite(.data$estimate)
+    ) |>
+    dplyr::mutate(
+      anchor_species = factor(.data$anchor_species, levels = rev(unique(plot_df$anchor_species))),
+      parameter = factor(.data$parameter, levels = c("Slope", "Intercept"))
     )
   if (nrow(long_df) == 0) {
     return(ggplot2::ggplot() +
@@ -3195,18 +3767,141 @@ plot_policy_coefficients <- function(coefficient_tbl) {
       ggplot2::theme_minimal(base_size = 11))
   }
 
-  ggplot2::ggplot(long_df, ggplot2::aes(y = .data$anchor_species, x = .data$estimate, xmin = .data$lo, xmax = .data$hi)) +
-    ggplot2::geom_vline(xintercept = 0, linetype = "dashed", colour = "grey60") +
-    ggplot2::geom_errorbar(orientation = "y", width = 0.16, linewidth = 0.7, colour = "#4d4d4d") +
-    ggplot2::geom_point(size = 2.4, colour = "#2166ac") +
-    ggplot2::facet_grid(parameter ~ layer, scales = "free_x") +
-    ggplot2::scale_y_discrete(labels = function(x) parse(text = paste0("italic('", x, "')"))) +
+  species_levels <- levels(long_df$anchor_species)
+  base_pos <- stats::setNames(seq_along(species_levels), species_levels)
+  long_df$y_pos <- unname(base_pos[as.character(long_df$anchor_species)])
+  long_df$y_plot <- ifelse(
+    identical(as.character(long_df$interval_type), "Plausible competing strategies"),
+    long_df$y_pos - 0.14,
+    long_df$y_pos
+  )
+  long_df$y_plot <- ifelse(
+    as.character(long_df$interval_type) == "Plausible competing strategies",
+    long_df$y_pos - 0.14,
+    long_df$y_pos
+  )
+  cond_df <- long_df[as.character(long_df$interval_type) == "Selected strategy", , drop = FALSE]
+  post_plot_df <- long_df[as.character(long_df$interval_type) == "Plausible competing strategies", , drop = FALSE]
+  if (nrow(swfsc_df) > 0) {
+    swfsc_df$y_pos <- unname(base_pos[as.character(swfsc_df$anchor_species)])
+    swfsc_df$y_plot <- swfsc_df$y_pos
+  }
+  panel_label_df <- long_df |>
+    dplyr::group_by(.data$parameter) |>
+    dplyr::summarise(
+      x_min = min(c(.data$lo, .data$estimate), na.rm = TRUE),
+      x_max = max(c(.data$hi, .data$estimate), na.rm = TRUE),
+      .groups = "drop"
+    ) |>
+    dplyr::mutate(
+      x = .data$x_min + 0.01 * (.data$x_max - .data$x_min),
+      y = length(species_levels) + 0.42,
+      label = as.character(.data$parameter)
+    )
+  slope_ref_df <- tibble::tibble(
+    parameter = factor("Slope", levels = c("Slope", "Intercept")),
+    xintercept = 20
+  )
+
+  ggplot2::ggplot() +
+    ggplot2::geom_hline(
+      yintercept = seq_along(species_levels),
+      linewidth = 0.35,
+      colour = "grey88"
+    ) +
+    ggplot2::geom_vline(
+      data = slope_ref_df,
+      ggplot2::aes(xintercept = .data$xintercept),
+      linetype = "dashed",
+      linewidth = 0.5,
+      colour = "grey65"
+    ) +
+    ggplot2::geom_errorbar(
+      data = post_plot_df,
+      ggplot2::aes(
+        y = .data$y_plot,
+        x = .data$estimate,
+        xmin = .data$lo,
+        xmax = .data$hi,
+        colour = .data$interval_type
+      ),
+      orientation = "y",
+      width = 0.14,
+      linewidth = 0.8,
+      show.legend = nrow(post_plot_df) > 0
+    ) +
+    ggplot2::geom_errorbar(
+      data = cond_df,
+      ggplot2::aes(
+        y = .data$y_plot,
+        x = .data$estimate,
+        xmin = .data$lo,
+        xmax = .data$hi,
+        colour = .data$interval_type
+      ),
+      orientation = "y",
+      width = 0.14,
+      linewidth = 0.8
+    ) +
+    ggplot2::geom_point(
+      data = cond_df,
+      ggplot2::aes(
+        x = .data$estimate,
+        y = .data$y_plot,
+        colour = .data$interval_type
+      ),
+      size = 2.4
+    ) +
+    ggplot2::geom_point(
+      data = swfsc_df,
+      ggplot2::aes(
+        x = .data$estimate,
+        y = .data$y_plot,
+        colour = "SWFSC model"
+      ),
+      size = 2.4
+    ) +
+    ggplot2::facet_wrap(~parameter, ncol = 1, scales = "free_x") +
+    ggplot2::geom_text(
+      data = panel_label_df,
+      ggplot2::aes(x = .data$x, y = .data$y, label = .data$label),
+      inherit.aes = FALSE,
+      hjust = 0,
+      vjust = 1,
+      size = 7
+    ) +
+    ggplot2::scale_y_continuous(
+      breaks = seq_along(species_levels),
+      labels = function(x) parse(text = paste0("italic('", species_levels[as.integer(x)], "')")),
+      limits = c(0.5, length(species_levels) + 0.5),
+      expand = ggplot2::expansion(mult = c(0, 0))
+    ) +
+    ggplot2::scale_colour_manual(
+      values = c(
+        "Selected strategy" = "#1b1b1b",
+        "Plausible competing strategies" = "#b2182b",
+        "SWFSC model" = "#2166ac"
+      ),
+      name = NULL,
+      drop = FALSE
+    ) +
     ggplot2::labs(
       x = "Coefficient value",
-      y = NULL,
-      caption = "Conditional bars hold the selected policy fixed. Post-selection bars add policy ambiguity. Displayed intervals are centered on the plotted coefficient estimate. Joint slope-intercept uncertainty is stored in the covariance and should not be sampled independently."
+      y = NULL
     ) +
-    ggplot2::theme_minimal(base_size = 11)
+    ggplot2::theme_bw(base_size = 12) +
+    ggplot2::theme(
+      panel.grid = ggplot2::element_blank(),
+      strip.background = ggplot2::element_blank(),
+      strip.text = ggplot2::element_blank(),
+      axis.title = ggplot2::element_text(size = 15.75),
+      axis.text = ggplot2::element_text(size = 14, colour = "black"),
+      axis.ticks = ggplot2::element_line(linewidth = 0.4, colour = "black"),
+      legend.title = ggplot2::element_blank(),
+      legend.text = ggplot2::element_text(size = 14),
+      legend.position = "top",
+      legend.direction = "horizontal"
+    )
 }
 
 #' Plot selected biomass multiplier against expected anchor length
@@ -3215,7 +3910,8 @@ plot_policy_coefficients <- function(coefficient_tbl) {
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_multiplier_vs_expected_length <- function(anchor_tbl) {
   plot_df <- tibble::as_tibble(anchor_tbl)
   required_cols <- c(
@@ -3277,10 +3973,30 @@ plot_multiplier_vs_expected_length <- function(anchor_tbl) {
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_multiplier_length_spectrum <- function(curve_tbl,
                                             reference_col = "anchor_species") {
   curve_tbl <- tibble::as_tibble(curve_tbl)
+  curve_tbl$ts_panel_center <- dplyr::coalesce(
+    if ("ts_center" %in% names(curve_tbl)) suppressWarnings(as.numeric(curve_tbl$ts_center)) else rep(NA_real_, nrow(curve_tbl)),
+    suppressWarnings(as.numeric(curve_tbl$ts_pred))
+  )
+  if ("q95_log_length" %in% names(curve_tbl)) {
+    q95_now <- suppressWarnings(as.numeric(curve_tbl$q95_log_length))
+    if ("ts_lo_95" %in% names(curve_tbl)) {
+      lo_now <- suppressWarnings(as.numeric(curve_tbl$ts_lo_95))
+      miss_lo <- !is.finite(lo_now) & is.finite(curve_tbl$ts_panel_center) & is.finite(q95_now)
+      lo_now[miss_lo] <- curve_tbl$ts_panel_center[miss_lo] - q95_now[miss_lo]
+      curve_tbl$ts_lo_95 <- lo_now
+    }
+    if ("ts_hi_95" %in% names(curve_tbl)) {
+      hi_now <- suppressWarnings(as.numeric(curve_tbl$ts_hi_95))
+      miss_hi <- !is.finite(hi_now) & is.finite(curve_tbl$ts_panel_center) & is.finite(q95_now)
+      hi_now[miss_hi] <- curve_tbl$ts_panel_center[miss_hi] + q95_now[miss_hi]
+      curve_tbl$ts_hi_95 <- hi_now
+    }
+  }
   needed <- c(reference_col, "length_cm", "ts_anchor", "ts_pred", "ts_lo_95", "ts_hi_95")
   if (nrow(curve_tbl) == 0 || !all(needed %in% names(curve_tbl))) {
     return(ggplot2::ggplot() +
@@ -3328,12 +4044,32 @@ plot_multiplier_length_spectrum <- function(curve_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_all_intervals <- function(interval_tbl,
                                reference_name) {
   # Order the policies by their predicted multiplier before drawing the
   # one-reference interval comparison.
   plot_df <- tibble::as_tibble(interval_tbl)
+  q_log <- dplyr::coalesce(
+    if ("meta_q_abs_log_total" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_q_abs_log_total)) else rep(NA_real_, nrow(plot_df)),
+    if ("q_abs_log_total" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$q_abs_log_total)) else rep(NA_real_, nrow(plot_df)),
+    if ("meta_q_abs_log" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_q_abs_log)) else rep(NA_real_, nrow(plot_df)),
+    if ("q_abs_log" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$q_abs_log)) else rep(NA_real_, nrow(plot_df))
+  )
+  multiplier_pred <- suppressWarnings(as.numeric(plot_df$multiplier_pred))
+  plot_df$multiplier_lo <- dplyr::coalesce(
+    if ("meta_post_selection_multiplier_lo" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_lo)) else rep(NA_real_, nrow(plot_df)),
+    if ("multiplier_lo" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$multiplier_lo)) else rep(NA_real_, nrow(plot_df))
+  )
+  miss_lo <- !is.finite(plot_df$multiplier_lo) & is.finite(multiplier_pred) & multiplier_pred > 0 & is.finite(q_log) & q_log > 0
+  plot_df$multiplier_lo[miss_lo] <- multiplier_pred[miss_lo] * exp(-q_log[miss_lo])
+  plot_df$multiplier_hi <- dplyr::coalesce(
+    if ("meta_post_selection_multiplier_hi" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_hi)) else rep(NA_real_, nrow(plot_df)),
+    if ("multiplier_hi" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$multiplier_hi)) else rep(NA_real_, nrow(plot_df))
+  )
+  miss_hi <- !is.finite(plot_df$multiplier_hi) & is.finite(multiplier_pred) & multiplier_pred > 0 & is.finite(q_log) & q_log > 0
+  plot_df$multiplier_hi[miss_hi] <- multiplier_pred[miss_hi] * exp(q_log[miss_hi])
   plot_df$is_selected <- dplyr::coalesce(
     if ("is_selected.y" %in% names(plot_df)) as.logical(plot_df$is_selected.y) else rep(NA, nrow(plot_df)),
     if ("is_selected" %in% names(plot_df)) as.logical(plot_df$is_selected) else rep(NA, nrow(plot_df)),
@@ -3418,11 +4154,31 @@ plot_all_intervals <- function(interval_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_interval_panel <- function(interval_tbl) {
   # Keep each facet ordered by the within-reference multiplier ranking before
   # drawing the combined panel.
   plot_df <- tibble::as_tibble(interval_tbl)
+  q_log <- dplyr::coalesce(
+    if ("meta_q_abs_log_total" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_q_abs_log_total)) else rep(NA_real_, nrow(plot_df)),
+    if ("q_abs_log_total" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$q_abs_log_total)) else rep(NA_real_, nrow(plot_df)),
+    if ("meta_q_abs_log" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_q_abs_log)) else rep(NA_real_, nrow(plot_df)),
+    if ("q_abs_log" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$q_abs_log)) else rep(NA_real_, nrow(plot_df))
+  )
+  multiplier_pred <- suppressWarnings(as.numeric(plot_df$multiplier_pred))
+  plot_df$multiplier_lo <- dplyr::coalesce(
+    if ("meta_post_selection_multiplier_lo" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_lo)) else rep(NA_real_, nrow(plot_df)),
+    if ("multiplier_lo" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$multiplier_lo)) else rep(NA_real_, nrow(plot_df))
+  )
+  miss_lo <- !is.finite(plot_df$multiplier_lo) & is.finite(multiplier_pred) & multiplier_pred > 0 & is.finite(q_log) & q_log > 0
+  plot_df$multiplier_lo[miss_lo] <- multiplier_pred[miss_lo] * exp(-q_log[miss_lo])
+  plot_df$multiplier_hi <- dplyr::coalesce(
+    if ("meta_post_selection_multiplier_hi" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_hi)) else rep(NA_real_, nrow(plot_df)),
+    if ("multiplier_hi" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$multiplier_hi)) else rep(NA_real_, nrow(plot_df))
+  )
+  miss_hi <- !is.finite(plot_df$multiplier_hi) & is.finite(multiplier_pred) & multiplier_pred > 0 & is.finite(q_log) & q_log > 0
+  plot_df$multiplier_hi[miss_hi] <- multiplier_pred[miss_hi] * exp(q_log[miss_hi])
   plot_df$is_selected <- dplyr::coalesce(
     if ("is_selected.y" %in% names(plot_df)) as.logical(plot_df$is_selected.y) else rep(NA, nrow(plot_df)),
     if ("is_selected" %in% names(plot_df)) as.logical(plot_df$is_selected) else rep(NA, nrow(plot_df)),
@@ -3524,7 +4280,8 @@ plot_interval_panel <- function(interval_tbl) {
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_policy_stability <- function(sens_tbl,
                                   baseline_tbl,
                                   scenario_labs = NULL) {
@@ -3619,7 +4376,8 @@ plot_policy_stability <- function(sens_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_multiplier_drift <- function(sens_tbl,
                                   baseline_tbl,
                                   scenario_labs = NULL) {
@@ -3676,7 +4434,8 @@ plot_multiplier_drift <- function(sens_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_sensitivity_overview <- function(plot_tbl) {
   # Plot the already prepared long-form scenario summary so the function only
   # handles the segment-plus-point rendering.
@@ -3715,7 +4474,8 @@ plot_sensitivity_overview <- function(plot_tbl) {
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_tuning_variation <- function(plot_tbl,
                                   block_col = "block") {
   # Reorder the blocks by their mean multiplier before drawing the resample
@@ -3749,7 +4509,8 @@ plot_tuning_variation <- function(plot_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_anchor_audit <- function(audit_tbl) {
   audit_tbl <- tibble::as_tibble(audit_tbl)
   if (nrow(audit_tbl) == 0) {
@@ -3819,7 +4580,8 @@ plot_anchor_audit <- function(audit_tbl) {
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_field_missing <- function(field_tbl) {
   # Reorder the fields by missing fraction before drawing the one-dimensional
   # missingness audit bar chart.
@@ -3850,7 +4612,8 @@ plot_field_missing <- function(field_tbl) {
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_anchor_missing <- function(anchor_tbl) {
   # Order the anchor labels once and draw the fraction excluded by the
   # missingness gate for each reference species.
@@ -3885,7 +4648,8 @@ plot_anchor_missing <- function(anchor_tbl) {
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_ordination_cluster_hulls <- function(points_tbl,
                                           hull_tbl,
                                           cluster_col = "policy_cluster_id",
@@ -3974,7 +4738,8 @@ plot_ordination_cluster_hulls <- function(points_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_length_density <- function(length_tbl,
                                 anchor_label) {
   # Draw the supplied length-density support directly so the function remains a
@@ -4001,7 +4766,8 @@ plot_length_density <- function(length_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_length_density_panel <- function(length_tbl,
                                       reference_col = "anchor_species") {
   plot_df <- tibble::as_tibble(length_tbl)
@@ -4029,7 +4795,8 @@ plot_length_density_panel <- function(length_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_ts_ribbon <- function(ribbon_tbl,
                            anchor_label) {
   # Use explicit ribbon bounds when they are present, otherwise fall back to
@@ -4066,7 +4833,8 @@ plot_ts_ribbon <- function(ribbon_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_model_weights <- function(weight_tbl,
                                anchor_label) {
   # Prefer the final admissible weight when it exists; otherwise fall back to
@@ -4122,7 +4890,8 @@ plot_model_weights <- function(weight_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_biomass_sensitivity <- function(sensitivity_tbl,
                                      anchor_label,
                                      summary_tbl = NULL) {
@@ -4184,7 +4953,8 @@ plot_biomass_sensitivity <- function(sensitivity_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_biomass_candidate_map <- function(candidate_tbl,
                                        anchor_label) {
   # Build the scatter map from the already scored candidate table so the plot
@@ -4212,9 +4982,16 @@ plot_biomass_candidate_map <- function(candidate_tbl,
       ggplot2::theme_minimal(base_size = 11))
   }
   if ("common" %in% names(plot_df)) {
-    plot_df$label <- dplyr::coalesce(as.character(plot_df$common), as.character(plot_df$species_name), as.character(plot_df$model_id_chr))
+    plot_df$label <- dplyr::coalesce(
+      as.character(plot_df$common),
+      as.character(plot_df$species_name),
+      if ("model_id" %in% names(plot_df)) as.character(plot_df$model_id) else as.character(seq_len(nrow(plot_df)))
+    )
   } else {
-    plot_df$label <- dplyr::coalesce(as.character(plot_df$species_name), as.character(plot_df$model_id_chr))
+    plot_df$label <- dplyr::coalesce(
+      as.character(plot_df$species_name),
+      if ("model_id" %in% names(plot_df)) as.character(plot_df$model_id) else as.character(seq_len(nrow(plot_df)))
+    )
   }
   if ("swimbladder_type" %in% names(plot_df)) {
     plot_df$group_val <- dplyr::coalesce(as.character(plot_df$swimbladder_type), "unknown")
@@ -4256,12 +5033,13 @@ plot_biomass_candidate_map <- function(candidate_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_top_ten_model_weights <- function(top_tbl,
                                        anchor_label) {
   # Build the ordered top-ten label set before drawing the ranking bar chart.
   plot_df <- tibble::as_tibble(top_tbl)
-  if (nrow(plot_df) == 0 || !all(c("species_name", "model_id_chr", "w_adm") %in% names(plot_df))) {
+  if (nrow(plot_df) == 0 || !all(c("species_name", "model_id", "w_adm") %in% names(plot_df))) {
     return(ggplot2::ggplot() +
       ggplot2::labs(title = paste0("Top-10 Models by Weight [", anchor_label, "]"), subtitle = "Required plotting fields were not available.", x = NULL, y = "Model weight") +
       ggplot2::theme_minimal(base_size = 11))
@@ -4273,7 +5051,7 @@ plot_top_ten_model_weights <- function(top_tbl,
   }
   plot_df <- plot_df |>
     dplyr::mutate(
-      label = paste0(.data$species_name, common_suffix, " {m", .data$model_id_chr, "}"),
+      label = paste0(.data$species_name, common_suffix, " {m", .data$model_id, "}"),
       label = factor(.data$label, levels = .data$label)
     )
 
@@ -4296,7 +5074,8 @@ plot_top_ten_model_weights <- function(top_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_pivot_variance <- function(profile_tbl,
                                 summary_tbl,
                                 anchor_label) {
@@ -4353,7 +5132,8 @@ plot_pivot_variance <- function(profile_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_pairwise_pivot_histogram <- function(pairwise_tbl,
                                           summary_tbl,
                                           anchor_label) {
@@ -4397,7 +5177,8 @@ plot_pairwise_pivot_histogram <- function(pairwise_tbl,
 #'
 #' @return A ggplot object.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 plot_biological_leverage <- function(profile_tbl,
                                      summary_tbl,
                                      anchor_label) {

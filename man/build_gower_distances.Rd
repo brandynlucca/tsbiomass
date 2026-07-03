@@ -26,7 +26,7 @@ and combines the two blocks with the prepared alpha value.
 }
 \examples{
 \dontrun{
-candidates <- as_candidates(list(
+candidates <- build_candidates(list(
   study = list(path = "input.xlsx"),
   anchors = list(selector = list(regional_body = "SWFSC"))
 ))

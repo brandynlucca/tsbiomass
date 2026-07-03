@@ -19,7 +19,8 @@
 #'
 #' @return Named list of benchmark objects.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 run_sensitivity_tests <- function(sensitivity_specs,
                                   benchmark_fun,
                                   baseline_obj = NULL,
@@ -67,7 +68,7 @@ run_sensitivity_tests <- function(sensitivity_specs,
 
   # Inline the small set of sensitivity defaults here instead of routing them
   # through a separate wrapper function.
-  config_values <- merge_cfg(
+  config_values <- merge_config_sections(
     list(
       baseline_label = "baseline",
       tolerance = 0.05,
@@ -221,7 +222,7 @@ run_sensitivity_tests <- function(sensitivity_specs,
 #'
 #' @examples
 #' \dontrun{
-#' simulator <- as_policy_simulator(selector)
+#' simulator <- as_policysimulator(selector)
 #' simulator <- simulate(simulator)
 #' build_sensitivity_table(simulator)
 #' }
@@ -243,7 +244,7 @@ S7::method(build_sensitivity_table, S7::class_any) <- function(sensitivity_specs
   # scenario-level manifest for later audits.
   # Resolve the scenario-summary defaults directly at the call site to avoid
   # an extra config helper with only a few scalars.
-  config_values <- merge_cfg(
+  config_values <- merge_config_sections(
     list(
       baseline_label = "baseline",
       tolerance = 0.05,
@@ -330,7 +331,7 @@ S7::method(build_sensitivity_table, PolicySimulator) <- function(sensitivity_spe
 #'
 #' @examples
 #' \dontrun{
-#' simulator <- as_policy_simulator(selector)
+#' simulator <- as_policysimulator(selector)
 #' simulator <- simulate(simulator)
 #' bind_sensitivity_data(simulator)
 #' }
@@ -597,7 +598,8 @@ summarize_sensitivity <- function(sensitivity_table,
 #'
 #' @return A named list of scenario specifications.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 build_policy_sensitivity_scenarios <- function(candidate_models,
                                                config) {
   # Normalize the config first so every derived scenario starts from one
@@ -734,7 +736,8 @@ build_policy_sensitivity_scenarios <- function(candidate_models,
 #'     error across policies.
 #'   - `summary`: one-row summary with global SDs and variance ratio.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 bind_sensitivity_variance <- function(sens_data,
                                       log_multiplier_col = "log_multiplier_central",
                                       policy_error_col = "mean_species_median_abs_log") {
@@ -855,7 +858,8 @@ bind_sensitivity_variance <- function(sens_data,
 #'   calibration, global policy-selection summaries, and anchor-level selected
 #'   policy rows for the scenario.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 run_policy_sensitivity_reference <- function(candidate_models,
                                              config,
                                              policies = NULL,
@@ -871,8 +875,8 @@ run_policy_sensitivity_reference <- function(candidate_models,
   # admissibility settings so the ordination and benchmark layers stay aligned.
   config_values <- read_similarity_config(config)
   candidate_models <- tibble::as_tibble(candidate_models)
-  reference_key <- if ("model_id_chr" %in% names(candidate_models)) {
-    as.character(candidate_models$model_id_chr)
+  reference_key <- if ("model_id" %in% names(candidate_models)) {
+    as.character(candidate_models$model_id)
   } else if ("model_id" %in% names(candidate_models)) {
     as.character(candidate_models$model_id)
   } else {
@@ -979,7 +983,7 @@ run_policy_sensitivity_reference <- function(candidate_models,
   # Rebuild one selector from the scenario-specific benchmark state so the
   # sensitivity pipeline retains per-anchor selected policies and multipliers,
   # not just the global cross-species policy ranking.
-  template_data <- if ((inherits(candidate_template, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_template, Candidates), error = function(e) FALSE)))) {
+  template_data <- if (is_s7_instance(candidate_template, "Candidates")) {
     list(
       spec = candidate_template@spec,
       study_db = candidate_template@study_db,
@@ -998,8 +1002,8 @@ run_policy_sensitivity_reference <- function(candidate_models,
   if (length(template_data) > 0) {
     anchors_tbl <- tibble::as_tibble(reference_anchors %||% template_data$reference_anchors %||% tibble::tibble())
     if (nrow(anchors_tbl) > 0 && !is.null(reference_ids)) {
-      anchor_key <- if ("model_id_chr" %in% names(anchors_tbl)) {
-        as.character(anchors_tbl$model_id_chr)
+      anchor_key <- if ("model_id" %in% names(anchors_tbl)) {
+        as.character(anchors_tbl$model_id)
       } else if ("model_id" %in% names(anchors_tbl)) {
         as.character(anchors_tbl$model_id)
       } else {

@@ -6,6 +6,7 @@
 #' @return A tibble with the required identifier and coherence columns present.
 #'
 #' @keywords internal
+#' @noRd
 normalize_similarity_data <- function(candidate_models) {
   # Validate the incoming table once and add the identifiers/coherence fields
   # that later preparation and scoring helpers assume are present.
@@ -19,7 +20,7 @@ normalize_similarity_data <- function(candidate_models) {
     # supplied a persistent model identifier.
     out$model_id <- seq_len(nrow(out))
   }
-  out$model_id_chr <- as.character(out$model_id)
+  out$model_id <- as.character(out$model_id)
 
   if (!"species_name" %in% names(out)) {
     if (all(c("genus", "species") %in% names(out))) {
@@ -60,6 +61,7 @@ normalize_similarity_data <- function(candidate_models) {
 #' @return Canonical method label.
 #'
 #' @keywords internal
+#' @noRd
 normalize_similarity_frequency_method <- function(method) {
   method_value <- stringr::str_to_lower(stringr::str_squish(as.character(method %||% "overlap")))[[1]]
   switch(method_value,
@@ -79,6 +81,7 @@ normalize_similarity_frequency_method <- function(method) {
 #' @return A list with `data`, `weights`, and `lookup`.
 #'
 #' @keywords internal
+#' @noRd
 expand_trait_block <- function(df,
                                weight_spec,
                                trait_defs) {
@@ -174,6 +177,7 @@ expand_trait_block <- function(df,
 #' @return A tibble with one row per species.
 #'
 #' @keywords internal
+#' @noRd
 collapse_species_profiles <- function(models_df,
                                       expanded_df) {
   # Collapse multiple model rows to one species profile so species-level
@@ -242,6 +246,7 @@ collapse_species_profiles <- function(models_df,
 #' @return Numeric scalar.
 #'
 #' @keywords internal
+#' @noRd
 compute_frequency_span <- function(frequency) {
   # Frequency scaling later uses the observed positive span; when the span is
   # undefined, fall back to `1` to keep the distance term finite.
@@ -269,6 +274,7 @@ compute_frequency_span <- function(frequency) {
 #' @return A single column name or `NA_character_`.
 #'
 #' @keywords internal
+#' @noRd
 resolve_similarity_column_name <- function(tbl,
                                            candidates) {
   present <- candidates[candidates %in% names(tbl)]
@@ -282,11 +288,12 @@ resolve_similarity_column_name <- function(tbl,
 #'
 #' @param models_tbl Candidate-model table.
 #' @param registry_obj Registry lookup object returned by
-#'   [read_similarity_registry()].
+#'   `read_similarity_registry()`.
 #'
 #' @return A tibble with any missing registry-coded columns added.
 #'
 #' @keywords internal
+#' @noRd
 seed_registry_traits <- function(models_tbl, registry_obj) {
   out <- tibble::as_tibble(models_tbl)
   trait_defs <- c(registry_obj$species_defs, registry_obj$study_defs)
@@ -317,6 +324,7 @@ seed_registry_traits <- function(models_tbl, registry_obj) {
 #' @return A list.
 #'
 #' @keywords internal
+#' @noRd
 read_similarity_config <- function(config) {
   config_similarity_view <- function(cfg) {
     similarity_cfg <- cfg$similarity %||% list()
@@ -398,7 +406,7 @@ read_similarity_config <- function(config) {
     return(list())
   }
 
-  if ((inherits(config, "S7_object") && exists("Configurer", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(config, Configurer), error = function(e) FALSE)))) {
+  if (is_s7_instance(config, "Configurer")) {
     return(config_similarity_view(config@data))
   }
 
@@ -431,13 +439,14 @@ read_similarity_config <- function(config) {
 #' @return A config object or `NULL`.
 #'
 #' @keywords internal
+#' @noRd
 resolve_similarity_config_source <- function(candidate_models,
                                              config) {
   if (!is.null(config)) {
     return(config)
   }
 
-  if ((inherits(candidate_models, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_models, Candidates), error = function(e) FALSE)))) {
+  if (is_s7_instance(candidate_models, "Candidates")) {
     return(candidates_config_data(candidate_models))
   }
 
@@ -455,6 +464,7 @@ resolve_similarity_config_source <- function(candidate_models,
 #' @return A list with `alpha`, `k_species`, `k_study`, and `seed`.
 #'
 #' @keywords internal
+#' @noRd
 resolve_similarity_inputs <- function(alpha,
                                       k_species,
                                       k_study,
@@ -500,6 +510,7 @@ resolve_similarity_inputs <- function(alpha,
 #' @return A normalized config list.
 #'
 #' @keywords internal
+#' @noRd
 resolve_similarity_setup <- function(cfg_user,
                                      alpha,
                                      k_species,
@@ -669,6 +680,7 @@ resolve_similarity_setup <- function(cfg_user,
 #' @return Named numeric vector with all weights set to `1`.
 #'
 #' @keywords internal
+#' @noRd
 equal_start_weights <- function(trait_map) {
   trait_names <- names(trait_map)
   if (is.null(trait_names) || any(!nzchar(trait_names))) {
@@ -688,6 +700,7 @@ equal_start_weights <- function(trait_map) {
 #' @return A list with `weights` and `defs`.
 #'
 #' @keywords internal
+#' @noRd
 normalize_trait_weights <- function(models_tbl,
                                     traits,
                                     scope_names,
@@ -832,14 +845,14 @@ normalize_trait_weights <- function(models_tbl,
 #'
 #' @examples
 #' \dontrun{
-#' candidates <- as_candidates(list(
+#' candidates <- build_candidates(list(
 #'   study = list(path = "input.xlsx"),
 #'   anchors = list(selector = list(regional_body = "SWFSC"))
 #' ))
 #'
 #' candidates <- prepare_similarity_matrix(
 #'   candidate_models = candidates,
-#'   config = as_configurer(list(
+#'   config = build_configurer(list(
 #'     paths = list(
 #'       input_file = "input.xlsx",
 #'       out_root = "outputs",
@@ -879,9 +892,13 @@ prepare_similarity_matrix <- function(candidate_models,
   # Preserve the staged `Candidates` object boundary when present so prepared
   # similarity state is stored on the object rather than returned only as a
   # detached sidecar list.
-  candidates_obj <- if ((inherits(candidate_models, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_models, Candidates), error = function(e) FALSE)))) candidate_models else NULL
+  candidates_obj <- if (is_s7_instance(candidate_models, "Candidates")) {
+    candidate_models
+  } else {
+    NULL
+  }
   config <- resolve_similarity_config_source(candidate_models, config)
-  candidate_models <- if ((inherits(candidate_models, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_models, Candidates), error = function(e) FALSE)))) {
+  candidate_models <- if (is_s7_instance(candidate_models, "Candidates")) {
     candidate_models@candidate_models
   } else {
     candidate_models
@@ -951,13 +968,14 @@ prepare_similarity_matrix <- function(candidate_models,
   species_profiles_normalized <- species_profiles_raw
 
   if ("ocean_basin" %in% names(species_profiles_normalized)) {
-    basin_mapping <- c(
-      "atlantic" = "atlantic",
-      "pacific" = "pacific",
-      "mediterranean" = "mediterranean",
-      "indian" = "indian",
-      "southern" = "southern",
-      "arctic" = "arctic"
+    basin_keywords <- c(
+      "atlantic",
+      "pacific",
+      "mediterranean",
+      "indian",
+      "southern",
+      "arctic",
+      "inland"
     )
     basin_raw <- stringr::str_to_lower(stringr::str_squish(as.character(species_profiles_normalized$ocean_basin)))
     basin_normalized <- character(length(basin_raw))
@@ -969,7 +987,7 @@ prepare_similarity_matrix <- function(candidate_models,
         # Split on semicolon/comma, detect which basin keywords match, and rebuild
         parts <- stringr::str_trim(stringr::str_split_1(basin_raw[i], "[;,]"))
         matched_basins <- character(0)
-        for (basin_code in names(basin_mapping)) {
+        for (basin_code in basin_keywords) {
           if (any(stringr::str_detect(parts, paste0("\\b", basin_code, "\\b")))) {
             matched_basins <- c(matched_basins, basin_code)
           }
@@ -1164,6 +1182,7 @@ prepare_similarity_matrix <- function(candidate_models,
 #' @return Numeric n x n matrix with values between 0 and 1, or `NULL` on failure.
 #'
 #' @keywords internal
+#' @noRd
 build_phylo_dist_from_species <- function(species_vec, genus_vec = NULL) {
   sp_raw <- stringr::str_squish(as.character(species_vec))
   sp_raw[!nzchar(sp_raw)] <- NA_character_
@@ -1261,6 +1280,7 @@ build_phylo_dist_from_species <- function(species_vec, genus_vec = NULL) {
 #' @return A numeric distance matrix.
 #'
 #' @keywords internal
+#' @noRd
 compute_gower_matrix <- function(df_traits,
                                  trait_weights,
                                  trait_defs = NULL,
@@ -1367,32 +1387,7 @@ compute_gower_matrix <- function(df_traits,
     max_raw <- suppressWarnings(as.numeric(df_now[[max_col]]))
     mins <- ifelse(is.finite(min_raw) & is.finite(max_raw), pmin(min_raw, max_raw), NA_real_)
     maxs <- ifelse(is.finite(min_raw) & is.finite(max_raw), pmax(min_raw, max_raw), NA_real_)
-
-    n <- length(mins)
-    out <- matrix(NA_real_, nrow = n, ncol = n)
-    if (n == 0) {
-      return(out)
-    }
-    diag(out) <- 0
-
-    for (i in seq_len(n)) {
-      for (j in seq_len(n)) {
-        if (i == j) {
-          next
-        }
-        if (!is.finite(mins[[i]]) || !is.finite(maxs[[i]]) ||
-          !is.finite(mins[[j]]) || !is.finite(maxs[[j]])) {
-          out[i, j] <- NA_real_
-        } else {
-          inter <- max(0, min(maxs[[i]], maxs[[j]]) - max(mins[[i]], mins[[j]]))
-          union <- max(maxs[[i]], maxs[[j]]) - min(mins[[i]], mins[[j]])
-          union <- max(union, 1e-9)
-          out[i, j] <- 1 - (inter / union)
-        }
-      }
-    }
-
-    out
+    interval_overlap_distance_matrix(mins, maxs, method = "literal")
   }
 
   # Combine component distances by weighted averaging only over finite entries
@@ -1474,7 +1469,6 @@ compute_gower_matrix <- function(df_traits,
           x
         })
 
-        n <- nrow(mat)
         tax_dist <- NULL
         species_rank_idx <- which(names(rank_values) == "species")
         genus_rank_idx <- which(names(rank_values) == "genus")
@@ -1484,28 +1478,7 @@ compute_gower_matrix <- function(df_traits,
         }
 
         if (is.null(tax_dist)) {
-          tax_dist <- matrix(NA_real_, nrow = n, ncol = n)
-          diag(tax_dist) <- 0
-          n_ranks <- length(rank_values)
-
-          for (i in seq_len(n)) {
-            for (j in seq_len(n)) {
-              if (i == j) {
-                next
-              }
-
-              deepest_shared <- 0
-              for (r in seq_len(n_ranks)) {
-                xi <- rank_values[[r]][[i]]
-                xj <- rank_values[[r]][[j]]
-                if (!is.na(xi) && !is.na(xj) && identical(xi, xj)) {
-                  deepest_shared <- r
-                }
-              }
-
-              tax_dist[i, j] <- 1 - (deepest_shared / n_ranks)
-            }
-          }
+          tax_dist <- rank_distance_matrix(rank_values)
         }
 
         tax_weight <- sum(w[tax_cols], na.rm = TRUE)
@@ -1593,7 +1566,7 @@ compute_gower_matrix <- function(df_traits,
 #'
 #' @examples
 #' \dontrun{
-#' candidates <- as_candidates(list(
+#' candidates <- build_candidates(list(
 #'   study = list(path = "input.xlsx"),
 #'   anchors = list(selector = list(regional_body = "SWFSC"))
 #' ))
@@ -1608,9 +1581,13 @@ build_gower_distances <- function(sim_obj,
   # Preserve the staged `Candidates` object boundary when present so the
   # distance bundle is stored on the object instead of returned only as a
   # detached list.
-  candidates_obj <- if ((inherits(sim_obj, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(sim_obj, Candidates), error = function(e) FALSE)))) sim_obj else NULL
+  candidates_obj <- if (is_s7_instance(sim_obj, "Candidates")) {
+    sim_obj
+  } else {
+    NULL
+  }
   if (!is.null(candidates_obj)) {
-    progress <- progress %||% config_value(candidates_obj, "progress", sections = c("similarity", "ordination")) %||% FALSE
+    progress <- progress %||% resolve_config_value(candidates_obj, "progress", sections = c("similarity", "ordination")) %||% FALSE
     if (length(candidates_obj@similarity_matrix) == 0) {
       stop(
         "Candidates object has no prepared similarity state. Run `prepare_similarity_matrix()` first.",
@@ -1687,7 +1664,7 @@ build_gower_distances <- function(sim_obj,
     trait_defs = sim_obj$study_trait_defs,
     component_lookup = sim_obj$study_component_lookup
   )
-  model_ids <- sim_obj$candidate_models$model_id_chr
+  model_ids <- sim_obj$candidate_models$model_id
   rownames(study_dist) <- model_ids
   colnames(study_dist) <- model_ids
 
@@ -1796,6 +1773,7 @@ build_gower_distances <- function(sim_obj,
 #' @return A tibble.
 #'
 #' @keywords internal
+#' @noRd
 build_tuning_subset <- function(candidate_models,
                                 species_weights,
                                 study_weights,
@@ -1865,6 +1843,7 @@ build_tuning_subset <- function(candidate_models,
 #' @return A tibble.
 #'
 #' @keywords internal
+#' @noRd
 build_resample_subset <- function(candidate_models,
                                   species_weights,
                                   study_weights,
@@ -1940,6 +1919,7 @@ build_resample_subset <- function(candidate_models,
 #'
 #' @return Integer scalar cache version.
 #' @keywords internal
+#' @noRd
 similarity_tuning_cache_version <- function() {
   3L
 }
@@ -1950,6 +1930,7 @@ similarity_tuning_cache_version <- function() {
 #'
 #' @return Logical scalar.
 #' @keywords internal
+#' @noRd
 similarity_tuning_cache_current <- function(tuning_result) {
   if (!is.list(tuning_result)) {
     return(FALSE)
@@ -1988,6 +1969,7 @@ similarity_tuning_cache_current <- function(tuning_result) {
 #'
 #' @return Numeric scalar.
 #' @keywords internal
+#' @noRd
 kernel_scale_center <- function(k_species_now,
                                 k_study_now) {
   species_scale_now <- suppressWarnings(as.numeric(k_species_now[[1]] %||% NA_real_))
@@ -2013,6 +1995,7 @@ kernel_scale_center <- function(k_species_now,
 #' @return A numeric scalar.
 #'
 #' @keywords internal
+#' @noRd
 interval_overlap_distance <- function(anchor_min,
                                       anchor_max,
                                       cand_min,
@@ -2061,6 +2044,7 @@ interval_overlap_distance <- function(anchor_min,
 #' @return A numeric scalar.
 #'
 #' @keywords internal
+#' @noRd
 frequency_offset_distance <- function(anchor_freq,
                                       cand_freq,
                                       method,
@@ -2087,6 +2071,127 @@ frequency_offset_distance <- function(anchor_freq,
   pmin(abs(log(cand_freq / anchor_freq)) / freq_span, 1)
 }
 
+#' Compute a full interval-coherence distance matrix
+#'
+#' @param min_vals Numeric vector of interval minima.
+#' @param max_vals Numeric vector of interval maxima.
+#' @param method Character scalar.
+#'
+#' @return Numeric matrix with donor rows and anchor columns.
+#'
+#' @keywords internal
+#' @noRd
+interval_overlap_distance_matrix <- function(min_vals,
+                                             max_vals,
+                                             method) {
+  n <- length(min_vals)
+  out <- matrix(NA_real_, nrow = n, ncol = n)
+  if (n == 0L || identical(method, "none")) {
+    return(out)
+  }
+
+  min_vals <- suppressWarnings(as.numeric(min_vals))
+  max_vals <- suppressWarnings(as.numeric(max_vals))
+  valid <- is.finite(min_vals) & is.finite(max_vals)
+  diag(out) <- 0
+  if (!any(valid)) {
+    return(out)
+  }
+
+  lo <- pmin(min_vals, max_vals)
+  hi <- pmax(min_vals, max_vals)
+  valid_mask <- outer(valid, valid, `&`)
+
+  if (identical(method, "literal")) {
+    union_span <- outer(hi, hi, pmax) - outer(lo, lo, pmin)
+    union_span <- pmax(union_span, 1e-9)
+    endpoint_shift <- abs(outer(lo, lo, `-`)) + abs(outer(hi, hi, `-`))
+    out[valid_mask] <- pmin(endpoint_shift[valid_mask] / (2 * union_span[valid_mask]), 1)
+    diag(out) <- 0
+    return(out)
+  }
+
+  inter <- pmax(0, outer(hi, hi, pmin) - outer(lo, lo, pmax))
+  anchor_len <- pmax(1e-9, hi - lo)
+  anchor_len_mat <- matrix(anchor_len, nrow = n, ncol = n, byrow = TRUE)
+  out[valid_mask] <- 1 - (inter[valid_mask] / anchor_len_mat[valid_mask])
+  diag(out) <- 0
+  out
+}
+
+#' Compute a full frequency-coherence distance matrix
+#'
+#' @param freq_vals Numeric vector of frequencies.
+#' @param method Character scalar.
+#' @param freq_span Numeric scalar.
+#'
+#' @return Numeric matrix with donor rows and anchor columns.
+#'
+#' @keywords internal
+#' @noRd
+frequency_offset_distance_matrix <- function(freq_vals,
+                                             method,
+                                             freq_span) {
+  n <- length(freq_vals)
+  out <- matrix(NA_real_, nrow = n, ncol = n)
+  if (n == 0L || identical(method, "none")) {
+    return(out)
+  }
+
+  freq_vals <- suppressWarnings(as.numeric(freq_vals))
+  valid <- is.finite(freq_vals) & freq_vals > 0
+  diag(out) <- 0
+  if (!any(valid)) {
+    return(out)
+  }
+
+  valid_mask <- outer(valid, valid, `&`)
+  if (identical(method, "literal")) {
+    rounded <- as.integer(round(freq_vals))
+    out[valid_mask] <- as.numeric(outer(rounded, rounded, `!=`))[valid_mask]
+    diag(out) <- 0
+    return(out)
+  }
+
+  if (!is.finite(freq_span) || freq_span <= 0) {
+    return(out)
+  }
+
+  out[valid_mask] <- pmin(abs(log(outer(freq_vals, freq_vals, `/`)))[valid_mask] / freq_span, 1)
+  diag(out) <- 0
+  out
+}
+
+#' Compute rank-based taxonomy distance matrix
+#'
+#' @param rank_values Named list of rank vectors ordered from coarse to fine.
+#'
+#' @return Numeric matrix.
+#'
+#' @keywords internal
+#' @noRd
+rank_distance_matrix <- function(rank_values) {
+  n_ranks <- length(rank_values)
+  if (n_ranks == 0L) {
+    return(NULL)
+  }
+
+  n <- length(rank_values[[1]])
+  deepest_shared <- matrix(0L, nrow = n, ncol = n)
+  for (r in seq_len(n_ranks)) {
+    vals <- stringr::str_squish(as.character(rank_values[[r]]))
+    vals[!nzchar(vals)] <- NA_character_
+    agree <- outer(vals, vals, function(donor, anchor) {
+      !is.na(donor) & !is.na(anchor) & donor == anchor
+    })
+    deepest_shared[agree] <- r
+  }
+
+  out <- 1 - deepest_shared / n_ranks
+  diag(out) <- 0
+  out
+}
+
 #' Evaluate the reference length for one model row
 #'
 #' @param row_df One-row data frame.
@@ -2094,6 +2199,7 @@ frequency_offset_distance <- function(anchor_freq,
 #' @return Numeric scalar.
 #'
 #' @keywords internal
+#' @noRd
 reference_length <- function(row_df) {
   study_length_mid_col <- resolve_similarity_column_name(
     row_df,
@@ -2147,9 +2253,10 @@ reference_length <- function(row_df) {
 #' @param seed_now Integer seed.
 #'
 #' @return A list containing precomputed distances, anchor targets, and
-#'   donor-prediction matrices used by [score_similarity_basis()].
+#'   donor-prediction matrices used by `score_similarity_basis()`.
 #'
 #' @keywords internal
+#' @noRd
 prepare_similarity_score_basis <- function(models_subset,
                                            species_weights,
                                            study_weights,
@@ -2182,7 +2289,7 @@ prepare_similarity_score_basis <- function(models_subset,
   species_dist_model <- dist_obj$species_dist_model
   study_dist <- dist_obj$study_dist
 
-  model_ids <- sim_obj$candidate_models$model_id_chr
+  model_ids <- sim_obj$candidate_models$model_id
   model_n <- length(model_ids)
 
   # Resolve the study interval column names once so the scorer can work with
@@ -2267,42 +2374,14 @@ prepare_similarity_score_basis <- function(models_subset,
   interval_distance_matrix <- function(min_vals,
                                        max_vals,
                                        method) {
-    out <- matrix(NA_real_, nrow = model_n, ncol = model_n)
-    diag(out) <- 0
-    for (i in seq_len(model_n)) {
-      out[, i] <- vapply(
-        seq_len(model_n),
-        function(j) {
-          interval_overlap_distance(
-            anchor_min = min_vals[[i]],
-            anchor_max = max_vals[[i]],
-            cand_min = min_vals[[j]],
-            cand_max = max_vals[[j]],
-            method = method
-          )
-        },
-        numeric(1)
-      )
-    }
-    out
+    interval_overlap_distance_matrix(min_vals, max_vals, method)
   }
 
-  frequency_distance_matrix <- matrix(NA_real_, nrow = model_n, ncol = model_n)
-  diag(frequency_distance_matrix) <- 0
-  for (i in seq_len(model_n)) {
-    frequency_distance_matrix[, i] <- vapply(
-      seq_len(model_n),
-      function(j) {
-        frequency_offset_distance(
-          anchor_freq = freq_vals[[i]],
-          cand_freq = freq_vals[[j]],
-          method = cfg_now$frequency_coherence$method,
-          freq_span = sim_obj$frequency_span
-        )
-      },
-      numeric(1)
-    )
-  }
+  frequency_distance_matrix <- frequency_offset_distance_matrix(
+    freq_vals,
+    cfg_now$frequency_coherence$method,
+    sim_obj$frequency_span
+  )
 
   length_distance_matrix <- interval_distance_matrix(
     min_vals = len_min_vals,
@@ -2391,7 +2470,7 @@ prepare_similarity_score_basis <- function(models_subset,
 #' Score one prepared similarity basis
 #'
 #' @param score_basis Prepared scoring basis returned by
-#'   [prepare_similarity_score_basis()].
+#'   `prepare_similarity_score_basis()`.
 #' @param alpha_now Numeric scalar.
 #' @param k_species_now Numeric scalar.
 #' @param k_study_now Numeric scalar.
@@ -2399,6 +2478,7 @@ prepare_similarity_score_basis <- function(models_subset,
 #' @return A one-row tibble with `rmse`, `mae`, and `n_eval`.
 #'
 #' @keywords internal
+#' @noRd
 score_similarity_basis <- function(score_basis,
                                    alpha_now,
                                    k_species_now,
@@ -2561,6 +2641,7 @@ score_similarity_basis <- function(score_basis,
 #' @return A one-row tibble.
 #'
 #' @keywords internal
+#' @noRd
 score_tuning_task <- function(task_now,
                               shared_data) {
   score_basis <- shared_data$score_basis
@@ -2599,6 +2680,7 @@ score_tuning_task <- function(task_now,
 #' @return A one-row tibble.
 #'
 #' @keywords internal
+#' @noRd
 score_dropout_task <- function(task_now,
                                shared_data) {
   tune_models <- shared_data$tune_models
@@ -2709,6 +2791,7 @@ score_dropout_task <- function(task_now,
 #' @return A list of task results.
 #'
 #' @keywords internal
+#' @noRd
 score_tasks_parallel <- function(tasks,
                                  worker_name,
                                  workers,
@@ -2806,6 +2889,7 @@ score_tasks_parallel <- function(tasks,
 #' @return A one-row tibble with `rmse`, `mae`, and `n_eval`.
 #'
 #' @keywords internal
+#' @noRd
 score_similarity_config <- function(models_subset,
                                     species_weights,
                                     study_weights,
@@ -2837,7 +2921,7 @@ score_similarity_config <- function(models_subset,
 
 #' Run the local alpha-k tuning grid
 #'
-#' @param tune_models Tuning subset returned by [build_tuning_subset()].
+#' @param tune_models Tuning subset returned by `build_tuning_subset()`.
 #' @param base_sim Prepared similarity object returned by
 #'   [prepare_similarity_matrix()].
 #' @param registry_path Optional path to the trait-registry JSON.
@@ -2846,6 +2930,7 @@ score_similarity_config <- function(models_subset,
 #'   and `k_study_best`.
 #'
 #' @keywords internal
+#' @noRd
 run_tuning_grid_search <- function(tune_models,
                                    base_sim,
                                    registry_path,
@@ -3589,7 +3674,7 @@ run_tuning_grid_search <- function(tune_models,
 
 #' Run one-at-a-time component drop-out scans
 #'
-#' @param tune_models Tuning subset returned by [build_tuning_subset()].
+#' @param tune_models Tuning subset returned by `build_tuning_subset()`.
 #' @param base_sim Prepared similarity object returned by
 #'   [prepare_similarity_matrix()].
 #' @param alpha_best Tuned alpha value.
@@ -3600,6 +3685,7 @@ run_tuning_grid_search <- function(tune_models,
 #' @return A tibble.
 #'
 #' @keywords internal
+#' @noRd
 run_component_dropout <- function(tune_models,
                                   base_sim,
                                   alpha_best,
@@ -3695,12 +3781,13 @@ run_component_dropout <- function(tune_models,
 #' @param base_sim Prepared similarity object returned by
 #'   [prepare_similarity_matrix()].
 #' @param component_impact_summary Component-impact summary returned by
-#'   [run_component_dropout()].
+#'   `run_component_dropout()`.
 #'
 #' @return A list with tuned species weights, study weights, and coherence
 #'   config.
 #'
 #' @keywords internal
+#' @noRd
 apply_component_weights <- function(base_sim,
                                     component_impact_summary) {
   # Convert positive RMSE degradation into bounded multipliers so more
@@ -3859,6 +3946,7 @@ apply_component_weights <- function(base_sim,
 #' @return A tibble.
 #'
 #' @keywords internal
+#' @noRd
 collect_component_weights <- function(tune_obj,
                                       resample_id) {
   # Pull the drop-out deltas once so every returned component row carries the
@@ -3949,6 +4037,7 @@ collect_component_weights <- function(tune_obj,
 #' @return A tibble.
 #'
 #' @keywords internal
+#' @noRd
 summarize_tuning_stability <- function(tune_obj) {
   resample_tbl <- tibble::as_tibble(tune_obj$resample_summary %||% tibble::tibble())
   component_tbl <- tibble::as_tibble(tune_obj$component_weights %||% tibble::tibble())
@@ -4017,12 +4106,13 @@ summarize_tuning_stability <- function(tune_obj) {
 #' Summarize final tuning error by meaningful anchor strata
 #'
 #' @param anchor_rows Anchor-level error rows returned from
-#'   [score_similarity_basis()].
+#'   `score_similarity_basis()`.
 #' @param n_support_bins Number of effective-support bins.
 #'
 #' @return A tibble.
 #'
 #' @keywords internal
+#' @noRd
 summarize_similarity_tuning_strata <- function(anchor_rows,
                                                n_support_bins = 4L) {
   anchor_rows <- tibble::as_tibble(anchor_rows %||% tibble::tibble())
@@ -4119,12 +4209,12 @@ summarize_similarity_tuning_strata <- function(anchor_rows,
 #'
 #' @examples
 #' \dontrun{
-#' candidates <- as_candidates(list(
+#' candidates <- build_candidates(list(
 #'   study = list(path = "input.xlsx"),
 #'   anchors = list(selector = list(regional_body = "SWFSC"))
 #' ))
 #'
-#' cfg_data <- as_configurer(list(
+#' cfg_data <- build_configurer(list(
 #'   paths = list(
 #'     input_file = "input.xlsx",
 #'     out_root = "outputs",
@@ -4192,7 +4282,7 @@ tune_similarity_matrix <- function(candidate_models,
       progress = FALSE
     )
 
-    if (!(inherits(prepared_candidates, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(prepared_candidates, Candidates), error = function(e) FALSE)))) {
+    if (!is_s7_instance(prepared_candidates, "Candidates")) {
       return(candidates_with_similarity_tuning(candidates_obj, tuning_result))
     }
 
@@ -4202,9 +4292,13 @@ tune_similarity_matrix <- function(candidate_models,
   # Preserve the staged `Candidates` object boundary when present so the
   # tuning result can be written back onto that object instead of returned as
   # a detached sidecar list.
-  candidates_obj <- if ((inherits(candidate_models, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_models, Candidates), error = function(e) FALSE)))) candidate_models else NULL
+  candidates_obj <- if (is_s7_instance(candidate_models, "Candidates")) {
+    candidate_models
+  } else {
+    NULL
+  }
   config <- resolve_similarity_config_source(candidate_models, config)
-  candidate_models <- if ((inherits(candidate_models, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_models, Candidates), error = function(e) FALSE)))) {
+  candidate_models <- if (is_s7_instance(candidate_models, "Candidates")) {
     candidate_models@candidate_models
   } else {
     candidate_models
@@ -4668,6 +4762,7 @@ tune_similarity_matrix <- function(candidate_models,
 #'   and per-component tuned multipliers across resamples.
 #'
 #' @keywords internal
+#' @noRd
 tune_similarity_resamples <- function(candidate_models,
                                       species_traits = NULL,
                                       study_traits = NULL,
@@ -4681,7 +4776,7 @@ tune_similarity_resamples <- function(candidate_models,
                                       cache_path = NULL,
                                       refresh = FALSE,
                                       registry_path = NULL) {
-  candidate_models <- if ((inherits(candidate_models, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(candidate_models, Candidates), error = function(e) FALSE)))) {
+  candidate_models <- if (is_s7_instance(candidate_models, "Candidates")) {
     candidate_models@candidate_models
   } else {
     candidate_models

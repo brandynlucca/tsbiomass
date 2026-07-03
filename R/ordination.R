@@ -2,6 +2,9 @@
 # {col}__{level} indicator columns before passing to vegan::envfit.
 # Without this, "Atlantic Ocean; Pacific Ocean" is treated as a single factor
 # level instead of two separate binary indicators.
+#'
+#' @keywords internal
+#' @noRd
 expand_envfit_multival_traits <- function(tbl) {
   char_cols <- names(tbl)[vapply(tbl, is.character, logical(1))]
   for (col in char_cols) {
@@ -23,6 +26,9 @@ expand_envfit_multival_traits <- function(tbl) {
 
 # Synthetic interval-overlap columns are pairwise distance components, not
 # row-level ordination envfit labels.
+#'
+#' @keywords internal
+#' @noRd
 ordination_synthetic_overlap_traits <- function() {
   unique(c(
     "depth_interval_overlap",
@@ -34,6 +40,15 @@ ordination_synthetic_overlap_traits <- function() {
   ))
 }
 
+#' Drop synthetic overlap traits from ordination outputs
+#'
+#' @param x Object containing trait labels or columns.
+#' @param trait_col Optional trait-name column in `x`.
+#'
+#' @return Object with synthetic overlap traits removed.
+#'
+#' @keywords internal
+#' @noRd
 drop_ordination_synthetic_overlap_traits <- function(x,
                                                      trait_col = NULL) {
   synthetic_overlap_traits <- ordination_synthetic_overlap_traits()
@@ -78,11 +93,11 @@ drop_ordination_synthetic_overlap_traits <- function(x,
 #' @param join_cols Additional model metadata columns to join onto the stored
 #'   model-level ordination points when `dist_mat` is a [Candidates] object.
 #' @param cluster_args Optional named list passed to
-#'   [assign_ordination_groups()] for the model-level ordination.
+#'   `assign_ordination_groups()` for the model-level ordination.
 #' @param species_cluster_args Optional named list passed to
-#'   [assign_ordination_groups()] for the species-level ordination.
+#'   `assign_ordination_groups()` for the species-level ordination.
 #' @param species_refine_args Optional named list passed to
-#'   [refine_species_clusters()] for the species-level ordination.
+#'   `refine_species_clusters()` for the species-level ordination.
 #' @param model_id_col Model-ID column name used when `dist_mat` is a
 #'   [Candidates] object.
 #' @param progress Logical scalar controlling stage messages.
@@ -93,7 +108,7 @@ drop_ordination_synthetic_overlap_traits <- function(x,
 #'
 #' @examples
 #' \dontrun{
-#' candidates <- as_candidates(list(
+#' candidates <- build_candidates(list(
 #'   study = list(path = "input.xlsx"),
 #'   anchors = list(selector = list(regional_body = "SWFSC"))
 #' ))
@@ -119,9 +134,7 @@ run_ordination <- function(dist_mat,
                            progress = NULL) {
   # Alchemist path: delegate to the dedicated internal handler so learned
   # distances feed directly into NMDS without requiring a Gower bundle.
-  if (inherits(dist_mat, "S7_object") &&
-    exists("Alchemist", inherits = TRUE) &&
-    isTRUE(tryCatch(S7::S7_inherits(dist_mat, Alchemist), error = function(e) FALSE))) {
+  if (is_s7_instance(dist_mat, "Alchemist")) {
     return(.run_ordination_alchemist(
       alchemist = dist_mat,
       nmds_args = nmds_args,
@@ -139,7 +152,7 @@ run_ordination <- function(dist_mat,
   # Support the high-level `Candidates` path first so model and
   # species ordination support objects can be built in one call and stored back
   # onto the staged candidate object.
-  if ((inherits(dist_mat, "S7_object") && exists("Candidates", inherits = TRUE) && isTRUE(tryCatch(S7::S7_inherits(dist_mat, Candidates), error = function(e) FALSE)))) {
+  if (is_s7_instance(dist_mat, "Candidates")) {
     candidates_obj <- dist_mat
     cfg_data <- candidates_config_data(candidates_obj)
     ordination_cfg <- cfg_data$ordination %||% list()
@@ -185,8 +198,8 @@ run_ordination <- function(dist_mat,
     # Default the reference ID set from the stored anchor table so callers do
     # not need to repeat the anchor selection step when running ordination.
     if (is.null(reference_ids) && nrow(candidates_obj@reference_anchors) > 0) {
-      if ("model_id_chr" %in% names(candidates_obj@reference_anchors)) {
-        reference_ids <- as.character(candidates_obj@reference_anchors$model_id_chr)
+      if ("model_id" %in% names(candidates_obj@reference_anchors)) {
+        reference_ids <- as.character(candidates_obj@reference_anchors$model_id)
       } else if ("model_id" %in% names(candidates_obj@reference_anchors)) {
         reference_ids <- as.character(candidates_obj@reference_anchors$model_id)
       }
@@ -638,7 +651,8 @@ run_ordination <- function(dist_mat,
 #'
 #' @return The input point table with cluster columns appended.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 assign_ordination_groups <- function(points_df,
                                      max_k = 8,
                                      min_silhouette = 0.10,
@@ -722,11 +736,12 @@ assign_ordination_groups <- function(points_df,
 #' @param reference_ids Optional vector of model IDs to flag as references.
 #' @param model_id_col Model-ID column name in `candidate_models`.
 #' @param join_cols Additional metadata columns to join from `candidate_models`.
-#' @param cluster_args Optional named list passed to [assign_ordination_groups()].
+#' @param cluster_args Optional named list passed to `assign_ordination_groups()`.
 #'
 #' @return A tibble.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 join_ordination_points <- function(ordination_points,
                                    candidate_models,
                                    reference_ids = NULL,
@@ -754,7 +769,7 @@ join_ordination_points <- function(ordination_points,
   meta_df <- tibble::as_tibble(candidate_models) |>
     dplyr::transmute(
       model_id = as.character(.data[[model_id_col]]),
-      model_id_chr = as.character(.data[[model_id_col]]),
+      model_id = as.character(.data[[model_id_col]]),
       dplyr::across(dplyr::all_of(setdiff(join_cols, model_id_col)))
     )
 
@@ -792,7 +807,8 @@ join_ordination_points <- function(ordination_points,
 #'
 #' @return A tibble.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 extract_ordination_scores <- function(points_df,
                                       cluster_col = "nmds_cluster_id",
                                       reference_col = "is_reference") {
@@ -800,7 +816,7 @@ extract_ordination_scores <- function(points_df,
   if (!is.data.frame(points_df)) {
     stop("'points_df' must be a data frame or tibble.", call. = FALSE)
   }
-  required_cols <- c("model_id_chr", "MDS1", "MDS2", cluster_col, "species_name", reference_col)
+  required_cols <- c("model_id", "MDS1", "MDS2", cluster_col, "species_name", reference_col)
   missing_cols <- setdiff(required_cols, names(points_df))
   if (length(missing_cols) > 0) {
     stop(
@@ -811,7 +827,7 @@ extract_ordination_scores <- function(points_df,
 
   tibble::as_tibble(points_df) |>
     dplyr::transmute(
-      model_id_chr = .data$model_id_chr,
+      model_id = .data$model_id,
       MDS1 = .data$MDS1,
       MDS2 = .data$MDS2,
       nmds_cluster = .data[[cluster_col]],
@@ -828,7 +844,8 @@ extract_ordination_scores <- function(points_df,
 #'
 #' @return A tibble.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 count_ordination_groups <- function(points_df,
                                     cluster_col = "nmds_cluster_id",
                                     count_col = "cluster_n") {
@@ -848,7 +865,8 @@ count_ordination_groups <- function(points_df,
 #'
 #' @return A tibble.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 build_ordination_hulls <- function(points_df,
                                    cluster_col = "nmds_cluster_id",
                                    min_points = 3L) {
@@ -874,7 +892,8 @@ build_ordination_hulls <- function(points_df,
 #'
 #' @return Numeric scalar.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 compute_ordination_scale <- function(points_df) {
   if (!is.data.frame(points_df) || !all(c("MDS1", "MDS2") %in% names(points_df))) {
     stop("'points_df' must contain 'MDS1' and 'MDS2'.", call. = FALSE)
@@ -899,7 +918,8 @@ compute_ordination_scale <- function(points_df) {
 #'
 #' @return A tibble.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 add_ordination_missing <- function(points_df,
                                    candidate_models,
                                    trait_cols,
@@ -960,7 +980,8 @@ add_ordination_missing <- function(points_df,
 #'
 #' @return A list with `points` and `pairwise_tests`.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 refine_species_clusters <- function(species_points_df,
                                     dist_mat,
                                     alpha = 0.05,
@@ -1105,13 +1126,14 @@ refine_species_clusters <- function(species_points_df,
 #'
 #' @return A list with `lookup` and `manifest`.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 build_species_lookup <- function(species_points_df,
                                  candidate_models,
                                  level = 0.80,
                                  cluster_col = "species_cluster_id",
                                  species_col = "species_name",
-                                 model_id_col = "model_id_chr") {
+                                 model_id_col = "model_id") {
   # Treat the historical "ellipse" neighborhood as a species-cluster lookup
   # keyed by anchor species.
   if (!is.data.frame(species_points_df)) {
@@ -1187,7 +1209,7 @@ build_species_lookup <- function(species_points_df,
 #'
 #' @param anchor_row One-row anchor table.
 #' @param model_scores Model-level NMDS score table.
-#' @param species_lookup Species lookup returned by [build_species_lookup()].
+#' @param species_lookup Species lookup returned by `build_species_lookup()`.
 #' @param anchor_id_col Anchor-ID column name.
 #' @param score_id_col Model-score ID column name.
 #' @param cluster_col Cluster column name in `model_scores`.
@@ -1195,12 +1217,13 @@ build_species_lookup <- function(species_points_df,
 #'
 #' @return A list.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 build_anchor_ordination <- function(anchor_row,
                                     model_scores,
                                     species_lookup,
                                     anchor_id_col = "model_id",
-                                    score_id_col = "model_id_chr",
+                                    score_id_col = "model_id",
                                     cluster_col = "nmds_cluster",
                                     species_col = "species_name") {
   # Extract the anchor's ordination cluster and the precomputed same-cluster

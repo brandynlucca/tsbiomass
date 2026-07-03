@@ -42,6 +42,94 @@ test_that("Sentinel scenario grids can encode row-filter ablations", {
   expect_equal(scenarios$no_policy_a$drop_rows$policy, "policy_a")
 })
 
+test_that("Sentinel trait scenarios support automatic leave-one-trait-out grids", {
+  scenarios <- build_sentinel_scenarios(
+    trait_ablations = c("family", "mean_depth")
+  )
+
+  expect_setequal(names(scenarios), c("baseline", "without_family", "without_mean_depth"))
+  expect_equal(scenarios$without_family$scenario_type, "trait_ablation")
+  expect_equal(scenarios$without_family$ablated_traits, "family")
+
+  candidate_models <- tibble::tibble(
+    model_id_chr = c("m1", "m2"),
+    species_name = c("sp1", "sp2"),
+    family = c("f1", "f2"),
+    mean_depth = c(10, 20)
+  )
+  sentinel <- build_sentinel(
+    candidate_models,
+    config = list(alchemist = list(
+      species_traits = list(family = 1),
+      study_traits = list(mean_depth = 1, absent_trait = 1)
+    )),
+    split_mode = "species_holdout",
+    trait_ablations = TRUE,
+    output_dir = file.path(tempdir(), paste0("sentinel-all-traits-", as.integer(Sys.time())))
+  )
+  expect_setequal(
+    names(sentinel@scenario_grid),
+    c("baseline", "without_family", "without_mean_depth")
+  )
+  expect_equal(sentinel@options$trait_ablation_missing, "absent_trait")
+})
+
+test_that("Sentinel manifests pair scenarios on stable outer-fold IDs", {
+  candidate_models <- tibble::tibble(
+    model_id_chr = paste0("m", 1:4),
+    species_name = rep(c("sp1", "sp2"), each = 2),
+    trait_a = 1:4
+  )
+  sentinel <- build_sentinel(
+    data = candidate_models,
+    split_mode = "species_holdout",
+    scenario_grid = build_sentinel_scenarios(trait_ablations = "trait_a"),
+    output_dir = file.path(tempdir(), paste0("sentinel-pairing-", as.integer(Sys.time())))
+  )
+  sentinel <- build_sentinel_manifest(sentinel)
+
+  pairing <- sentinel@manifest |>
+    dplyr::select("scenario", "holdout_id", "outer_fold_id") |>
+    tidyr::pivot_wider(names_from = "scenario", values_from = "outer_fold_id")
+  expect_equal(pairing$baseline, pairing$without_trait_a)
+  expect_true(all(c("scenario_type", "ablated_traits", "repeat_id") %in% names(sentinel@manifest)))
+})
+
+test_that("Sentinel ablation summaries are paired and plot-ready", {
+  results <- tibble::tibble(
+    scenario = rep(c("baseline", "without_depth", "without_family"), each = 4),
+    scenario_type = rep(c("baseline", "trait_ablation", "trait_ablation"), each = 4),
+    ablated_traits = rep(c("", "depth", "family"), each = 4),
+    outer_fold_id = rep(1:4, 3),
+    holdout_id = rep(paste0("sp", 1:4), 3),
+    error_abs_log = c(
+      0.10, 0.20, 0.30, 0.40,
+      0.20, 0.40, 0.40, 0.60,
+      0.05, 0.25, 0.25, 0.45
+    )
+  )
+
+  scorecard <- summarize_sentinel_ablation(results, n_boot = 100L, seed = 4L)
+  summary_tbl <- scorecard@recommendation_cards
+  depth <- dplyr::filter(summary_tbl, .data$scenario == "without_depth")
+  family <- dplyr::filter(summary_tbl, .data$scenario == "without_family")
+
+  expect_true(S7::S7_inherits(scorecard, Scorecard))
+  expect_equal(depth$importance, 0.15)
+  expect_equal(family$importance, 0)
+  expect_equal(depth$n_pairs, 4L)
+  ablation_plot <- plot(scorecard, type = "ablation")
+  expect_s3_class(ablation_plot, "ggplot")
+  expect_null(ablation_plot$labels$title)
+  expect_null(ablation_plot$labels$subtitle)
+
+  validation_card <- summarize_sentinel_validation(results, metric_cols = "error_abs_log")
+  expect_true(S7::S7_inherits(validation_card, Scorecard))
+  validation_plot <- plot(validation_card, type = "validation")
+  expect_s3_class(validation_plot, "ggplot")
+  expect_null(validation_plot$labels$title)
+})
+
 test_that("Sentinel run persists fold outputs and supports resume/collect", {
   candidate_models <- tibble::tibble(
     model_id_chr = c("m1", "m2", "m3"),
@@ -73,6 +161,7 @@ test_that("Sentinel run persists fold outputs and supports resume/collect", {
     output_dir = out_dir,
     case_studies = "m2"
   )
+  expect_identical(sentinel@workflow_fn, workflow_fn)
 
   sentinel <- run_sentinel(sentinel, max_folds = 2L)
   expect_equal(sum(sentinel@manifest$status == "completed"), 2L)
@@ -81,6 +170,17 @@ test_that("Sentinel run persists fold outputs and supports resume/collect", {
   collected <- collect_sentinel_results(sentinel)
   expect_equal(nrow(collected), 2L)
   expect_true(all(c("fold_id", "scenario", "holdout_id", "train_n", "test_n") %in% names(collected)))
+
+  validation_card <- summary(
+    sentinel,
+    type = "validation",
+    metric_cols = c("train_n", "test_n", "score_delta")
+  )
+  expect_true(S7::S7_inherits(validation_card, Scorecard))
+  expect_s3_class(
+    plot(validation_card, type = "validation", metric = "score_delta"),
+    "ggplot"
+  )
 
   resumed <- resume_sentinel(sentinel_rebuild(sentinel, manifest = tibble::tibble(), results = tibble::tibble()))
   expect_equal(sum(resumed@manifest$status == "completed"), 2L)
@@ -91,6 +191,95 @@ test_that("Sentinel run persists fold outputs and supports resume/collect", {
     dplyr::pull(.data$artifact_file)
   expect_true(length(artifact_path) == 1L)
   expect_true(file.exists(artifact_path))
+})
+
+test_that("Sentinel object workflow receives fold Candidates and Configurer", {
+  candidate_models <- tibble::tibble(
+    model_id_chr = c("m1", "m2", "m3"),
+    species_name = c("sp1", "sp2", "sp3"),
+    class = c("Actinopterygii", "Actinopterygii", "Actinopterygii"),
+    fao_area = c("27", "67", "77"),
+    study_reference_id = c("study_a", "study_b", "study_c"),
+    study_cell_id = c("cell_1", "cell_2", "cell_3")
+  )
+  config_s7 <- build_configurer(default_config(
+    input_file = file.path(tempdir(), "input.xlsx"),
+    output_root = file.path(tempdir(), "outputs"),
+    cache_folder = file.path(tempdir(), "cache")
+  ))
+
+  workflow_fun <- function(candidates, workflow_config_s7) {
+    expect_true(S7::S7_inherits(candidates, Candidates))
+    expect_true(S7::S7_inherits(workflow_config_s7, Configurer))
+    expect_equal(nrow(candidates@candidate_models), 2L)
+    expect_equal(nrow(candidates@reference_anchors), 1L)
+    expect_false(any(
+      candidates@candidate_models$model_id_chr %in%
+        candidates@reference_anchors$model_id_chr
+    ))
+
+    list(metrics = tibble::tibble(
+      train_n = nrow(candidates@candidate_models),
+      test_n = nrow(candidates@reference_anchors)
+    ))
+  }
+
+  sentinel <- build_sentinel(
+    data = candidate_models,
+    workflow_fn = workflow_fun,
+    config = config_s7,
+    split_mode = "anchor_row_holdout",
+    output_dir = file.path(tempdir(), paste0("sentinel-object-contract-", as.integer(Sys.time())))
+  )
+  sentinel <- run_sentinel(sentinel, max_folds = 1L)
+  result <- collect_sentinel_results(sentinel)
+
+  expect_equal(result$train_n, 2L)
+  expect_equal(result$test_n, 1L)
+})
+
+test_that("Sentinel object workflow can return a Scorecard directly", {
+  candidate_models <- tibble::tibble(
+    model_id_chr = c("m1", "m2"),
+    species_name = c("sp1", "sp2"),
+    class = c("Actinopterygii", "Actinopterygii"),
+    fao_area = c("27", "67"),
+    study_reference_id = c("study_a", "study_b"),
+    study_cell_id = c("cell_1", "cell_2")
+  )
+  config_s7 <- build_configurer(default_config(
+    input_file = file.path(tempdir(), "input.xlsx"),
+    output_root = file.path(tempdir(), "outputs"),
+    cache_folder = file.path(tempdir(), "cache")
+  ))
+
+  workflow_fun <- function(candidates, workflow_config_s7) {
+    scorecard <- tsbiomass:::empty_scorecard()
+    scorecard@selected <- tibble::tibble(
+      anchor_model_id = candidates@reference_anchors$model_id_chr,
+      anchor_species = candidates@reference_anchors$species_name,
+      policy = "closest",
+      multiplier_pred = 1.1,
+      multiplier_lo = 0.9,
+      multiplier_hi = 1.3,
+      valid_prediction = TRUE
+    )
+    scorecard@intervals <- scorecard@selected
+    scorecard
+  }
+
+  sentinel <- build_sentinel(
+    data = candidate_models,
+    workflow_fn = workflow_fun,
+    config = config_s7,
+    split_mode = "anchor_row_holdout",
+    output_dir = file.path(tempdir(), paste0("sentinel-scorecard-contract-", as.integer(Sys.time())))
+  )
+  sentinel <- run_sentinel(sentinel, max_folds = 1L)
+  result <- collect_sentinel_results(sentinel)
+
+  expect_equal(nrow(result), 1L)
+  expect_true(is.finite(result$error_abs_log))
 })
 
 test_that("Sentinel patches fold-local cache paths into workflow config", {
@@ -279,7 +468,7 @@ test_that("Sentinel candidate build tolerates unmatched anchor selectors", {
   expect_equal(nrow(candidates@reference_anchors), 0L)
 })
 
-test_that("Sentinel smoke fixture keeps anchor species and top extra species", {
+test_that("Reduced Sentinel fixture keeps anchor species and top extra species", {
   candidate_models <- tibble::tibble(
     model_id_chr = paste0("m", 1:8),
     species_name = c("sp1", "sp1", "sp2", "sp2", "sp3", "sp3", "sp3", "sp4"),
@@ -287,7 +476,7 @@ test_that("Sentinel smoke fixture keeps anchor species and top extra species", {
     study_reference_id = paste0("study_", 1:8)
   )
 
-  out <- build_sentinel_smoke_fixture(
+  out <- build_reduced_validation_fixture(
     data = candidate_models,
     config = list(
       candidates = list(
@@ -303,7 +492,7 @@ test_that("Sentinel smoke fixture keeps anchor species and top extra species", {
   expect_equal(nrow(out), 5L)
 })
 
-test_that("Sentinel smoke fixture drops blank species labels when requested", {
+test_that("Reduced Sentinel fixture drops blank species labels when requested", {
   candidate_models <- tibble::tibble(
     model_id_chr = paste0("m", 1:5),
     species_name = c("sp1", " ", NA, "sp2", "sp2"),
@@ -311,7 +500,7 @@ test_that("Sentinel smoke fixture drops blank species labels when requested", {
     study_reference_id = paste0("study_", 1:5)
   )
 
-  out <- build_sentinel_smoke_fixture(
+  out <- build_reduced_validation_fixture(
     data = candidate_models,
     config = list(
       candidates = list(
@@ -540,7 +729,7 @@ test_that("Sentinel can drop action-space rows from both train and test slices",
   expect_equal(nrow(out$test_data), 1L)
 })
 
-test_that("Sentinel smoke builder reduces candidate rows before construction", {
+test_that("Reduced Sentinel builder reduces candidate rows before construction", {
   candidate_models <- tibble::tibble(
     model_id_chr = paste0("m", 1:8),
     species_name = c("sp1", "sp1", "sp2", "sp2", "sp3", "sp3", "sp3", "sp4"),
@@ -549,7 +738,7 @@ test_that("Sentinel smoke builder reduces candidate rows before construction", {
     study_cell_id = paste0("cell_", 1:8)
   )
 
-  sentinel <- build_sentinel_smoke(
+  sentinel <- build_reduced_sentinel(
     data = candidate_models,
     workflow_fn = function(train_data, test_data, params, config, manifest_row, sentinel) {
       list(metrics = tibble::tibble(train_n = nrow(train_data), test_n = nrow(test_data)))
@@ -563,7 +752,7 @@ test_that("Sentinel smoke builder reduces candidate rows before construction", {
     ),
     split_mode = "study_holdout",
     extra_species = 1L,
-    output_dir = file.path(tempdir(), paste0("sentinel-smoke-", as.integer(Sys.time())))
+    output_dir = file.path(tempdir(), paste0("sentinel-reduced-", as.integer(Sys.time())))
   )
 
   expect_equal(sentinel@split_mode, "study_holdout")
@@ -571,7 +760,7 @@ test_that("Sentinel smoke builder reduces candidate rows before construction", {
   expect_equal(nrow(sentinel@data), 5L)
 })
 
-test_that("Sentinel smoke runner can build the reduced path without executing folds", {
+test_that("Reduced Sentinel runner can build the reduced path without executing folds", {
   candidate_models <- tibble::tibble(
     model_id_chr = paste0("m", 1:8),
     species_name = c("sp1", "sp1", "sp2", "sp2", "sp3", "sp3", "sp3", "sp4"),
@@ -580,7 +769,7 @@ test_that("Sentinel smoke runner can build the reduced path without executing fo
     study_cell_id = paste0("cell_", 1:8)
   )
 
-  sentinel <- run_sentinel_smoke(
+  sentinel <- run_reduced_sentinel(
     data = candidate_models,
     workflow_fn = function(train_data, test_data, params, config, manifest_row, sentinel) {
       list(metrics = tibble::tibble(train_n = nrow(train_data), test_n = nrow(test_data)))
@@ -594,7 +783,7 @@ test_that("Sentinel smoke runner can build the reduced path without executing fo
     ),
     split_mode = "study_cell_holdout",
     extra_species = 1L,
-    output_dir = file.path(tempdir(), paste0("sentinel-run-smoke-", as.integer(Sys.time()))),
+    output_dir = file.path(tempdir(), paste0("sentinel-run-reduced-", as.integer(Sys.time()))),
     max_folds = 0L
   )
 
@@ -605,7 +794,7 @@ test_that("Sentinel smoke runner can build the reduced path without executing fo
   expect_true(nrow(sentinel@manifest) > 0L)
 })
 
-test_that("Sentinel smoke suite runs all requested split specs in no-op mode", {
+test_that("Reduced Sentinel suite runs all requested split specs in no-op mode", {
   candidate_models <- tibble::tibble(
     model_id_chr = paste0("m", 1:10),
     species_name = c("sp1", "sp1", "sp2", "sp2", "sp3", "sp3", "sp3", "sp4", "sp4", "sp5"),
@@ -614,7 +803,7 @@ test_that("Sentinel smoke suite runs all requested split specs in no-op mode", {
     study_cell_id = paste0("cell_", 1:10)
   )
 
-  suite <- run_sentinel_smoke_suite(
+  suite <- run_reduced_sentinel_suite(
     data = candidate_models,
     workflow_fn = function(train_data, test_data, params, config, manifest_row, sentinel) {
       list(metrics = tibble::tibble(train_n = nrow(train_data), test_n = nrow(test_data)))
@@ -631,7 +820,7 @@ test_that("Sentinel smoke suite runs all requested split specs in no-op mode", {
       study = list(split_mode = "study_holdout")
     ),
     extra_species = 1L,
-    output_dir = file.path(tempdir(), paste0("sentinel-suite-", as.integer(Sys.time()))),
+    output_dir = file.path(tempdir(), paste0("sentinel-reduced-suite-", as.integer(Sys.time()))),
     max_folds = 0L
   )
 
@@ -689,7 +878,7 @@ test_that("Sentinel suite can run generic species holdout and scenario stress wo
     )
   )
 
-  suite <- run_sentinel_smoke_suite(
+  suite <- run_reduced_sentinel_suite(
     data = candidate_models,
     workflow_fn = workflow_fn,
     config = list(
@@ -707,7 +896,7 @@ test_that("Sentinel suite can run generic species holdout and scenario stress wo
       )
     ),
     extra_species = 1L,
-    output_dir = file.path(tempdir(), paste0("sentinel-suite-run-", as.integer(Sys.time()))),
+    output_dir = file.path(tempdir(), paste0("sentinel-reduced-suite-run-", as.integer(Sys.time()))),
     max_folds = 3L
   )
 
@@ -741,9 +930,11 @@ test_that("Sentinel suite summaries aggregate numeric and logical metrics", {
   )
 
   out <- summarize_sentinel_suite_results(results)
+  expect_true(S7::S7_inherits(out, Scorecard))
+  out_tbl <- out@recommendation_cards
 
-  cold_row <- out |> dplyr::filter(.data$suite_name == "cold_start")
-  study_row <- out |> dplyr::filter(.data$suite_name == "study")
+  cold_row <- out_tbl |> dplyr::filter(.data$suite_name == "cold_start")
+  study_row <- out_tbl |> dplyr::filter(.data$suite_name == "study")
 
   expect_equal(cold_row$n_rows, 2L)
   expect_equal(cold_row$n_holdouts, 2L)

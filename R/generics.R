@@ -17,6 +17,7 @@ simulate_generic <- S7::new_external_generic("stats", "simulate", "object")
 plot_generic <- S7::new_external_generic("base", "plot", "x")
 print_generic <- S7::new_external_generic("base", "print", "x")
 show_generic <- S7::new_external_generic("methods", "show", "object")
+summary_generic <- S7::new_external_generic("base", "summary", "object")
 
 #' Calibrate uncertainty on a staged staged object
 #'
@@ -57,7 +58,7 @@ select_policies <- S7::new_generic("select_policies", "object")
 #'
 #' @examples
 #' \dontrun{
-#' learner <- as_policy_learner(selector)
+#' learner <- as_policylearner(selector)
 #' learner <- crossfit(learner)
 #' }
 #'
@@ -76,7 +77,7 @@ crossfit <- S7::new_generic("crossfit", "object")
 #'
 #' @examples
 #' \dontrun{
-#' learner <- as_policy_learner(selector)
+#' learner <- as_policylearner(selector)
 #' learner <- fit(learner)
 #' }
 #'

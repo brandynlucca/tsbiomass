@@ -1,6 +1,6 @@
 test_that("PolicySelector methods store benchmark, uncertainty, and selection state", {
   candidates <- set_reference_anchors(make_candidates(), selector = list(regional_body = "SWFSC"))
-  selector <- as_policy_selector(candidates)
+  selector <- as_policyselector(candidates)
 
   testthat::local_mocked_bindings(
     run_policy_benchmark = function(...) {
@@ -95,7 +95,32 @@ test_that("installed-style S3 bridges are registered for base predict and plot",
   expect_true(is.function(utils::getS3method("plot", "tsbiomass::Referee", optional = TRUE)))
   expect_true(is.function(utils::getS3method("plot", "tsbiomass::PolicySimulator", optional = TRUE)))
   expect_true(is.function(utils::getS3method("plot", "tsbiomass::Conjurer", optional = TRUE)))
-  expect_true("referee_rebuild" %in% getNamespaceExports("tsbiomass"))
+  expect_false("referee_rebuild" %in% getNamespaceExports("tsbiomass"))
+})
+
+test_that("as_tibble returns canonical result tables for predictions and scorecards", {
+  predictions <- PolicyPredictions(
+    intervals = tibble::tibble(policy = "p1", multiplier_pred = 1.1),
+    selections = tibble::tibble(
+      anchor_model_id = "1",
+      anchor_species = "Alpha alpha",
+      selected_policy = "p1"
+    ),
+    consensus = tibble::tibble(anchor_model_id = "1", consensus_multiplier = 1.1)
+  )
+  scorecard <- empty_scorecard()
+  scorecard@recommendation_cards <- tibble::tibble(
+    anchor_species = "Alpha alpha",
+    recommended_policy = "p1"
+  )
+
+  pred_tbl <- tibble::as_tibble(predictions)
+  score_tbl <- tibble::as_tibble(scorecard)
+
+  expect_s3_class(pred_tbl, "tbl_df")
+  expect_s3_class(score_tbl, "tbl_df")
+  expect_named(pred_tbl, c("anchor_model_id", "anchor_species", "selected_policy"))
+  expect_named(score_tbl, c("anchor_species", "recommended_policy"))
 })
 
 test_that("predict returns PolicyPredictions and summary helpers use selector state", {
@@ -543,14 +568,9 @@ test_that("Scorecard and Configurer show compact console summaries", {
   expect_true(any(grepl("selected_rows:", scorecard_output, fixed = TRUE)))
   expect_false(any(grepl("@selected", scorecard_output, fixed = TRUE)))
 
-  cfg_path <- system.file("templates", "swfscfish_config.yaml", package = "tsbiomass")
-  if (!nzchar(cfg_path)) {
-    cfg_path <- file.path(pkgload::pkg_path(), "inst", "templates", "swfscfish_config.yaml")
-  }
-  cfg <- as_configurer(read_config(
-    cfg_path,
-    base_dir = dirname(cfg_path)
-  ))
+  cfg_path <- tempfile(fileext = ".yaml")
+  write_config_yaml(cfg_path, overwrite = TRUE)
+  cfg <- build_configurer(read_config(cfg_path, base_dir = dirname(cfg_path)))
   cfg_output <- capture.output(show(cfg))
   expect_true(any(grepl("^Configurer$", cfg_output)))
   expect_true(any(grepl("species_traits:", cfg_output, fixed = TRUE)))

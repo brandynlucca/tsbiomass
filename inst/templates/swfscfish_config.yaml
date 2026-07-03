@@ -15,8 +15,8 @@ execution:
 
 cache:
   folder: cache
-  # refresh: true
-  refresh: false
+  refresh: true
+  # refresh: false
 
 data:
   - id: study_metadata
@@ -77,8 +77,8 @@ alchemist:
   # with rank-based fallback). Coherence terms are inherited from similarity:.
   taxonomic_distance: true
   # feature_type controls what pairwise features are fed to the Super Learner.
-  # "gower"      — unsigned Gower distances in [0, 1] (original behavior)
-  # "difference" — signed standardized differences (t_i - t_j) / sd(t);
+  # "gower"      - unsigned Gower distances in [0, 1] (original behavior)
+  # "difference" - signed standardized differences (t_i - t_j) / sd(t);
   #                categorical traits still use Gower agreement. Preserves
   #                directionality and absolute scale.
   feature_type: difference
@@ -89,11 +89,29 @@ alchemist:
   distill_workers: 8
   learner:
     workers: 8
+    methods: [glmnet_elasticnet, earth, ranger, xgboost]
+    inner_folds: 5
+    outcome_transform: log1p
+    lambda_rule: lambda.1se
     # Reduce num_trees relative to the main metalearner: dropout sensitivity
     # rankings stabilize with fewer trees and smaller forests cut RAM substantially.
     method_settings:
+      earth:
+        degree: 1 # additive-only
+        penalty: 2 # recommended default GCV when degree = 1
+        pmethod: backward
       ranger:
-        num_trees: 100
+        num_trees: 300
+        min_node_size: 10
+      xgboost:
+        nrounds: 150
+        eta: 0.05
+        max_depth: 3
+        min_child_weight: 5
+        subsample: 0.8
+        colsample_bytree: 0.8
+        lambda: 2.0
+        alpha: 0.5
 
 similarity:
   alpha: 0.6
@@ -106,10 +124,10 @@ similarity:
     length:
       mode: overlap
       # source controls which length columns back this dimension.
-      # "best"    — study_length_min/max if present, length_minimum/maximum as fallback (default)
-      # "study"   — study-level sampling range only
-      # "species" — species-level biological range only
-      # "both"    — compute independently for each; adds length_coherence_study +
+      # "best"    - study_length_min/max if present, length_minimum/maximum as fallback (default)
+      # "study"   - study-level sampling range only
+      # "species" - species-level biological range only
+      # "both"    - compute independently for each; adds length_coherence_study +
       #             length_coherence_species as separate features
       source: both
       range: { from: 0.1, to: 10 }
@@ -135,12 +153,12 @@ ordination:
   include_centroids: false
   progress: true
   nmds_args:
-    try: 6
-    trymax: 12
+    try: 10
+    trymax: 20
     autotransform: false
     trace: false
   envfit_args:
-    permutations: 199
+    permutations: 999
 
 policies:
   # Groups can be any arbitrary-length conjunction of supported nonnumeric
@@ -209,7 +227,7 @@ uncertainty:
 selection:
   one_se_multiplier: 1
   equivalence_tolerance: 0.05
-  n_boot: 1000
+  n_boot: 2000
   # uncertainty_rule:
   #   tolerance - keep widths within max(u_tol_abs, u_tol_rel * u_min)
   #   one_se    - keep widths within one standard error of the minimum width
@@ -220,7 +238,7 @@ selection:
   local_distance_tolerance: 1.0e-12
   conformal_alpha: 0.1
   bin_alpha: 0.1
-  min_bin_scores: 10
+  min_bin_scores: 15
   use_support_bin_intervals: false
   progress: true
 
@@ -234,18 +252,25 @@ metalearner:
   # `ranger`, `xgboost`) or named family variants exposed below.
   selection_super_methods:
     - glm
-    - quantreg_q75
-    - quantreg_q90
+    - lmer
     - glmnet_ridge
     - glmnet_lasso
     - glmnet_elasticnet
+    - earth
     - rpart_shallow
     - rpart_deep
     - ranger_shallow
     - ranger_deep
-    - xgboost_conservative
+    - xgboost
+  uncertainty_super_methods:
+    - glm
+    - quantreg_q75
+    - quantreg_q90
+    - glmnet_elasticnet
+    - ranger
+    - xgboost
   n_folds: 5
-  inner_folds: 3
+  inner_folds: 5
   workers: 8
   outcome_col: error_abs_log
   outcome_clip_quantile: 1
@@ -257,18 +282,15 @@ metalearner:
   # max_selection_tolerance:
   progress: true
   method_settings:
+    lmer:
+      fit_method: REML
     glmnet:
       standardize: true
       type_measure: mae
-    quantreg:
-      variants:
-        q75:
-          tau: 0.75
-        q90:
-          tau: 0.90
-    gam:
-      fit_method: REML
-      select_terms: true
+    earth:
+      degree: 2 # enables low-order interactions
+      penalty: 3 # recommended GCV when degree > 1
+      pmethod: backward
     rpart:
       cp: 0.01
       minsplit: 20
@@ -292,41 +314,33 @@ metalearner:
       sample_fraction: 1.0
       replace: true
       respect_unordered_factors: order
-      variants:
-        shallow:
-          min_node_size: 15
-          sample_fraction: 0.8
-        deep:
-          min_node_size: 3
-          sample_fraction: 0.8
     xgboost:
       nrounds: 100
-      eta: 0.3
-      max_depth: 6
-      min_child_weight: 1
-      subsample: 1.0
-      colsample_bytree: 1.0
-      lambda: 1.0
-      alpha: 0.0
+      eta: 0.05
+      max_depth: 3
+      min_child_weight: 5
+      subsample: 0.8
+      colsample_bytree: 0.8
+      lambda: 2.0
+      alpha: 0.5
+  uncertainty_method_settings:
+    quantreg:
       variants:
-        conservative:
-          nrounds: 100
-          eta: 0.05
-          max_depth: 3
-          min_child_weight: 5
-          subsample: 0.8
-          colsample_bytree: 0.8
-          lambda: 2.0
-          alpha: 0.5
-        flexible:
-          nrounds: 200
-          eta: 0.05
-          max_depth: 6
-          min_child_weight: 1
-          subsample: 0.9
-          colsample_bytree: 0.9
-          lambda: 1.0
-          alpha: 0.0
+        q75: { tau: 0.75 }
+        q90: { tau: 0.90 }
+    ranger:
+      num_trees: 300
+      min_node_size: 10
+      sample_fraction: 0.8
+    xgboost:
+      nrounds: 200
+      eta: 0.03
+      max_depth: 3
+      min_child_weight: 5
+      subsample: 0.8
+      colsample_bytree: 0.8
+      lambda: 3.0
+      alpha: 1.0
 
 outputs:
   fao_distribution:

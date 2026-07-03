@@ -1,6 +1,6 @@
 test_that("PolicyLearner stores crossfit, fit, and calibration state", {
   selector <- make_selector(benchmark = list(species_block_perf = minimal_policy_performance()))
-  learner <- as_policy_learner(selector)
+  learner <- as_policylearner(selector)
 
   testthat::local_mocked_bindings(
     prepare_meta_policy_data = function(policy_perf, ...) {
@@ -45,7 +45,7 @@ test_that("PolicyLearner stores crossfit, fit, and calibration state", {
 
 test_that("PolicyLearner warns and records explicit uncertainty fallback state", {
   selector <- make_selector(benchmark = list(species_block_perf = minimal_policy_performance()))
-  learner <- as_policy_learner(selector)
+  learner <- as_policylearner(selector)
 
   testthat::local_mocked_bindings(
     prepare_meta_policy_data = function(policy_perf, ...) {
@@ -82,7 +82,7 @@ test_that("PolicyLearner warns and records explicit uncertainty fallback state",
 
 test_that("PolicyLearner uncertainty calibration respects uncertainty-specific learner settings", {
   selector <- make_selector(benchmark = list(species_block_perf = minimal_policy_performance()))
-  learner <- as_policy_learner(selector)
+  learner <- as_policylearner(selector)
 
   testthat::local_mocked_bindings(
     prepare_meta_policy_data = function(policy_perf, ...) {
@@ -143,7 +143,7 @@ test_that("PolicyLearner uncertainty calibration respects uncertainty-specific l
 
 test_that("PolicyLearner selection fit respects selection-specific learner settings", {
   selector <- make_selector(benchmark = list(species_block_perf = minimal_policy_performance()))
-  learner <- as_policy_learner(selector)
+  learner <- as_policylearner(selector)
 
   learner@config$metalearner <- list(
     selection_method = "super_learner",
@@ -192,7 +192,7 @@ test_that("PolicyLearner selection fit respects selection-specific learner setti
 
 test_that("PolicyLearner uncertainty calibration honors explicit override args", {
   selector <- make_selector(benchmark = list(species_block_perf = minimal_policy_performance()))
-  learner <- as_policy_learner(selector)
+  learner <- as_policylearner(selector)
 
   testthat::local_mocked_bindings(
     prepare_meta_policy_data = function(policy_perf, ...) {
@@ -390,11 +390,12 @@ test_that("PolicyLearner calibration uses modeled clipped outcomes when availabl
     "Falling back to point-score-scaled uncertainty"
   )
 
-  expect_equal(learner@calibration$outcome_col, ".outcome")
+  expect_equal(learner@calibration$outcome_col, ".outcome_raw")
   expect_equal(learner@calibration$raw_outcome_col, "error_abs_log")
-  expect_true(all(learner@calibration$selected$.outcome == 1))
-  expect_equal(learner@calibration$summary$median_outcome[[1]], 1)
-  expect_equal(learner@calibration$coverage$median_abs_log_error[[1]], 1)
+  expect_true(all(learner@calibration$selected$.outcome_raw %in% c(1, 100)))
+  expect_true(any(learner@calibration$selected$.outcome_raw > learner@calibration$selected$.outcome))
+  expect_equal(learner@calibration$summary$median_outcome[[1]], 50.5)
+  expect_equal(learner@calibration$coverage$median_abs_log_error[[1]], 50.5)
 })
 
 test_that("PolicyLearner predict ranks and selects anchor-policy rows", {
@@ -457,6 +458,18 @@ test_that("PolicyLearner predict ranks and selects anchor-policy rows", {
     "meta_uncertainty_fallback"
   ) %in% names(scored)))
   expect_true(all(is.finite(scored$meta_q_abs_log_total)))
+  expect_equal(
+    scored$meta_post_selection_interval_log_width,
+    2 * scored$meta_q_abs_log_total
+  )
+  expect_equal(
+    scored$meta_post_selection_multiplier_lo,
+    scored$multiplier_pred * exp(-scored$meta_q_abs_log_total)
+  )
+  expect_equal(
+    scored$meta_post_selection_multiplier_hi,
+    scored$multiplier_pred * exp(scored$meta_q_abs_log_total)
+  )
   expect_true(all(startsWith(scored$meta_uncertainty_source, "direct_")))
   alpha_rows <- scored[scored$anchor_model_id == "1", , drop = FALSE]
   expect_gte(
@@ -730,7 +743,7 @@ test_that("PolicySimulator stores sensitivity reruns and exposes bound tables", 
     )
   )
 
-  simulator <- as_policy_simulator(selector)
+  simulator <- as_policysimulator(selector)
 
   testthat::local_mocked_bindings(
     build_policy_sensitivity_scenarios = function(...) {

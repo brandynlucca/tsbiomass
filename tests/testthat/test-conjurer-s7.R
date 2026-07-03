@@ -168,3 +168,25 @@ test_that("show.Conjurer prints a compact analysis summary", {
   expect_match(output, "largest_mean_abs_db_shift: Alpha alpha / frequency = 0.42")
   expect_match(output, "largest_policy_switch_rate: Alpha alpha / frequency = 25%")
 })
+
+test_that("as_tibble.Conjurer returns the stored summary table", {
+  selector <- make_selector(candidates = make_candidates(seed_similarity_tuning = TRUE))
+  conjurer <- as_conjurer(selector)
+  conjurer <- conjurer_rebuild(
+    conjurer,
+    summary = tibble::tibble(
+      trait = "frequency",
+      anchor_model_id = "1",
+      anchor_species = "Alpha alpha",
+      mean_abs_db_shift = 0.42
+    )
+  )
+
+  out <- tibble::as_tibble(conjurer)
+
+  expect_s3_class(out, "tbl_df")
+  expect_named(
+    out,
+    c("trait", "anchor_model_id", "anchor_species", "mean_abs_db_shift")
+  )
+})

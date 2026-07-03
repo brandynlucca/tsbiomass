@@ -10,6 +10,15 @@ test_that("conformal quantile helpers accept vector levels", {
   expect_equal(scaled[["l95"]], scaled_functional_conformal_quantile(x, level = 0.95))
 })
 
+test_that("conformal quantile stays finite when the order statistic exceeds n", {
+  x <- c(0.2, 0.5, 1.1, 1.6, 2.2, 3.0)
+
+  out <- conformal_quantile(x, alpha = 0.10)
+
+  expect_true(is.finite(out))
+  expect_equal(out, max(x))
+})
+
 test_that("shared support binning preserves post-selection outputs", {
   tbl <- tibble::tibble(
     local_effective_support = c(1, 5, 10, 20),
@@ -35,7 +44,15 @@ test_that("shared support binning preserves recommendation outputs", {
     min_depth_overlap_fraction = c(0.3, 0.6, 0.8, 1.0)
   )
 
-  out <- assign_recommendation_support_bins(tbl, n_bins = 4L)
+  out <- assign_support_bins(
+    data = tbl,
+    score = recommendation_local_support_score(tbl),
+    score_name = "recommendation_support_score",
+    bin_name = "recommendation_support_bin",
+    n_bins = 4L,
+    all_bin = "support_all",
+    missing_bin = "support_missing"
+  )
   expect_true(all(c(
     "recommendation_support_score",
     "recommendation_support_bin"

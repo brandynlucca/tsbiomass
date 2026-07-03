@@ -1,0 +1,3699 @@
+#' Policy Selection S7 Classes
+#'
+#' `PolicySelector` is the object-oriented wrapper around the policy
+#' benchmarking, uncertainty calibration, global policy selection, and
+#' anchor-facing policy prediction layers.
+#'
+#' It is constructed from a staged [Candidates] object and then advanced
+#' through four high-level methods:
+#' - [benchmark()] to run the policy benchmark
+#' - [calibrate_uncertainty()] to calibrate policy intervals
+#' - [select_policies()] to summarize global policy performance
+#' - [predict()] to generate per-anchor policy predictions
+#'
+#' The final `predict()` call returns a [PolicyPredictions] object rather than
+#' modifying the selector in place.
+#'
+#' @examples
+#' \dontrun{
+#' selector <- as_policyselector(candidates)
+#' selector <- benchmark(selector)
+#' selector <- calibrate_uncertainty(selector)
+#' selector <- select_policies(selector)
+#' predictions <- predict(selector)
+#' predictions@selections
+#' }
+#'
+#' @name PolicySelector-class
+#' @usage NULL
+#' @aliases PolicySelector
+NULL
+
+#' Policy prediction bundle
+#'
+#' Stores the full policy-interval table, the retained selected-policy rows,
+#' and the donor-pool consensus summaries returned by [predict()] on a
+#' [PolicySelector].
+#'
+#' @examples
+#' \dontrun{
+#' predictions <- predict(selector)
+#' predictions@intervals
+#' predictions@selections
+#' predictions@consensus
+#' }
+#'
+#' @name PolicyPredictions-class
+#' @usage NULL
+#' @aliases PolicyPredictions
+NULL
+
+PolicyPredictions <- S7::new_class(
+  "PolicyPredictions",
+  properties = list(
+    intervals = S7::new_property(CandidatesDataFrame),
+    selections = S7::new_property(CandidatesDataFrame),
+    consensus = S7::new_property(CandidatesDataFrame)
+  ),
+  validator = function(self) {
+    tryCatch(
+      {
+        if (!is.data.frame(self@intervals)) {
+          return("`intervals` must be a data frame.")
+        }
+        if (!is.data.frame(self@selections)) {
+          return("`selections` must be a data frame.")
+        }
+        if (!is.data.frame(self@consensus)) {
+          return("`consensus` must be a data frame.")
+        }
+        NULL
+      },
+      error = function(e) conditionMessage(e)
+    )
+  }
+)
+
+S7::S4_register(PolicyPredictions)
+
+PolicySelector <- S7::new_class(
+  "PolicySelector",
+  properties = list(
+    candidates = S7::new_property(Candidates),
+    config = S7::new_property(S7::class_list),
+    benchmark = S7::new_property(S7::class_list),
+    uncertainty = S7::new_property(S7::class_list),
+    selection = S7::new_property(S7::class_list)
+  ),
+  validator = function(self) {
+    tryCatch(
+      {
+        if (!is_s7_instance(self@candidates, "Candidates")) {
+          return("`candidates` must be a `Candidates` object.")
+        }
+        if (!is.list(self@config)) {
+          return("`config` must be a list.")
+        }
+        if (!is.list(self@benchmark)) {
+          return("`benchmark` must be a list.")
+        }
+        if (!is.list(self@uncertainty)) {
+          return("`uncertainty` must be a list.")
+        }
+        if (!is.list(self@selection)) {
+          return("`selection` must be a list.")
+        }
+        NULL
+      },
+      error = function(e) conditionMessage(e)
+    )
+  }
+)
+
+S7::S4_register(PolicySelector)
+
+#' Test whether an object is a `PolicySelector` instance
+#'
+#' Normalize policy-selector config input
+#'
+#' @param config Optional config input.
+#'
+#' @return A list.
+#'
+#' @keywords internal
+#' @noRd
+policy_selector_config_data <- function(config) {
+  if (is.null(config)) {
+    return(list())
+  }
+  if (is_s7_instance(config, "PolicySelector")) {
+    return(config@config)
+  }
+  if (is_s7_instance(config, "Configurer")) {
+    return(config@data)
+  }
+  if (is.list(config)) {
+    return(config)
+  }
+
+  stop(
+    "'config' must be NULL, a list, a `Configurer` object, or a `PolicySelector`.",
+    call. = FALSE
+  )
+}
+
+#' Resolve one config value from nested sections
+#'
+#' @param cfg Config list.
+#' @param key Value name to resolve.
+#' @param sections Optional section names searched after the top level.
+#'
+#' @return The resolved value or `NULL`.
+#'
+#' @keywords internal
+#' @noRd
+policy_selector_config_value <- function(cfg,
+                                         key,
+                                         sections = character()) {
+  if (!is.list(cfg)) {
+    return(NULL)
+  }
+  if (!is.null(cfg[[key]])) {
+    return(cfg[[key]])
+  }
+
+  for (section in sections) {
+    if (is.list(cfg[[section]]) && !is.null(cfg[[section]][[key]])) {
+      return(cfg[[section]][[key]])
+    }
+  }
+
+  NULL
+}
+
+#' Rebuild a `PolicySelector`
+#'
+#' @param object A [PolicySelector] object.
+#' @param candidates Optional replacement [Candidates] object.
+#' @param config Optional replacement config list.
+#' @param benchmark Optional replacement benchmark result.
+#' @param uncertainty Optional replacement uncertainty result.
+#' @param selection Optional replacement policy-selection result.
+#'
+#' @return A `PolicySelector` object.
+#'
+#' @keywords internal
+#' @noRd
+policy_selector_rebuild <- function(object,
+                                    candidates = object@candidates,
+                                    config = object@config,
+                                    benchmark = object@benchmark,
+                                    uncertainty = object@uncertainty,
+                                    selection = object@selection) {
+  PolicySelector(
+    candidates = candidates,
+    config = config,
+    benchmark = benchmark,
+    uncertainty = uncertainty,
+    selection = selection
+  )
+}
+
+#' Build a `PolicySelector`
+#'
+#' @param candidates A [Candidates] or [Alchemist] object.
+#' @param config Optional selector config list or [Configurer] object.
+#'
+#' @return A `PolicySelector` object.
+#'
+#' @examples
+#' \dontrun{
+#' selector <- as_policyselector(candidates)
+#' selector
+#' }
+#'
+#' @export
+as_policyselector <- function(candidates,
+                              config = NULL) {
+  if (is_s7_instance(candidates, "Alchemist")) {
+    alchemist <- candidates
+    distance_matrix <- alchemist@distance_matrix
+    if (length(distance_matrix) == 0L) {
+      stop("Run `forge_distances()` before `as_policyselector()`.", call. = FALSE)
+    }
+
+    gower_bundle <- list(
+      combined_dist = distance_matrix$combined_dist,
+      species_dist = distance_matrix$combined_dist,
+      study_dist = as.matrix(distance_matrix$dist_matrix),
+      species_dist_model = as.matrix(distance_matrix$dist_matrix),
+      trait_cols = distance_matrix$trait_cols %||% distance_matrix$all_traits %||% character(0)
+    )
+    candidates <- candidates_with_gower_distances(alchemist@candidates, gower_bundle)
+    if (length(alchemist@admissibility) > 0L) {
+      candidates <- candidates_with_admissibility(candidates, alchemist@admissibility)
+    }
+    if (length(alchemist@ordination) > 0L) {
+      candidates <- candidates_with_ordination(candidates, alchemist@ordination)
+    }
+  }
+
+  if (!is_s7_instance(candidates, "Candidates")) {
+    stop("'candidates' must be a `Candidates` or `Alchemist` object.", call. = FALSE)
+  }
+
+  PolicySelector(
+    candidates = candidates,
+    config = policy_selector_config_data(config),
+    benchmark = list(),
+    uncertainty = list(),
+    selection = list()
+  )
+}
+
+#' Resolve similarity defaults from `Candidates`
+#'
+#' @param candidates A [Candidates] object.
+#'
+#' @return A list.
+#'
+#' @keywords internal
+#' @noRd
+policy_selector_similarity_defaults <- function(candidates) {
+  if (length(candidates@similarity_tuning) > 0 &&
+    is.list((candidates@similarity_tuning)$config_tuned %||% NULL)) {
+    tuned <- (candidates@similarity_tuning)$config_tuned
+    return(list(
+      species_traits = as.list(tuned$species_weights %||% list()),
+      study_traits = as.list(tuned$study_weights %||% list()),
+      alpha = tuned$alpha %||% NULL,
+      k_species = tuned$k_species %||% NULL,
+      k_study = tuned$k_study %||% NULL,
+      length_overlap_weight = tuned$coherence$length_coherence$weight %||% NULL,
+      depth_overlap_weight = tuned$coherence$depth_coherence$weight %||% NULL,
+      frequency_coherence_weight = tuned$coherence$frequency_coherence$weight %||% NULL,
+      frequency_coherence_mode = tuned$coherence$frequency_coherence$method %||% NULL
+    ))
+  }
+
+  if (length(candidates@similarity_matrix) > 0) {
+    sim <- candidates@similarity_matrix
+    return(list(
+      species_traits = as.list(sim$species_weights %||% list()),
+      study_traits = as.list(sim$study_weights %||% list()),
+      alpha = sim$alpha %||% NULL,
+      k_species = sim$k_species %||% NULL,
+      k_study = sim$k_study %||% NULL,
+      length_overlap_weight = sim$config$length_coherence$weight %||% NULL,
+      depth_overlap_weight = sim$config$depth_coherence$weight %||% NULL,
+      frequency_coherence_weight = sim$config$frequency_coherence$weight %||% NULL,
+      frequency_coherence_mode = sim$config$frequency_coherence$method %||% NULL
+    ))
+  }
+
+  candidate_cfg <- candidates_configuration(candidates) %||% list()
+  if (is.list(candidate_cfg) && length(candidate_cfg) > 0) {
+    cfg <- read_similarity_config(candidate_cfg)
+    return(list(
+      species_traits = cfg$species_traits %||% list(),
+      study_traits = cfg$study_traits %||% list(),
+      alpha = cfg$alpha %||% NULL,
+      k_species = cfg$k_species %||% NULL,
+      k_study = cfg$k_study %||% NULL,
+      length_overlap_weight = cfg$length_coherence$weight %||% NULL,
+      depth_overlap_weight = cfg$depth_coherence$weight %||% NULL,
+      frequency_coherence_weight = cfg$frequency_coherence$weight %||% NULL,
+      frequency_coherence_mode = cfg$frequency_coherence$method %||% NULL
+    ))
+  }
+
+  cfg <- default_config()
+  list(
+    species_traits = as.list(cfg$similarity$species_traits %||% list()),
+    study_traits = as.list(cfg$similarity$study_traits %||% list()),
+    alpha = cfg$similarity$alpha %||% NULL,
+    k_species = cfg$similarity$kernel_scale %||% cfg$similarity$k_species %||% NULL,
+    k_study = cfg$similarity$kernel_scale %||% cfg$similarity$k_study %||% NULL,
+    length_overlap_weight = cfg$similarity$coherence$length$weight %||% NULL,
+    depth_overlap_weight = cfg$similarity$coherence$depth$weight %||% NULL,
+    frequency_coherence_weight = cfg$similarity$coherence$frequency$weight %||% NULL,
+    frequency_coherence_mode = cfg$similarity$coherence$frequency$method %||% NULL
+  )
+}
+
+#' Resolve the benchmark/admissibility config for a `PolicySelector`
+#'
+#' @param object A [PolicySelector] object.
+#' @param config Optional config overrides.
+#'
+#' @return A list.
+#'
+#' @keywords internal
+#' @noRd
+policy_selector_anchor_config <- function(object,
+                                          config = NULL) {
+  cfg <- merge_config_sections(object@config, policy_selector_config_data(config))
+  defaults <- policy_selector_similarity_defaults(object@candidates)
+  overrides <- list(
+    species_traits = policy_selector_config_value(
+      cfg, "species_traits",
+      sections = c("similarity", "benchmark", "policy")
+    ),
+    study_traits = policy_selector_config_value(
+      cfg, "study_traits",
+      sections = c("similarity", "benchmark", "policy")
+    ),
+    admissibility_species_traits = policy_selector_config_value(
+      cfg, "species_traits",
+      sections = c("admissibility", "benchmark")
+    ),
+    admissibility_study_traits = policy_selector_config_value(
+      cfg, "study_traits",
+      sections = c("admissibility", "benchmark")
+    ),
+    alpha = policy_selector_config_value(
+      cfg, "alpha",
+      sections = c("similarity", "benchmark", "policy")
+    ),
+    k_species = policy_selector_config_value(
+      cfg, "k_species",
+      sections = c("similarity", "benchmark", "policy")
+    ),
+    k_study = policy_selector_config_value(
+      cfg, "k_study",
+      sections = c("similarity", "benchmark", "policy")
+    ),
+    length_overlap_weight = policy_selector_config_value(
+      cfg, "length_overlap_weight",
+      sections = c("similarity", "benchmark", "policy")
+    ),
+    depth_overlap_weight = policy_selector_config_value(
+      cfg, "depth_overlap_weight",
+      sections = c("similarity", "benchmark", "policy")
+    ),
+    frequency_coherence_weight = policy_selector_config_value(
+      cfg, "frequency_coherence_weight",
+      sections = c("similarity", "benchmark", "policy")
+    ),
+    frequency_coherence_mode = policy_selector_config_value(
+      cfg, "frequency_coherence_mode",
+      sections = c("admissibility", "benchmark", "policy", "similarity")
+    ),
+    min_length_overlap_fraction = policy_selector_config_value(
+      cfg, "min_length_overlap_fraction",
+      sections = c("admissibility", "policy", "benchmark")
+    ),
+    min_depth_overlap_fraction = policy_selector_config_value(
+      cfg, "min_depth_overlap_fraction",
+      sections = c("admissibility", "policy", "benchmark")
+    ),
+    missing_key_metadata_max_fraction = policy_selector_config_value(
+      cfg, "missing_key_metadata_max_fraction",
+      sections = c("admissibility", "policy", "benchmark")
+    ),
+    core_weight_cutoff = policy_selector_config_value(
+      cfg, "core_weight_cutoff",
+      sections = c("similarity", "policy", "benchmark")
+    ),
+    seed = policy_selector_config_value(
+      cfg, "seed",
+      sections = c("benchmark", "tuning")
+    )
+  )
+  overrides <- overrides[!vapply(overrides, is.null, logical(1))]
+
+  out <- merge_config_sections(
+    defaults,
+    overrides
+  )
+
+  for (nm in c(
+    "species_traits",
+    "study_traits",
+    "admissibility_species_traits",
+    "admissibility_study_traits"
+  )) {
+    if (!is.null(overrides[[nm]])) {
+      out[[nm]] <- overrides[[nm]]
+    }
+  }
+
+  out
+}
+
+#' Resolve the active policy set
+#'
+#' @param cfg Config list.
+#' @param policies Optional explicit policy vector.
+#'
+#' @return Character vector or `NULL`.
+#'
+#' @keywords internal
+#' @noRd
+policy_selector_active_policies <- function(cfg,
+                                            policies = NULL) {
+  if (!is.null(policies)) {
+    out <- as.character(unlist(policies, use.names = FALSE))
+    out <- out[!is.na(out) & nzchar(out)]
+    return(unique(out))
+  }
+
+  out <- policy_selector_config_value(cfg, "active", sections = "policies")
+  if (is.null(out)) {
+    out <- policy_selector_config_value(cfg, "active_policies", sections = "policies")
+  }
+  if (is.null(out)) {
+    return(NULL)
+  }
+
+  out <- as.character(unlist(out, use.names = FALSE))
+  unique(out[!is.na(out) & nzchar(out)])
+}
+
+#' Resolve reference anchors from a `PolicySelector`
+#'
+#' @param object A [PolicySelector] object.
+#' @param reference_anchors Optional explicit anchor table.
+#'
+#' @return A tibble.
+#'
+#' @keywords internal
+#' @noRd
+policy_selector_reference_anchors <- function(object,
+                                              reference_anchors = NULL) {
+  out <- if (is.null(reference_anchors)) {
+    object@candidates@reference_anchors
+  } else {
+    reference_anchors
+  }
+
+  if (!is.data.frame(out) || nrow(out) == 0) {
+    stop(
+      "Reference anchors are required. Set them on `Candidates` first or supply `reference_anchors` explicitly.",
+      call. = FALSE
+    )
+  }
+
+  tibble::as_tibble(out)
+}
+
+#' Resolve one cached anchor evaluation
+#'
+#' @param object A [PolicySelector] object.
+#' @param anchor_row One-row anchor table.
+#' @param config_supplied Logical scalar.
+#'
+#' @return Cached anchor-evaluation object or `NULL`.
+#'
+#' @keywords internal
+#' @noRd
+policy_selector_cached_anchor_evaluation <- function(object,
+                                                     anchor_row,
+                                                     config_supplied) {
+  if (length(object@candidates@admissibility) == 0) {
+    return(NULL)
+  }
+  if (!is.list((object@candidates@admissibility)$anchors %||% NULL)) {
+    return(NULL)
+  }
+
+  anchor_id <- if ("model_id" %in% names(anchor_row)) {
+    as.character(anchor_row$model_id[[1]])
+  } else {
+    as.character(anchor_row$model_id[[1]])
+  }
+
+  ((object@candidates@admissibility)$anchors[[anchor_id]])$evaluation %||% NULL
+}
+
+#' Canonicalize rows that are structurally equivalent across policies
+#'
+#' @param policy_tbl Policy candidate table.
+#'
+#' @return Tibble with stable equivalence fields resolved.
+#'
+#' @keywords internal
+#' @noRd
+canonicalize_equivalent_policy_rows <- function(policy_tbl) {
+  policy_tbl <- normalize_policy_columns(policy_tbl)
+  if (nrow(policy_tbl) == 0L ||
+    !"realized_donor_fingerprint" %in% names(policy_tbl) ||
+    !"multiplier_pred" %in% names(policy_tbl) ||
+    !"policy_slope_len" %in% names(policy_tbl) ||
+    !"policy_intercept_len" %in% names(policy_tbl)) {
+    return(policy_tbl)
+  }
+
+  if (!"specificity_rank" %in% names(policy_tbl)) {
+    candidate_pool_values <- if ("candidate_pool" %in% names(policy_tbl)) policy_tbl$candidate_pool else NULL
+    aggregation_values <- if ("aggregation_method" %in% names(policy_tbl)) policy_tbl$aggregation_method else NULL
+    policy_family_values <- if ("policy_family" %in% names(policy_tbl)) policy_tbl$policy_family else NULL
+    branch_values <- if ("equation_branch_filter" %in% names(policy_tbl)) policy_tbl$equation_branch_filter else NULL
+    policy_tbl$specificity_rank <- policy_specificity_rank(
+      policy = policy_tbl$policy,
+      candidate_pool = candidate_pool_values,
+      aggregation_method = aggregation_values,
+      policy_family = policy_family_values,
+      equation_branch_filter = branch_values
+    )
+  }
+
+  policy_tbl |>
+    dplyr::mutate(
+      .dedupe_multiplier = signif(suppressWarnings(as.numeric(.data$multiplier_pred)), 12),
+      .dedupe_slope = signif(suppressWarnings(as.numeric(.data$policy_slope_len)), 12),
+      .dedupe_intercept = signif(suppressWarnings(as.numeric(.data$policy_intercept_len)), 12)
+    ) |>
+    dplyr::group_by(
+      .data$anchor_model_id,
+      .data$equation_branch_filter,
+      .data$realized_donor_fingerprint,
+      .data$.dedupe_multiplier,
+      .data$.dedupe_slope,
+      .data$.dedupe_intercept
+    ) |>
+    dplyr::arrange(
+      .data$specificity_rank,
+      .data$policy,
+      .by_group = TRUE
+    ) |>
+    dplyr::slice(1) |>
+    dplyr::ungroup() |>
+    dplyr::select(-dplyr::any_of(c(
+      ".dedupe_multiplier",
+      ".dedupe_slope",
+      ".dedupe_intercept"
+    )))
+}
+
+#' Benchmark a `PolicySelector`
+#'
+#' @name benchmark.PolicySelector
+#' @usage NULL
+#'
+#' @param object A [PolicySelector] object.
+#' @param policies Optional character vector of policy names.
+#' @param policy_fun Optional policy-evaluation function.
+#' @param curve_fun Optional curve-prediction function.
+#' @param model_scores Optional ordination model-score table.
+#' @param species_lookup Optional ordination species-lookup table.
+#' @param reference_ids Optional reference-anchor id override.
+#' @param policy_params Optional policy-parameter overrides.
+#' @param policy_path Optional policy-registry path.
+#' @param config Optional config override.
+#' @param include_ts_error Optional logical scalar controlling time-series error
+#'   evaluation.
+#' @param benchmark_schemes Character vector of benchmark scheme names.
+#' @param workers Optional worker count.
+#' @param package_dir Optional package source directory for worker bootstrap.
+#' @param cache_path Optional cache path.
+#' @param refresh Optional logical scalar controlling cache refresh.
+#' @param progress Optional logical scalar controlling progress messages.
+#' @param group_block_col Optional blocking column for grouped species holds.
+#' @param group_block_label Label attached to grouped holdout rows.
+#' @param registry_path Optional trait-registry path.
+#'
+#' @return An updated [PolicySelector] object with stored benchmark results.
+#'
+#' Run the `PolicySelector` benchmark stage and store the resulting benchmark
+#' bundle on the selector.
+S7::method(benchmark, PolicySelector) <- function(object,
+                                                  policies = NULL,
+                                                  policy_fun = evaluate_policies,
+                                                  curve_fun = predict_policy_curve,
+                                                  model_scores = NULL,
+                                                  species_lookup = NULL,
+                                                  reference_ids = NULL,
+                                                  policy_params = list(),
+                                                  policy_path = NULL,
+                                                  config = NULL,
+                                                  include_ts_error = NULL,
+                                                  benchmark_schemes = c("pseudo_anchor", "species_block"),
+                                                  workers = NULL,
+                                                  package_dir = NULL,
+                                                  cache_path = NULL,
+                                                  refresh = NULL,
+                                                  progress = NULL,
+                                                  group_block_col = NULL,
+                                                  group_block_label = "leave_one_group_out",
+                                                  registry_path = NULL) {
+  cfg <- merge_config_sections(object@config, policy_selector_config_data(config))
+  # Resolve benchmark-stage controls before collecting the reusable ordination
+  # context and reference-anchor identifiers.
+  include_ts_error <- include_ts_error %||%
+    policy_selector_config_value(cfg, "include_ts_error", sections = "benchmark") %||%
+    TRUE
+  workers <- workers %||%
+    policy_selector_config_value(cfg, "workers", sections = "benchmark") %||%
+    1L
+  cache_path <- cache_path %||%
+    policy_selector_config_value(cfg, "cache_path", sections = "benchmark")
+  refresh <- refresh %||%
+    policy_selector_config_value(cfg, "refresh", sections = "benchmark") %||%
+    FALSE
+  progress <- progress %||%
+    policy_selector_config_value(cfg, "progress", sections = "benchmark") %||%
+    FALSE
+  policy_params <- merge_config_sections(
+    (((cfg$policies) %||% list())$policy_params %||% list()),
+    merge_config_sections(
+      list(
+        equation_branch_filters = policy_selector_config_value(
+          cfg, "equation_branch_filters",
+          sections = "policies"
+        )
+      ),
+      policy_params
+    )
+  )
+  ordination_context <- if (length(object@candidates@ordination) == 0) {
+    list(model_scores = NULL, species_lookup = NULL)
+  } else {
+    list(
+      model_scores = ((object@candidates@ordination)$model)$model_scores %||% NULL,
+      species_lookup = (object@candidates@ordination)$species_lookup %||% NULL
+    )
+  }
+  model_scores <- model_scores %||% ordination_context$model_scores
+  species_lookup <- species_lookup %||% ordination_context$species_lookup
+
+  if (is.null(reference_ids) && nrow(object@candidates@reference_anchors) > 0) {
+    if ("model_id" %in% names(object@candidates@reference_anchors)) {
+      reference_ids <- as.character(object@candidates@reference_anchors$model_id)
+    } else if ("model_id" %in% names(object@candidates@reference_anchors)) {
+      reference_ids <- as.character(object@candidates@reference_anchors$model_id)
+    }
+  }
+
+  # Execute the benchmark once the active policy set, anchor config, and
+  # optional grouped holdout settings have all been resolved.
+  benchmark_obj <- run_policy_benchmark(
+    candidate_models = object@candidates,
+    policy_fun = policy_fun,
+    curve_fun = curve_fun,
+    model_scores = model_scores,
+    species_lookup = species_lookup,
+    reference_ids = reference_ids,
+    policies = policy_selector_active_policies(cfg, policies),
+    policy_params = policy_params,
+    policy_path = policy_path,
+    config = cfg,
+    include_ts_error = include_ts_error,
+    benchmark_schemes = benchmark_schemes,
+    workers = workers,
+    package_dir = package_dir,
+    cache_path = cache_path,
+    refresh = refresh,
+    progress = progress,
+    group_block_col = group_block_col,
+    group_block_label = group_block_label,
+    registry_path = registry_path
+  )
+  report_progress(progress, "Completed policy benchmark.")
+
+  # Rebuild the selector with a fresh benchmark bundle and clear downstream
+  # layers that depended on any previous benchmark.
+  policy_selector_rebuild(
+    object,
+    config = cfg,
+    benchmark = benchmark_obj,
+    uncertainty = list(),
+    selection = list()
+  )
+}
+
+#' Calibrate `PolicySelector` uncertainty
+#'
+#' @name calibrate_uncertainty.PolicySelector
+#' @usage NULL
+#'
+#' @param object A [PolicySelector] object.
+#' @param alpha Optional conformal alpha.
+#' @param policy_perf Optional policy-performance table override.
+#' @param species_performance_table Optional species-block performance table
+#'   override.
+#' @param ts_error Optional time-series error table override.
+#' @param pseudo_label Pseudo-anchor benchmark label.
+#' @param species_label Species-block benchmark label.
+#' @param config Optional config override.
+#' @param cache_path Optional cache path.
+#' @param refresh Optional logical scalar controlling cache refresh.
+#' @param progress Optional logical scalar controlling progress messages.
+#'
+#' @return An updated [PolicySelector] object with stored uncertainty results.
+#'
+#' Calibrate `PolicySelector` uncertainty from the stored benchmark tables and
+#' attach the resulting calibration bundle to the selector.
+S7::method(calibrate_uncertainty, PolicySelector) <- function(object,
+                                                              alpha = NULL,
+                                                              policy_perf = NULL,
+                                                              species_performance_table = NULL,
+                                                              ts_error = NULL,
+                                                              pseudo_label = "pseudo_anchor",
+                                                              species_label = "species_block",
+                                                              config = NULL,
+                                                              cache_path = NULL,
+                                                              refresh = NULL,
+                                                              progress = NULL) {
+  cfg <- merge_config_sections(object@config, policy_selector_config_data(config))
+  if (length(object@benchmark) == 0) {
+    stop("No benchmark results are stored on this `PolicySelector`.", call. = FALSE)
+  }
+  benchmark_obj <- object@benchmark
+  # Reuse the stored benchmark tables unless the caller supplied explicit
+  # overrides for conformal calibration.
+  cache_path <- cache_path %||%
+    policy_selector_config_value(cfg, "cache_path", sections = c("uncertainty", "selection"))
+  refresh <- refresh %||%
+    policy_selector_config_value(cfg, "refresh", sections = c("uncertainty", "selection")) %||%
+    FALSE
+  progress <- progress %||%
+    policy_selector_config_value(cfg, "progress", sections = c("uncertainty", "selection")) %||%
+    FALSE
+  report_progress(progress, "Calibrating selector uncertainty.")
+
+  uncertainty_obj <- run_anchor_conformal(
+    policy_perf = policy_perf %||% benchmark_obj$policy_perf %||% tibble::tibble(),
+    species_performance_table = species_performance_table %||% benchmark_obj$species_block_perf %||% NULL,
+    ts_error = ts_error %||% benchmark_obj$policy_ts_error %||% NULL,
+    alpha = alpha %||% policy_selector_config_value(
+      cfg, "conformal_alpha",
+      sections = c("selection", "uncertainty", "conformal", "policy")
+    ) %||% policy_selector_config_value(
+      cfg, "alpha",
+      sections = c("selection", "uncertainty", "conformal")
+    ) %||% 0.10,
+    pseudo_label = pseudo_label,
+    species_label = species_label,
+    cache_path = cache_path,
+    refresh = refresh
+  )
+  report_progress(progress, "Completed selector uncertainty calibration.")
+
+  # Persist the conformal bundle without disturbing the benchmark layer.
+  policy_selector_rebuild(
+    object,
+    config = cfg,
+    uncertainty = uncertainty_obj
+  )
+}
+
+#' Select policies from a `PolicySelector`
+#'
+#' @name select_policies.PolicySelector
+#' @usage NULL
+#'
+#' @param object A [PolicySelector] object.
+#' @param species_performance_table Optional species-block performance table
+#'   override.
+#' @param config Optional config override.
+#' @param cache_path Optional cache path.
+#' @param refresh Optional logical scalar controlling cache refresh.
+#' @param progress Optional logical scalar controlling progress messages.
+#'
+#' @return An updated [PolicySelector] object with stored selection results.
+#'
+#' Select globally acceptable policies from the `PolicySelector` benchmark
+#' table and store the resulting summaries on the selector.
+S7::method(select_policies, PolicySelector) <- function(object,
+                                                        species_performance_table = NULL,
+                                                        config = NULL,
+                                                        cache_path = NULL,
+                                                        refresh = NULL,
+                                                        progress = NULL) {
+  cfg <- merge_config_sections(object@config, policy_selector_config_data(config))
+  if (length(object@benchmark) == 0) {
+    stop("No benchmark results are stored on this `PolicySelector`.", call. = FALSE)
+  }
+  benchmark_obj <- object@benchmark
+  # Resolve the lightweight selection controls up front, then trim away any
+  # unset values before handing the config to the selection runner.
+  cache_path <- cache_path %||%
+    policy_selector_config_value(cfg, "cache_path", sections = "selection")
+  refresh <- refresh %||%
+    policy_selector_config_value(cfg, "refresh", sections = "selection") %||%
+    FALSE
+  progress <- progress %||%
+    policy_selector_config_value(cfg, "progress", sections = "selection") %||%
+    FALSE
+  report_progress(progress, "Selecting benchmark-supported policies.")
+
+  selection_cfg <- list(
+    one_se_multiplier = policy_selector_config_value(cfg, "one_se_multiplier", sections = "selection"),
+    equivalence_tolerance = policy_selector_config_value(cfg, "equivalence_tolerance", sections = "selection") %||%
+      policy_selector_config_value(cfg, "tolerance", sections = "selection"),
+    n_boot = policy_selector_config_value(cfg, "n_boot", sections = "selection"),
+    seed = policy_selector_config_value(cfg, "seed", sections = "selection")
+  )
+  selection_cfg <- selection_cfg[!vapply(selection_cfg, is.null, logical(1))]
+
+  selection_obj <- run_policy_selection(
+    species_performance_table = species_performance_table %||% benchmark_obj$species_block_perf %||% tibble::tibble(),
+    candidate_models = object@candidates@candidate_models %||% tibble::tibble(),
+    config = selection_cfg,
+    cache_path = cache_path,
+    refresh = refresh,
+    progress = progress
+  )
+  report_progress(progress, "Completed policy selection.")
+
+  # Persist the selection summaries alongside the existing benchmark and
+  # uncertainty layers.
+  policy_selector_rebuild(
+    object,
+    config = cfg,
+    selection = selection_obj
+  )
+}
+
+#' Predict anchor-level policy outputs from a PolicySelector
+#'
+#' Scores each reference anchor under the active policy set, joins benchmark and
+#' uncertainty summaries, and returns a [PolicyPredictions] bundle.
+#'
+#' @param object A [PolicySelector] object.
+#' @param reference_anchors Optional anchor table override.
+#' @param policies Optional character vector of policy names.
+#' @param config Optional config override.
+#' @param policy_params Optional policy-parameter overrides.
+#' @param policy_path Optional policy-registry path.
+#' @param registry_path Optional trait-registry path.
+#' @param learner Optional fitted [PolicyLearner] used to rank anchor-policy
+#'   rows before retaining the selected rows.
+#' @param use_support_bin_intervals Logical scalar controlling whether the
+#'   learner-backed path uses support-bin conformal lookups when available.
+#' @param max_selection_tolerance Optional numeric tie tolerance for the
+#'   learner-backed selection path.
+#' @param reuse_admissibility Logical scalar. If `TRUE`, reuse admissibility
+#'   results already stored on the selector's [Candidates] object.
+#' @param progress Optional logical scalar controlling stage messages.
+#'
+#' @return A [PolicyPredictions] object.
+.predict_policy_selector <- function(object,
+                                     reference_anchors = NULL,
+                                     policies = NULL,
+                                     config = NULL,
+                                     policy_params = list(),
+                                     policy_path = NULL,
+                                     registry_path = NULL,
+                                     learner = NULL,
+                                     use_support_bin_intervals = NULL,
+                                     max_selection_tolerance = NULL,
+                                     reuse_admissibility = TRUE,
+                                     progress = NULL) {
+  cfg <- merge_config_sections(object@config, policy_selector_config_data(config))
+  progress <- progress %||%
+    policy_selector_config_value(cfg, "progress", sections = c("selection", "benchmark")) %||%
+    FALSE
+  policy_params <- merge_config_sections(
+    (((cfg$policies) %||% list())$policy_params %||% list()),
+    merge_config_sections(
+      list(
+        equation_branch_filters = policy_selector_config_value(
+          cfg, "equation_branch_filters",
+          sections = "policies"
+        )
+      ),
+      policy_params
+    )
+  )
+  if (length(object@uncertainty) == 0) {
+    stop("No uncertainty calibration is stored on this `PolicySelector`.", call. = FALSE)
+  }
+  uncertainty_obj <- object@uncertainty
+  selection_obj <- if (is_s7_instance(learner, "PolicyLearner")) {
+    object@selection %||% list()
+  } else {
+    if (length(object@selection) == 0) {
+      stop("No policy-selection summary is stored on this `PolicySelector`.", call. = FALSE)
+    }
+    object@selection
+  }
+  anchors_tbl <- policy_selector_reference_anchors(object, reference_anchors)
+  active_policies <- policy_selector_active_policies(cfg, policies)
+  if (is.null(policies) &&
+    is_s7_instance(learner, "PolicyLearner")) {
+    # The meta-learner should score the full benchmarked policy set by default.
+    # Keeping the prediction pass pinned to `cfg$policies$active` silently drops
+    # benchmarked policy families and can leave anchors with no non-empty donor
+    # pool even though valid broad policies exist in the benchmark tables.
+    active_policies <- NULL
+  }
+  ordination_context <- if (length(object@candidates@ordination) == 0) {
+    list(model_scores = NULL, species_lookup = NULL)
+  } else {
+    list(
+      model_scores = ((object@candidates@ordination)$model)$model_scores %||% NULL,
+      species_lookup = (object@candidates@ordination)$species_lookup %||% NULL
+    )
+  }
+  model_scores <- ordination_context$model_scores
+  species_lookup <- ordination_context$species_lookup
+  anchor_cfg <- policy_selector_anchor_config(object, config = cfg)
+  conf_tbl <- tibble::as_tibble(uncertainty_obj$conf_cal %||% tibble::tibble())
+  select_tbl <- tibble::as_tibble(selection_obj$final_ref %||% tibble::tibble())
+  benchmark_policy_tbl <- tibble::as_tibble((object@benchmark)$policy_perf %||% tibble::tibble())
+  if (nrow(select_tbl) == 0L &&
+    nrow(tibble::as_tibble((object@benchmark)$species_block_perf %||% tibble::tibble())) > 0L) {
+    # Older selector checkpoints can reach prediction with uncertainty already
+    # calibrated but without a persisted global selection summary. Rebuild the
+    # benchmark-derived selection reference table on demand so anchor-time
+    # scoring still has access to the one-SE acceptability and bootstrap
+    # stability diagnostics.
+    selection_obj <- run_policy_selection(
+      species_performance_table = tibble::as_tibble((object@benchmark)$species_block_perf %||% tibble::tibble()),
+      candidate_models = object@candidates@candidate_models %||% tibble::tibble(),
+      config = cfg,
+      progress = FALSE
+    )
+    select_tbl <- tibble::as_tibble(selection_obj$final_ref %||% tibble::tibble())
+  }
+  infer_policy_bases <- function(tbl) {
+    tbl <- tibble::as_tibble(tbl)
+    if ("policy_base" %in% names(tbl)) {
+      out <- as.character(tbl$policy_base)
+    } else {
+      policy_ids <- resolve_policy_names(tbl)
+      policy_ids <- policy_ids[!is.na(policy_ids) & nzchar(policy_ids)]
+      if (length(policy_ids) == 0) {
+        return(character(0))
+      }
+      out <- policy_ids
+    }
+    unique(out[!is.na(out) & nzchar(out)])
+  }
+  infer_equation_branch_filters <- function(tbl) {
+    tbl <- tibble::as_tibble(tbl)
+    unique(resolve_policy_branch_filters(tbl))
+  }
+  if (is_s7_instance(learner, "PolicyLearner")) {
+    # The meta-learner must score every benchmarked policy that could plausibly
+    # produce a donor set for the anchor. Restricting prediction to the
+    # deterministic `final_ref` subset can silently drop broad policy families
+    # and leave some anchors with only zero-donor rows.
+    if ((is.null(active_policies) || length(active_policies) == 0) &&
+      length(object@benchmark) > 0) {
+      active_policies <- infer_policy_bases((object@benchmark)$policy_perf %||% tibble::tibble())
+      if (is.null(policy_params$equation_branch_filters) &&
+        nrow((object@benchmark)$policy_perf %||% tibble::tibble()) > 0) {
+        policy_params$equation_branch_filters <- infer_equation_branch_filters(
+          (object@benchmark)$policy_perf %||% tibble::tibble()
+        )
+      }
+    }
+    if (is.null(active_policies) || length(active_policies) == 0) {
+      active_policies <- infer_policy_bases(select_tbl)
+      if (is.null(policy_params$equation_branch_filters) && nrow(select_tbl) > 0) {
+        policy_params$equation_branch_filters <- infer_equation_branch_filters(select_tbl)
+      }
+    }
+  } else {
+    if (is.null(active_policies) || length(active_policies) == 0) {
+      active_policies <- infer_policy_bases(select_tbl)
+      if (is.null(policy_params$equation_branch_filters) && nrow(select_tbl) > 0) {
+        policy_params$equation_branch_filters <- infer_equation_branch_filters(select_tbl)
+      }
+    }
+    if ((is.null(active_policies) || length(active_policies) == 0) &&
+      length(object@benchmark) > 0) {
+      active_policies <- infer_policy_bases((object@benchmark)$policy_perf %||% tibble::tibble())
+      if (is.null(policy_params$equation_branch_filters) &&
+        nrow((object@benchmark)$policy_perf %||% tibble::tibble()) > 0) {
+        policy_params$equation_branch_filters <- infer_equation_branch_filters(
+          (object@benchmark)$policy_perf %||% tibble::tibble()
+        )
+      }
+    }
+  }
+  active_policies <- active_policies[!is.na(active_policies) & nzchar(active_policies)]
+  if (length(active_policies) == 0) {
+    stop("No active policies were supplied for prediction.", call. = FALSE)
+  }
+  if (!is.null(learner) && !is_s7_instance(learner, "PolicyLearner")) {
+    stop("'learner' must be NULL or a `PolicyLearner` object.", call. = FALSE)
+  }
+
+  # Build one augmented similarity basis when held-out anchors are not already
+  # present in the candidate pool so per-anchor prediction does not rebuild it.
+  prediction_candidates <- object@candidates
+  prediction_excluded_model_ids <- character(0)
+  id_col <- if ("model_id" %in% names(anchors_tbl) && "model_id" %in% names(object@candidates@candidate_models)) {
+    "model_id"
+  } else if ("model_id" %in% names(anchors_tbl) && "model_id" %in% names(object@candidates@candidate_models)) {
+    "model_id"
+  } else {
+    NULL
+  }
+  if ("model_id" %in% names(object@candidates@reference_anchors)) {
+    prediction_excluded_model_ids <- c(
+      prediction_excluded_model_ids,
+      as.character(object@candidates@reference_anchors$model_id)
+    )
+  } else if ("model_id" %in% names(object@candidates@reference_anchors)) {
+    prediction_excluded_model_ids <- c(
+      prediction_excluded_model_ids,
+      as.character(object@candidates@reference_anchors$model_id)
+    )
+  }
+  if (!is.null(id_col)) {
+    candidate_ids_now <- unique(as.character(object@candidates@candidate_models[[id_col]]))
+    external_anchor_rows <- anchors_tbl |>
+      dplyr::filter(!(as.character(.data[[id_col]]) %in% candidate_ids_now))
+    if (nrow(external_anchor_rows) > 0) {
+      prediction_excluded_model_ids <- c(
+        prediction_excluded_model_ids,
+        as.character(external_anchor_rows[[id_col]])
+      )
+      augmented_candidates <- Candidates(
+        spec = object@candidates@spec,
+        study_db = object@candidates@study_db,
+        species_vector = unique(c(
+          object@candidates@species_vector,
+          sort(unique(stats::na.omit(as.character(external_anchor_rows$species_name %||% character(0)))))
+        )),
+        source_dbs = object@candidates@source_dbs,
+        species_db = object@candidates@species_db,
+        candidate_models = dplyr::bind_rows(
+          tibble::as_tibble(object@candidates@candidate_models),
+          tibble::as_tibble(external_anchor_rows)
+        ),
+        reference_anchors = object@candidates@reference_anchors,
+        similarity_matrix = list(),
+        gower_distances = list(),
+        ordination = object@candidates@ordination,
+        admissibility = list(),
+        similarity_tuning = object@candidates@similarity_tuning
+      )
+      sim_prediction <- prepare_similarity_matrix(
+        candidate_models = augmented_candidates@candidate_models,
+        species_traits = anchor_cfg$species_traits %||% NULL,
+        study_traits = anchor_cfg$study_traits %||% NULL,
+        alpha = anchor_cfg$alpha %||% NULL,
+        k_species = anchor_cfg$k_species %||% NULL,
+        k_study = anchor_cfg$k_study %||% NULL,
+        config = anchor_cfg,
+        registry_path = registry_path,
+        seed = anchor_cfg$seed %||% NULL
+      )
+      prediction_candidates <- candidates_with_similarity_matrix(
+        augmented_candidates,
+        sim_prediction
+      )
+      prediction_candidates <- candidates_with_gower_distances(
+        prediction_candidates,
+        build_gower_distances(sim_prediction)
+      )
+    }
+  }
+  prediction_excluded_model_ids <- unique(
+    prediction_excluded_model_ids[
+      !is.na(prediction_excluded_model_ids) &
+        nzchar(prediction_excluded_model_ids)
+    ]
+  )
+
+  # Resolve all reusable reference tables and scalar thresholds once so the
+  # per-anchor loop only performs the work that actually depends on the anchor.
+  conf_tbl <- normalize_policy_columns(conf_tbl)
+  conf_join <- intersect(c("policy", "equation_branch_filter", "q_abs_log", "n", "median_abs_log"), names(conf_tbl))
+  conf_ref_tbl <- if (all(c("policy", "equation_branch_filter", "q_abs_log") %in% conf_join)) {
+    conf_tbl |>
+      dplyr::select(dplyr::all_of(conf_join))
+  } else {
+    tibble::tibble()
+  }
+  select_cols <- intersect(
+    c(
+      "policy",
+      "equation_branch_filter",
+      "mean_species_median_abs_log",
+      "acceptable_one_se",
+      "acceptable_bootstrap",
+      "acceptable_global",
+      "equivalent_to_best_global",
+      "paired_mean_diff_to_best",
+      "best_mean_species_median_abs_log",
+      "one_se_threshold",
+      "bootstrap_prob_within_threshold",
+      "bootstrap_prob_best",
+      "bootstrap_median_rank",
+      "coefficient_slope_q95",
+      "coefficient_intercept_q95",
+      "coefficient_stability_n",
+      "specificity_rank",
+      "equivalence_class_id",
+      "equivalence_class_size",
+      "equivalence_class_members"
+    ),
+    names(select_tbl)
+  )
+  select_tbl <- normalize_policy_columns(select_tbl)
+  select_ref_tbl <- if (all(c("policy", "equation_branch_filter") %in% select_cols)) {
+    select_tbl |>
+      dplyr::select(dplyr::all_of(select_cols))
+  } else {
+    tibble::tibble()
+  }
+  learner_meta_ref_tbl <- if (is_s7_instance(learner, "PolicyLearner")) {
+    benchmark_species_perf <- tryCatch(
+      policy_learner_species_perf(learner),
+      error = function(e) tibble::tibble()
+    )
+    benchmark_species_perf <- tryCatch(
+      augment_species_block_meta_features(benchmark_species_perf),
+      error = function(e) tibble::as_tibble(benchmark_species_perf)
+    )
+    meta_cols <- intersect(
+      c(
+        "policy",
+        "equation_branch_filter",
+        "anchor_species",
+        "n_valid_folds",
+        "prop_valid_folds",
+        "policy_loco_mean_abs_log",
+        "policy_loco_sd_abs_log",
+        "policy_loco_q75_abs_log",
+        "policy_loco_q90_abs_log"
+      ),
+      names(benchmark_species_perf)
+    )
+    if (all(c("policy", "equation_branch_filter", "anchor_species") %in% meta_cols)) {
+      benchmark_species_perf |>
+        normalize_policy_columns() |>
+        dplyr::select(dplyr::all_of(meta_cols)) |>
+        dplyr::distinct()
+    } else {
+      tibble::tibble()
+    }
+  } else {
+    tibble::tibble()
+  }
+  coefficient_ref_tbl <- policy_coefficient_stability_summary(
+    species_performance_table = benchmark_policy_tbl,
+    candidate_models = object@candidates@candidate_models %||% tibble::tibble(),
+    level = 0.95
+  )
+  structural_uncertainty_weight <- policy_selector_config_value(
+    cfg, "structural_uncertainty_weight",
+    sections = c("policy", "selection")
+  ) %||% 1
+  uncertainty_rule <- normalize_uncertainty_rule(policy_selector_config_value(
+    cfg, "uncertainty_rule",
+    sections = c("selection", "policy")
+  ) %||% "tolerance")
+  u_tol_rel <- policy_selector_config_value(
+    cfg, "u_tol_rel",
+    sections = c("selection", "policy")
+  ) %||% policy_selector_config_value(
+    cfg, "uncertainty_relative_tolerance",
+    sections = c("selection", "policy")
+  ) %||% 0.25
+  u_tol_abs <- policy_selector_config_value(
+    cfg, "u_tol_abs",
+    sections = c("selection", "policy")
+  ) %||% policy_selector_config_value(
+    cfg, "uncertainty_absolute_tolerance",
+    sections = c("selection", "policy")
+  ) %||% 0.05
+  one_se_multiplier <- policy_selector_config_value(
+    cfg, "one_se_multiplier",
+    sections = c("selection", "policy")
+  ) %||% 1
+  local_distance_tolerance <- policy_selector_config_value(
+    cfg, "local_distance_tolerance",
+    sections = c("selection", "policy")
+  ) %||% 1e-12
+
+  all_policy_intervals <- list()
+  selected_policy_rows <- list()
+  consensus_multiplier_rows <- list()
+
+  n_anchors <- nrow(anchors_tbl)
+  report_progress(
+    progress,
+    "[Predict] Scoring ", n_anchors, " anchor",
+    if (n_anchors != 1L) "s" else "", " across ", length(active_policies), " policies..."
+  )
+
+  # Re-evaluate or reuse each anchor-specific admissibility object, then apply
+  # the active policy set and join the stored uncertainty and selection
+  # summaries onto those anchor-policy predictions.
+  for (i in seq_len(n_anchors)) {
+    anchor_row <- anchors_tbl[i, , drop = FALSE]
+    anchor_id <- if ("model_id" %in% names(anchor_row)) {
+      as.character(anchor_row$model_id[[1]])
+    } else {
+      as.character(anchor_row$model_id[[1]])
+    }
+    anchor_species <- as.character(anchor_row$species_name[[1]])
+    report_progress(
+      progress,
+      "[Predict]   [", i, "/", n_anchors, "] ", anchor_species, " (", anchor_id, ")"
+    )
+
+    eval_obj <- if (isTRUE(reuse_admissibility)) {
+      policy_selector_cached_anchor_evaluation(
+        object = object,
+        anchor_row = anchor_row,
+        config_supplied = !is.null(config)
+      )
+    } else {
+      NULL
+    }
+    if (is.null(eval_obj)) {
+      eval_obj <- try(screen_one_anchor_admissibility(
+        anchor_row = anchor_row,
+        candidate_models = prediction_candidates,
+        config = cfg,
+        registry_path = registry_path,
+        excluded_model_ids = prediction_excluded_model_ids
+      ), silent = TRUE)
+    }
+    if (inherits(eval_obj, "try-error")) {
+      # Record an invalid anchor result instead of aborting the whole
+      # prediction pass when one held-out anchor cannot be screened.
+      selected_policy_rows[[length(selected_policy_rows) + 1]] <- tibble::tibble(
+        anchor_model_id = anchor_id,
+        anchor_species = anchor_species,
+        selected_policy = NA_character_,
+        selected_policy_display = NA_character_,
+        equation_branch_filter = NA_character_,
+        multiplier_pred = NA_real_,
+        multiplier_lo = NA_real_,
+        multiplier_hi = NA_real_,
+        valid_prediction = FALSE,
+        selection_tier = if (is_s7_instance(learner, "PolicyLearner")) {
+          "meta_policy_min_predicted_score"
+        } else {
+          "deterministic_global_screen"
+        },
+        prediction_error_message = as.character(eval_obj)[[1]]
+      )
+      consensus_multiplier_rows[[length(consensus_multiplier_rows) + 1]] <- tibble::tibble(
+        anchor_model_id = anchor_id,
+        anchor_species = anchor_species
+      )
+      report_progress(
+        progress,
+        "[Predict]   Skipped [", i, "/", n_anchors, "] ", anchor_species, " (", anchor_id, "): ",
+        as.character(eval_obj)[[1]]
+      )
+      next
+    }
+
+    ordination_info <- if (is.null(model_scores) || is.null(species_lookup)) {
+      NULL
+    } else {
+      build_anchor_ordination(
+        anchor_row = anchor_row,
+        model_scores = model_scores,
+        species_lookup = species_lookup
+      )
+    }
+
+    policy_tbl <- evaluate_policies(
+      eval_obj = eval_obj,
+      ordination_info = ordination_info,
+      policies = active_policies,
+      policy_params = policy_params,
+      policy_path = policy_path
+    ) |>
+      normalize_policy_columns() |>
+      dplyr::mutate(
+        anchor_model_id = anchor_id,
+        anchor_species = anchor_species,
+        valid_prediction = is.finite(.data$multiplier_pred) & .data$multiplier_pred > 0
+      )
+
+    if (nrow(conf_ref_tbl) > 0) {
+      policy_tbl <- policy_tbl |>
+        dplyr::left_join(conf_ref_tbl, by = c("policy", "equation_branch_filter"))
+    } else {
+      policy_tbl$q_abs_log <- NA_real_
+    }
+
+    policy_tbl <- add_policy_intervals(
+      policy_tbl = policy_tbl,
+      structural_uncertainty_weight = structural_uncertainty_weight
+    )
+
+    if (nrow(select_ref_tbl) > 0) {
+      policy_tbl <- policy_tbl |>
+        dplyr::left_join(select_ref_tbl, by = c("policy", "equation_branch_filter"))
+    }
+    if (nrow(learner_meta_ref_tbl) > 0) {
+      # Reattach the same species-specific policy-fragility summaries used to
+      # train the meta-learner so anchor-time scoring does not fall back to
+      # median-imputed defaults for fold validity and leave-current-species-out
+      # policy error history.
+      policy_tbl <- policy_tbl |>
+        dplyr::left_join(
+          learner_meta_ref_tbl,
+          by = c("policy", "equation_branch_filter", "anchor_species")
+        )
+    }
+    if (nrow(coefficient_ref_tbl) > 0) {
+      policy_tbl <- policy_tbl |>
+        dplyr::left_join(
+          coefficient_ref_tbl,
+          by = c("policy", "equation_branch_filter"),
+          suffix = c("", ".coefref")
+        )
+      if (!"coefficient_slope_q95.coefref" %in% names(policy_tbl)) {
+        policy_tbl$coefficient_slope_q95.coefref <- NA_real_
+      }
+      if (!"coefficient_intercept_q95.coefref" %in% names(policy_tbl)) {
+        policy_tbl$coefficient_intercept_q95.coefref <- NA_real_
+      }
+      if (!"coefficient_stability_n.coefref" %in% names(policy_tbl)) {
+        policy_tbl$coefficient_stability_n.coefref <- NA_real_
+      }
+      policy_tbl <- policy_tbl |>
+        dplyr::mutate(
+          coefficient_slope_q95 = dplyr::coalesce(.data$coefficient_slope_q95, .data$coefficient_slope_q95.coefref),
+          coefficient_intercept_q95 = dplyr::coalesce(.data$coefficient_intercept_q95, .data$coefficient_intercept_q95.coefref),
+          coefficient_stability_n = dplyr::coalesce(.data$coefficient_stability_n, .data$coefficient_stability_n.coefref)
+        ) |>
+        dplyr::select(-dplyr::any_of(c(
+          "coefficient_slope_q95.coefref",
+          "coefficient_intercept_q95.coefref",
+          "coefficient_stability_n.coefref"
+        )))
+    }
+    # Collapse exact donor-equivalent candidates before scoring or selection.
+    # When multiple policy labels resolve to the same realized donor set and
+    # therefore the same predicted multiplier/coefficients for this anchor,
+    # keep only the most specific representation instead of letting broader
+    # aliases compete as distinct options.
+    policy_tbl <- canonicalize_equivalent_policy_rows(policy_tbl)
+
+    # Either keep the deterministic globally screened policy row, or hand the
+    # anchor-policy table to the meta-policy learner and retain the learner's
+    # score-minimizing rows for this anchor.
+    if (is_s7_instance(learner, "PolicyLearner")) {
+      policy_tbl <- stats::predict(
+        learner,
+        policy_tbl,
+        use_support_bin_intervals = use_support_bin_intervals,
+        max_selection_tolerance = max_selection_tolerance
+      )
+      selected_row <- policy_tbl |>
+        dplyr::filter(.data$valid_prediction, .data$is_selected)
+    } else {
+      if (!"policy_display" %in% names(policy_tbl)) {
+        policy_tbl$policy_display <- policy_tbl$policy
+      }
+      selected_row <- select_anchor_policies(
+        policy_tbl = policy_tbl,
+        uncertainty_rule = uncertainty_rule,
+        u_tol_rel = u_tol_rel,
+        u_tol_abs = u_tol_abs,
+        one_se_multiplier = one_se_multiplier,
+        local_distance_tolerance = local_distance_tolerance
+      ) |>
+        dplyr::mutate(
+          selected_policy_display = dplyr::coalesce(.data$selected_policy_display, .data$policy_display, .data$selected_policy),
+          selection_tier = dplyr::coalesce(.data$selection_tier, "deterministic_global_screen")
+        )
+    }
+
+    if (nrow(selected_row) == 0) {
+      selected_row <- tibble::tibble(
+        anchor_model_id = anchor_id,
+        anchor_species = anchor_species,
+        selected_policy = NA_character_,
+        selected_policy_display = NA_character_,
+        equation_branch_filter = NA_character_,
+        multiplier_pred = NA_real_,
+        multiplier_lo = NA_real_,
+        multiplier_hi = NA_real_,
+        selection_tier = if (is_s7_instance(learner, "PolicyLearner")) {
+          "meta_policy_min_predicted_score"
+        } else {
+          "deterministic_global_screen"
+        }
+      )
+    }
+
+    consensus_row <- summarize_evaluation(eval_obj) |>
+      dplyr::mutate(
+        anchor_model_id = anchor_id,
+        anchor_species = anchor_species,
+        .before = 1
+      )
+
+    all_policy_intervals[[length(all_policy_intervals) + 1]] <- policy_tbl
+    selected_policy_rows[[length(selected_policy_rows) + 1]] <- selected_row
+    consensus_multiplier_rows[[length(consensus_multiplier_rows) + 1]] <- consensus_row
+    report_progress(
+      progress,
+      "[Predict]   Completed [", i, "/", n_anchors, "] ", anchor_species, " (", anchor_id, ")"
+    )
+  }
+
+  report_progress(progress, "[Predict] Completed predictions for ", n_anchors, " anchor", if (n_anchors != 1L) "s" else "", ".")
+
+  PolicyPredictions(
+    intervals = dplyr::bind_rows(all_policy_intervals),
+    selections = dplyr::bind_rows(selected_policy_rows),
+    consensus = dplyr::bind_rows(consensus_multiplier_rows)
+  )
+}
+
+#' Predict selected policy intervals
+#'
+#' @return A [PolicyPredictions] object.
+#' @name predict.PolicySelector
+#' @usage NULL
+S7::method(predict_generic, PolicySelector) <- .predict_policy_selector
+
+#' Print a `PolicySelector`
+#'
+#' @name print.PolicySelector
+#' @usage NULL
+#'
+#' @param x A [PolicySelector] object.
+#' @param ... Unused.
+#'
+#' @return Invisibly returns `x`.
+#'
+#' @keywords internal
+#' @noRd
+S7::method(print_generic, PolicySelector) <- function(x, ...) {
+  benchmark_rows <- nrow(tibble::as_tibble((x@benchmark)$policy_perf %||% tibble::tibble()))
+  uncertainty_rows <- nrow(tibble::as_tibble((x@uncertainty)$conf_cal %||% tibble::tibble()))
+  selection_rows <- nrow(tibble::as_tibble((x@selection)$final_ref %||% tibble::tibble()))
+
+  cat("PolicySelector\n")
+  cat("  candidate_models: ", nrow(x@candidates@candidate_models), "\n", sep = "")
+  cat("  anchors: ", nrow(x@candidates@reference_anchors), "\n", sep = "")
+  cat("  benchmark_rows: ", benchmark_rows, "\n", sep = "")
+  cat("  uncertainty_rows: ", uncertainty_rows, "\n", sep = "")
+  cat("  selection_rows: ", selection_rows, "\n", sep = "")
+  invisible(x)
+}
+
+#' Show a `PolicySelector`
+#'
+#' @name show.PolicySelector
+#' @usage NULL
+#'
+#' @param object A [PolicySelector] object.
+#'
+#' @return Invisibly returns `object`.
+#'
+#' @keywords internal
+#' @noRd
+S7::method(show_generic, PolicySelector) <- function(object) {
+  print(object)
+  invisible(object)
+}
+
+#' Print a `PolicyPredictions`
+#'
+#' @name print.PolicyPredictions
+#' @usage NULL
+#'
+#' @param x A [PolicyPredictions] object.
+#' @param ... Unused.
+#'
+#' @return Invisibly returns `x`.
+#'
+#' @keywords internal
+#' @noRd
+S7::method(print_generic, PolicyPredictions) <- function(x, ...) {
+  cat("PolicyPredictions\n")
+  cat("  interval_rows: ", nrow(x@intervals), "\n", sep = "")
+  cat("  selected_rows: ", nrow(x@selections), "\n", sep = "")
+  cat("  consensus_rows: ", nrow(x@consensus), "\n", sep = "")
+  invisible(x)
+}
+
+#' Show a `PolicyPredictions`
+#'
+#' @name show.PolicyPredictions
+#' @usage NULL
+#'
+#' @param object A [PolicyPredictions] object.
+#'
+#' @return Invisibly returns `object`.
+#'
+#' @keywords internal
+#' @noRd
+S7::method(show_generic, PolicyPredictions) <- function(object) {
+  print(object)
+  invisible(object)
+}
+
+#' Coerce `PolicyPredictions` to a tibble
+#'
+#' Returns the canonical selected-policy result table.
+#'
+#' @param x A [PolicyPredictions] object.
+#' @param ... Unused.
+#'
+#' @return Tibble of `x@selections`.
+#'
+#' @examples
+#' \dontrun{
+#' predictions <- predict(selector)
+#' tibble::as_tibble(predictions)
+#' }
+#'
+#' @keywords internal
+#' @noRd
+as_tibble_policy_predictions <- function(x, ...) {
+  tibble::as_tibble(x@selections)
+}
+
+#' Plot a `PolicySelector`
+#'
+#' Uses the package's S7 method on [base::plot()] so selector-stage
+#' summaries can be drawn directly from the staged object.
+#'
+#' @name plot.PolicySelector
+#'
+#' @param x A [PolicySelector] object.
+#' @param y Unused.
+#' @param type Figure family to draw.
+#' @param ... Unused additional arguments.
+#'
+#' @return A ggplot object.
+#'
+#' @examples
+#' \dontrun{
+#' selector <- benchmark(as_policyselector(candidates))
+#' plot(selector, type = "policy_benchmark")
+#' plot(selector, type = "strategy_error_heatmap")
+#' }
+.plot_policy_selector <- function(x,
+                                  y = NULL,
+                                  type = c(
+                                    "strategy_error_heatmap",
+                                    "conformal_scores",
+                                    "policy_benchmark",
+                                    "species_policy_ranked"
+                                  ),
+                                  ...) {
+  type <- match.arg(type)
+
+  if (type %in% c("strategy_error_heatmap", "policy_benchmark", "species_policy_ranked")) {
+    if (length(x@benchmark) == 0) {
+      stop(
+        "No benchmark results are stored on this `PolicySelector`. Run `benchmark()` first.",
+        call. = FALSE
+      )
+    }
+    if (identical(type, "policy_benchmark")) {
+      return(plot_policy_boxplot((x@benchmark)$policy_perf %||% tibble::tibble()))
+    }
+    if (identical(type, "species_policy_ranked")) {
+      return(plot_species_policy_ranked((x@benchmark)$species_block_perf %||% tibble::tibble()))
+    }
+    return(plot_policy_heatmap((x@benchmark)$species_block_perf %||% tibble::tibble()))
+  }
+
+  if (length(x@uncertainty) == 0) {
+    stop(
+      "No uncertainty results are stored on this `PolicySelector`. Run `calibrate_uncertainty()` first.",
+      call. = FALSE
+    )
+  }
+  plot_conformal_scores((x@uncertainty)$conf_cal %||% tibble::tibble())
+}
+
+#' Register the `PolicySelector` plot method
+#'
+#' @name plot.PolicySelector
+#' @usage NULL
+#'
+#' @keywords internal
+#' @noRd
+S7::method(plot_generic, PolicySelector) <- .plot_policy_selector
+
+#' Plot a `PolicyPredictions`
+#'
+#' Uses the package's S7 method on [base::plot()] so prediction bundles can be
+#' inspected directly without extracting the stored interval tables by hand.
+#'
+#' @name plot.PolicyPredictions
+#'
+#' @param x A [PolicyPredictions] object.
+#' @param y Unused.
+#' @param type Figure family to draw.
+#' @param anchor_species Optional anchor species used to restrict
+#'   `type = "strategy_competition"` to one reference.
+#' @param reference_name Optional display label used when plotting one anchor's
+#'   policy competition panel.
+#' @param ... Unused additional arguments.
+#'
+#' @return A ggplot object.
+#'
+#' @examples
+#' \dontrun{
+#' predictions <- predict(selector)
+#' plot(predictions, type = "selected_intervals")
+#' plot(predictions, type = "strategy_competition")
+#' }
+.plot_policy_predictions <- function(x,
+                                     y = NULL,
+                                     type = c("selected_intervals", "strategy_competition"),
+                                     anchor_species = NULL,
+                                     reference_name = NULL,
+                                     ...) {
+  type <- match.arg(type)
+
+  if (identical(type, "selected_intervals")) {
+    return(plot_selected_intervals(x@selections))
+  }
+
+  interval_tbl <- tibble::as_tibble(x@intervals)
+  if (!is.null(anchor_species)) {
+    interval_tbl <- interval_tbl |>
+      dplyr::filter(.data$anchor_species == as.character(anchor_species[[1]]))
+    return(plot_all_intervals(
+      interval_tbl = interval_tbl,
+      reference_name = reference_name %||% as.character(anchor_species[[1]])
+    ))
+  }
+  plot_interval_panel(interval_tbl)
+}
+
+#' Register the `PolicyPredictions` plot method
+#'
+#' @name plot.PolicyPredictions
+#' @usage NULL
+#'
+#' @keywords internal
+#' @noRd
+S7::method(plot_generic, PolicyPredictions) <- .plot_policy_predictions
+
+
+#' Rank policy specificity
+#'
+#' Returns an ordinal specificity ranking used to break ties when multiple
+#' policies have nearly identical benchmark error.
+#'
+#' @param policy Character vector of policy names.
+#' @param candidate_pool Optional candidate-pool labels used to refine
+#'   specificity ties.
+#' @param aggregation_method Optional aggregation-method labels used to refine
+#'   specificity ties.
+#' @param policy_family Optional policy-family labels used to refine
+#'   specificity ties.
+#' @param equation_branch_filter Optional equation-branch filters used to
+#'   refine specificity ties.
+#'
+#' @return Integer vector.
+#'
+#' @keywords internal
+#' @noRd
+#' Rank policy candidate-pool breadth
+#'
+#' @param policy Policy identifiers.
+#' @param candidate_pool Optional candidate-pool labels.
+#'
+#' @return Integer vector.
+#'
+#' @keywords internal
+#' @noRd
+policy_pool_rank <- function(policy, candidate_pool = NULL) {
+  policy_ <- stringr::str_to_lower(stringr::str_squish(as.character(policy)))
+  candidate_pool_ <- stringr::str_to_lower(stringr::str_squish(as.character(candidate_pool %||% rep(NA_character_, length(policy_)))))
+
+  policy_pool_rank <- dplyr::case_when(
+    stringr::str_detect(policy_, "same_species|within_species|study_cell_species") ~ 1L,
+    stringr::str_detect(policy_, "same_genus|within_genus|study_cell_genus|genus_fao|genus_") ~ 2L,
+    stringr::str_detect(policy_, "same_family|within_family|study_cell_family|family_ocean_basin|family_") ~ 3L,
+    stringr::str_detect(policy_, "same_order|within_order") ~ 4L,
+    stringr::str_detect(policy_, "study_cell|within_study_cell|closest_study_cell") ~ 5L,
+    stringr::str_detect(policy_, "same_fao|within_fao|_fao$") ~ 6L,
+    stringr::str_detect(policy_, "same_ocean_basin|within_ocean_basin|ocean_basin") ~ 7L,
+    stringr::str_detect(policy_, "all_admissible|across_all_admissible") ~ 8L,
+    TRUE ~ 9L
+  )
+  candidate_pool_rank <- dplyr::case_when(
+    candidate_pool_ %in% c("same_species", "within_species") ~ 1L,
+    candidate_pool_ %in% c("same_genus", "within_genus") ~ 2L,
+    candidate_pool_ %in% c("same_family", "within_family") ~ 3L,
+    candidate_pool_ %in% c("same_order", "within_order") ~ 4L,
+    candidate_pool_ %in% c("same_study_cell", "within_study_cell", "closest_study_cell") ~ 5L,
+    candidate_pool_ %in% c("same_fao_area", "within_fao", "within_fao_area") ~ 6L,
+    candidate_pool_ %in% c("same_ocean_basin", "within_ocean_basin") ~ 7L,
+    candidate_pool_ %in% c("all_admissible", "across_all_admissible") ~ 8L,
+    TRUE ~ 9L
+  )
+  pool_rank <- pmin(policy_pool_rank, candidate_pool_rank, na.rm = TRUE)
+  pool_rank[!is.finite(pool_rank)] <- 9L
+  pool_rank
+}
+
+#' Rank policy aggregation breadth
+#'
+#' @param policy Policy identifiers.
+#' @param aggregation_method Optional aggregation labels.
+#'
+#' @return Integer vector.
+#'
+#' @keywords internal
+#' @noRd
+policy_aggregation_rank <- function(policy, aggregation_method = NULL) {
+  policy_ <- stringr::str_to_lower(stringr::str_squish(as.character(policy)))
+  aggregation_method_ <- stringr::str_to_lower(stringr::str_squish(as.character(aggregation_method %||% rep(NA_character_, length(policy_)))))
+  aggregation_method_ <- dplyr::coalesce(
+    aggregation_method_,
+    dplyr::case_when(
+      stringr::str_detect(policy_, "closest|distance|nearest") ~ "nearest",
+      stringr::str_detect(policy_, "weighted_mean") ~ "weighted_mean",
+      stringr::str_detect(policy_, "unweighted_mean") ~ "unweighted_mean",
+      stringr::str_detect(policy_, "random_baseline|random_draw") ~ "random_baseline",
+      TRUE ~ NA_character_
+    )
+  )
+
+  aggregation_rank <- dplyr::case_when(
+    aggregation_method_ %in% c(
+      "nearest",
+      "nearest_by_combined_distance",
+      "nearest_by_trait_gower_distance",
+      "nearest_by_taxonomic_distance",
+      "nearest_by_species_distance",
+      "nearest_study_then_model"
+    ) ~ 1L,
+    aggregation_method_ %in% c(
+      "kernel_weighted_mean",
+      "distance_weighted_mean",
+      "study_kernel_weighted_mean",
+      "weighted_mean"
+    ) ~ 2L,
+    aggregation_method_ %in% c(
+      "study_equal_weight_mean",
+      "unweighted_mean"
+    ) ~ 3L,
+    aggregation_method_ %in% c("random_baseline", "random_draw") ~ 4L,
+    TRUE ~ 3L
+  )
+}
+
+#' Flag overly broad aggregate policies
+#'
+#' @param policy Policy identifiers.
+#' @param candidate_pool Optional candidate-pool labels.
+#' @param aggregation_method Optional aggregation labels.
+#' @param broad_pool_min_rank Minimum pool-rank treated as broad.
+#'
+#' @return Logical vector.
+#'
+#' @keywords internal
+#' @noRd
+policy_is_broad_aggregate <- function(policy,
+                                      candidate_pool = NULL,
+                                      aggregation_method = NULL,
+                                      broad_pool_min_rank = 6L) {
+  pool_rank <- policy_pool_rank(
+    policy = policy,
+    candidate_pool = candidate_pool
+  )
+  aggregation_rank <- policy_aggregation_rank(
+    policy = policy,
+    aggregation_method = aggregation_method
+  )
+  is.finite(pool_rank) &
+    is.finite(aggregation_rank) &
+    pool_rank >= as.integer(broad_pool_min_rank[[1]] %||% 6L) &
+    aggregation_rank %in% c(2L, 3L)
+}
+
+policy_specificity_rank <- function(policy,
+                                    candidate_pool = NULL,
+                                    aggregation_method = NULL,
+                                    policy_family = NULL,
+                                    equation_branch_filter = NULL) {
+  policy_ <- stringr::str_to_lower(stringr::str_squish(as.character(policy)))
+  policy_family_ <- stringr::str_to_lower(stringr::str_squish(as.character(policy_family %||% rep(NA_character_, length(policy_)))))
+  equation_branch_filter_ <- stringr::str_to_lower(stringr::str_squish(as.character(equation_branch_filter %||% rep(NA_character_, length(policy_)))))
+  pool_rank <- policy_pool_rank(
+    policy = policy_,
+    candidate_pool = candidate_pool
+  )
+  aggregation_rank <- policy_aggregation_rank(
+    policy = policy_,
+    aggregation_method = aggregation_method
+  )
+
+  branch_penalty <- 0L
+  family_penalty <- dplyr::case_when(
+    policy_family_ %in% c("single_model", "study_hierarchical_single_model") ~ 0L,
+    policy_family_ %in% c("baseline", "random_baseline") ~ 20L,
+    TRUE ~ 5L
+  )
+
+  pool_rank * 100L + aggregation_rank * 10L + branch_penalty + family_penalty
+}
+
+#' Normalize the configured uncertainty-selection rule
+#'
+#' @param x Raw rule value.
+#' @param default Fallback rule used when `x` is missing.
+#'
+#' @return One of `"min"`, `"tolerance"`, or `"one_se"`.
+#'
+#' @keywords internal
+#' @noRd
+normalize_uncertainty_rule <- function(x, default = "tolerance") {
+  # Normalize the rule labels to the supported runtime values.
+  rule <- stringr::str_to_lower(stringr::str_squish(as.character(x %||% default)[[1]] %||% default))
+  if (!nzchar(rule) || is.na(rule)) {
+    rule <- default
+  }
+  if (identical(rule, "minimum_width")) {
+    rule <- "min"
+  }
+  if (identical(rule, "within_width_tolerance")) {
+    rule <- "tolerance"
+  }
+  if (identical(rule, "one_standard_error")) {
+    rule <- "one_se"
+  }
+  if (!rule %in% c("min", "tolerance", "one_se")) {
+    stop(
+      "Selection field 'uncertainty_rule' must be one of: 'min', 'tolerance', 'one_se'.",
+      call. = FALSE
+    )
+  }
+  rule
+}
+
+#' Compute the standard error of interval widths
+#'
+#' @param x Numeric vector of interval widths.
+#'
+#' @return Numeric scalar.
+#'
+#' @keywords internal
+#' @noRd
+uncertainty_width_se <- function(x) {
+  x_ <- suppressWarnings(as.numeric(x))
+  x_ <- x_[is.finite(x_)]
+  if (length(x_) < 2L) {
+    return(0)
+  }
+  stats::sd(x_, na.rm = TRUE) / sqrt(length(x_))
+}
+
+#' Compute the conformal order statistic
+#'
+#' @param x Numeric score vector.
+#' @param level Coverage level used to choose the order statistic.
+#'
+#' @return Numeric scalar.
+#'
+#' @keywords internal
+#' @noRd
+conformal_order_statistic <- function(x, level = 0.95) {
+  x_ <- suppressWarnings(as.numeric(x))
+  x_ <- x_[is.finite(x_)]
+  n <- length(x_)
+  if (n == 0L) {
+    return(NA_real_)
+  }
+  k <- min(n, ceiling((n + 1) * level))
+  sort(x_)[[k]]
+}
+
+#' Compute a weighted species-level mean
+#'
+#' @param x Numeric values.
+#' @param w Non-negative weights.
+#'
+#' @return Numeric scalar.
+#'
+#' @keywords internal
+#' @noRd
+weighted_species_mean <- function(x,
+                                  w) {
+  x_ <- suppressWarnings(as.numeric(x))
+  w_ <- suppressWarnings(as.numeric(w))
+  ok <- is.finite(x_) & is.finite(w_) & w_ > 0
+  if (!any(ok)) {
+    return(NA_real_)
+  }
+  stats::weighted.mean(x_[ok], w = w_[ok], na.rm = TRUE)
+}
+
+#' Compute a weighted species-level standard deviation
+#'
+#' @param x Numeric values.
+#' @param w Non-negative weights.
+#'
+#' @return Numeric scalar.
+#'
+#' @keywords internal
+#' @noRd
+weighted_species_sd <- function(x,
+                                w) {
+  x_ <- suppressWarnings(as.numeric(x))
+  w_ <- suppressWarnings(as.numeric(w))
+  ok <- is.finite(x_) & is.finite(w_) & w_ > 0
+  if (sum(ok) < 2L) {
+    return(NA_real_)
+  }
+  x_ <- x_[ok]
+  w_ <- w_[ok]
+  mu <- stats::weighted.mean(x_, w = w_, na.rm = TRUE)
+  w_sum <- sum(w_)
+  w_sq_sum <- sum(w_^2)
+  denom <- w_sum - (w_sq_sum / w_sum)
+  if (!is.finite(denom) || denom <= 0) {
+    return(NA_real_)
+  }
+  sqrt(sum(w_ * (x_ - mu)^2) / denom)
+}
+
+#' Compute a weighted species-level standard error
+#'
+#' @param x Numeric values.
+#' @param w Non-negative weights.
+#'
+#' @return Numeric scalar.
+#'
+#' @keywords internal
+#' @noRd
+weighted_species_se <- function(x,
+                                w) {
+  x_ <- suppressWarnings(as.numeric(x))
+  w_ <- suppressWarnings(as.numeric(w))
+  ok <- is.finite(x_) & is.finite(w_) & w_ > 0
+  if (sum(ok) < 2L) {
+    return(NA_real_)
+  }
+  sd_now <- weighted_species_sd(x_[ok], w_[ok])
+  if (!is.finite(sd_now)) {
+    return(NA_real_)
+  }
+  eff_n <- (sum(w_[ok])^2) / sum(w_[ok]^2)
+  if (!is.finite(eff_n) || eff_n <= 1) {
+    return(NA_real_)
+  }
+  sd_now / sqrt(eff_n)
+}
+
+#' Add species-block meta-features for policy learning
+#'
+#' @param species_performance_table Species-block benchmark table.
+#'
+#' @return Tibble with fold-validity and leave-one-species-out summaries added.
+#'
+#' @keywords internal
+#' @noRd
+augment_species_block_meta_features <- function(species_performance_table) {
+  # Standardize the incoming benchmark table before deriving fold summaries.
+  species_tbl <- normalize_policy_columns(species_performance_table)
+  species_tbl$policy <- resolve_policy_names(species_tbl)
+  species_tbl <- tibble::as_tibble(species_tbl)
+  if (nrow(species_tbl) == 0L ||
+    !all(c("policy", "equation_branch_filter", "anchor_species") %in% names(species_tbl))) {
+    return(species_tbl)
+  }
+
+  if (!"valid_prediction" %in% names(species_tbl)) {
+    if ("multiplier_pred" %in% names(species_tbl)) {
+      species_tbl$valid_prediction <- is.finite(species_tbl$multiplier_pred) &
+        species_tbl$multiplier_pred > 0
+    } else {
+      species_tbl$valid_prediction <- FALSE
+    }
+  }
+  if (!"error_abs_log" %in% names(species_tbl) && "multiplier_pred" %in% names(species_tbl)) {
+    species_tbl$error_abs_log <- dplyr::if_else(
+      is.finite(species_tbl$multiplier_pred) & species_tbl$multiplier_pred > 0,
+      abs(log(species_tbl$multiplier_pred)),
+      NA_real_
+    )
+  }
+
+  n_total_folds <- dplyr::n_distinct(species_tbl$anchor_species)
+  if (!is.finite(n_total_folds) || n_total_folds < 1L) {
+    return(species_tbl)
+  }
+
+  # Collapse each policy-by-species fold once so the meta-learner can use
+  # policy-level fold validity and leave-current-species-out error summaries
+  # without rebuilding these quantities during every fit.
+  species_fold_tbl <- species_tbl |>
+    dplyr::filter(.data$valid_prediction, is.finite(.data$error_abs_log)) |>
+    dplyr::group_by(.data$policy, .data$equation_branch_filter, .data$anchor_species) |>
+    dplyr::summarise(
+      species_median_abs_log = stats::median(.data$error_abs_log, na.rm = TRUE),
+      n_anchor_models = dplyr::n(),
+      .groups = "drop"
+    )
+  if (nrow(species_fold_tbl) == 0L) {
+    species_tbl$prop_valid_folds <- 0
+    species_tbl$n_valid_folds <- 0L
+    species_tbl$policy_loco_mean_abs_log <- NA_real_
+    species_tbl$policy_loco_sd_abs_log <- NA_real_
+    species_tbl$policy_loco_q75_abs_log <- NA_real_
+    species_tbl$policy_loco_q90_abs_log <- NA_real_
+    return(species_tbl)
+  }
+
+  fold_validity_tbl <- species_fold_tbl |>
+    dplyr::group_by(.data$policy, .data$equation_branch_filter) |>
+    dplyr::summarise(
+      n_valid_folds = dplyr::n_distinct(.data$anchor_species),
+      prop_valid_folds = .data$n_valid_folds / n_total_folds,
+      .groups = "drop"
+    )
+
+  loco_tbl <- species_fold_tbl |>
+    dplyr::group_by(.data$policy, .data$equation_branch_filter) |>
+    dplyr::group_modify(function(.x_, .y) {
+      n_now <- nrow(.x_)
+      if (n_now <= 1L) {
+        .x_$policy_loco_mean_abs_log <- NA_real_
+        .x_$policy_loco_sd_abs_log <- NA_real_
+        .x_$policy_loco_q75_abs_log <- NA_real_
+        .x_$policy_loco_q90_abs_log <- NA_real_
+        return(.x_)
+      }
+
+      x_now <- suppressWarnings(as.numeric(.x_$species_median_abs_log))
+      w_now <- pmax(1, suppressWarnings(as.numeric(.x_$n_anchor_models)))
+      sum_wx <- sum(w_now * x_now, na.rm = TRUE)
+      sum_w <- sum(w_now, na.rm = TRUE)
+
+      .x_$policy_loco_mean_abs_log <- vapply(seq_len(n_now), function(i) {
+        denom <- sum_w - w_now[[i]]
+        if (!is.finite(denom) || denom <= 0) {
+          return(NA_real_)
+        }
+        (sum_wx - (w_now[[i]] * x_now[[i]])) / denom
+      }, numeric(1))
+      .x_$policy_loco_sd_abs_log <- vapply(seq_len(n_now), function(i) {
+        weighted_species_sd(x_now[-i], w_now[-i])
+      }, numeric(1))
+      .x_$policy_loco_q75_abs_log <- vapply(seq_len(n_now), function(i) {
+        stats::quantile(x_now[-i], probs = 0.75, na.rm = TRUE, names = FALSE, type = 8)
+      }, numeric(1))
+      .x_$policy_loco_q90_abs_log <- vapply(seq_len(n_now), function(i) {
+        stats::quantile(x_now[-i], probs = 0.90, na.rm = TRUE, names = FALSE, type = 8)
+      }, numeric(1))
+      .x_
+    }) |>
+    dplyr::ungroup() |>
+    dplyr::select(
+      "policy",
+      "equation_branch_filter",
+      "anchor_species",
+      "policy_loco_mean_abs_log",
+      "policy_loco_sd_abs_log",
+      "policy_loco_q75_abs_log",
+      "policy_loco_q90_abs_log"
+    )
+
+  species_tbl |>
+    dplyr::left_join(
+      fold_validity_tbl,
+      by = c("policy", "equation_branch_filter")
+    ) |>
+    dplyr::left_join(
+      loco_tbl,
+      by = c("policy", "equation_branch_filter", "anchor_species")
+    ) |>
+    dplyr::mutate(
+      n_valid_folds = dplyr::coalesce(.data$n_valid_folds, 0L),
+      prop_valid_folds = dplyr::coalesce(.data$prop_valid_folds, 0)
+    )
+}
+
+#' Summarize policy coefficient stability by branch
+#'
+#' @param species_performance_table Species-block benchmark table.
+#' @param candidate_models Candidate-model table containing truth coefficients.
+#' @param level Coverage level used for residual quantiles.
+#'
+#' @return Tibble with branch-wise coefficient residual summaries.
+#'
+#' @keywords internal
+#' @noRd
+policy_coefficient_stability_summary <- function(species_performance_table,
+                                                 candidate_models,
+                                                 level = 0.95) {
+  # Join predicted policy coefficients back to the held-out truth coefficients.
+  perf_tbl <- normalize_policy_columns(species_performance_table)
+  perf_tbl$policy <- resolve_policy_names(perf_tbl)
+  perf_tbl <- tibble::as_tibble(perf_tbl)
+  candidate_models_ <- tibble::as_tibble(candidate_models)
+  if (nrow(perf_tbl) == 0 || nrow(candidate_models_) == 0) {
+    return(tibble::tibble())
+  }
+  if (!all(c("anchor_model_id", "policy", "equation_branch_filter", "policy_slope_len", "policy_intercept_len") %in% names(perf_tbl))) {
+    return(tibble::tibble())
+  }
+
+  id_col <- if ("model_id" %in% names(candidate_models_)) "model_id" else if ("model_id" %in% names(candidate_models_)) "model_id" else NA_character_
+  if (is.na(id_col)) {
+    return(tibble::tibble())
+  }
+
+  candidate_num_or_na <- function(nm) {
+    if (!nm %in% names(candidate_models_)) {
+      return(rep(NA_real_, nrow(candidate_models_)))
+    }
+    suppressWarnings(as.numeric(candidate_models_[[nm]]))
+  }
+
+  truth_tbl <- candidate_models_ |>
+    dplyr::transmute(
+      anchor_model_id = as.character(.data[[id_col]]),
+      anchor_slope_len = candidate_num_or_na("slope_len"),
+      anchor_intercept_len = candidate_num_or_na("intercept_len")
+    ) |>
+    dplyr::filter(
+      is.finite(.data$anchor_slope_len),
+      is.finite(.data$anchor_intercept_len)
+    )
+  if (nrow(truth_tbl) == 0) {
+    return(tibble::tibble())
+  }
+
+  perf_tbl |>
+    dplyr::transmute(
+      anchor_model_id = as.character(.data$anchor_model_id),
+      policy = as.character(.data$policy),
+      equation_branch_filter = resolve_policy_branch_filters(perf_tbl),
+      policy_slope_len = suppressWarnings(as.numeric(.data$policy_slope_len)),
+      policy_intercept_len = suppressWarnings(as.numeric(.data$policy_intercept_len))
+    ) |>
+    dplyr::filter(
+      !is.na(.data$policy),
+      !is.na(.data$equation_branch_filter),
+      is.finite(.data$policy_slope_len),
+      is.finite(.data$policy_intercept_len)
+    ) |>
+    dplyr::group_by(.data$anchor_model_id, .data$policy, .data$equation_branch_filter) |>
+    dplyr::summarise(
+      policy_slope_len = stats::median(.data$policy_slope_len, na.rm = TRUE),
+      policy_intercept_len = stats::median(.data$policy_intercept_len, na.rm = TRUE),
+      .groups = "drop"
+    ) |>
+    dplyr::inner_join(truth_tbl, by = "anchor_model_id") |>
+    dplyr::mutate(
+      coefficient_slope_abs_resid = abs(.data$anchor_slope_len - .data$policy_slope_len),
+      coefficient_intercept_abs_resid = abs(.data$anchor_intercept_len - .data$policy_intercept_len)
+    ) |>
+    dplyr::group_by(.data$policy, .data$equation_branch_filter) |>
+    dplyr::summarise(
+      coefficient_slope_q95 = conformal_order_statistic(.data$coefficient_slope_abs_resid, level = level),
+      coefficient_intercept_q95 = conformal_order_statistic(.data$coefficient_intercept_abs_resid, level = level),
+      coefficient_stability_n = dplyr::n(),
+      .groups = "drop"
+    )
+}
+
+#' Convert a minimum width into an admissible width threshold
+#'
+#' @param min_width Minimum observed width.
+#' @param uncertainty_rule Width-selection rule.
+#' @param u_tol_abs Absolute width tolerance.
+#' @param u_tol_rel Relative width tolerance.
+#' @param width_se Width standard error.
+#' @param one_se_multiplier Multiplier applied under the one-SE rule.
+#'
+#' @return Numeric vector.
+#'
+#' @keywords internal
+#' @noRd
+uncertainty_width_threshold <- function(min_width,
+                                        uncertainty_rule = "tolerance",
+                                        u_tol_abs = 0.05,
+                                        u_tol_rel = 0.25,
+                                        width_se = NA_real_,
+                                        one_se_multiplier = 1) {
+  # Normalize all scalar controls before applying the requested width rule.
+  uncertainty_rule_ <- normalize_uncertainty_rule(uncertainty_rule)
+  u_tol_abs_ <- suppressWarnings(as.numeric(u_tol_abs)[[1]])
+  u_tol_rel_ <- suppressWarnings(as.numeric(u_tol_rel)[[1]])
+  width_se_ <- suppressWarnings(as.numeric(width_se)[[1]])
+  one_se_multiplier_ <- suppressWarnings(as.numeric(one_se_multiplier)[[1]])
+  if (!is.finite(u_tol_abs_)) {
+    u_tol_abs_ <- 0
+  }
+  if (!is.finite(u_tol_rel_)) {
+    u_tol_rel_ <- 0
+  }
+  if (!is.finite(width_se_)) {
+    width_se_ <- 0
+  }
+  if (!is.finite(one_se_multiplier_)) {
+    one_se_multiplier_ <- 1
+  }
+  min_width_ <- suppressWarnings(as.numeric(min_width))
+  out <- rep(NA_real_, length(min_width_))
+  finite_idx <- is.finite(min_width_)
+  if (!any(finite_idx)) {
+    return(out)
+  }
+  if (identical(uncertainty_rule_, "min")) {
+    out[finite_idx] <- min_width_[finite_idx]
+    return(out)
+  }
+  if (identical(uncertainty_rule_, "one_se")) {
+    out[finite_idx] <- min_width_[finite_idx] + pmax(0, one_se_multiplier_ * width_se_)
+    return(out)
+  }
+  out[finite_idx] <- min_width_[finite_idx] + pmax(
+    u_tol_abs_,
+    abs(min_width_[finite_idx]) * u_tol_rel_
+  )
+  out
+}
+
+#' Test whether exact branch-level conformal support is available
+#'
+#' @param source Conformal source label.
+#' @param n_scores Number of calibration scores.
+#' @param q_value Calibrated conformal radius.
+#'
+#' @return Logical vector.
+#'
+#' @keywords internal
+#' @noRd
+has_exact_branch_conformal_support <- function(source,
+                                               n_scores,
+                                               q_value) {
+  source_ <- as.character(source %||% NA_character_)
+  n_scores_ <- suppressWarnings(as.numeric(n_scores))
+  q_value_ <- suppressWarnings(as.numeric(q_value))
+  source_ %in% c("species_policy_branch", "family_policy_branch", "policy_branch") &
+    is.finite(q_value_) &
+    is.finite(n_scores_) &
+    n_scores_ >= 2
+}
+
+#' Return the first non-missing character value
+#'
+#' @param x Character-like vector.
+#'
+#' @return Character scalar.
+#'
+#' @keywords internal
+#' @noRd
+first_non_missing_character <- function(x) {
+  x_ <- stringr::str_squish(as.character(x))
+  x_ <- x_[!is.na(x_) & nzchar(x_)]
+  if (length(x_) == 0L) {
+    return(NA_character_)
+  }
+  x_[[1]]
+}
+
+#' Add calibrated interval columns to anchor-policy rows
+#'
+#' Attaches the calibrated prediction interval to each policy row. The
+#' operational interval combines the conformal log-radius (`q_col`) and the
+#' donor structural spread (`local_structural_q_abs_log`) in quadrature:
+#' `q_total = sqrt(q_conformal^2 + (weight * q_structural)^2)`.
+#' Structural spread - the 90th-percentile weighted deviation of donor
+#' log-backscatter values from the policy prediction - penalises strategies
+#' that rely on heterogeneous donor pools (e.g. ocean-basin means), ensuring
+#' that narrower, more homogeneous donor sets are preferred when their
+#' conformal error is similar.
+#'
+#' @param policy_tbl Anchor-policy prediction table.
+#' @param structural_uncertainty_weight Multiplicative weight applied to the
+#'   structural spread component before combining with the conformal radius.
+#'   Default 1 gives equal weight to both sources.
+#' @param q_col Name of the conformal log-radius column.
+#' @param prediction_col Name of the predicted biomass multiplier column.
+#'
+#' @return `policy_tbl` with `q_abs_log_conformal`, `q_abs_log_structural`,
+#'   `q_abs_log_total`, `multiplier_lo`, `multiplier_hi`, `interval_log_width`,
+#'   and `uncertainty_cost_log_width`.
+#'
+#' @examples
+#' interval_tbl <- add_policy_intervals(
+#'   tibble::tibble(
+#'     policy = "closest_within_species",
+#'     multiplier_pred = 1.2,
+#'     q_abs_log = 0.15,
+#'     local_structural_q_abs_log = 0.05
+#'   )
+#' )
+#' interval_tbl$interval_log_width
+#'
+#' @keywords internal
+#' @noRd
+add_policy_intervals <- function(policy_tbl,
+                                 structural_uncertainty_weight = 1,
+                                 q_col = "q_abs_log",
+                                 prediction_col = "multiplier_pred") {
+  out <- tibble::as_tibble(policy_tbl)
+
+  if (!q_col %in% names(out)) {
+    out[[q_col]] <- NA_real_
+  }
+  if (!"local_structural_q_abs_log" %in% names(out)) {
+    out$local_structural_q_abs_log <- 0
+  }
+  if (!"valid_prediction" %in% names(out)) {
+    if (!prediction_col %in% names(out)) {
+      out$valid_prediction <- FALSE
+    } else {
+      out$valid_prediction <- is.finite(out[[prediction_col]]) &
+        out[[prediction_col]] > 0
+    }
+  }
+  if (!"uncertainty_cost_log_width" %in% names(out)) {
+    out$uncertainty_cost_log_width <- NA_real_
+  }
+
+  q_conformal <- suppressWarnings(as.numeric(out[[q_col]]))
+  q_structural_raw <- if ("local_structural_q_abs_log" %in% names(out)) {
+    suppressWarnings(as.numeric(out$local_structural_q_abs_log))
+  } else {
+    rep(NA_real_, nrow(out))
+  }
+  # Treat missing structural spread as zero so conformal alone drives the
+  # interval when structural information is unavailable.
+  q_structural_eff <- dplyr::coalesce(q_structural_raw, 0)
+  # RSS combination: structural spread penalises heterogeneous donor pools so
+  # that broad ensemble strategies (ocean-basin mean, all-admissible mean) carry
+  # wider operational intervals than same-species or same-genus strategies with
+  # homogeneous donors.
+  q_total <- sqrt(q_conformal^2 + (structural_uncertainty_weight * q_structural_eff)^2)
+
+  out$q_abs_log_conformal <- q_conformal
+  out$q_abs_log_structural <- q_structural_raw
+  out$q_abs_log_total <- q_total
+  # Use the full operational uncertainty for displayed multiplier bounds.
+  # Decision-support outputs must reflect the same total uncertainty budget
+  # used downstream in selection and scorecard summaries.
+  q_display <- q_total
+  out$multiplier_lo <- dplyr::if_else(
+    out$valid_prediction & is.finite(q_display),
+    out[[prediction_col]] * exp(-q_display),
+    NA_real_
+  )
+  out$multiplier_hi <- dplyr::if_else(
+    out$valid_prediction & is.finite(q_display),
+    out[[prediction_col]] * exp(q_display),
+    NA_real_
+  )
+  out$interval_log_width <- dplyr::if_else(
+    is.finite(q_total),
+    2 * q_total,
+    NA_real_
+  )
+  out$uncertainty_cost_log_width <- dplyr::if_else(
+    is.finite(out$interval_log_width),
+    out$interval_log_width,
+    out$uncertainty_cost_log_width
+  )
+
+  out
+}
+
+#' Select anchor-facing policies from calibrated policy predictions
+#'
+#' @param policy_tbl Anchor-policy prediction table.
+#' @param uncertainty_rule Final uncertainty-screening rule. Use `"min"` for
+#'   strict minimum calibrated width or `"tolerance"` to retain policies within
+#'   an absolute/relative width band around that minimum.
+#' @param u_tol_rel Relative width tolerance around the minimum calibrated
+#'   interval width after empirical-score screening.
+#' @param u_tol_abs Absolute log-width tolerance around the minimum calibrated
+#'   interval width after empirical-score screening.
+#' @param score_tol_abs Optional absolute benchmark-score tolerance.
+#' @param one_se_multiplier Multiplier applied to one-standard-error selection
+#'   thresholds.
+#' @param local_distance_tolerance Absolute tolerance for retaining local
+#'   support-distance ties after empirical-score and uncertainty screening.
+#'
+#' @return A tibble of selected policy rows.
+#'
+#' @examples
+#' selected <- select_anchor_policies(
+#'   tibble::tibble(
+#'     policy = c("a", "b"),
+#'     multiplier_pred = c(1.1, 1.2),
+#'     valid_prediction = c(TRUE, TRUE),
+#'     selection_valid = c(TRUE, TRUE),
+#'     uncertainty_eligible = c(TRUE, TRUE),
+#'     uncertainty_cost_log_width = c(0.20, 0.35),
+#'     local_weighted_mean_combined_distance = c(0.05, 0.20)
+#'   )
+#' )
+#' selected$selected_policy
+#' @keywords internal
+#' @noRd
+select_anchor_policies <- function(policy_tbl,
+                                   uncertainty_rule = "tolerance",
+                                   u_tol_rel = 0.25,
+                                   u_tol_abs = 0.05,
+                                   score_tol_abs = NULL,
+                                   one_se_multiplier = 1,
+                                   local_distance_tolerance = 1e-12) {
+  policy_tbl_ <- tibble::as_tibble(policy_tbl)
+  if (nrow(policy_tbl_) == 0) {
+    return(policy_tbl_)
+  }
+
+  one_se_multiplier_ <- suppressWarnings(as.numeric(one_se_multiplier[[1]] %||% NA_real_))
+  if (!is.finite(one_se_multiplier_)) {
+    one_se_multiplier_ <- 1
+  }
+
+  if (!"valid_prediction" %in% names(policy_tbl_)) {
+    policy_tbl_$valid_prediction <- is.finite(policy_tbl_$multiplier_pred) &
+      policy_tbl_$multiplier_pred > 0
+  }
+  if ("selection_valid" %in% names(policy_tbl_)) {
+    policy_tbl_$selection_valid <- as.logical(policy_tbl_$selection_valid)
+  } else if ("n_valid_models" %in% names(policy_tbl_)) {
+    policy_tbl_$selection_valid <- is.finite(policy_tbl_$n_valid_models) &
+      policy_tbl_$n_valid_models > 0
+  } else if ("n_models" %in% names(policy_tbl_)) {
+    policy_tbl_$selection_valid <- is.finite(policy_tbl_$n_models) &
+      policy_tbl_$n_models > 0
+  } else {
+    policy_tbl_$selection_valid <- policy_tbl_$valid_prediction
+  }
+  # A policy cannot be eligible for selection unless it yields a finite,
+  # positive anchor-level multiplier prediction. Donor counts alone are not a
+  # valid substitute once the selector reaches the final ranking stage.
+  policy_tbl_$selection_valid <-
+    dplyr::coalesce(policy_tbl_$selection_valid, FALSE) &
+      dplyr::coalesce(policy_tbl_$valid_prediction, FALSE)
+  if (!"uncertainty_eligible" %in% names(policy_tbl_)) {
+    policy_tbl_$uncertainty_eligible <- FALSE
+  }
+  if (!"uncertainty_cost_log_width" %in% names(policy_tbl_)) {
+    policy_tbl_$uncertainty_cost_log_width <- NA_real_
+  }
+  if (!"species_block_median_abs_log_error" %in% names(policy_tbl_)) {
+    policy_tbl_$species_block_median_abs_log_error <- NA_real_
+  }
+  if (!"mean_species_median_abs_log" %in% names(policy_tbl_)) {
+    policy_tbl_$mean_species_median_abs_log <- NA_real_
+  }
+  if (!"local_weighted_mean_combined_distance" %in% names(policy_tbl_)) {
+    policy_tbl_$local_weighted_mean_combined_distance <- NA_real_
+  }
+  if (!"local_min_combined_distance" %in% names(policy_tbl_)) {
+    policy_tbl_$local_min_combined_distance <- NA_real_
+  }
+  if (!"local_effective_support" %in% names(policy_tbl_)) {
+    policy_tbl_$local_effective_support <- NA_real_
+  }
+  if (!"acceptable_global" %in% names(policy_tbl_)) {
+    policy_tbl_$acceptable_global <- NA
+  }
+  if (!"equivalent_to_best_global" %in% names(policy_tbl_)) {
+    policy_tbl_$equivalent_to_best_global <- NA
+  }
+  if (!"bootstrap_median_rank" %in% names(policy_tbl_)) {
+    policy_tbl_$bootstrap_median_rank <- NA_real_
+  }
+  if (!"best_mean_species_median_abs_log" %in% names(policy_tbl_)) {
+    policy_tbl_$best_mean_species_median_abs_log <- NA_real_
+  }
+  if (!"coefficient_slope_q95" %in% names(policy_tbl_)) {
+    policy_tbl_$coefficient_slope_q95 <- NA_real_
+  }
+  if (!"coefficient_intercept_q95" %in% names(policy_tbl_)) {
+    policy_tbl_$coefficient_intercept_q95 <- NA_real_
+  }
+  if (!"candidate_slope_interval_width" %in% names(policy_tbl_)) {
+    if (all(c(
+      "policy_slope_len_lo_95", "policy_slope_len_hi_95"
+    ) %in% names(policy_tbl_))) {
+      policy_tbl_$candidate_slope_interval_width <- suppressWarnings(
+        as.numeric(policy_tbl_$policy_slope_len_hi_95) -
+          as.numeric(policy_tbl_$policy_slope_len_lo_95)
+      )
+    } else {
+      policy_tbl_$candidate_slope_interval_width <- NA_real_
+    }
+  }
+  if (!"candidate_intercept_interval_width" %in% names(policy_tbl_)) {
+    if (all(c(
+      "policy_intercept_len_lo_95", "policy_intercept_len_hi_95"
+    ) %in% names(policy_tbl_))) {
+      policy_tbl_$candidate_intercept_interval_width <- suppressWarnings(
+        as.numeric(policy_tbl_$policy_intercept_len_hi_95) -
+          as.numeric(policy_tbl_$policy_intercept_len_lo_95)
+      )
+    } else {
+      policy_tbl_$candidate_intercept_interval_width <- NA_real_
+    }
+  }
+  if (!"candidate_ts_q95_mean" %in% names(policy_tbl_)) {
+    policy_tbl_$candidate_ts_q95_mean <- NA_real_
+  }
+  if (!"candidate_ts_q99_mean" %in% names(policy_tbl_)) {
+    policy_tbl_$candidate_ts_q99_mean <- NA_real_
+  }
+  if (!"candidate_ts_q95_max" %in% names(policy_tbl_)) {
+    policy_tbl_$candidate_ts_q95_max <- NA_real_
+  }
+  if (!"candidate_ts_q99_max" %in% names(policy_tbl_)) {
+    policy_tbl_$candidate_ts_q99_max <- NA_real_
+  }
+  if (!"candidate_ts_hi99_max" %in% names(policy_tbl_)) {
+    policy_tbl_$candidate_ts_hi99_max <- NA_real_
+  }
+  if (!"candidate_ts_lo99_min" %in% names(policy_tbl_)) {
+    policy_tbl_$candidate_ts_lo99_min <- NA_real_
+  }
+  candidate_pool_values <- if ("candidate_pool" %in% names(policy_tbl_)) {
+    policy_tbl_$candidate_pool
+  } else {
+    NULL
+  }
+  aggregation_values <- if ("aggregation_method" %in% names(policy_tbl_)) {
+    policy_tbl_$aggregation_method
+  } else {
+    NULL
+  }
+  policy_family_values <- if ("policy_family" %in% names(policy_tbl_)) {
+    policy_tbl_$policy_family
+  } else {
+    NULL
+  }
+  branch_values <- if ("equation_branch_filter" %in% names(policy_tbl_)) {
+    policy_tbl_$equation_branch_filter
+  } else {
+    NULL
+  }
+  policy_tbl_$specificity_rank <- policy_specificity_rank(
+    policy = policy_tbl_$policy,
+    candidate_pool = candidate_pool_values,
+    aggregation_method = aggregation_values,
+    policy_family = policy_family_values,
+    equation_branch_filter = branch_values
+  )
+  local_distance <- dplyr::coalesce(
+    policy_tbl_$local_weighted_mean_combined_distance,
+    policy_tbl_$local_min_combined_distance
+  )
+  uses_meta_score <- ".meta_predicted_score" %in% names(policy_tbl_) &&
+    any(
+      is.finite(suppressWarnings(as.numeric(policy_tbl_$.meta_predicted_score))),
+      na.rm = TRUE
+    )
+  benchmark_validation_error <- dplyr::coalesce(
+    policy_tbl_$species_block_median_abs_log_error,
+    policy_tbl_$mean_species_median_abs_log
+  )
+  validation_error <- if (uses_meta_score) {
+    suppressWarnings(as.numeric(policy_tbl_$.meta_predicted_score))
+  } else {
+    benchmark_validation_error
+  }
+  policy_tbl_$anchor_selection_local_distance <- local_distance
+  policy_tbl_$anchor_selection_benchmark_error <- benchmark_validation_error
+  policy_tbl_$anchor_selection_validation_error <- validation_error
+  policy_tbl_$anchor_selection_global_screen <- FALSE
+  policy_tbl_$direct_branch_conformal_support <- has_exact_branch_conformal_support(
+    source = if ("meta_q_abs_log_source" %in% names(policy_tbl_)) {
+      policy_tbl_$meta_q_abs_log_source
+    } else {
+      NA_character_
+    },
+    n_scores = if ("meta_q_abs_log_n_scores" %in% names(policy_tbl_)) {
+      policy_tbl_$meta_q_abs_log_n_scores
+    } else {
+      NA_real_
+    },
+    q_value = if ("meta_q_abs_log" %in% names(policy_tbl_)) {
+      policy_tbl_$meta_q_abs_log
+    } else {
+      NA_real_
+    }
+  )
+
+  eligible <- policy_tbl_ |>
+    dplyr::filter(
+      .data$selection_valid,
+      dplyr::coalesce(.data$uncertainty_eligible, FALSE),
+      is.finite(.data$uncertainty_cost_log_width)
+    )
+
+  calibrated <- policy_tbl_ |>
+    dplyr::filter(
+      .data$selection_valid,
+      is.finite(.data$uncertainty_cost_log_width)
+    )
+
+  if (nrow(eligible) > 0) {
+    candidate_tbl <- eligible
+    tier <- "benchmark_screened_calibrated_uncertainty"
+  } else if (nrow(calibrated) > 0) {
+    candidate_tbl <- calibrated
+    tier <- "benchmark_screened_below_coverage_target"
+  } else {
+    selected <- policy_tbl_ |>
+      dplyr::filter(.data$selection_valid) |>
+      dplyr::arrange(
+        .data$anchor_selection_validation_error,
+        .data$bootstrap_median_rank,
+        .data$policy
+      ) |>
+      dplyr::slice(1) |>
+      dplyr::mutate(
+        selected_policy = .data$policy,
+        selected_policy_display = .data$policy,
+        selection_tier = "fallback_valid_empirical_score",
+        anchor_selection_min_uncertainty_width = NA_real_,
+        anchor_selection_uncertainty_threshold = NA_real_,
+        anchor_selection_min_validation_error = suppressWarnings(
+          min(.data$anchor_selection_validation_error, na.rm = TRUE)
+        ),
+        anchor_selection_validation_threshold = NA_real_
+      )
+    return(selected)
+  }
+
+  # Respect the precomputed global benchmark acceptability screen whenever it
+  # When the meta-learner provides anchor-specific scores, the global
+  # acceptability screen is redundant: the meta-score already incorporates
+  # cross-species benchmark signal, and applying a global pre-filter here
+  # eliminates anchor-optimal policies that the meta-learner correctly prefers.
+  # Mirror the same pattern used for the benchmark_one_se gate below.
+  if (!uses_meta_score &&
+    "acceptable_global" %in% names(candidate_tbl) &&
+    any(!is.na(candidate_tbl$acceptable_global))) {
+    globally_acceptable <- candidate_tbl |>
+      dplyr::filter(dplyr::coalesce(.data$acceptable_global, FALSE))
+    if (nrow(globally_acceptable) > 0) {
+      candidate_tbl <- globally_acceptable
+      tier <- paste0(tier, "_acceptable_global")
+    }
+  }
+
+  benchmark_ranked <- candidate_tbl |>
+    dplyr::filter(is.finite(.data$anchor_selection_benchmark_error))
+  # In the meta-policy path, `.meta_predicted_score` is already the learned
+  # anchor-specific ranking target. Re-applying an anchor-level benchmark
+  # one-SE gate on the global species-block summary can override the learned
+  # local ranking and force broad, globally average policies to survive over
+  # tighter local matches. Keep this secondary benchmark gate only for the
+  # deterministic path where no learned local score is available.
+  if (!uses_meta_score && nrow(benchmark_ranked) > 0) {
+    benchmark_min <- suppressWarnings(
+      min(benchmark_ranked$anchor_selection_benchmark_error, na.rm = TRUE)
+    )
+    benchmark_global_best <- suppressWarnings(
+      min(policy_tbl_$best_mean_species_median_abs_log, na.rm = TRUE)
+    )
+    benchmark_global_threshold <- suppressWarnings(
+      min(policy_tbl_$one_se_threshold, na.rm = TRUE)
+    )
+    benchmark_one_se_slack <- if (is.finite(benchmark_global_best) &&
+      is.finite(benchmark_global_threshold)) {
+      pmax(0, benchmark_global_threshold - benchmark_global_best)
+    } else {
+      0
+    }
+    benchmark_threshold <- benchmark_min + benchmark_one_se_slack
+
+    candidate_tbl$anchor_selection_global_screen <-
+      is.finite(candidate_tbl$anchor_selection_benchmark_error) &
+        candidate_tbl$anchor_selection_benchmark_error <= benchmark_threshold
+
+    globally_screened <- candidate_tbl |>
+      dplyr::filter(.data$anchor_selection_global_screen)
+    if (nrow(globally_screened) > 0) {
+      candidate_tbl <- globally_screened
+      tier <- paste0(tier, "_benchmark_one_se")
+    }
+  }
+
+  score_ranked <- candidate_tbl |>
+    dplyr::filter(is.finite(.data$anchor_selection_validation_error))
+  if (nrow(score_ranked) == 0) {
+    score_ranked <- candidate_tbl
+  }
+
+  min_validation_error <- suppressWarnings(
+    min(score_ranked$anchor_selection_validation_error, na.rm = TRUE)
+  )
+  if (!is.finite(min_validation_error)) {
+    min_validation_error <- NA_real_
+  }
+  score_tol_abs_ <- suppressWarnings(as.numeric(score_tol_abs[[1]] %||% NA_real_))
+  benchmark_score_slack <- suppressWarnings(
+    min(
+      score_ranked$one_se_threshold - score_ranked$best_mean_species_median_abs_log,
+      na.rm = TRUE
+    )
+  )
+  if (!is.finite(benchmark_score_slack)) {
+    benchmark_score_slack <- 0
+  }
+  # In the meta-policy path, the proper one-standard-error width comes from
+  # the leave-one-species-out benchmark that produced
+  # `best_mean_species_median_abs_log` and `one_se_threshold`. Reuse that
+  # benchmark slack on the meta-score scale instead of estimating a pseudo-SE
+  # from the spread across competing policies for this anchor.
+  score_threshold <- if (is.finite(min_validation_error)) {
+    if (is.finite(score_tol_abs_)) {
+      min_validation_error + pmax(0, score_tol_abs_)
+    } else if (uses_meta_score) {
+      min_validation_error + pmax(0, one_se_multiplier_ * benchmark_score_slack)
+    } else {
+      min_validation_error + pmax(
+        0,
+        one_se_multiplier_ *
+          uncertainty_width_se(score_ranked$anchor_selection_validation_error)
+      )
+    }
+  } else {
+    NA_real_
+  }
+
+  if (is.finite(min_validation_error)) {
+    best_score_rows <- score_ranked |>
+      dplyr::filter(
+        .data$anchor_selection_validation_error <= score_threshold
+      )
+  } else {
+    best_score_rows <- score_ranked
+  }
+
+  selected <- best_score_rows
+
+  min_width <- suppressWarnings(
+    min(selected$uncertainty_cost_log_width, na.rm = TRUE)
+  )
+  if (!is.finite(min_width)) {
+    return(candidate_tbl[0, , drop = FALSE])
+  }
+
+  width_threshold <- uncertainty_width_threshold(
+    min_width = min_width,
+    uncertainty_rule = uncertainty_rule,
+    u_tol_abs = u_tol_abs,
+    u_tol_rel = u_tol_rel,
+    width_se = uncertainty_width_se(selected$uncertainty_cost_log_width),
+    one_se_multiplier = one_se_multiplier_
+  )
+  if (is.finite(width_threshold)) {
+    width_filtered <- selected |>
+      dplyr::filter(
+        is.finite(.data$uncertainty_cost_log_width),
+        .data$uncertainty_cost_log_width <= width_threshold
+      )
+    if (nrow(width_filtered) > 0) {
+      selected <- width_filtered
+      tier <- paste0(tier, "_uncertainty_threshold")
+    }
+  }
+
+  selected$anchor_selection_broad_aggregate <- policy_is_broad_aggregate(
+    policy = selected$policy,
+    candidate_pool = if ("candidate_pool" %in% names(selected)) {
+      selected$candidate_pool
+    } else {
+      NULL
+    },
+    aggregation_method = if ("aggregation_method" %in% names(selected)) {
+      selected$aggregation_method
+    } else {
+      NULL
+    }
+  )
+  narrower_candidates <- selected |>
+    dplyr::filter(!.data$anchor_selection_broad_aggregate)
+  if (nrow(narrower_candidates) > 0) {
+    selected <- narrower_candidates
+    tier <- paste0(tier, "_specificity_sanity")
+  }
+
+  selected <- selected |>
+    dplyr::arrange(
+      .data$specificity_rank,
+      .data$anchor_selection_local_distance,
+      .data$uncertainty_cost_log_width,
+      .data$coefficient_slope_q95,
+      .data$coefficient_intercept_q95,
+      .data$anchor_selection_validation_error,
+      .data$bootstrap_median_rank,
+      .data$policy
+    )
+
+  selected |>
+    dplyr::slice(1) |>
+    dplyr::mutate(
+      selected_policy = .data$policy,
+      selected_policy_display = .data$policy,
+      selection_tier = tier,
+      anchor_selection_min_validation_error = min_validation_error,
+      anchor_selection_validation_threshold = score_threshold,
+      anchor_selection_min_uncertainty_width = min_width,
+      anchor_selection_uncertainty_threshold = width_threshold
+    )
+}
+
+#' Summarize one species-block benchmark table
+#'
+#' Collapses the leave-one-species-out benchmark rows to one species-level
+#' summary per policy.
+#'
+#' @param species_performance_table Species-block benchmark table.
+#'
+#' @return A tibble.
+#'
+#' @keywords internal
+#' @noRd
+species_performance <- function(species_performance_table) {
+  # Restrict the summary to finite valid predictions before collapsing anchor
+  # rows to one species-level error summary per policy.
+  {
+    species_tbl <- normalize_policy_columns(species_performance_table)
+    species_tbl$policy <- resolve_policy_names(species_tbl)
+    if (!"valid_prediction" %in% names(species_tbl)) {
+      if ("multiplier_pred" %in% names(species_tbl)) {
+        species_tbl$valid_prediction <- is.finite(species_tbl$multiplier_pred) &
+          species_tbl$multiplier_pred > 0
+      } else {
+        species_tbl$valid_prediction <- FALSE
+      }
+    }
+    if (!"error_abs_log" %in% names(species_tbl) && "multiplier_pred" %in% names(species_tbl)) {
+      species_tbl$error_abs_log <- dplyr::if_else(
+        is.finite(species_tbl$multiplier_pred) & species_tbl$multiplier_pred > 0,
+        abs(log(species_tbl$multiplier_pred)),
+        NA_real_
+      )
+    }
+    species_tbl
+  } |>
+    dplyr::filter(.data$valid_prediction, is.finite(.data$error_abs_log)) |>
+    dplyr::group_by(.data$policy, .data$equation_branch_filter, .data$anchor_species) |>
+    dplyr::summarise(
+      species_median_abs_log = stats::median(.data$error_abs_log, na.rm = TRUE),
+      species_mean_abs_log = mean(.data$error_abs_log, na.rm = TRUE),
+      n_anchor_models = dplyr::n(),
+      candidate_pool = if ("candidate_pool" %in% names(species_tbl)) {
+        first_non_missing_character(.data$candidate_pool)
+      } else {
+        NA_character_
+      },
+      aggregation_method = if ("aggregation_method" %in% names(species_tbl)) {
+        first_non_missing_character(.data$aggregation_method)
+      } else {
+        NA_character_
+      },
+      policy_family = if ("policy_family" %in% names(species_tbl)) {
+        first_non_missing_character(.data$policy_family)
+      } else {
+        NA_character_
+      },
+      .groups = "drop"
+    )
+}
+
+#' Build the policy-selection reference table
+#'
+#' Converts the leave-one-species-out benchmark results to a global policy
+#' comparison table using a one-standard-error rule plus bootstrap stability.
+#'
+#' @param species_performance_table Species-block benchmark table.
+#' @param candidate_models Optional candidate-model metadata used to enrich
+#'   policy labels.
+#' @param one_se_multiplier Multiplier applied to one-standard-error
+#'   thresholds.
+#' @param equivalence_tolerance Practical equivalence tolerance used by paired
+#'   comparisons.
+#' @param n_boot Number of bootstrap resamples across species.
+#' @param seed Integer bootstrap seed.
+#' @param progress Logical scalar controlling stage messages.
+#'
+#' @return A tibble.
+#'
+#' @keywords internal
+#' @noRd
+build_selection_table <- function(species_performance_table,
+                                  candidate_models = NULL,
+                                  one_se_multiplier = 1,
+                                  equivalence_tolerance = 0.05,
+                                  n_boot = 500L,
+                                  seed = NULL,
+                                  progress = FALSE) {
+  # Summarize the benchmark at the species level first so the selection rule
+  # aligns with the species-block validation design.
+  species_level <- species_performance(species_performance_table)
+  if (nrow(species_level) == 0) {
+    return(tibble::tibble())
+  }
+
+  # Build the global per-policy summary that the later one-SE and bootstrap
+  # rules operate on.
+  select_ref <- species_level |>
+    dplyr::group_by(.data$policy, .data$equation_branch_filter) |>
+    dplyr::summarise(
+      n_species = dplyr::n(),
+      total_anchor_models = sum(.data$n_anchor_models, na.rm = TRUE),
+      median_species_median_abs_log = stats::median(.data$species_median_abs_log, na.rm = TRUE),
+      mean_species_median_abs_log = weighted_species_mean(.data$species_median_abs_log, .data$n_anchor_models),
+      sd_species_median_abs_log = weighted_species_sd(.data$species_median_abs_log, .data$n_anchor_models),
+      se_species_median_abs_log = weighted_species_se(.data$species_median_abs_log, .data$n_anchor_models),
+      unweighted_mean_species_median_abs_log = mean(.data$species_median_abs_log, na.rm = TRUE),
+      unweighted_sd_species_median_abs_log = stats::sd(.data$species_median_abs_log, na.rm = TRUE),
+      unweighted_se_species_median_abs_log = dplyr::if_else(
+        .data$n_species > 1,
+        .data$unweighted_sd_species_median_abs_log / sqrt(.data$n_species),
+        NA_real_
+      ),
+      candidate_pool = first_non_missing_character(.data$candidate_pool),
+      aggregation_method = first_non_missing_character(.data$aggregation_method),
+      policy_family = first_non_missing_character(.data$policy_family),
+      .groups = "drop"
+    ) |>
+    dplyr::mutate(
+      specificity_rank = policy_specificity_rank(
+        policy = .data$policy,
+        candidate_pool = .data$candidate_pool,
+        aggregation_method = .data$aggregation_method,
+        policy_family = .data$policy_family,
+        equation_branch_filter = .data$equation_branch_filter
+      ),
+      policy_display = policy_display_label(.data$policy, .data$equation_branch_filter)
+    )
+
+  coefficient_stability <- if (!is.null(candidate_models)) {
+    policy_coefficient_stability_summary(
+      species_performance_table = species_performance_table,
+      candidate_models = candidate_models,
+      level = 0.95
+    )
+  } else {
+    tibble::tibble()
+  }
+  if (nrow(coefficient_stability) > 0) {
+    select_ref <- select_ref |>
+      dplyr::left_join(
+        coefficient_stability,
+        by = c("policy", "equation_branch_filter")
+      )
+  } else {
+    select_ref <- select_ref |>
+      dplyr::mutate(
+        coefficient_slope_q95 = NA_real_,
+        coefficient_intercept_q95 = NA_real_,
+        coefficient_stability_n = NA_real_
+      )
+  }
+
+  # Identify the best current policy and the one-SE acceptability threshold
+  # before the bootstrap summaries are computed.
+  best_row <- select_ref |>
+    dplyr::arrange(
+      .data$mean_species_median_abs_log,
+      .data$median_species_median_abs_log,
+      .data$specificity_rank,
+      .data$policy,
+      .data$equation_branch_filter
+    ) |>
+    dplyr::slice(1)
+  if (is.na(best_row$se_species_median_abs_log[[1]])) {
+    warning(
+      "Only 1 anchor species in the benchmark; SE is NA and the one-SE acceptance ",
+      "threshold collapses to the best mean error. The equivalence band may be too ",
+      "narrow. Consider adding more anchor species to the benchmark.",
+      call. = FALSE
+    )
+  }
+  threshold <- best_row$mean_species_median_abs_log[[1]] +
+    as.numeric(one_se_multiplier) * dplyr::coalesce(best_row$se_species_median_abs_log[[1]], 0)
+
+  if (is.null(seed)) {
+    seed <- sample.int(.Machine$integer.max, 1)
+  }
+  set.seed(as.integer(seed))
+
+  n_policies_sel <- nrow(dplyr::distinct(species_level, .data$policy, .data$equation_branch_filter))
+  n_species_sel <- nrow(dplyr::distinct(species_level, .data$anchor_species))
+  report_progress(
+    progress,
+    "[Selection] Bootstrapping ", as.integer(n_boot),
+    " resamples across ", n_policies_sel, " policies and ", n_species_sel, " species..."
+  )
+
+  # Pivot species_level to a wide matrix (species rows x policy columns) once
+  # so all bootstrap resamples are vectorized across policies simultaneously.
+  species_level_keyed <- dplyr::mutate(
+    species_level,
+    .policy_key = paste(
+      as.character(.data$policy),
+      normalize_policy_equation_branch_filters(.data$equation_branch_filter),
+      sep = "|"
+    )
+  )
+  key_lookup <- dplyr::distinct(
+    species_level_keyed,
+    .data$.policy_key,
+    .data$policy,
+    .data$equation_branch_filter,
+    .data$candidate_pool,
+    .data$aggregation_method,
+    .data$policy_family
+  )
+  species_wide <- tidyr::pivot_wider(
+    species_level_keyed,
+    id_cols = "anchor_species",
+    names_from = ".policy_key",
+    values_from = "species_median_abs_log"
+  )
+  policy_key_order <- setdiff(names(species_wide), "anchor_species")
+  policy_mat <- as.matrix(species_wide[, policy_key_order, drop = FALSE])
+  n_spp_mat <- nrow(policy_mat)
+  n_boot_int <- as.integer(n_boot)
+
+  # Single bulk sample.int call produces all bootstrap indices; colMeans over
+  # the resampled matrix gives bootstrap means for every policy in one pass.
+  boot_idx <- matrix(sample.int(n_spp_mat, n_spp_mat * n_boot_int, replace = TRUE), nrow = n_spp_mat)
+  boot_means_mat <- apply(boot_idx, 2, function(idx) {
+    colMeans(policy_mat[idx, , drop = FALSE], na.rm = TRUE)
+  })
+  if (is.null(dim(boot_means_mat))) {
+    boot_means_mat <- matrix(boot_means_mat, nrow = length(policy_key_order))
+  }
+  rownames(boot_means_mat) <- policy_key_order
+
+  # boot_sum: per-policy quantiles and threshold probability from matrix rows.
+  boot_sum <- dplyr::left_join(
+    tibble::tibble(.policy_key = policy_key_order),
+    key_lookup,
+    by = ".policy_key"
+  ) |>
+    dplyr::mutate(
+      bootstrap_mean_q05 = apply(
+        boot_means_mat, 1, stats::quantile,
+        probs = 0.05, na.rm = TRUE, names = FALSE, type = 8
+      ),
+      bootstrap_mean_q50 = apply(
+        boot_means_mat, 1, stats::quantile,
+        probs = 0.50, na.rm = TRUE, names = FALSE, type = 8
+      ),
+      bootstrap_mean_q95 = apply(
+        boot_means_mat, 1, stats::quantile,
+        probs = 0.95, na.rm = TRUE, names = FALSE, type = 8
+      ),
+      bootstrap_prob_within_threshold = rowMeans(boot_means_mat <= threshold, na.rm = TRUE)
+    ) |>
+    dplyr::select(-tidyselect::all_of(".policy_key"))
+
+  # boot_rank: rank policies within each bootstrap draw using a tiny numeric
+  # secondary key to break ties by specificity_rank (matches original ordering).
+  spec_ranks <- dplyr::left_join(
+    tibble::tibble(.policy_key = policy_key_order),
+    key_lookup,
+    by = ".policy_key"
+  ) |>
+    dplyr::mutate(
+      specificity_rank = policy_specificity_rank(
+        policy = .data$policy,
+        candidate_pool = .data$candidate_pool,
+        aggregation_method = .data$aggregation_method,
+        policy_family = .data$policy_family,
+        equation_branch_filter = .data$equation_branch_filter
+      )
+    ) |>
+    dplyr::pull(.data$specificity_rank)
+  secondary_key <- (spec_ranks / (max(spec_ranks, na.rm = TRUE) + 1L)) * 1e-10
+  rank_mat <- apply(boot_means_mat + secondary_key, 2, rank, ties.method = "first")
+  if (is.null(dim(rank_mat))) {
+    rank_mat <- matrix(rank_mat, nrow = length(policy_key_order))
+  }
+  boot_rank <- dplyr::left_join(
+    tibble::tibble(.policy_key = policy_key_order),
+    key_lookup,
+    by = ".policy_key"
+  ) |>
+    dplyr::mutate(
+      bootstrap_prob_best = rowMeans(rank_mat == 1L, na.rm = TRUE),
+      bootstrap_median_rank = apply(rank_mat, 1, stats::median, na.rm = TRUE)
+    ) |>
+    dplyr::select(-tidyselect::all_of(".policy_key"))
+
+  # Merge the bootstrap diagnostics back onto the policy summary and record
+  # the final acceptability calls.
+  select_ref |>
+    dplyr::left_join(boot_sum, by = c("policy", "equation_branch_filter")) |>
+    dplyr::left_join(boot_rank, by = c("policy", "equation_branch_filter")) |>
+    dplyr::mutate(
+      best_policy_global = best_row$policy[[1]],
+      best_equation_branch_filter_global = best_row$equation_branch_filter[[1]],
+      best_mean_species_median_abs_log = best_row$mean_species_median_abs_log[[1]],
+      one_se_multiplier = as.numeric(one_se_multiplier),
+      one_se_threshold = threshold,
+      acceptable_one_se = .data$mean_species_median_abs_log <= threshold,
+      acceptable_bootstrap = dplyr::coalesce(.data$bootstrap_prob_within_threshold, 0) >= 0.50,
+      acceptable_global = .data$acceptable_one_se & .data$acceptable_bootstrap,
+      equivalence_tolerance = as.numeric(equivalence_tolerance)
+    ) |>
+    dplyr::arrange(
+      dplyr::desc(.data$acceptable_global),
+      dplyr::desc(.data$acceptable_one_se),
+      .data$mean_species_median_abs_log,
+      .data$specificity_rank,
+      .data$policy,
+      .data$equation_branch_filter
+    )
+}
+
+#' Build pairwise policy-equivalence summaries
+#'
+#' Compares paired species-block benchmark errors and records whether each
+#' policy pair is practically and statistically indistinguishable.
+#'
+#' @param species_performance_table Species-block benchmark table.
+#' @param select_ref Global policy-selection reference table.
+#' @param tolerance Practical equivalence tolerance on mean paired error
+#'   difference.
+#' @param n_boot Number of paired bootstrap resamples across species.
+#' @param seed Integer bootstrap seed.
+#' @param progress Logical scalar controlling stage messages.
+#'
+#' @return A list with `pairs` and `best_flags`.
+#'
+#' @keywords internal
+#' @noRd
+build_equivalence_table <- function(species_performance_table,
+                                    select_ref,
+                                    tolerance = 0.05,
+                                    n_boot = 500L,
+                                    seed = NULL,
+                                    progress = FALSE) {
+  # Reuse the species-level benchmark summary so equivalence is assessed on the
+  # same validation scale as the global selection table.
+  species_level <- species_performance(species_performance_table) |>
+    dplyr::select("policy", "equation_branch_filter", "anchor_species", "species_median_abs_log")
+
+  if (is.null(seed)) {
+    seed <- sample.int(.Machine$integer.max, 1)
+  }
+
+  if (nrow(species_level) == 0 || nrow(select_ref) == 0) {
+    return(list(
+      pairs = tibble::tibble(),
+      best_flags = tibble::tibble(
+        policy = character(0),
+        equation_branch_filter = character(0),
+        equivalent_to_best_global = logical(0),
+        paired_mean_diff_to_best = numeric(0)
+      )
+    ))
+  }
+
+  policy_nodes <- species_level |>
+    dplyr::distinct(.data$policy, .data$equation_branch_filter) |>
+    dplyr::arrange(.data$policy, .data$equation_branch_filter)
+  policy_keys <- paste(
+    as.character(policy_nodes$policy),
+    normalize_policy_equation_branch_filters(policy_nodes$equation_branch_filter),
+    sep = "|"
+  )
+
+  # Pre-pivot species_level to a wide matrix once so each pair extracts two
+  # columns directly instead of re-filtering and pivoting the full table.
+  eq_wide_tbl <- species_level |>
+    dplyr::mutate(
+      .policy_key = paste(
+        as.character(.data$policy),
+        normalize_policy_equation_branch_filters(.data$equation_branch_filter),
+        sep = "|"
+      )
+    ) |>
+    tidyr::pivot_wider(
+      id_cols = "anchor_species",
+      names_from = ".policy_key",
+      values_from = "species_median_abs_log"
+    )
+  eq_wide_mat <- as.matrix(eq_wide_tbl[, setdiff(names(eq_wide_tbl), "anchor_species"), drop = FALSE])
+  n_boot_int_eq <- as.integer(n_boot)
+
+  if (nrow(policy_nodes) < 2) {
+    return(list(
+      pairs = tibble::tibble(),
+      best_flags = policy_nodes |>
+        dplyr::mutate(
+          equivalent_to_best_global = TRUE,
+          paired_mean_diff_to_best = 0
+        )
+    ))
+  }
+
+  # Identify the best current policy first so equivalence-to-best can be
+  # derived directly from the pairwise comparison table later.
+  best_policy <-
+    {
+      select_ref_tbl <- normalize_policy_columns(select_ref)
+      select_ref_tbl$policy <- resolve_policy_names(select_ref_tbl)
+      select_ref_tbl
+    } |>
+    dplyr::arrange(.data$mean_species_median_abs_log, .data$specificity_rank, .data$policy, .data$equation_branch_filter) |>
+    dplyr::slice(1)
+  best_key <- paste(
+    as.character(best_policy$policy[[1]]),
+    normalize_policy_equation_branch_filters(best_policy$equation_branch_filter[[1]]),
+    sep = "|"
+  )
+
+  n_pairs <- choose(length(policy_keys), 2L)
+  report_progress(
+    progress,
+    "[Selection] Computing pairwise equivalence across ", n_pairs, " policy pairs (",
+    length(policy_keys), " policies, ", as.integer(n_boot), " bootstrap resamples each)..."
+  )
+
+  pair_tbl <- utils::combn(policy_keys, 2, simplify = FALSE) |>
+    purrr::map_dfr(function(pair) {
+      lhs_key <- pair[[1]]
+      rhs_key <- pair[[2]]
+      lhs_idx <- match(lhs_key, policy_keys)
+      rhs_idx <- match(rhs_key, policy_keys)
+      lhs <- policy_nodes$policy[[lhs_idx]]
+      lhs_branch <- policy_nodes$equation_branch_filter[[lhs_idx]]
+      rhs <- policy_nodes$policy[[rhs_idx]]
+      rhs_branch <- policy_nodes$equation_branch_filter[[rhs_idx]]
+
+      # Look up the two policy columns directly from the pre-pivoted matrix.
+      lhs_col <- eq_wide_mat[, lhs_key]
+      rhs_col <- eq_wide_mat[, rhs_key]
+      both_finite <- is.finite(lhs_col) & is.finite(rhs_col)
+      n_common <- sum(both_finite)
+
+      if (n_common == 0L) {
+        return(tibble::tibble(
+          policy_a = lhs,
+          equation_branch_filter_a = lhs_branch,
+          policy_b = rhs,
+          equation_branch_filter_b = rhs_branch,
+          n_species_common = 0L,
+          paired_mean_diff = NA_real_,
+          paired_median_diff = NA_real_,
+          paired_boot_q025 = NA_real_,
+          paired_boot_q975 = NA_real_,
+          equivalent_pair = FALSE,
+          pair_decision = "inconclusive",
+          better_policy = NA_character_
+        ))
+      }
+
+      # Vectorized bootstrap: single sample.int + matrix colMeans replaces
+      # replicate(n_boot, { sample + mean }) for a ~20-50x speedup per pair.
+      diff_vec <- (lhs_col - rhs_col)[both_finite]
+      set.seed(as.integer(seed) + sum(utf8ToInt(paste(lhs_key, rhs_key, sep = "|"))))
+      n_d <- length(diff_vec)
+      boot_idx_eq <- matrix(sample.int(n_d, n_d * n_boot_int_eq, replace = TRUE), nrow = n_d)
+      boot_means <- colMeans(matrix(diff_vec[boot_idx_eq], nrow = n_d), na.rm = TRUE)
+
+      q025 <- stats::quantile(boot_means, probs = 0.025, na.rm = TRUE, names = FALSE, type = 8)
+      q975 <- stats::quantile(boot_means, probs = 0.975, na.rm = TRUE, names = FALSE, type = 8)
+      mean_diff <- mean(diff_vec, na.rm = TRUE)
+      med_diff <- stats::median(diff_vec, na.rm = TRUE)
+
+      # Treat overlap with the tolerance boundary as inconclusive. A pair is
+      # equivalent only when the full bootstrap interval lies inside the
+      # practical-equivalence band; a policy is better only when the full
+      # interval lies beyond that band on one side.
+      eq_pair <- is.finite(q025) &&
+        is.finite(q975) &&
+        q025 >= -tolerance &&
+        q975 <= tolerance
+      lhs_better <- is.finite(q975) && q975 < -tolerance
+      rhs_better <- is.finite(q025) && q025 > tolerance
+
+      # Force evaluation
+      force(lhs_better)
+      force(rhs_better)
+
+      pair_decision <- dplyr::case_when(
+        eq_pair ~ "equivalent",
+        lhs_better ~ "lhs_better",
+        rhs_better ~ "rhs_better",
+        TRUE ~ "inconclusive"
+      )
+
+      better <- dplyr::case_when(
+        pair_decision == "lhs_better" ~ lhs,
+        pair_decision == "rhs_better" ~ rhs,
+        TRUE ~ NA_character_
+      )
+
+      tibble::tibble(
+        policy_a = lhs,
+        equation_branch_filter_a = lhs_branch,
+        policy_b = rhs,
+        equation_branch_filter_b = rhs_branch,
+        n_species_common = n_common,
+        paired_mean_diff = mean_diff,
+        paired_median_diff = med_diff,
+        paired_boot_q025 = q025,
+        paired_boot_q975 = q975,
+        equivalent_pair = eq_pair,
+        pair_decision = pair_decision,
+        better_policy = better
+      )
+    })
+
+  # Convert the pairwise table to one row per policy showing whether it is
+  # equivalent to the global best policy.
+  best_flags <- policy_nodes |>
+    dplyr::mutate(
+      .policy_key = paste(
+        as.character(.data$policy),
+        normalize_policy_equation_branch_filters(.data$equation_branch_filter),
+        sep = "|"
+      ),
+      equivalent_to_best_global = purrr::map_lgl(.data$.policy_key, function(policy_key_now) {
+        if (identical(policy_key_now, best_key)) {
+          return(TRUE)
+        }
+
+        row <- pair_tbl |>
+          dplyr::filter(
+            (paste(
+              as.character(.data$policy_a),
+              normalize_policy_equation_branch_filters(.data$equation_branch_filter_a),
+              sep = "|"
+            ) == best_key &
+              paste(
+                as.character(.data$policy_b),
+                normalize_policy_equation_branch_filters(.data$equation_branch_filter_b),
+                sep = "|"
+              ) == policy_key_now) |
+              (paste(
+                as.character(.data$policy_b),
+                normalize_policy_equation_branch_filters(.data$equation_branch_filter_b),
+                sep = "|"
+              ) == best_key &
+                paste(
+                  as.character(.data$policy_a),
+                  normalize_policy_equation_branch_filters(.data$equation_branch_filter_a),
+                  sep = "|"
+                ) == policy_key_now)
+          ) |>
+          dplyr::slice(1)
+
+        nrow(row) == 1 && isTRUE(row$equivalent_pair[[1]])
+      }),
+      paired_mean_diff_to_best = purrr::map_dbl(.data$.policy_key, function(policy_key_now) {
+        if (identical(policy_key_now, best_key)) {
+          return(0)
+        }
+
+        row <- pair_tbl |>
+          dplyr::filter(
+            (paste(
+              as.character(.data$policy_a),
+              normalize_policy_equation_branch_filters(.data$equation_branch_filter_a),
+              sep = "|"
+            ) == best_key &
+              paste(
+                as.character(.data$policy_b),
+                normalize_policy_equation_branch_filters(.data$equation_branch_filter_b),
+                sep = "|"
+              ) == policy_key_now) |
+              (paste(
+                as.character(.data$policy_b),
+                normalize_policy_equation_branch_filters(.data$equation_branch_filter_b),
+                sep = "|"
+              ) == best_key &
+                paste(
+                  as.character(.data$policy_a),
+                  normalize_policy_equation_branch_filters(.data$equation_branch_filter_a),
+                  sep = "|"
+                ) == policy_key_now)
+          ) |>
+          dplyr::slice(1)
+
+        if (nrow(row) == 0 || !is.finite(row$paired_mean_diff[[1]])) {
+          return(NA_real_)
+        }
+
+        if (identical(
+          paste(
+            as.character(row$policy_a[[1]]),
+            normalize_policy_equation_branch_filters(row$equation_branch_filter_a[[1]]),
+            sep = "|"
+          ),
+          best_key
+        )) {
+          return(row$paired_mean_diff[[1]])
+        }
+
+        -row$paired_mean_diff[[1]]
+      }),
+      best_policy_global = best_policy$policy[[1]],
+      best_equation_branch_filter_global = best_policy$equation_branch_filter[[1]]
+    ) |>
+    dplyr::select(-tidyselect::all_of(".policy_key"))
+
+  list(pairs = pair_tbl, best_flags = best_flags)
+}
+
+#' Build policy-equivalence classes
+#'
+#' Converts pairwise equivalence calls to connected equivalence classes.
+#'
+#' @param select_ref Global policy-selection reference table.
+#' @param pair_tbl Pairwise policy-equivalence table.
+#'
+#' @return A tibble.
+#'
+#' @keywords internal
+#' @noRd
+build_equivalence_sets <- function(select_ref,
+                                   pair_tbl) {
+  # Start from the policy list in the selection table so the class summary
+  # always covers every benchmarked policy.
+  select_ref <- normalize_policy_columns(select_ref)
+  select_ref$policy <- resolve_policy_names(select_ref)
+  policy_nodes <- select_ref |>
+    dplyr::distinct(.data$policy, .data$equation_branch_filter) |>
+    dplyr::arrange(.data$policy, .data$equation_branch_filter)
+  if (nrow(policy_nodes) == 0) {
+    return(tibble::tibble())
+  }
+
+  node_keys <- paste(
+    as.character(policy_nodes$policy),
+    normalize_policy_equation_branch_filters(policy_nodes$equation_branch_filter),
+    sep = "|"
+  )
+  adjacency <- stats::setNames(vector("list", length(node_keys)), node_keys)
+  for (policy_key_now in node_keys) {
+    adjacency[[policy_key_now]] <- character(0)
+  }
+
+  # Build an undirected adjacency list from the pairwise equivalence calls.
+  if (nrow(pair_tbl) > 0) {
+    eq_pairs <- pair_tbl |>
+      dplyr::filter(.data$equivalent_pair) |>
+      dplyr::select("policy_a", "equation_branch_filter_a", "policy_b", "equation_branch_filter_b")
+
+    if (nrow(eq_pairs) > 0) {
+      for (i in seq_len(nrow(eq_pairs))) {
+        lhs <- paste(
+          as.character(eq_pairs$policy_a[[i]]),
+          normalize_policy_equation_branch_filters(eq_pairs$equation_branch_filter_a[[i]]),
+          sep = "|"
+        )
+        rhs <- paste(
+          as.character(eq_pairs$policy_b[[i]]),
+          normalize_policy_equation_branch_filters(eq_pairs$equation_branch_filter_b[[i]]),
+          sep = "|"
+        )
+        adjacency[[lhs]] <- unique(c(adjacency[[lhs]], rhs))
+        adjacency[[rhs]] <- unique(c(adjacency[[rhs]], lhs))
+      }
+    }
+  }
+
+  # Walk the connected components so each equivalence class is represented once
+  # and each policy gets one membership row.
+  visited <- stats::setNames(rep(FALSE, length(node_keys)), node_keys)
+  class_rows <- list()
+  class_id <- 0L
+
+  for (root in node_keys) {
+    if (visited[[root]]) {
+      next
+    }
+
+    class_id <- class_id + 1L
+    queue <- root
+    members <- character(0)
+
+    while (length(queue) > 0) {
+      node <- queue[[1]]
+      queue <- queue[-1]
+      if (visited[[node]]) {
+        next
+      }
+
+      visited[[node]] <- TRUE
+      members <- c(members, node)
+      nbrs <- adjacency[[node]] %||% character(0)
+      queue <- unique(c(queue, nbrs[!visited[nbrs]]))
+    }
+
+    members <- sort(unique(members))
+    member_idx <- match(members, node_keys)
+    member_tbl <- policy_nodes[member_idx, , drop = FALSE]
+    class_rows[[length(class_rows) + 1]] <- tibble::tibble(
+      policy = member_tbl$policy,
+      equation_branch_filter = member_tbl$equation_branch_filter,
+      equivalence_class_id = paste0("class_", class_id),
+      equivalence_class_size = length(members),
+      equivalence_class_members = paste(
+        policy_display_label(member_tbl$policy, member_tbl$equation_branch_filter),
+        collapse = "; "
+      )
+    )
+  }
+
+  dplyr::bind_rows(class_rows) |>
+    dplyr::arrange(.data$equivalence_class_id, .data$policy, .data$equation_branch_filter)
+}
+
+#' Run the policy-selection summary
+#'
+#' Builds the global policy-selection table, pairwise equivalence summary,
+#' and equivalence-class table from the species-block benchmark results.
+#'
+#' @param species_performance_table Species-block benchmark table.
+#' @param candidate_models Optional candidate-model metadata used to enrich
+#'   policy labels.
+#' @param config Optional JSON path or list with `tolerance`, `n_boot`, and
+#'   `seed`. A [Configurer] object is also accepted.
+#' @param cache_path Optional `.rds` cache path.
+#' @param refresh Logical scalar. If `TRUE`, ignore any existing cache.
+#' @param progress Logical scalar controlling stage messages.
+#'
+#' @return A list containing the selection table, pairwise equivalence table,
+#'   equivalence-class table, and merged final selection table.
+#'
+#' @examples
+#' \dontrun{
+#' selection_obj <- run_policy_selection(
+#'   species_block_perf,
+#'   config = list(tolerance = 0.01, n_boot = 100L)
+#' )
+#' selection_obj$final_ref
+#' }
+#'
+#' @keywords internal
+#' @noRd
+run_policy_selection <- function(species_performance_table,
+                                 candidate_models = NULL,
+                                 config = NULL,
+                                 cache_path = NULL,
+                                 refresh = FALSE,
+                                 progress = FALSE) {
+  # Validate cache control and the benchmark input before any bootstrap work
+  # begins.
+  if (!is.data.frame(species_performance_table)) {
+    stop("'species_performance_table' must be a data frame or tibble.", call. = FALSE)
+  }
+  if (!is.null(cache_path) &&
+    (!is.character(cache_path) || length(cache_path) != 1 || !nzchar(cache_path))) {
+    stop("'cache_path' must be NULL or a single file path.", call. = FALSE)
+  }
+  if (!is.logical(refresh) || length(refresh) != 1 || is.na(refresh)) {
+    stop("'refresh' must be TRUE or FALSE.", call. = FALSE)
+  }
+
+  # Reuse the cached selection object when available unless a refresh was
+  # explicitly requested.
+  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
+    return(readRDS(cache_path))
+  }
+
+  # Inline the policy-selection defaults here so the function resolves its own
+  # fallback settings without an extra config helper.
+  config_values <- merge_config_sections(
+    list(
+      one_se_multiplier = 1,
+      equivalence_tolerance = 0.05,
+      tolerance = 0.05,
+      n_boot = 500L,
+      seed = NULL
+    ),
+    read_similarity_config(config)
+  )
+  config_values$equivalence_tolerance <- config_values$equivalence_tolerance %||% config_values$tolerance
+
+  # Build the base selection summary first, then layer on the pairwise and
+  # equivalence-class summaries before assembling the final merged table.
+  select_ref <- build_selection_table(
+    species_performance_table = species_performance_table,
+    candidate_models = candidate_models,
+    one_se_multiplier = config_values$one_se_multiplier,
+    equivalence_tolerance = config_values$equivalence_tolerance,
+    n_boot = config_values$n_boot,
+    seed = config_values$seed,
+    progress = progress
+  )
+  if (!all(c("policy", "equation_branch_filter") %in% names(select_ref))) {
+    # Return typed empty selection objects so sparse benchmark folds can fall
+    # through to later deterministic or learner-free fallback logic without
+    # join-column crashes.
+    empty_keys <- tibble::tibble(
+      policy = character(0),
+      equation_branch_filter = character(0)
+    )
+    return(list(
+      select_ref = empty_keys,
+      equiv_ref = list(
+        pairs = tibble::tibble(
+          policy_a = character(0),
+          equation_branch_filter_a = character(0),
+          policy_b = character(0),
+          equation_branch_filter_b = character(0),
+          equivalent_pair = logical(0),
+          paired_mean_diff = numeric(0),
+          paired_mean_diff_q05 = numeric(0),
+          paired_mean_diff_q95 = numeric(0),
+          n_species_overlap = integer(0)
+        ),
+        best_flags = tibble::tibble(
+          policy = character(0),
+          equation_branch_filter = character(0),
+          equivalent_to_best_global = logical(0),
+          paired_mean_diff_to_best = numeric(0)
+        )
+      ),
+      equiv_sets = tibble::tibble(
+        policy = character(0),
+        equation_branch_filter = character(0),
+        equivalence_class_id = integer(0),
+        equivalence_class_size = integer(0),
+        equivalence_class_members = character(0)
+      ),
+      final_ref = empty_keys
+    ))
+  }
+  equiv_ref <- build_equivalence_table(
+    species_performance_table = species_performance_table,
+    select_ref = select_ref,
+    tolerance = config_values$equivalence_tolerance,
+    n_boot = config_values$n_boot,
+    seed = if (!is.null(config_values$seed)) config_values$seed + 3L else NULL,
+    progress = progress
+  )
+  equiv_sets <- build_equivalence_sets(
+    select_ref = select_ref,
+    pair_tbl = equiv_ref$pairs
+  )
+
+  final_ref <- select_ref |>
+    dplyr::left_join(equiv_ref$best_flags, by = c("policy", "equation_branch_filter")) |>
+    dplyr::left_join(equiv_sets, by = c("policy", "equation_branch_filter")) |>
+    dplyr::mutate(
+      equivalent_to_best_global = dplyr::coalesce(.data$equivalent_to_best_global, FALSE),
+      paired_mean_diff_to_best = dplyr::coalesce(.data$paired_mean_diff_to_best, NA_real_)
+    )
+
+  result <- list(
+    select_ref = select_ref,
+    equiv_ref = equiv_ref,
+    equiv_sets = equiv_sets,
+    final_ref = final_ref
+  )
+
+  # Cache the in-memory selection summaries only when a cache path was
+  # supplied.
+  if (!is.null(cache_path)) {
+    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
+    saveRDS(result, cache_path)
+  }
+
+  result
+}

@@ -47,13 +47,13 @@ is a \link{Candidates} object and \code{reference_ids} is \code{NULL}, the store
 model-level ordination points when \code{dist_mat} is a \link{Candidates} object.}
 
 \item{cluster_args}{Optional named list passed to
-\code{\link[=assign_ordination_groups]{assign_ordination_groups()}} for the model-level ordination.}
+\code{assign_ordination_groups()} for the model-level ordination.}
 
 \item{species_cluster_args}{Optional named list passed to
-\code{\link[=assign_ordination_groups]{assign_ordination_groups()}} for the species-level ordination.}
+\code{assign_ordination_groups()} for the species-level ordination.}
 
 \item{species_refine_args}{Optional named list passed to
-\code{\link[=refine_species_clusters]{refine_species_clusters()}} for the species-level ordination.}
+\code{refine_species_clusters()} for the species-level ordination.}
 
 \item{model_id_col}{Model-ID column name used when \code{dist_mat} is a
 \link{Candidates} object.}
@@ -71,7 +71,7 @@ vectors and factor centroids with \code{vegan::envfit()}.
 }
 \examples{
 \dontrun{
-candidates <- as_candidates(list(
+candidates <- build_candidates(list(
   study = list(path = "input.xlsx"),
   anchors = list(selector = list(regional_body = "SWFSC"))
 ))

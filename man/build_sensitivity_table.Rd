@@ -20,7 +20,7 @@ outputs into one scenario-level manifest table.
 }
 \examples{
 \dontrun{
-simulator <- as_policy_simulator(selector)
+simulator <- as_policysimulator(selector)
 simulator <- simulate(simulator)
 build_sensitivity_table(simulator)
 }

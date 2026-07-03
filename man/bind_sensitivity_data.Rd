@@ -21,7 +21,7 @@ tables across all scenario benchmark objects.
 }
 \examples{
 \dontrun{
-simulator <- as_policy_simulator(selector)
+simulator <- as_policysimulator(selector)
 simulator <- simulate(simulator)
 bind_sensitivity_data(simulator)
 }
