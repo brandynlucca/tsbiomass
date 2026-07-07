@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="596"
+   height="688.99982"
+   viewBox="0 0 596 688.99982"
+   role="img"
+   aria-labelledby="title desc"
+   version="1.1"
+   id="svg14"
+   sodipodi:docname="tsbiomass_hex.svg"
+   inkscape:version="1.4.3 (0d15f75, 2025-12-25)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs14" />
+  <sodipodi:namedview
+     id="namedview14"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="1.2337662"
+     inkscape:cx="225.32632"
+     inkscape:cy="318.94211"
+     inkscape:window-width="1920"
+     inkscape:window-height="1057"
+     inkscape:window-x="1912"
+     inkscape:window-y="-8"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg14" />
+  <title
+     id="title">tsbiomass hex logo</title>
+  <desc
+     id="desc">High contrast hex sticker with tight TS-length logarithmic curves, varying uncertainty intervals, and bottom-aligned text.</desc>
+  <style
+     id="style1">
+    .sticker-text {
+      font-family: 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-weight: 800;
+      font-size: 72px;
+      fill: #ffffff;
+      letter-spacing: 1px;
+    }
+  </style>
+  <!-- Outer Die-Cut Hex Border Structure -->
+  <polygon
+     points="300,8 592,177 592,516 300,685 8,516 8,177 "
+     fill="#ffffff"
+     stroke="#ffffff"
+     stroke-width="12"
+     stroke-linejoin="round"
+     id="polygon1"
+     style="display:inline;fill:#ffffff;fill-opacity:1;fill-rule:nonzero"
+     transform="translate(-2,-2.0000932)" />
+  <polygon
+     points="300,14 584,179 584,514 300,679 16,514 16,179 "
+     fill="#0b1a26"
+     stroke="#0b1a26"
+     stroke-width="6"
+     stroke-linejoin="round"
+     id="polygon2"
+     style="display:inline"
+     transform="translate(-2,-2.0000932)" />
+  <polygon
+     points="300,22 576,182 576,511 300,671 24,511 24,182 "
+     fill="#181c20"
+     stroke="#fca311"
+     stroke-width="6"
+     stroke-linejoin="round"
+     id="polygon3"
+     style="display:inline"
+     transform="translate(-2,-2.0000932)" />
+  <!-- Graphical Elements: Tightly packed Logarithmic Spaghetti curves taking up the upper/mid canvas -->
+  <path
+     d="M 33.601166,515.73376 C 155.83441,438.16219 326.96093,408.32697 571.4274,396.39287"
+     fill="none"
+     stroke="#64748b"
+     stroke-width="4"
+     stroke-linecap="round"
+     opacity="0.8"
+     id="path3"
+     style="stroke-width:1.99999;stroke-dasharray:none" />
+  <path
+     d="M 54.738274,530.11062 C 179.00868,399.61788 341.85726,370.4341 571.8481,365.29206"
+     fill="none"
+     stroke="#94a3b8"
+     stroke-width="3"
+     stroke-linecap="round"
+     opacity="0.6"
+     id="path4"
+     style="stroke-width:2;stroke-dasharray:none" />
+  <path
+     d="M 54.5749,520.09374 C 114.40044,450.60533 197.2862,405.56788 305.40237,371.49447 381.85565,347.3998 470.9253,328.78768 573.37877,310.88908"
+     fill="none"
+     stroke="#cbd5e1"
+     stroke-width="3"
+     stroke-linecap="round"
+     opacity="0.7"
+     id="path5"
+     style="stroke-width:2;stroke-dasharray:none"
+     sodipodi:nodetypes="csc" />
+  <path
+     d="M 123.05666,567.51592 C 224.40324,465.64895 364.94262,441.85895 570.30619,432.46735"
+     fill="none"
+     stroke="#e2e8f0"
+     stroke-width="4"
+     stroke-linecap="round"
+     opacity="0.5"
+     id="path6"
+     style="stroke-width:2;stroke-dasharray:none"
+     sodipodi:nodetypes="cc" />
+  <g
+     id="g15"
+     transform="matrix(0.92612142,0,0,0.8508053,40.525583,184.05781)"
+     style="stroke-width:1.12655">
+    <path
+       d="M 26.431106,407.14219 C 150.8787,258.41669 325.10532,224.09542 574.0005,178.33373 v 108.68402 c -137.0557,-18.89922 -230.59922,-6.05626 -314.72378,23.5197 -39.00051,13.71154 -74.96413,30.16649 -110.51421,56.07603 -12.69399,9.25161 -24.01201,19.13608 -36.03463,30.26008 -13.571644,12.55723 -27.77109,26.79196 -40.789435,45.31911 z"
+       fill="#fca311"
+       fill-opacity="0.3"
+       id="path7"
+       style="fill:#fc8611;fill-opacity:0.3;stroke-width:1.12655"
+       sodipodi:nodetypes="cccssscc" />
+    <path
+       d="M 26.431106,407.14219 C 150.8787,258.41669 325.10532,224.09542 574.0005,178.33373"
+       fill="none"
+       stroke="#fca311"
+       stroke-width="2.81638"
+       stroke-dasharray="6, 6"
+       id="path8"
+       style="stroke:#fc8611;stroke-opacity:1" />
+    <path
+       d="M 72.197622,439.35748 C 186.23165,305.40844 345.87927,259.36345 573.94731,284.4789"
+       fill="none"
+       stroke="#fca311"
+       stroke-width="2.81638"
+       stroke-dasharray="6, 6"
+       id="path9"
+       style="stroke:#fc8611;stroke-opacity:1" />
+    <path
+       d="M 50.256765,425.28502 C 110.86555,344.49472 181.56858,306.98399 262.86891,279.81337 348.50196,251.19476 446.3229,235.03806 574.0005,232.10372"
+       fill="none"
+       stroke="#ffb703"
+       stroke-width="6.7593"
+       stroke-linecap="round"
+       id="path10"
+       style="stroke:#ff8003;stroke-opacity:1"
+       sodipodi:nodetypes="csc" />
+  </g>
+  <g
+     id="g16"
+     transform="translate(-0.5735667,-25.32437)">
+    <path
+       d="m 26.431106,506.02304 c 39.828264,-46.39188 19.088449,-59.2771 72.429804,-88.48495 15.06052,-8.24662 33.65913,-18.96611 53.03636,-27.79779 25.31477,-11.53788 53.39095,-22.26433 81.59188,-31.71917 103.55539,-34.7187 228.3499,-59.6199 340.51135,-75.08634 v 68.64254 c -132.29995,3.04057 -234.76229,33.35871 -327.28435,69.48591 -20.44556,7.9834 -33.38716,13.41091 -62.16634,27.26086 -32.59087,15.68431 -78.49276,44.16131 -103.43328,56.31538 -21.548986,10.50131 -27.07148,11.29564 -33.025905,14.05373 -4.390334,2.0336 -8.788092,4.86566 -21.659519,15.93089 z"
+       fill="#d946ef"
+       fill-opacity="0.25"
+       id="path11"
+       style="fill:#d846ef;fill-opacity:0.25;stroke:none;stroke-width:0.999999;stroke-opacity:1"
+       sodipodi:nodetypes="csssccsssscc" />
+    <path
+       d="M 26.431106,506.02304 C 60.109679,468.87033 48.144887,448.31795 89.608166,422.3728 201.35818,352.44655 392.46246,307.96788 574.0005,282.93479"
+       fill="none"
+       stroke="#d946ef"
+       stroke-width="2"
+       stroke-dasharray="6, 6"
+       id="path12"
+       sodipodi:nodetypes="csc" />
+    <path
+       d="M 26.431106,534.6241 C 45.240477,514.739 69.89148,511.37638 88.192279,502.08404 108.20391,491.92301 125.51947,478.5346 151.70541,465.00745 260.01339,409.05768 403.85954,355.48758 574.0005,351.57733"
+       fill="none"
+       stroke="#d946ef"
+       stroke-width="2"
+       stroke-dasharray="6, 6"
+       id="path13"
+       sodipodi:nodetypes="cssc" />
+    <path
+       d="M 26.431106,519.75155 C 96.456105,444.43428 199.263,397.54253 305.24391,366.05093 c 82.3671,-24.4749 159.9114,-40.28969 268.75659,-48.79487"
+       fill="none"
+       stroke="#f472b6"
+       stroke-width="5.00001"
+       stroke-linecap="round"
+       id="path14"
+       sodipodi:nodetypes="csc" />
+  </g>
+  <!-- Package Wordmark Positioned squarely in the bottom third -->
+  <g
+     id="sticker-text-group"
+     transform="matrix(1.2884906,0,0,1.2884906,-106.86104,-504.04353)"
+     style="display:inline;stroke:#000000;stroke-width:2.2507;stroke-dasharray:none;stroke-opacity:1">
+    <!-- Shifted down to effectively use the negative space created by logarithmic asymptotes -->
+    <text
+       class="sticker-text"
+       x="293.90607"
+       y="583.12488"
+       text-anchor="middle"
+       id="text14"
+       style="font-weight:800;font-size:72px;font-family:'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif;letter-spacing:1px;text-anchor:middle;fill:#ffffff;stroke:#000000;stroke-width:2.2507;stroke-dasharray:none;stroke-opacity:1"><tspan
+         style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:72px;font-family:Arial;-inkscape-font-specification:'Arial, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke:#000000;stroke-width:2.2507;stroke-dasharray:none;stroke-opacity:1"
+         id="tspan16">tsbiomass</tspan></text>
+  </g>
+  <polygon
+     points="576,182 576,511 300,671 24,511 24,182 300,22 "
+     fill="#181c20"
+     stroke="#fca311"
+     stroke-width="6"
+     stroke-linejoin="round"
+     id="polygon14"
+     style="display:inline;fill:none"
+     transform="translate(-2,-2.0000932)" />
+</svg>

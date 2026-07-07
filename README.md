@@ -1,99 +1,91 @@
 # tsbiomass
 
-`tsbiomass` is an R package for TS-model transferability workflows. The package interface is class-based and stage-based: you build package objects, advance them with generic methods, and use `Sentinel` for outer-loop validation. The scripts under `inst/scripts/` are examples and orchestration assets, not the package API.
+<p align="center">
+  <img src="man/figures/tsbiomass-hex.svg" alt="tsbiomass hex logo" width="340" />
+</p>
 
-## Public interface
+`tsbiomass` is an R package for TS-model transferability analysis, policy benchmarking, uncertainty calibration, and outer-loop validation.
 
-The package exposes constructors/coercions for the main workflow objects:
+The package is object-based and stage-based: construct objects, run explicit stages, then score and validate results. This README focuses on practical usage with exported functions only.
 
-- `build_configurer()`
-- `build_candidates()`
-- `as_alchemist()`
-- `as_policyselector()`
-- `as_policylearner()`
-- `as_policysimulator()`
-- `as_conjurer()`
-- `as_referee()`
-- `build_sentinel()`
+## Installation
 
-The main staged methods are:
+Install from GitHub:
 
-- `set_reference_anchors()`
-- `forge_distances()`
-- `distill_traits()`
-- `run_ordination()`
-- `screen_admissibility()`
-- `benchmark()`
-- `calibrate_uncertainty()`
-- `select_policies()`
-- `crossfit()`
-- `fit()`
-- `run_sentinel()`
+```r
+install.packages("pak")
+pak::pak("brandynlucca/tsbiomass")
+```
 
-Plotting is exposed through `plot()` methods on package classes. Sentinel also
-exports focused validation and ablation plotting helpers.
+Or install from a local clone:
 
-## Example object pipeline
+```r
+install.packages("devtools")
+devtools::install(".")
+```
+
+## What You Can Do With tsbiomass
+
+- Build and normalize candidate TS models from configured inputs.
+- Benchmark transferability policies and calibrate uncertainty.
+- Train and fit policy learners for recommendation.
+- Produce scored predictions through `Referee`.
+- Run outer-loop validation and ablations with `Sentinel`.
+
+## Quick Start (End-to-End)
 
 ```r
 library(tsbiomass)
 
-config <- build_configurer(
-  read_config("path/to/config.yaml")
+# 1) Start from a template config and build a Configurer
+cfg_list <- create_configuration_template(
+  input_file = "input.xlsx",
+  output_root = "outputs",
+  cache_folder = "cache"
 )
 
-candidates <- build_candidates(config)
-candidates <- set_reference_anchors(candidates)
+cfg <- build_configurer(cfg_list, base_dir = getwd())
 
+# 2) Build candidates and choose reference anchors
+candidates <- build_candidates(cfg)
+candidates <- set_reference_anchors(
+  candidates,
+  selector = list(regional_body = "SWFSC")
+)
+
+# Optional: inspect selected anchors via exported accessor
+anchors <- fetch_reference_anchors(candidates)
+
+# 3) Similarity + admissibility stages
 alchemist <- as_alchemist(candidates)
 alchemist <- forge_distances(alchemist)
 alchemist <- distill_traits(alchemist)
 alchemist <- run_ordination(alchemist)
 alchemist <- screen_admissibility(alchemist)
 
+# 4) Policy selection stages
 selector <- as_policyselector(alchemist)
 selector <- benchmark(selector)
 selector <- calibrate_uncertainty(selector)
 selector <- select_policies(selector)
 
+# 5) Learner stages
 learner <- as_policylearner(selector)
 learner <- crossfit(learner)
 learner <- fit(learner)
 learner <- calibrate_uncertainty(learner)
 
+# 6) Predict and score
 predictions <- predict(selector, learner = learner)
-
-referee <- as_referee(
-  selector,
-  learner = learner,
-  predictions = predictions
-)
-
+referee <- as_referee(selector, learner = learner, predictions = predictions)
 scorecard <- predict(referee)
+
+scorecard
 ```
 
-This is one package-native object pipeline. It is not the only valid analysis structure, and `Alchemist` is only one available route for the similarity/distance stage.
+## Outer-Loop Validation With Sentinel
 
-## Outer-loop validation with Sentinel
-
-`Sentinel` is the package entry point for outer-loop validation. It is designed around a user-supplied workflow function rather than a package-hard-coded analysis workflow.
-
-```r
-sentinel <- build_sentinel(
-  data = candidates,
-  workflow_fn = my_validation_workflow,
-  config = workflow_config_s7,
-  split_mode = "species_holdout"
-)
-
-sentinel <- run_sentinel(sentinel)
-```
-
-Sentinel owns the outer split and constructs fold-local package objects. The
-workflow function receives a `Candidates` object and a scenario-specific
-`Configurer`; it can be the same staged analysis a user would run normally.
-Held-out rows are available as `candidates@reference_anchors` and are excluded
-from `candidates@candidate_models`.
+`Sentinel` runs fold-based validation around a user-supplied workflow function.
 
 ```r
 workflow_fun <- function(candidates, workflow_config_s7) {
@@ -101,54 +93,52 @@ workflow_fun <- function(candidates, workflow_config_s7) {
   alchemist <- forge_distances(alchemist)
   alchemist <- screen_admissibility(alchemist)
 
-  sel <- as_policyselector(alchemist, config = workflow_config_s7)
-  sel <- benchmark(sel, include_ts_error = TRUE)
-  sel <- calibrate_uncertainty(sel)
+  selector <- as_policyselector(alchemist, config = workflow_config_s7)
+  selector <- benchmark(selector)
+  selector <- calibrate_uncertainty(selector)
+  selector <- select_policies(selector)
 
-  learn <- as_policylearner(sel, config = workflow_config_s7)
-  learn <- crossfit(learn)
-  learn <- fit(learn)
-  learn <- calibrate_uncertainty(learn)
+  learner <- as_policylearner(selector, config = workflow_config_s7)
+  learner <- crossfit(learner)
+  learner <- fit(learner)
+  learner <- calibrate_uncertainty(learner)
 
-  sel <- select_policies(sel)
-  predictions <- predict(sel, learner = learn)
-  referee <- as_referee(
-    sel,
-    learner = learn,
-    predictions = predictions,
-    config = workflow_config_s7
-  )
-  scorecard <- predict(referee)
-  referee_rebuild(referee, scorecard = scorecard)
+  predictions <- predict(selector, learner = learner)
+  as_referee(selector, learner = learner, predictions = predictions)
 }
 
 sentinel <- build_sentinel(
   data = candidates,
   workflow_fn = workflow_fun,
-  config = workflow_config_s7,
+  config = cfg,
   split_mode = "species_holdout",
-  trait_ablations = TRUE # every configured trait present in the data
+  trait_ablations = TRUE
 )
 
 sentinel <- run_sentinel(sentinel)
 
-ablation_card <- summary(sentinel, type = "ablation", metric = "error_abs_log")
 validation_card <- summary(sentinel, type = "validation")
+ablation_card <- summary(sentinel, type = "ablation", metric = "error_abs_log")
 
-plot(ablation_card, type = "ablation")
 plot(validation_card, type = "validation", metric = "error_abs_log")
+plot(ablation_card, type = "ablation")
 ```
 
-A positive ablation importance means held-out performance worsened when the
-trait was removed. Estimates and bootstrap intervals are paired by outer fold.
-All Sentinel summary entry points return `Scorecard` objects.
+## Configuration Helpers
 
-## Configuration and registries
+- `create_configuration_template()` builds a complete baseline config list.
+- `read_configuration()` reads and normalizes YAML config files.
+- `build_configurer()` validates and materializes config into a `Configurer`.
+- `trait_names()` and `trait_definition()` expose trait registry metadata.
 
-The configuration helpers are:
+## Main Exported Entry Points
 
-- `default_config()`
-- `read_config()`
-- `trait_names()`
-- `trait_definition()`
-- `policy_names()`
+- Object builders/coercions: `build_configurer()`, `build_candidates()`, `as_alchemist()`, `as_policyselector()`, `as_policylearner()`, `as_policysimulator()`, `as_referee()`, `build_sentinel()`.
+- Workflow stages: `set_reference_anchors()`, `forge_distances()`, `distill_traits()`, `run_ordination()`, `screen_admissibility()`, `benchmark()`, `calibrate_uncertainty()`, `select_policies()`, `crossfit()`, `fit()`, `run_sentinel()`.
+- Utility/accessors: `fetch_reference_anchors()`, `recommend_ts_model()`, `list_learners()`, `available_policies()`.
+
+## Notes
+
+- Use exported accessors and helpers for object interaction.
+- Avoid relying on internal implementation details.
+- Scripts in `inst/scripts/` are orchestration examples, not the package API.
