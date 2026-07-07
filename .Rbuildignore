@@ -11,6 +11,8 @@
 ^tsbiomass_.*\.tar\.gz$
 ^outputs_swfscfish/.*$
 ^cache/.*$
+^inst/templates/cache/.*$
+^\.r-lib/.*$
 ^[0-9]+_R-CMD-check.*\.txt$
 ^[0-9]+_coverage\.txt$
 \.Rhistory$
@@ -23,5 +25,4 @@
 \.log$
 \.rds$
 ^temp_.*$
-^\.github/.*$
 ^\.github$
