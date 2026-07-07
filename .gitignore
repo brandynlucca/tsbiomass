@@ -32,3 +32,4 @@ tmp_*
 temp_*
 artifacts/
 .r-lib
+*.o

@@ -27,3 +27,4 @@
 ^temp_.*$
 ^\.github$
 \.r-lib$
+\.o$
