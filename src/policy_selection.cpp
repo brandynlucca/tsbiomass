@@ -153,23 +153,19 @@ SEXP cpp_policy_equivalence_pairs(NumericMatrix policy_matrix,
       int n_difference = static_cast<int>(differences.size());
       std::vector<double> bootstrap_means(n_boot);
       for (int bootstrap = 0; bootstrap < n_boot; ++bootstrap) {
-        long double sum = 0.0L;
+        double sum = 0.0;
         for (int draw = 0; draw < n_difference; ++draw) {
           int index = static_cast<int>(R_unif_index(n_difference));
-          sum += static_cast<long double>(differences[index]);
+          sum += differences[index];
         }
-        bootstrap_means[bootstrap] = static_cast<double>(
-          sum / static_cast<long double>(n_difference)
-        );
+        bootstrap_means[bootstrap] = sum / static_cast<double>(n_difference);
       }
 
-      long double sum_difference = 0.0L;
+      double sum_difference = 0.0;
       for (double value : differences) {
-        sum_difference += static_cast<long double>(value);
+        sum_difference += value;
       }
-      double mean = static_cast<double>(
-        sum_difference / static_cast<long double>(differences.size())
-      );
+      double mean = sum_difference / static_cast<double>(differences.size());
       double median = median_value(differences);
       double lower = quantile_type8(bootstrap_means, 0.025);
       double upper = quantile_type8(bootstrap_means, 0.975);
