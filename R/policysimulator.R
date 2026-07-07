@@ -191,7 +191,11 @@ policy_simulator_anchor_config <- function(object,
 #'
 #' @return An updated [PolicySimulator] object.
 #' @name simulate_policy_simulator
+#' @keywords internal
+#' @noRd
 .simulate_policy_simulator <- function(object,
+                                       nsim = NULL,
+                                       seed = NULL,
                                        scenario_specifications = NULL,
                                        baseline_results = NULL,
                                        policies = NULL,
@@ -202,7 +206,50 @@ policy_simulator_anchor_config <- function(object,
                                        config = NULL,
                                        cache_path = NULL,
                                        refresh = NULL,
-                                       progress = NULL) {
+                                       progress = NULL,
+                                       ...) {
+  dots <- list(...)
+  if ("scenario_specifications" %in% names(dots)) {
+    scenario_specifications <- dots[["scenario_specifications"]]
+  }
+  if ("baseline_results" %in% names(dots)) {
+    baseline_results <- dots[["baseline_results"]]
+  }
+  if ("policies" %in% names(dots)) {
+    policies <- dots[["policies"]]
+  }
+  if ("reference_ids" %in% names(dots)) {
+    reference_ids <- dots[["reference_ids"]]
+  }
+  if ("benchmark_args" %in% names(dots)) {
+    benchmark_args <- dots[["benchmark_args"]]
+  }
+  if ("workers" %in% names(dots)) {
+    workers <- dots[["workers"]]
+  }
+  if ("registry_path" %in% names(dots)) {
+    registry_path <- dots[["registry_path"]]
+  }
+  if ("config" %in% names(dots)) {
+    config <- dots[["config"]]
+  }
+  if ("cache_path" %in% names(dots)) {
+    cache_path <- dots[["cache_path"]]
+  }
+  if ("refresh" %in% names(dots)) {
+    refresh <- dots[["refresh"]]
+  }
+  if ("progress" %in% names(dots)) {
+    progress <- dots[["progress"]]
+  }
+  dot_names <- names(dots) %||% rep("", length(dots))
+  positional_dots <- dots[!nzchar(dot_names)]
+  if (is.null(scenario_specifications) && length(positional_dots) > 0L) {
+    scenario_specifications <- positional_dots[[1L]]
+  }
+  if (!is.null(seed)) {
+    set.seed(seed)
+  }
   cfg <- merge_config_sections(
     object@selector@config,
     merge_config_sections(object@config, policy_selector_config_data(config))

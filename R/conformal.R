@@ -1406,7 +1406,7 @@ summarize_selected_ts_calibration <- function(ts_error,
   selected_ts$policy <- resolve_policy_names(selected_ts)
   selected_ts <- selected_ts |>
     dplyr::mutate(
-      anchor_model_id = as.character(anchor_model_id),
+      anchor_model_id = as.character(.data$anchor_model_id),
       anchor_species = if ("anchor_species" %in% names(selected_ts)) as.character(.data$anchor_species) else rep(NA_character_, dplyr::n()),
       anchor_family = if ("anchor_family" %in% names(selected_ts)) as.character(.data$anchor_family) else rep(NA_character_, dplyr::n())
     )
@@ -2402,7 +2402,7 @@ enrich_ts_calibration_locality <- function(ts_calibration,
 
   out <- normalize_policy_columns(ts_calibration) |>
     dplyr::mutate(
-      anchor_model_id = as.character(anchor_model_id),
+      anchor_model_id = as.character(.data$anchor_model_id),
       policy = resolve_policy_names(ts_calibration),
       equation_branch_filter = resolve_policy_branch_filters(ts_calibration)
     ) |>
@@ -2691,9 +2691,9 @@ build_scaled_functional_conformal_curve <- function(calibration_rows,
     # Fit the scale curve on every anchor except the held-out one so each
     # conformal score is genuinely out-of-fold.
     train_rows <- rows_now |>
-      dplyr::filter(anchor_model_id != anchor_id_now)
+      dplyr::filter(.data$anchor_model_id != anchor_id_now)
     holdout_rows <- rows_now |>
-      dplyr::filter(anchor_model_id == anchor_id_now)
+      dplyr::filter(.data$anchor_model_id == anchor_id_now)
     if (nrow(train_rows) == 0 || nrow(holdout_rows) == 0) {
       return(tibble::tibble())
     }
@@ -4771,7 +4771,7 @@ strategy_uncertainty_context <- function(row_now,
       anc_id_col_d <- intersect(c("model_id", "model_id"), names(anchor_scores))
       df_d <- dplyr::filter(
         tibble::as_tibble(anchor_scores),
-        as.character(anchor_model_id) == anchor_id_chr
+        as.character(.data$anchor_model_id) == anchor_id_chr
       )
       if (length(anc_id_col_d) > 0) {
         df_d <- dplyr::filter(df_d, as.character(.data[[anc_id_col_d[[1]]]]) != anchor_id_chr)

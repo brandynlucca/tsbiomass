@@ -3,6 +3,12 @@
 ^\.vscode/.*$
 ^\.git/.*$
 ^\.git$
+^\.git(\\|/|$)
+^inst/templates/cache(\\|/|$)
+^inst/templates/inst/outputs_smoke(\\|/|$)
+^inst/templates/outputs_swfscfish(\\|/|$)
+^tests/testthat/cache/\.gitkeep$
+\.gcda$
 ^\.github/.*$
 ^scratch/.*$
 ^artifacts/.*$

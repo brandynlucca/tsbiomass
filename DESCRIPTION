@@ -54,6 +54,7 @@ Suggests:
     nnls,
     quantreg,
     ranger,
+    ragg,
     rfishbase,
     rotl,
     rpart,    

@@ -27,7 +27,7 @@
   )) {
     class_obj <- get0(class_name, envir = ns, inherits = FALSE)
     if (!is.null(class_obj)) {
-      S7::S4_register(class_obj)
+      suppressWarnings(S7::S4_register(class_obj))
     }
   }
 

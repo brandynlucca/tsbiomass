@@ -1257,7 +1257,7 @@ policy_learner_select_calibration_rows <- function(tbl,
 
   tbl |>
     dplyr::filter(.data$selection_valid, is.finite(.data$.meta_predicted_score)) |>
-    dplyr::group_by(anchor_model_id, .data$anchor_species) |>
+    dplyr::group_by(.data$anchor_model_id, .data$anchor_species) |>
     dplyr::mutate(
       .meta_score_min = min(.data$.meta_predicted_score, na.rm = TRUE),
       .meta_benchmark_score_slack = if (has_benchmark_slack) {
@@ -2222,10 +2222,31 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
 #' @param max_selection_tolerance Optional numeric tie tolerance for retaining
 #'   score-minimizing rows within an anchor.
 #'
+#' @keywords internal
+#' @noRd
 .predict_policy_learner <- function(object,
-                                    new_policy_tbl,
+                                    new_policy_tbl = NULL,
                                     use_support_bin_intervals = NULL,
-                                    max_selection_tolerance = NULL) {
+                                    max_selection_tolerance = NULL,
+                                    ...) {
+  dots <- list(...)
+  if ("new_policy_tbl" %in% names(dots)) {
+    new_policy_tbl <- dots[["new_policy_tbl"]]
+  }
+  if ("use_support_bin_intervals" %in% names(dots)) {
+    use_support_bin_intervals <- dots[["use_support_bin_intervals"]]
+  }
+  if ("max_selection_tolerance" %in% names(dots)) {
+    max_selection_tolerance <- dots[["max_selection_tolerance"]]
+  }
+  dot_names <- names(dots) %||% rep("", length(dots))
+  positional_dots <- dots[!nzchar(dot_names)]
+  if (is.null(new_policy_tbl) && length(positional_dots) > 0L) {
+    new_policy_tbl <- positional_dots[[1L]]
+  }
+  if (is.null(new_policy_tbl)) {
+    stop("'new_policy_tbl' is required.", call. = FALSE)
+  }
   cfg <- policy_learner_config(object)
   if (length(object@fitted_model) == 0 ||
     !inherits((object@fitted_model)$model %||% NULL, "tsb_meta_policy_learner")) {

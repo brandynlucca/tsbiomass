@@ -666,7 +666,7 @@ conjurer_trait_draw_results <- function(object,
     )
 
     # Disable only the missingness gate for the uncertainty-propagation draw.
-    draw_predictions <- predict_generic(
+    draw_predictions <- predict_s7(
       draw_selector,
       learner = object@learner,
       config = conjurer_draw_config(
@@ -876,17 +876,45 @@ conjurer_summarize_draws <- function(selected_draws,
 #'
 #' @return An updated [Conjurer] object.
 #' @name simulate_conjurer
+#' @keywords internal
+#' @noRd
 .simulate_conjurer <- function(object,
+                               nsim = NULL,
+                               seed = NULL,
                                traits = NULL,
                                n_draws = NULL,
                                config = NULL,
-                               seed = NULL,
                                progress = NULL,
                                registry_path = NULL,
-                               policy_path = NULL) {
+                               policy_path = NULL,
+                               ...) {
+  dots <- list(...)
+  if ("traits" %in% names(dots)) {
+    traits <- dots[["traits"]]
+  }
+  if ("n_draws" %in% names(dots)) {
+    n_draws <- dots[["n_draws"]]
+  }
+  if ("config" %in% names(dots)) {
+    config <- dots[["config"]]
+  }
+  if ("progress" %in% names(dots)) {
+    progress <- dots[["progress"]]
+  }
+  if ("registry_path" %in% names(dots)) {
+    registry_path <- dots[["registry_path"]]
+  }
+  if ("policy_path" %in% names(dots)) {
+    policy_path <- dots[["policy_path"]]
+  }
+  dot_names <- names(dots) %||% rep("", length(dots))
+  positional_dots <- dots[!nzchar(dot_names)]
+  if (is.null(traits) && length(positional_dots) > 0L) {
+    traits <- positional_dots[[1L]]
+  }
   cfg <- conjurer_analysis_config(object, config)
   traits <- conjurer_trait_columns(object, traits = traits, config = config)
-  n_draws <- n_draws %||% cfg$n_draws
+  n_draws <- n_draws %||% nsim %||% cfg$n_draws
   seed <- seed %||% cfg$seed
   if (is.null(seed)) {
     seed <- sample.int(.Machine$integer.max, 1)
@@ -909,7 +937,7 @@ conjurer_summarize_draws <- function(selected_draws,
 
   # Build the operational baseline prediction once for later switch-rate totals.
   report_progress(progress, "Conjurer: building baseline predictions.")
-  baseline_predictions <- predict_generic(object@selector, learner = object@learner)
+  baseline_predictions <- predict_s7(object@selector, learner = object@learner)
 
   trait_results <- list()
   manifest_rows <- list()

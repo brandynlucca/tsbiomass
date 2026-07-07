@@ -122,7 +122,7 @@ save_plot_if_possible <- function(filename,
           plot = plot_,
           width = width,
           height = height,
-          dpi = dpi,
+          dpi = dpi
         ), save_args)
       )
       TRUE

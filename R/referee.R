@@ -1330,7 +1330,7 @@ build_referee_scorecard <- function(object,
     dplyr::left_join(
       consensus_tbl |>
         dplyr::transmute(
-          anchor_model_id,
+          anchor_model_id = .data$anchor_model_id,
           combined_consensus_multiplier = .data$consensus_multiplier,
           combined_multiplier_q05 = .data$multiplier_q05,
           combined_multiplier_q50 = .data$multiplier_q50,
@@ -1503,10 +1503,28 @@ build_referee_scorecard <- function(object,
 #'   allowed when non-critical report components fail.
 #' @param progress Optional logical scalar controlling stage messages.
 #'
+#' @keywords internal
+#' @noRd
 .predict_referee <- function(object,
                              predictions = NULL,
                              allow_partial = FALSE,
-                             progress = NULL) {
+                             progress = NULL,
+                             ...) {
+  dots <- list(...)
+  if ("predictions" %in% names(dots)) {
+    predictions <- dots[["predictions"]]
+  }
+  if ("allow_partial" %in% names(dots)) {
+    allow_partial <- dots[["allow_partial"]]
+  }
+  if ("progress" %in% names(dots)) {
+    progress <- dots[["progress"]]
+  }
+  dot_names <- names(dots) %||% rep("", length(dots))
+  positional_dots <- dots[!nzchar(dot_names)]
+  if (is.null(predictions) && length(positional_dots) > 0L) {
+    predictions <- positional_dots[[1L]]
+  }
   cfg <- merge_config_sections(object@selector@config, list())
   progress <- progress %||%
     policy_selector_config_value(cfg, "progress", sections = c("selection", "benchmark")) %||%

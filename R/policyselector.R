@@ -901,6 +901,8 @@ S7::method(select_policies, PolicySelector) <- function(object,
 #' @param progress Optional logical scalar controlling stage messages.
 #'
 #' @return A [PolicyPredictions] object.
+#' @keywords internal
+#' @noRd
 .predict_policy_selector <- function(object,
                                      reference_anchors = NULL,
                                      policies = NULL,
@@ -912,7 +914,47 @@ S7::method(select_policies, PolicySelector) <- function(object,
                                      use_support_bin_intervals = NULL,
                                      max_selection_tolerance = NULL,
                                      reuse_admissibility = TRUE,
-                                     progress = NULL) {
+                                     progress = NULL,
+                                     ...) {
+  dots <- list(...)
+  if ("reference_anchors" %in% names(dots)) {
+    reference_anchors <- dots[["reference_anchors"]]
+  }
+  if ("policies" %in% names(dots)) {
+    policies <- dots[["policies"]]
+  }
+  if ("config" %in% names(dots)) {
+    config <- dots[["config"]]
+  }
+  if ("policy_params" %in% names(dots)) {
+    policy_params <- dots[["policy_params"]]
+  }
+  if ("policy_path" %in% names(dots)) {
+    policy_path <- dots[["policy_path"]]
+  }
+  if ("registry_path" %in% names(dots)) {
+    registry_path <- dots[["registry_path"]]
+  }
+  if ("learner" %in% names(dots)) {
+    learner <- dots[["learner"]]
+  }
+  if ("use_support_bin_intervals" %in% names(dots)) {
+    use_support_bin_intervals <- dots[["use_support_bin_intervals"]]
+  }
+  if ("max_selection_tolerance" %in% names(dots)) {
+    max_selection_tolerance <- dots[["max_selection_tolerance"]]
+  }
+  if ("reuse_admissibility" %in% names(dots)) {
+    reuse_admissibility <- dots[["reuse_admissibility"]]
+  }
+  if ("progress" %in% names(dots)) {
+    progress <- dots[["progress"]]
+  }
+  dot_names <- names(dots) %||% rep("", length(dots))
+  positional_dots <- dots[!nzchar(dot_names)]
+  if (is.null(reference_anchors) && length(positional_dots) > 0L) {
+    reference_anchors <- positional_dots[[1L]]
+  }
   cfg <- merge_config_sections(object@config, policy_selector_config_data(config))
   progress <- progress %||%
     policy_selector_config_value(cfg, "progress", sections = c("selection", "benchmark")) %||%

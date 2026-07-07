@@ -20,6 +20,19 @@ print_generic <- S7::new_external_generic("base", "print", "x")
 show_generic <- S7::new_external_generic("methods", "show", "object")
 summary_generic <- S7::new_external_generic("base", "summary", "object")
 
+#' Dispatch the package S7 prediction generic from internal code
+#'
+#' @param object Object to predict from.
+#' @param ... Arguments passed to the S7 prediction method.
+#'
+#' @return Method-specific prediction result.
+#'
+#' @keywords internal
+#' @noRd
+predict_s7 <- function(object, ...) {
+  do.call(predict_generic, c(list(object), list(...)))
+}
+
 #' Calibrate uncertainty
 #'
 #' Dispatches to the appropriate uncertainty-calibration method for the

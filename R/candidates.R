@@ -132,7 +132,7 @@ candidate_admissibility_matches_anchors <- function(candidates,
 
   score_keys <- scores_tbl |>
     dplyr::distinct(.data$anchor_model_id, .data$anchor_species) |>
-    dplyr::arrange(anchor_model_id, .data$anchor_species)
+    dplyr::arrange(.data$anchor_model_id, .data$anchor_species)
   anchor_keys <- anchors_tbl |>
     dplyr::transmute(
       anchor_model_id = as.character(.data$model_id),
