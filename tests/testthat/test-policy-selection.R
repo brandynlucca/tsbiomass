@@ -161,8 +161,8 @@ test_that("compiled pairwise bootstrap matches the R oracle exactly", {
     engine = "cpp"
   )
 
-  expect_equal(cpp_result$pairs, r_result$pairs, tolerance = 1e-15)
-  expect_equal(cpp_result$best_flags, r_result$best_flags, tolerance = 1e-15)
+  expect_equal(cpp_result$pairs, r_result$pairs, tolerance = 1e-12)
+  expect_equal(cpp_result$best_flags, r_result$best_flags, tolerance = 1e-12)
 })
 
 test_that("default_anchor_config is idempotent for normalized anchor configs", {

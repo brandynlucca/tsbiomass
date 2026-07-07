@@ -2142,11 +2142,13 @@ study_ensemble_rows <- function(rows,
   keep_rows |>
     dplyr::group_by(dplyr::across(dplyr::all_of(group_cols))) |>
     dplyr::mutate(
-      .study_group_raw_weight = dplyr::case_when(
-        group_weight == "sum" ~ sum(.data$w_adm, na.rm = TRUE),
-        group_weight == "mean" ~ mean(.data$w_adm, na.rm = TRUE),
-        TRUE ~ max(.data$w_adm, na.rm = TRUE)
-      ),
+      .study_group_raw_weight = if (group_weight == "sum") {
+        sum(.data$w_adm, na.rm = TRUE)
+      } else if (group_weight == "mean") {
+        mean(.data$w_adm, na.rm = TRUE)
+      } else {
+        max(.data$w_adm, na.rm = TRUE)
+      },
       .within_raw_weight = if (within_weight == "kernel") .data$w_adm else 1
     ) |>
     dplyr::mutate(
@@ -7620,10 +7622,11 @@ fit_meta_policy_learner <- function(training_data,
   )
   method_spec <- meta_policy_method_spec(method, method_settings = method_settings)
 
-  y <- dplyr::case_when(
-    outcome_transform == "log1p" ~ log1p(training_data$.outcome),
-    TRUE ~ training_data$.outcome
-  )
+  y <- if (identical(outcome_transform, "log1p")) {
+    log1p(training_data$.outcome)
+  } else {
+    training_data$.outcome
+  }
   prep <- meta_policy_blueprint(training_data, feature_cols)
   model_frame <- prep$data
   keep_model_col <- vapply(model_frame, function(x) {
@@ -8711,10 +8714,11 @@ classify_equation_branch <- function(rows,
   if (!"slope_len" %in% names(rows_)) {
     return(rep("unknown", nrow(rows_)))
   }
-  dplyr::case_when(
-    !is.finite(suppressWarnings(as.numeric(rows_$slope_len))) ~ "unknown",
-    abs(suppressWarnings(as.numeric(rows_$slope_len)) - 20) <= tolerance ~ "fixed20",
-    TRUE ~ "free_slope"
+  slope_vals <- suppressWarnings(as.numeric(rows_$slope_len))
+  ifelse(
+    !is.finite(slope_vals),
+    "unknown",
+    ifelse(abs(slope_vals - 20) <= tolerance, "fixed20", "free_slope")
   )
 }
 
@@ -9584,17 +9588,31 @@ calibrate_local_recommendation_conformal <- function(policy_perf,
       by = c("recommendation_policy", "equation_branch")
     ) |>
     dplyr::mutate(
-      q_abs_log = dplyr::case_when(
-        .data$n_scores >= as.integer(min_policy_bin_scores) & is.finite(.data$q_abs_log_raw) ~ .data$q_abs_log_raw,
-        is.finite(.data$bin_q_abs_log) ~ .data$bin_q_abs_log,
-        is.finite(.data$policy_q_abs_log) ~ .data$policy_q_abs_log,
-        TRUE ~ global_q
+      q_abs_log = ifelse(
+        .data$n_scores >= as.integer(min_policy_bin_scores) & is.finite(.data$q_abs_log_raw),
+        .data$q_abs_log_raw,
+        ifelse(
+          is.finite(.data$bin_q_abs_log),
+          .data$bin_q_abs_log,
+          ifelse(
+            is.finite(.data$policy_q_abs_log),
+            .data$policy_q_abs_log,
+            global_q
+          )
+        )
       ),
-      interval_source = dplyr::case_when(
-        .data$n_scores >= as.integer(min_policy_bin_scores) & is.finite(.data$q_abs_log_raw) ~ "policy_support_bin",
-        is.finite(.data$bin_q_abs_log) ~ "support_bin",
-        is.finite(.data$policy_q_abs_log) ~ "policy_branch",
-        TRUE ~ "global"
+      interval_source = ifelse(
+        .data$n_scores >= as.integer(min_policy_bin_scores) & is.finite(.data$q_abs_log_raw),
+        "policy_support_bin",
+        ifelse(
+          is.finite(.data$bin_q_abs_log),
+          "support_bin",
+          ifelse(
+            is.finite(.data$policy_q_abs_log),
+            "policy_branch",
+            "global"
+          )
+        )
       )
     )
 

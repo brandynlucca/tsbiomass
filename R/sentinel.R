@@ -685,6 +685,11 @@ sentinel_resolve_output_dir <- function(config,
 sentinel_output_paths <- function(object) {
   # Centralize all standard output paths so the file layout is easy to audit.
   cache_parent <- as.character(object@options$cache_dir %||% "")[[1]]
+  cache_parent <- if (nzchar(cache_parent)) {
+    path_absolute(cache_parent, must_work = FALSE)
+  } else {
+    ""
+  }
   cache_root <- if (nzchar(cache_parent)) {
     file.path(
       cache_parent,
@@ -697,6 +702,11 @@ sentinel_output_paths <- function(object) {
       object@options$cache_root_dir %||% "fold_cache"
     )
   }
+  cache_root <- path_absolute(cache_root, must_work = FALSE)
+  log_file <- path_absolute(
+    file.path(cache_root, object@options$log_file %||% "sentinel.log"),
+    must_work = FALSE
+  )
   list(
     manifest_file = file.path(
       object@output_dir,
@@ -715,7 +725,7 @@ sentinel_output_paths <- function(object) {
       object@options$artifact_dir %||% "artifacts"
     ),
     cache_root_dir = cache_root,
-    log_file = file.path(cache_root, object@options$log_file %||% "sentinel.log")
+    log_file = log_file
   )
 }
 
