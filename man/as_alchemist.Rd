@@ -7,9 +7,9 @@
 as_alchemist(candidates, config = NULL, ...)
 }
 \arguments{
-\item{candidates}{A \link{Candidates} object. Must have \verb{@candidate_models}
-populated; \verb{@similarity_matrix} is used to inherit trait names when no
-explicit config is supplied.}
+\item{candidates}{A \link{Candidates} object with candidate-model rows. Prepared
+similarity state is used to inherit trait names when no explicit config is
+supplied.}
 
 \item{config}{Optional alchemist config list, YAML path, or \link{Configurer}
 object. When \code{NULL}, trait names and learner settings are inherited from

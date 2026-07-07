@@ -7,13 +7,12 @@
 \usage{
 .simulate_policy_simulator(
   object,
-  sensitivity_specs = NULL,
-  baseline_obj = NULL,
+  scenario_specifications = NULL,
+  baseline_results = NULL,
   policies = NULL,
   reference_ids = NULL,
   benchmark_args = list(),
   workers = NULL,
-  package_dir = NULL,
   registry_path = NULL,
   config = NULL,
   cache_path = NULL,
@@ -24,9 +23,10 @@
 \arguments{
 \item{object}{A \link{PolicySimulator} object.}
 
-\item{sensitivity_specs}{Optional explicit scenario specification list.}
+\item{scenario_specifications}{Optional explicit scenario specification
+list.}
 
-\item{baseline_obj}{Optional baseline benchmark bundle.}
+\item{baseline_results}{Optional baseline benchmark bundle.}
 
 \item{policies}{Optional policy override.}
 
@@ -35,8 +35,6 @@
 \item{benchmark_args}{Optional additional benchmark arguments.}
 
 \item{workers}{Optional worker override.}
-
-\item{package_dir}{Optional package source directory for worker bootstrap.}
 
 \item{registry_path}{Optional trait-registry path.}
 

@@ -10,7 +10,8 @@ run_sentinel(
   refresh = FALSE,
   max_folds = NULL,
   progress = NULL,
-  workers = NULL
+  workers = NULL,
+  logging = NULL
 )
 }
 \arguments{
@@ -23,10 +24,14 @@ manifest status.}
 
 \item{max_folds}{Optional integer cap for this invocation.}
 
-\item{progress}{Optional logical override.}
+\item{progress}{Optional logical override controlling console progress from
+both the parent and outer workers.}
 
 \item{workers}{Optional number of outer-fold workers. Defaults to
-\code{object@options$workers}.}
+the Sentinel worker option.}
+
+\item{logging}{Optional logical override controlling isolated per-fold logs
+and the compiled Sentinel log.}
 }
 \value{
 An updated \link{Sentinel} object.

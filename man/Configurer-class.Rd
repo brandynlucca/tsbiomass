@@ -9,6 +9,18 @@
 Callers can supply either a YAML path or a config list. Missing fields are
 filled from the package defaults during normalization.
 }
+\section{Properties}{
+
+\itemize{
+\item \code{data}: Normalized configuration list.
+\item \code{base_dir}: Base directory used to resolve relative paths.
+\item \code{registry_path}: Trait-registry path used for validation, or
+\code{NA_character_} when the packaged registry is used.
+\item \code{policy_path}: Policy-registry path used for validation, or
+\code{NA_character_} when the packaged registry is used.
+}
+}
+
 \examples{
 cfg <- build_configurer(list(
   paths = list(
@@ -51,11 +63,11 @@ cfg <- build_configurer(list(
   policies = list(
     active = "closest_within_species"
   ),
-  metalearner = list(
-    selection_method = "glm"
+  selection = list(
+    method = "glm"
   )
 ))
-cfg@data$similarity$alpha
+cfg
 
 \dontrun{
 cfg <- build_configurer("path/to/config.yaml")

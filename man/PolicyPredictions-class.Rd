@@ -12,9 +12,9 @@ and the donor-pool consensus summaries returned by \code{\link[=predict]{predict
 \examples{
 \dontrun{
 predictions <- predict(selector)
-predictions@intervals
-predictions@selections
-predictions@consensus
+predictions
+predictions
+predictions
 }
 
 }

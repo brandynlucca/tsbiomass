@@ -2,21 +2,20 @@
 % Please edit documentation in R/generics.R
 \name{crossfit}
 \alias{crossfit}
-\title{Cross-fit a staged staged object}
+\title{Cross-fit a policy learner}
 \usage{
 crossfit(object, ...)
 }
 \arguments{
-\item{object}{A staged staged object such as a \link{PolicyLearner}.}
+\item{object}{A \link{PolicyLearner} object.}
 
 \item{...}{Method-specific arguments.}
 }
 \value{
-An updated staged staged object.
+The updated \link{PolicyLearner} object.
 }
 \description{
-Cross-fits the supplied staged staged object using the method associated
-with its class.
+Estimates out-of-fold policy-performance predictions for a learner object.
 }
 \examples{
 \dontrun{

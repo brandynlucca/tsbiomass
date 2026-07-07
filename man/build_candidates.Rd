@@ -44,7 +44,7 @@ cfg <- list(
 
 \dontrun{
 candidates <- build_candidates(cfg)
-candidates@species_db
+candidates
 }
 
 }

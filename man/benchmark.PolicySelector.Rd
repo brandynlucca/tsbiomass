@@ -31,7 +31,7 @@ evaluation.}
 
 \item{workers}{Optional worker count.}
 
-\item{package_dir}{Optional package source directory for worker bootstrap.}
+\item{engine}{Policy benchmark engine, \code{"r"} or \code{"cpp"}.}
 
 \item{cache_path}{Optional cache path.}
 

@@ -2,21 +2,20 @@
 % Please edit documentation in R/generics.R
 \name{fit}
 \alias{fit}
-\title{Fit a staged staged object}
+\title{Fit a model object}
 \usage{
 fit(object, ...)
 }
 \arguments{
-\item{object}{A staged staged object such as a \link{PolicyLearner}.}
+\item{object}{A package object such as a \link{PolicyLearner}.}
 
 \item{...}{Method-specific arguments.}
 }
 \value{
-An updated staged staged object.
+The updated object.
 }
 \description{
-Fits the supplied staged staged object using the method associated with its
-class.
+Fits the supplied object using the method associated with its class.
 }
 \examples{
 \dontrun{

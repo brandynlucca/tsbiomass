@@ -21,8 +21,7 @@ build_configurer(
 \item{policy_path}{Optional policy-registry path used during validation.}
 }
 \value{
-A validated \link{Configurer} object whose \verb{@data} slot contains the
-normalized config list.
+A validated \link{Configurer} object containing the normalized config.
 }
 \description{
 Create a \code{Configurer}
@@ -69,10 +68,10 @@ cfg <- build_configurer(list(
   policies = list(
     active = "closest_within_species"
   ),
-  metalearner = list(
-    selection_method = "glm"
+  selection = list(
+    method = "glm"
   )
 ))
-cfg@data$paths$out_root
+cfg
 
 }

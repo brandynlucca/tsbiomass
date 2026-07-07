@@ -2,19 +2,19 @@
 % Please edit documentation in R/generics.R
 \name{benchmark}
 \alias{benchmark}
-\title{Benchmark a staged staged object}
+\title{Benchmark a policy selector}
 \usage{
 benchmark(object, ...)
 }
 \arguments{
-\item{object}{A staged staged object such as a \link{PolicySelector}.}
+\item{object}{A package object such as a \link{PolicySelector}.}
 
 \item{...}{Method-specific arguments.}
 }
 \value{
-An updated staged staged object.
+The updated object.
 }
 \description{
-Dispatches to the appropriate benchmark method for the supplied staged
-staged object.
+Runs benchmark evaluation for the supplied object using the method
+associated with its class.
 }

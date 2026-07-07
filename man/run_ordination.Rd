@@ -23,7 +23,7 @@ run_ordination(
 }
 \arguments{
 \item{dist_mat}{A distance matrix, \code{dist} object, or a \link{Candidates} object
-with populated \verb{@gower_distances}.}
+with constructed Gower distances.}
 
 \item{trait_table}{Optional trait table aligned to \code{dist_mat}.}
 
@@ -41,7 +41,7 @@ for factor traits.}
 
 \item{reference_ids}{Optional vector of reference model IDs. When \code{dist_mat}
 is a \link{Candidates} object and \code{reference_ids} is \code{NULL}, the stored
-\verb{@reference_anchors} table is used automatically.}
+reference-anchor table is used automatically.}
 
 \item{join_cols}{Additional model metadata columns to join onto the stored
 model-level ordination points when \code{dist_mat} is a \link{Candidates} object.}
@@ -62,7 +62,7 @@ model-level ordination points when \code{dist_mat} is a \link{Candidates} object
 }
 \value{
 When \code{dist_mat} is a \link{Candidates} object, returns that object with a
-downstream-ready ordination bundle stored in \verb{@ordination}. Otherwise,
+downstream-ready ordination bundle. Otherwise,
 returns a list with \code{ordination}, \code{points}, \code{loadings}, and \code{centroids}.
 }
 \description{
@@ -75,10 +75,10 @@ candidates <- build_candidates(list(
   study = list(path = "input.xlsx"),
   anchors = list(selector = list(regional_body = "SWFSC"))
 ))
-candidates <- prepare_similarity_matrix(candidate_models = candidates)
-candidates <- build_gower_distances(candidates)
+candidates <- prepare_similarities(candidate_models = candidates)
+candidates <- construct_gower_distances(candidates)
 candidates <- run_ordination(candidates)
-candidates@ordination$model$model_scores
+candidates
 }
 
 }

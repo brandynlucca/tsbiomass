@@ -10,7 +10,7 @@ benchmarking, uncertainty calibration, global policy selection, and
 anchor-facing policy prediction layers.
 }
 \details{
-It is constructed from a staged \link{Candidates} object and then advanced
+It is constructed from a \link{Candidates} object and then advanced
 through four high-level methods:
 \itemize{
 \item \code{\link[=benchmark]{benchmark()}} to run the policy benchmark
@@ -29,7 +29,7 @@ selector <- benchmark(selector)
 selector <- calibrate_uncertainty(selector)
 selector <- select_policies(selector)
 predictions <- predict(selector)
-predictions@selections
+predictions
 }
 
 }

@@ -2,20 +2,20 @@
 % Please edit documentation in R/generics.R
 \name{calibrate_uncertainty}
 \alias{calibrate_uncertainty}
-\title{Calibrate uncertainty on a staged staged object}
+\title{Calibrate uncertainty}
 \usage{
 calibrate_uncertainty(object, ...)
 }
 \arguments{
-\item{object}{A staged staged object such as a \link{PolicySelector} or
+\item{object}{A package object such as a \link{PolicySelector} or
 \link{PolicyLearner}.}
 
 \item{...}{Method-specific arguments.}
 }
 \value{
-An updated staged staged object.
+The updated object.
 }
 \description{
 Dispatches to the appropriate uncertainty-calibration method for the
-supplied staged staged object.
+supplied object.
 }

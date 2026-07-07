@@ -17,6 +17,22 @@ Construction requires a fully ingested \link{Candidates} object. Configuration
 is either inherited from the \code{Candidates} config (alchemist or
 similarity section) or supplied directly as a list or YAML path.
 }
+\section{Properties}{
+
+\itemize{
+\item \code{candidates}: Source \link{Candidates} object.
+\item \code{config}: Normalized Alchemist configuration.
+\item \code{learner}: Fitted distance learner metadata from \code{\link[=forge_distances]{forge_distances()}}.
+\item \code{distance_matrix}: Learned model-by-model distance bundle from
+\code{\link[=forge_distances]{forge_distances()}}.
+\item \code{trait_importance}: Trait-importance diagnostics from
+\code{\link[=distill_traits]{distill_traits()}}.
+\item \code{ordination}: Ordination results from \code{\link[=run_ordination]{run_ordination()}}.
+\item \code{admissibility}: Admissibility-screen results from
+\code{\link[=screen_admissibility]{screen_admissibility()}}.
+}
+}
+
 \examples{
 \dontrun{
 alchemist <- as_alchemist(candidates)

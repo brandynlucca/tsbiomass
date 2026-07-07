@@ -5,20 +5,42 @@
 \alias{Candidates}
 \title{Candidate-Model Ingest and Preparation S7 Class}
 \description{
-\code{Candidates} is the main staged data object for downstream transferability
-analysis. It reads the study table, ingests any configured species metadata
-sources, enriches the species table, and prepares the final row-level
-candidate-model table used by later later stages.
+\code{Candidates} stores the study records, species metadata, candidate models,
+selected reference anchors, and downstream similarity/admissibility results
+used by transferability analysis.
 }
 \details{
 Construction is explicit. Callers must provide either:
 \itemize{
 \item a complete candidate-ingest config list,
 \item a YAML path containing that config, or
-\item a \link{Configurer} object whose \verb{@data} contains the required candidate
-ingest sections.
+\item a \link{Configurer} object containing the required candidate-ingest sections.
 }
 }
+\section{Properties}{
+
+\itemize{
+\item \code{spec}: Normalized candidate-ingest specification.
+\item \code{study_db}: Study metadata table read from the configured input.
+\item \code{species_vector}: Character vector of species names queried during
+metadata enrichment.
+\item \code{source_dbs}: Named list of source-specific species tables.
+\item \code{species_db}: Consolidated species metadata table after source precedence
+rules are applied.
+\item \code{candidate_models}: Final candidate-model table used by similarity,
+admissibility, benchmarking, and policy selection.
+\item \code{reference_anchors}: Candidate-model rows selected as reference anchors.
+\item \code{similarity_matrix}: Prepared similarity state from
+\code{\link[=prepare_similarities]{prepare_similarities()}}.
+\item \code{gower_distances}: Distance bundle from \code{\link[=construct_gower_distances]{construct_gower_distances()}}.
+\item \code{ordination}: Ordination results from \code{\link[=run_ordination]{run_ordination()}}.
+\item \code{admissibility}: Admissibility-screen results from
+\code{\link[=screen_admissibility]{screen_admissibility()}}.
+\item \code{similarity_tuning}: Similarity-tuning diagnostics from
+\code{\link[=tune_similarities]{tune_similarities()}}.
+}
+}
+
 \examples{
 cfg <- list(
   data = list(
@@ -39,7 +61,7 @@ cfg <- list(
 # live API access for remote sources.
 \dontrun{
 candidates <- build_candidates(cfg)
-candidates@candidate_models
+candidates
 }
 
 }

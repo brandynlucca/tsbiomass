@@ -17,7 +17,7 @@ screen_admissibility(
 \arguments{
 \item{reference_anchors}{Anchor table, typically from
 \code{\link[=set_reference_anchors]{set_reference_anchors()}}. When \code{candidate_models} is a \link{Candidates}
-object, this may be left \code{NULL} to use \code{candidate_models@reference_anchors}.}
+object, this may be left \code{NULL} to use its reference anchors.}
 
 \item{candidate_models}{Candidate-model table or a \link{Candidates} object.}
 
@@ -33,7 +33,7 @@ object, this may be left \code{NULL} to use \code{candidate_models@reference_anc
 }
 \value{
 When \code{candidate_models} is a \link{Candidates} object, returns that
-object with the admissibility-screen result stored in \verb{@admissibility}.
+object containing the admissibility-screen result.
 Otherwise, returns a list containing per-anchor results plus bound
 score/summary tables.
 }
@@ -47,10 +47,10 @@ candidates <- build_candidates(list(
   study = list(path = "input.xlsx"),
   anchors = list(selector = list(regional_body = "SWFSC"))
 ))
-candidates <- prepare_similarity_matrix(candidates)
+candidates <- prepare_similarities(candidates)
 candidates <- forge_distances(candidates)
 candidates <- screen_admissibility(candidate_models = candidates)
-candidates@admissibility$anchor_summary
+candidates
 }
 
 }

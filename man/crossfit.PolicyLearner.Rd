@@ -40,8 +40,6 @@ override.}
 
 \item{workers}{Optional worker count.}
 
-\item{package_dir}{Optional package source directory for worker bootstrap.}
-
 \item{progress}{Optional logical scalar controlling progress messages.}
 
 \item{config}{Optional config override.}

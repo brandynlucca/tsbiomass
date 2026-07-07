@@ -11,8 +11,8 @@ Stores the post-prediction recommendation tables and diagnostics built by
 \examples{
 \dontrun{
 scorecard <- predict(as_referee(selector, predictions = predictions))
-scorecard@anchor_summary
-scorecard@selection_diagnostics
+scorecard
+scorecard
 }
 
 }

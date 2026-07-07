@@ -15,7 +15,10 @@ build_sentinel(
   output_dir = NULL,
   case_studies = character(0),
   options = NULL,
-  trait_ablations = NULL
+  trait_ablations = NULL,
+  gate_ablations = NULL,
+  cache_dir = NULL,
+  logging = NULL
 )
 }
 \arguments{
@@ -23,15 +26,13 @@ build_sentinel(
 
 \item{workflow_fn}{User-supplied workflow function that owns the complete
 fold-local analysis. Its public signature is
-\code{function(candidates, workflow_config_s7)}: \code{candidates} contains
-only outer-training rows in \code{@candidate_models} and held-out rows in
-\code{@reference_anchors}; \code{workflow_config_s7} is the
-scenario-specific \link{Configurer}. The function may directly return a
-\link{Referee}, \link{Scorecard}, or a result list containing \code{metrics}
-or \code{selected}. It may be deferred and supplied to \code{run_sentinel()}
-instead.}
+\verb{function(candidates, workflow_config_s7)}: \code{candidates} contains only
+outer-training and held-out \link{Candidates} rows; \code{workflow_config_s7} is the
+scenario-specific \link{Configurer}. The function may directly return a \link{Referee}, \link{Scorecard},
+or a result list containing \code{metrics} or \code{selected}. It may be deferred
+and supplied to \code{\link[=run_sentinel]{run_sentinel()}} instead.}
 
-\item{config}{Optional config list or staged object carrying config.}
+\item{config}{Optional config list or package object carrying config.}
 
 \item{deployment_target}{Optional deployment target. One of
 \code{"seen_species_new_row"}, \code{"seen_species_new_study"},
@@ -54,10 +55,24 @@ should be persisted.}
 
 \item{options}{Optional options list.}
 
-\item{trait_ablations}{Optional character vector for automatic leave-one-trait-out
-scenarios, or a named list for grouped trait ablations. Set to \code{TRUE} to
-ablate every configured species and study trait present in \code{data}.
-Cannot be combined with \code{scenario_grid}.}
+\item{trait_ablations}{Optional character vector for automatic leave-one-
+trait-out scenarios, or a named list for grouped trait ablations. Set to
+\code{TRUE} to ablate every configured species and study trait present in
+\code{data}. Automatic ablations operate on effective similarity features: when
+\code{alchemist.taxonomic_distance} is enabled, configured taxonomic ranks are
+grouped into one \code{without_taxonomic_distance} scenario. Cannot be combined
+with \code{scenario_grid}.}
+
+\item{gate_ablations}{Optional character vector, or \code{TRUE} to relax every
+configured admissibility gate trait present in \code{data}. Each becomes a
+\verb{relax_gate_<trait>} scenario that removes the trait's hard admissibility
+gate (a distinct estimand from \code{trait_ablations}, which prunes similarity
+features). May be combined with \code{trait_ablations} but not \code{scenario_grid}.}
+
+\item{cache_dir}{Optional Sentinel cache parent. An explicit value takes
+precedence over \code{sentinel.cache_dir} and \code{paths.cache_dir} in the config.}
+
+\item{logging}{Optional logical scalar controlling per-fold log files.}
 }
 \value{
 A \code{Sentinel} object.

@@ -6,7 +6,7 @@
 \title{Conjurer S7 Class}
 \description{
 \code{Conjurer} runs a targeted missing-study-metadata uncertainty analysis on a
-staged \link{PolicySelector} and an optional fitted \link{PolicyLearner}. It keeps the
+\link{PolicySelector} and an optional fitted \link{PolicyLearner}. It keeps the
 fitted selector state fixed, disables only the missingness admissibility gate for
 the auxiliary analysis, imputes one selected study trait at a time, and
 reruns the downstream recommendation path across repeated stochastic draws.
@@ -15,6 +15,19 @@ reruns the downstream recommendation path across repeated stochastic draws.
 The resulting object stores the raw draw-level recommendation outputs and a
 compact anchor-by-trait instability summary.
 }
+\section{Properties}{
+
+\itemize{
+\item \code{selector}: Source \link{PolicySelector}.
+\item \code{learner}: Optional fitted \link{PolicyLearner}.
+\item \code{config}: Conjurer analysis configuration.
+\item \code{results}: Raw simulation result bundle.
+\item \code{manifest}: Draw manifest.
+\item \code{draws}: Draw-level recommendation rows.
+\item \code{summary}: Anchor-by-trait instability summary.
+}
+}
+
 \examples{
 \dontrun{
 selector <- as_policyselector(candidates)
@@ -28,7 +41,7 @@ learner <- calibrate_uncertainty(learner)
 
 conjurer <- as_conjurer(selector, learner = learner)
 conjurer <- simulate(conjurer)
-conjurer@summary
+conjurer
 }
 
 }

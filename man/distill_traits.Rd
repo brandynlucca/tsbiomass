@@ -7,12 +7,13 @@
 distill_traits(object, ...)
 }
 \arguments{
-\item{object}{An \link{Alchemist} object with \verb{@learner} populated.}
+\item{object}{An \link{Alchemist} object after \code{\link[=forge_distances]{forge_distances()}}.}
 
 \item{...}{Method-specific arguments.}
 }
 \value{
-An updated \link{Alchemist} object with \verb{@trait_importance} populated.
+An updated \link{Alchemist} object containing trait-importance
+diagnostics.
 }
 \description{
 Computes sigma dropout sensitivity for each trait from the fitted distance

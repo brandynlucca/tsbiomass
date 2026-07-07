@@ -11,7 +11,8 @@
   type = c("ts_length", "ts_length_conformal", "ts_length_multiplier", "ts_length_bands",
     "coefficient_uncertainty", "selected_intervals", "selected_multiplier_summary",
     "selected_policy_counts", "strategy_competition", "field_missingness", "ablation",
-    "validation", "sentinel_ablation", "sentinel_validation"),
+    "validation", "coverage", "ablation_decomposition", "sentinel_ablation",
+    "sentinel_ablation_decomposition", "sentinel_validation", "sentinel_coverage"),
   scale = c("ts", "multiplier"),
   view = NULL,
   anchor_model_id = NULL,
@@ -30,8 +31,8 @@
 
 \item{scale}{Output scale used for \code{type = "ts_length"}.}
 
-\item{view}{Secondary plot selector used for
-\code{type = "selected_policy_counts"}.}
+\item{view}{Secondary plot selector. For \code{type = "validation"}, supported
+values are \code{"distribution"}, \code{"ranked"}, \code{"ranked_species"}, and \code{"fold"}.}
 
 \item{anchor_model_id}{Optional anchor model ID used for
 \code{type = "ts_length_bands"} and \code{type = "strategy_competition"}.}
@@ -46,9 +47,9 @@ available.}
 \item{reference_label}{Reference label used for
 \code{type = "selected_intervals"}.}
 
-\item{...}{Additional arguments used by Sentinel validation plots, including
-\code{metric}, \code{fold_summary}, and display labels. Sentinel figures have
-no title by default.}
+\item{...}{Additional arguments used by Sentinel scorecards, including
+\code{metric}, \code{summary_method}, \code{metric_scale}, \code{scenario_names}, and
+\code{species_names}, \code{label_species}, and coverage-display arguments.}
 }
 \value{
 A ggplot object.

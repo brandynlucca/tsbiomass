@@ -21,7 +21,7 @@ rows when partial output is allowed.
 
 Typical use is:
 \itemize{
-\item run the staged selector pipeline
+\item run the prepared selector pipeline
 \item optionally attach a \link{PolicyLearner}
 \item call \code{\link[=predict]{predict()}} on the selector
 \item pass that prediction bundle into \code{Referee}
@@ -41,7 +41,7 @@ learner <- calibrate_uncertainty(learner)
 predictions <- predict(selector, learner = learner)
 referee <- as_referee(selector, learner = learner, predictions = predictions)
 scorecard <- predict(referee)
-scorecard@selected
+scorecard
 }
 
 }

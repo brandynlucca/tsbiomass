@@ -52,7 +52,7 @@ or study-distance ordination uses cluster hulls when available.}
 A ggplot object.
 }
 \description{
-Uses the package's S7 method on \code{\link[base:plot]{base::plot()}} so staged candidate objects
+Uses the package's S7 method on \code{\link[base:plot]{base::plot()}} so Candidates objects
 can be plotted directly with \code{plot(candidates, ...)}.
 }
 \examples{

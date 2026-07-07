@@ -30,15 +30,14 @@ error.}
 }
 \value{
 If \code{object} is a data frame, a tibble containing only the selected
-reference-anchor rows. If \code{object} is a \link{Candidates} object, a rebuilt
-\code{Candidates} object with \verb{@reference_anchors} set.
+reference-anchor rows. If \code{object} is a \link{Candidates} object, an updated
+\link{Candidates} object.
 }
 \description{
 Filters a candidate-model table down to an explicit set of reference-anchor
 model IDs. When \code{object} is a \link{Candidates} instance, the selected anchor
-rows are stored in its \verb{@reference_anchors} slot and a rebuilt object is
-returned. When \code{object} is a data frame, the filtered anchor rows are
-returned directly.
+rows are stored on the returned object. When \code{object} is a data frame, the
+filtered anchor rows are returned directly.
 }
 \examples{
 anchor_tbl <- set_reference_anchors(
@@ -65,7 +64,7 @@ candidates <- set_reference_anchors(
   candidates,
   selector = list(regional_body = "SWFSC")
 )
-candidates@reference_anchors
+fetch_reference_anchors(candidates)
 
 configured_candidates <- build_candidates(list(
   study = list(path = "input.xlsx"),

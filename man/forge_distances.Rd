@@ -2,7 +2,7 @@
 % Please edit documentation in R/generics.R
 \name{forge_distances}
 \alias{forge_distances}
-\title{Forge a learned distance matrix from an Alchemist}
+\title{Learn an Alchemist distance matrix}
 \usage{
 forge_distances(object, ...)
 }
@@ -12,10 +12,10 @@ forge_distances(object, ...)
 \item{...}{Method-specific arguments.}
 }
 \value{
-An updated \link{Alchemist} object with \verb{@distance_matrix} and \verb{@learner}
-populated.
+An updated \link{Alchemist} object containing the learned distance
+bundle and fitted learner state.
 }
 \description{
 Fits a Super Learner to pairwise acoustic distances and stores the resulting
-N x N learned distance matrix on the object.
+model-by-model learned distance matrix on the object.
 }

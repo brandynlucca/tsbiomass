@@ -5,16 +5,27 @@
 \alias{PolicySimulator}
 \title{Policy Simulator S7 Class}
 \description{
-\code{PolicySimulator} wraps the policy-sensitivity pipeline around a staged
+\code{PolicySimulator} wraps the policy-sensitivity pipeline around a
 \link{PolicySelector}. It owns the scenario specifications, the rerun benchmark
-map, and the bound scenario manifest/tables used for downstream sensitivity
+results, and the scenario manifest/tables used for downstream sensitivity
 summaries.
 }
-\details{
+\section{Properties}{
+
+\itemize{
+\item \code{selector}: Source \link{PolicySelector}.
+\item \code{config}: Simulator configuration.
+\item \code{scenarios}: Scenario specifications.
+\item \code{results}: Scenario benchmark results.
+\item \code{manifest}: Scenario manifest table.
+\item \code{tables}: Collected scenario result tables.
+}
+
 The simulator is intentionally selector-centered: it rebuilds sensitivity
 scenarios from the selector's current candidate pool and policy/admissibility
 settings, then stores the scenario reruns for later inspection.
 }
+
 \examples{
 \dontrun{
 selector <- as_policyselector(candidates)
@@ -24,8 +35,8 @@ selector <- select_policies(selector)
 
 simulator <- as_policysimulator(selector)
 simulator <- simulate(simulator)
-build_sensitivity_table(simulator)
-bind_sensitivity_data(simulator)
+construct_sensitivity_table(simulator)
+collect_sensitivity_results(simulator)
 }
 
 }
