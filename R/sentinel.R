@@ -1129,7 +1129,7 @@ sentinel_exclude_similarity_traits <- function(config,
 #'
 #' Removes the named traits from the `admissibility` section only, so the
 #' corresponding hard gate no longer restricts the donor pool. This is a distinct
-#' estimand from [sentinel_exclude_similarity_traits()]: it does not touch the
+#' estimand from similarity-trait exclusion: it does not touch the
 #' similarity/distance feature set, it changes which donors are *admissible*. Used
 #' by the `relax_gate_*` scenarios to quantify what a gate buys (or costs).
 #'

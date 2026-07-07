@@ -3136,7 +3136,7 @@ normalize_policy_benchmark_engine <- function(engine = "r") {
 
 #' Compile a policy execution plan for the C++ benchmark engine
 #'
-#' @param execution_plan Plan returned by [build_policy_execution_plan()].
+#' @param execution_plan Plan returned by the policy execution-plan builder.
 #'
 #' @return A serialization-safe compiled-plan list. The C++ payload contains
 #'   atomic vectors only; `pool_specs` remains an R-side mask recipe.
@@ -3211,7 +3211,7 @@ compile_policy_execution_plan_cpp <- function(execution_plan) {
 #' Build unique donor-pool masks for one anchor
 #'
 #' @param eval_obj Anchor admissibility evaluation.
-#' @param compiled_plan Compiled plan from [compile_policy_execution_plan_cpp()].
+#' @param compiled_plan Compiled policy execution plan.
 #' @param ordination_info Optional anchor ordination context.
 #'
 #' @return Logical matrix with one row per unique pool and one column per donor.
@@ -3315,7 +3315,7 @@ policy_donor_payload_cpp <- function(eval_obj) {
 #' @param compiled_plan Compiled plan.
 #' @param ordination_info Optional ordination context.
 #'
-#' @return Policy prediction tibble matching [evaluate_policies()].
+#' @return Policy prediction tibble matching the R policy-evaluation path.
 #'
 #' @keywords internal
 #' @noRd
@@ -4125,7 +4125,7 @@ build_benchmark_ts_error_table <- function(candidate_models,
 #' @param policy_perf Pseudo-anchor policy-performance table.
 #' @param config Benchmark config list.
 #'
-#' @return A tibble matching [build_benchmark_ts_error_table()].
+#' @return A tibble matching the R benchmark TS-error table path.
 #'
 #' @keywords internal
 #' @noRd
