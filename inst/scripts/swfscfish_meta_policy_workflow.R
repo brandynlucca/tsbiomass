@@ -3,12 +3,8 @@
 # Cross-fitted meta-policy run for a configured TS-length model-transfer
 # benchmark.
 
-# pkgload::load_all(getwd(), export_all = TRUE, helpers = FALSE, quiet = TRUE)
-install.packages(
-  "C:/Users/Brandyn/Desktop/ts-model-transferability/tsbiomass",
-  repos = NULL, type = "source"
-)
-library(tsbiomass)
+suppressPackageStartupMessages(library(tsbiomass))
+`%||%` <- function(x, y) if (is.null(x)) y else x
 
 # Resolve the workflow YAML explicitly from the environment so this script
 # never hard-codes one packaged config file.
@@ -18,12 +14,12 @@ workflow_config_path <- file.path(getwd(), "inst", "templates", "swfscfish_confi
 # }
 # Ingestion now validates and normalizes the YAML immediately so the script
 # starts from one checked workflow object.
-workflow_config <- read_config(
+workflow_config <- read_configuration(
   workflow_config_path,
   base_dir = dirname(tsbiomass:::path_absolute(workflow_config_path))
   # base_dir = workflow_config_path
 )
-workflow_config_s7 <- as_configurer(workflow_config)
+workflow_config_s7 <- build_configurer(workflow_config)
 cache_dir <- workflow_config$paths$cache_dir
 output_dir <- workflow_config$paths$out_root
 
@@ -133,17 +129,9 @@ dir.create(meta_output_dir, recursive = TRUE, showWarnings = FALSE)
 #   }
 # }
 
-tsbiomass:::tsb_message("Meta-policy run: building staged candidate object.")
-candidates <- as_candidates(workflow_config_s7)
+tsbiomass:::tsb_message("Meta-policy run: building Candidates object.")
+candidates <- build_candidates(workflow_config_s7)
 candidates <- set_reference_anchors(candidates)
-
-candidate_models <- candidates@candidate_models
-reference_anchors <- candidates@reference_anchors
-anchor_ids <- if ("model_id_chr" %in% names(reference_anchors)) {
-  as.character(reference_anchors$model_id_chr)
-} else {
-  as.character(reference_anchors$model_id)
-}
 
 # LEARN PAIRWISE DISTANCES VIA SUPERVISED METRIC LEARNING
 tsbiomass:::tsb_message("Constructing Alchemist and learning pairwise distances...")
@@ -161,7 +149,7 @@ plot(alchemist, type = "ordination")
 plot(alchemist, type = "ordination", view = "vectors")
 plot(alchemist, type = "ordination", view = "centers")
 
-sel <- as_selector(alchemist, config = workflow_config_s7)
+sel <- as_policyselector(alchemist, config = workflow_config_s7)
 sel <- benchmark(
   sel,
   include_ts_error = TRUE
@@ -169,7 +157,7 @@ sel <- benchmark(
 sel <- calibrate_uncertainty(
   sel
 )
-learn <- as_policy_learner(sel, config = workflow_config_s7)
+learn <- as_policylearner(sel, config = workflow_config_s7)
 learn <- crossfit(learn)
 learn <- fit(learn)
 learn <- calibrate_uncertainty(learn)
@@ -267,11 +255,11 @@ tsbiomass:::tsb_message(
 
 
 # tsbiomass:::tsb_message("Meta-policy run: preparing similarity, tuning similarity, ordination, and admissibility.")
-# candidates <- prepare_similarity_matrix(
+# candidates <- prepare_similarities(
 #   candidate_models = candidates,
 #   config = workflow_config_s7
 # )
-# candidates <- tune_similarity_matrix(
+# candidates <- tune_similarities(
 #   candidate_models = candidates,
 #   config = workflow_config_s7
 # )
@@ -279,7 +267,7 @@ tsbiomass:::tsb_message(
 # similarity_config <- similarity_tuning_obj$config_tuned
 # # workflow_config_s7@data$ordination$nmds_args <- list(try=6, trymax=12, autotransform = FALSE, trace=  FALSE)
 
-# candidates <- build_gower_distances(candidates)
+# candidates <- construct_gower_distances(candidates)
 # candidates <- run_ordination(candidates)
 # candidates <- screen_admissibility(
 #   candidate_models = candidates,
@@ -392,7 +380,6 @@ LI
 tsb_message("Meta-policy run: benchmarking, calibrating, selecting, and predicting policies.")
 selector <- as_policy_selector(candidates, config = workflow_config_s7)
 selector@config$benchmark$workers <- 8
-devtools::load_all()
 selector <- benchmark(
   selector,
   include_ts_error = TRUE

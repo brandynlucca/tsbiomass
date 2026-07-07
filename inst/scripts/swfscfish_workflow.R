@@ -1,4 +1,5 @@
-devtools::load_all()
+suppressPackageStartupMessages(library(tsbiomass))
+`%||%` <- function(x, y) if (is.null(x)) y else x
 
 # Directory used for cached intermediate objects.
 cache_dir <- file.path(getwd(), "inst", "cache")
@@ -12,10 +13,7 @@ workflow_config_path <- file.path(getwd(), "inst", "templates", "swfscfish_confi
 # Directory where workflow outputs will be written.
 output_dir <- file.path(getwd(), "inst", "outputs_swfscfish")
 
-# Step 2: load the package from the working directory.
-pkgload::load_all(getwd(), export_all = TRUE, helpers = FALSE, quiet = TRUE)
-
-# Step 3: read the TSL table and the species-level source databases.
+# Step 2: read the TSL table and the species-level source databases.
 dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 workflow_plots <- list()
@@ -36,9 +34,9 @@ workflow_config <- read_workflow_config(workflow_config_path)
 workflow_config_s7 <- as_configurer(workflow_config)
 
 # ------------------------------------------------------------------------------
-# BUILD THE STAGED CANDIDATE OBJECT
+# BUILD THE Candidates object
 tsb_message(
-  "Reading, enriching, and preparing the staged candidate-model object..."
+  "Reading, enriching, and preparing the candidate-model object..."
 )
 candidates <- as_candidates(workflow_config_s7)
 candidates <- set_reference_anchors(candidates)
@@ -231,11 +229,11 @@ tsb_message(
 tsb_message(
   "Preparing and tuning similarity configuration..."
 )
-candidates <- prepare_similarity_matrix(
+candidates <- prepare_similarities(
   candidate_models = candidates,
   config = workflow_config_s7
 )
-candidates <- tune_similarity_matrix(
+candidates <- tune_similarities(
   candidate_models = candidates,
   config = workflow_config_s7
 )
@@ -268,7 +266,7 @@ candidate_models <- candidates@candidate_models
 tsb_message(
   "Computing Gower distances..."
 )
-candidates <- build_gower_distances(candidates)
+candidates <- construct_gower_distances(candidates)
 distance_obj <- candidates@gower_distances
 
 tsb_message(
@@ -598,15 +596,15 @@ candidate_models_missing <- screen_missing_metadata(
 
 # Summarize the species-block conformal coverage by policy so the anchor-level
 # audit can compare each selected policy against its benchmark coverage.
-species_block_coverage <- build_species_coverage(
-  pseudo_sum = conformal_perf_pseudo,
+species_block_coverage <- construct_species_coverage(
+  coverage_summary = conformal_perf_pseudo,
   species_sum = conformal_perf_species_block
 )
 
 # Collapse the selected anchor-policy rows and the benchmark/global policy
 # summaries into one anchor-facing audit table.
-anchor_policy_audit <- build_anchor_audit(
-  sel_tbl = selected_policies,
+anchor_policy_audit <- construct_anchor_audit(
+  policy_intervals = selected_policies,
   select_ref = policy_selection_final,
   cover_tbl = species_block_coverage
 )
@@ -679,3 +677,4 @@ tsb_message(
   length(workflow_plots), " workflow figures written to {", output_dir, "} ...",
   timestamp = FALSE
 )
+

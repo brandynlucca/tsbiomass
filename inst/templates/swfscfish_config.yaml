@@ -54,22 +54,6 @@ candidates:
     selector:
       regional_body: SWFSC
 
-tuning:
-  max_models_per_species: 2
-  n_resamples: 5
-  n_cores: 8
-  grid_refinement_levels: 2
-  response_surface_top_n: 25
-  rmse_tolerance: 0.01
-  regularization:
-    alpha: 0.25
-    kernel_scale: 0.25
-    coherence_scale: 0.25
-    stability: 0.10
-    edge: 0.25
-    edge_margin: 0.25
-  progress: true
-
 alchemist:
   progress: true
   # Set taxonomic_distance: true to replace individual family/genus/species
@@ -89,36 +73,30 @@ alchemist:
   distill_workers: 8
   learner:
     workers: 8
-    methods: [glmnet_elasticnet, earth, ranger, xgboost]
-    inner_folds: 5
+    # Explicit workflow seed keeps paired Sentinel scenarios reproducible.
+    seed: 20260702
+    methods: [glm_elastic, mars, rf]
+    inner_folds: 3
     outcome_transform: log1p
     lambda_rule: lambda.1se
     # Reduce num_trees relative to the main metalearner: dropout sensitivity
     # rankings stabilize with fewer trees and smaller forests cut RAM substantially.
     method_settings:
-      earth:
-        degree: 1 # additive-only
-        penalty: 2 # recommended default GCV when degree = 1
+      mars:
+        degree: 2 # allow pairwise interactions
+        penalty: 3 # recommended default GCV when degree >= 2
         pmethod: backward
-      ranger:
+      rf:
         num_trees: 300
         min_node_size: 10
-      xgboost:
-        nrounds: 150
-        eta: 0.05
-        max_depth: 3
-        min_child_weight: 5
-        subsample: 0.8
-        colsample_bytree: 0.8
-        lambda: 2.0
-        alpha: 0.5
+        max_depth: 15
+        sample_fraction: 0.6
+        replace: false
 
 similarity:
-  alpha: 0.6
-  kernel_scale: 4
   conformal_alpha: 0.1
   progress: true
-  species_traits: [swimbladder_type, body_shape, family, genus, species, trophic, ocean_basin]
+  species_traits: [body_shape, family, genus, species, trophic, ocean_basin]
   study_traits: [fao_area, season, diel, pressure_corrected, length_metric]
   coherence:
     length:
@@ -130,23 +108,14 @@ similarity:
       # "both"    - compute independently for each; adds length_coherence_study +
       #             length_coherence_species as separate features
       source: both
-      range: { from: 0.1, to: 10 }
     depth:
       mode: overlap
       # Same source options as length, applied to depth_minimum/maximum vs.
       # study_depth_min/max.
       source: both
-      range: { from: 0.1, to: 10 }
     frequency:
       mode: overlap
-      range: { from: 0.1, to: 10 }
       gap: 60
-  alpha_range:
-    from: 0.05
-    to: 0.95
-  kernel_scale_range:
-    from: 0.1
-    to: 10
 
 ordination:
   include_loadings: false
@@ -202,8 +171,35 @@ policies:
 
 benchmark:
   workers: 8
+  engine: cpp
   include_ts_error: true
   progress: true
+
+sentinel:
+  # Aggregate headline validation: ten species-disjoint outer folds.
+  # Set to 93 only for the final per-species LOSO analysis.
+  baseline_species_folds: 10
+  # Trait importance uses five paired grouped folds, one ablation per SIMILARITY
+  # feature. Admissibility-only traits (e.g. swimbladder_type) are gates, not
+  # similarity features, so they are not ablated here. With taxonomic distance
+  # enabled, family/genus/species form one effective-feature ablation: nine
+  # components produce 5 baseline + 45 ablation workflows.
+  ablation_species_folds: 5
+  # Run one outer workflow per physical core and checkpoint after each wave.
+  workers: 6
+  batch_size: 6
+  # Sentinel scores scalar replacement error, so TS-curve reconstruction is
+  # omitted from fold-local policy benchmarks.
+  include_ts_error: false
+  # Prevent benchmark and learner workers inside each outer process from
+  # oversubscribing the six physical cores.
+  throttle_inner_workers: true
+  # Keep the configured NMDS schedule; this flag can independently reduce it.
+  fast_validation: false
+  # Console output and fold-local file logging are independent controls.
+  progress: true
+  logging: true
+  save_case_artifacts: false
 
 admissibility:
   species_traits: [swimbladder_type]
@@ -223,6 +219,58 @@ admissibility:
 
 uncertainty:
   progress: true
+  # Uncertainty-stage Super Learner (self-contained; predicts interval widths).
+  method: super_learner
+  super_methods:
+    - glm
+    - qreg_q75
+    - qreg_q90
+    - glm_elastic
+    - rf
+    - xgboost
+    - qrf
+    - gpr
+  n_folds: 5
+  inner_folds: 3
+  workers: 8
+  outcome_col: error_abs_log
+  outcome_clip_quantile: 1
+  outcome_transform: log1p
+  lambda_rule: lambda.min
+  loss: squared_error
+  method_settings:
+    qreg:
+      variants:
+        q75: { tau: 0.75 }
+        q90: { tau: 0.90 }
+    rf:
+      num_trees: 500
+      min_node_size: 10
+      sample_fraction: 0.8
+      replace: false
+      respect_unordered_factors: ignore
+      mtry: null
+      max_depth: 15
+    xgboost:
+      nrounds: 500
+      eta: 0.05
+      max_depth: 6
+      min_child_weight: 5
+      subsample: 0.8
+      colsample_bytree: 0.8
+      lambda: 3.0
+      alpha: 1.0
+    # Quantile regression forest: predicts the conditional 0.9 quantile, a natural
+    # upper-tail learner for interval widths.
+    qrf:
+      num_trees: 500
+      min_node_size: 10
+      sample_fraction: 0.8
+      replace: false
+      quantile: 0.9
+    # Gaussian-process regression with a native predictive variance.
+    gpr:
+      var: 0.001
 
 selection:
   one_se_multiplier: 1
@@ -233,61 +281,55 @@ selection:
   #   one_se    - keep widths within one standard error of the minimum width
   #   min       - keep only the strict minimum width
   uncertainty_rule: one_se
-  u_tol_rel: 0.25
-  u_tol_abs: 0.05
   local_distance_tolerance: 1.0e-12
   conformal_alpha: 0.1
   bin_alpha: 0.1
   min_bin_scores: 15
   use_support_bin_intervals: false
   progress: true
-
-simulation:
-  workers: 8
-  progress: true
-
-metalearner:
-  selection_method: super_learner
+  # Selection-stage Super Learner (self-contained; predicts replacement error).
+  method: super_learner
   # Public learner names can be plain families (`glm`, `gam`, `rpart`,
-  # `ranger`, `xgboost`) or named family variants exposed below.
-  selection_super_methods:
+  # `rf`, `xgboost`) or named family variants exposed below.
+  super_methods:
     - glm
-    - lmer
-    - glmnet_ridge
-    - glmnet_lasso
-    - glmnet_elasticnet
-    - earth
+    - lmm
+    - glm_ridge
+    - glm_lasso
+    - glm_elastic
+    - mars
     - rpart_shallow
     - rpart_deep
-    - ranger_shallow
-    - ranger_deep
+    - rf
     - xgboost
-  uncertainty_super_methods:
-    - glm
-    - quantreg_q75
-    - quantreg_q90
-    - glmnet_elasticnet
-    - ranger
-    - xgboost
+    - bart
+    - xbart
+    - wsbart
+    - vfbart
+    - rebart
+    - knn
+    - cubist
+    - svr
+    - gpr
   n_folds: 5
-  inner_folds: 5
+  inner_folds: 3
   workers: 8
   outcome_col: error_abs_log
   outcome_clip_quantile: 1
   outcome_transform: log1p
-  lambda_rule: lambda.1se
-  metalearner_loss: squared_error
+  lambda_rule: lambda.min
+  loss: squared_error
   # Optional explicit override for the learner's score-retention band.
   # Leave unset to use the one-standard-error rule.
   # max_selection_tolerance:
-  progress: true
   method_settings:
-    lmer:
+    lmm:
       fit_method: REML
-    glmnet:
+      random_intercept: .split_group
+    glm_penalized:
       standardize: true
       type_measure: mae
-    earth:
+    mars:
       degree: 2 # enables low-order interactions
       penalty: 3 # recommended GCV when degree > 1
       pmethod: backward
@@ -307,40 +349,67 @@ metalearner:
           minsplit: 10
           minbucket: 5
           maxdepth: 10
-    ranger:
-      num_trees: 100
+    rf:
+      num_trees: 500
       mtry: null
       min_node_size: 5
-      sample_fraction: 1.0
-      replace: true
+      sample_fraction: 0.8
+      replace: false
       respect_unordered_factors: order
+      max_depth: 15
     xgboost:
-      nrounds: 100
+      nrounds: 500
+      nthread: 1
       eta: 0.05
-      max_depth: 3
+      max_depth: 6
       min_child_weight: 5
       subsample: 0.8
       colsample_bytree: 0.8
       lambda: 2.0
       alpha: 0.5
-  uncertainty_method_settings:
-    quantreg:
-      variants:
-        q75: { tau: 0.75 }
-        q90: { tau: 0.90 }
-    ranger:
-      num_trees: 300
+    # BART family (stochtree). SHARED, user-tunable priors for the five
+    # self-contained BART learners: bart (pure MCMC), xbart (grow-from-root only),
+    # wsbart (warm start), vfbart (variance forest / heteroskedastic), and rebart
+    # (group random effect). Each learner's defining sampler schedule / mode is
+    # intrinsic and set in code by name (like alpha for glm_ridge/glm_lasso/
+    # glm_elastic), so it is NOT configured here. variance_forest_num_trees is used
+    # only by vfbart; random_effects_group only by rebart.
+    bart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+    # k-nearest-neighbours regression (FNN::knn.reg) on the standardized feature
+    # matrix.
+    knn:
+      k: 10
+    # Cubist rule-based model (linear leaves). committees = boosting-like model
+    # count; neighbors (0-9) = instance-based predict-time correction.
+    cubist:
+      committees: 1
+      neighbors: 0
+    # Support-vector regression (kernlab::ksvm, RBF; sigma auto-estimated).
+    svr:
+      C: 1
+      epsilon: 0.1
+    # Quantile regression forest (ranger); most useful in the uncertainty library.
+    qrf:
+      num_trees: 500
       min_node_size: 10
-      sample_fraction: 0.8
-    xgboost:
-      nrounds: 200
-      eta: 0.03
-      max_depth: 3
-      min_child_weight: 5
-      subsample: 0.8
-      colsample_bytree: 0.8
-      lambda: 3.0
-      alpha: 1.0
+      sample_fraction: 1
+      replace: true
+      quantile: 0.9
+    # Gaussian-process regression (kernlab::gausspr, RBF; sigma auto-estimated).
+    gpr:
+      var: 0.001
+
+simulation:
+  workers: 8
+  progress: true
 
 outputs:
   fao_distribution:
