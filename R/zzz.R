@@ -36,7 +36,7 @@
 
   # Register tibble coercions for namespaced S7 classes. These classes expose a
   # single canonical rectangular result, so `tibble::as_tibble()` is a useful
-  # extraction path without flattening the staged workflow objects.
+  # extraction path without flattening the prepared workflow objects.
   if (requireNamespace("tibble", quietly = TRUE)) {
     registerS3method(
       "as_tibble",

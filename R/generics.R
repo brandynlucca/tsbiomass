@@ -1,12 +1,12 @@
-#' Benchmark a staged staged object
+#' Benchmark a policy selector
 #'
-#' Dispatches to the appropriate benchmark method for the supplied staged
-#' staged object.
+#' Runs benchmark evaluation for the supplied object using the method
+#' associated with its class.
 #'
-#' @param object A staged staged object such as a [PolicySelector].
+#' @param object A package object such as a [PolicySelector].
 #' @param ... Method-specific arguments.
 #'
-#' @return An updated staged staged object.
+#' @return The updated object.
 #'
 #' @importFrom methods show
 #' @export
@@ -19,42 +19,41 @@ print_generic <- S7::new_external_generic("base", "print", "x")
 show_generic <- S7::new_external_generic("methods", "show", "object")
 summary_generic <- S7::new_external_generic("base", "summary", "object")
 
-#' Calibrate uncertainty on a staged staged object
+#' Calibrate uncertainty
 #'
 #' Dispatches to the appropriate uncertainty-calibration method for the
-#' supplied staged staged object.
+#' supplied object.
 #'
-#' @param object A staged staged object such as a [PolicySelector] or
+#' @param object A package object such as a [PolicySelector] or
 #'   [PolicyLearner].
 #' @param ... Method-specific arguments.
 #'
-#' @return An updated staged staged object.
+#' @return The updated object.
 #'
 #' @export
 calibrate_uncertainty <- S7::new_generic("calibrate_uncertainty", "object")
 
-#' Select policies from a staged staged object
+#' Select policies
 #'
 #' Dispatches to the appropriate policy-selection method for the supplied
-#' staged staged object.
+#' object.
 #'
-#' @param object A staged staged object such as a [PolicySelector].
+#' @param object A package object such as a [PolicySelector].
 #' @param ... Method-specific arguments.
 #'
-#' @return An updated staged staged object.
+#' @return The updated object.
 #'
 #' @export
 select_policies <- S7::new_generic("select_policies", "object")
 
-#' Cross-fit a staged staged object
+#' Cross-fit a policy learner
 #'
-#' Cross-fits the supplied staged staged object using the method associated
-#' with its class.
+#' Estimates out-of-fold policy-performance predictions for a learner object.
 #'
-#' @param object A staged staged object such as a [PolicyLearner].
+#' @param object A [PolicyLearner] object.
 #' @param ... Method-specific arguments.
 #'
-#' @return An updated staged staged object.
+#' @return The updated [PolicyLearner] object.
 #'
 #' @examples
 #' \dontrun{
@@ -65,15 +64,14 @@ select_policies <- S7::new_generic("select_policies", "object")
 #' @export
 crossfit <- S7::new_generic("crossfit", "object")
 
-#' Fit a staged staged object
+#' Fit a model object
 #'
-#' Fits the supplied staged staged object using the method associated with its
-#' class.
+#' Fits the supplied object using the method associated with its class.
 #'
-#' @param object A staged staged object such as a [PolicyLearner].
+#' @param object A package object such as a [PolicyLearner].
 #' @param ... Method-specific arguments.
 #'
-#' @return An updated staged staged object.
+#' @return The updated object.
 #'
 #' @examples
 #' \dontrun{
@@ -84,16 +82,16 @@ crossfit <- S7::new_generic("crossfit", "object")
 #' @export
 fit <- S7::new_generic("fit", "object")
 
-#' Forge a learned distance matrix from an Alchemist
+#' Learn an Alchemist distance matrix
 #'
 #' Fits a Super Learner to pairwise acoustic distances and stores the resulting
-#' N x N learned distance matrix on the object.
+#' model-by-model learned distance matrix on the object.
 #'
 #' @param object An [Alchemist] object.
 #' @param ... Method-specific arguments.
 #'
-#' @return An updated [Alchemist] object with `@distance_matrix` and `@learner`
-#'   populated.
+#' @return An updated [Alchemist] object containing the learned distance
+#'   bundle and fitted learner state.
 #'
 #' @export
 forge_distances <- S7::new_generic("forge_distances", "object")
@@ -105,10 +103,11 @@ forge_distances <- S7::new_generic("forge_distances", "object")
 #' pairwise distances, and measures the change in kernel-weighted sigma RMSE -
 #' the same objective minimised by the empirical similarity tuning step.
 #'
-#' @param object An [Alchemist] object with `@learner` populated.
+#' @param object An [Alchemist] object after [forge_distances()].
 #' @param ... Method-specific arguments.
 #'
-#' @return An updated [Alchemist] object with `@trait_importance` populated.
+#' @return An updated [Alchemist] object containing trait-importance
+#'   diagnostics.
 #'
 #' @export
 distill_traits <- S7::new_generic("distill_traits", "object")

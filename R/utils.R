@@ -21,6 +21,23 @@ NULL
   if (is.null(x) || length(x) == 0) y else x
 }
 
+#' Identify missing biological species identities
+#'
+#' Candidate ingestion represents generalized equations with a constructed
+#' `species_name` such as `"NA NA"`. That display placeholder is not a
+#' biological species and must never define a same-species donor pool, a
+#' species-block fold, or a species-level benchmark group.
+#'
+#' @param x Species-identity labels.
+#'
+#' @return Logical vector; `TRUE` for missing or constructed-NA identities.
+#' @keywords internal
+#' @noRd
+is_missing_species_identity <- function(x) {
+  value <- stringr::str_to_lower(stringr::str_squish(as.character(x)))
+  is.na(value) | !nzchar(value) | grepl("^na(?:\\s+na)*$", value, perl = TRUE)
+}
+
 #' Check whether an object inherits from a loaded S7 class
 #'
 #' @param object Object to test.
@@ -265,53 +282,35 @@ installed_script_path <- function(name) {
 
 #' Initialize a parallel cluster
 #'
-#' Starts a PSOCK cluster and loads the current package source on each worker
-#' when running from a source checkout.
+#' Starts a PSOCK cluster and loads the installed package namespace on each
+#' worker.
 #'
 #' @param workers Number of workers to start.
-#' @param package_dir Optional package source directory used for
-#'   `pkgload::load_all()` when the package is not installed.
 #' @param package_name Installed package name to load when available.
+#' @param worker_output Logical scalar. When `TRUE`, PSOCK worker output is
+#'   relayed to the parent console. Fork clusters already share the console.
 #'
 #' @return A cluster object, or `NULL` when `workers` is `1`.
 #' @keywords internal
 #' @noRd
 initialize_parallel_cluster <- function(workers,
-                                        package_dir = NULL,
-                                        package_name = "tsbiomass") {
+                                        package_name = "tsbiomass",
+                                        worker_output = FALSE) {
   # Keep the parallel setup logic in one place so benchmark and sensitivity
   # reruns both initialize workers the same way.
   if (!is.numeric(workers) || length(workers) != 1 || !is.finite(workers) || workers < 1) {
     stop("'workers' must be one finite number >= 1.", call. = FALSE)
   }
-  if (!is.null(package_dir) &&
-    (!is.character(package_dir) || length(package_dir) != 1 || !nzchar(package_dir))) {
-    stop("'package_dir' must be NULL or a single non-empty path.", call. = FALSE)
-  }
   if (!is.character(package_name) || length(package_name) != 1 || !nzchar(package_name)) {
     stop("'package_name' must be a single non-empty package name.", call. = FALSE)
+  }
+  if (!is.logical(worker_output) || length(worker_output) != 1L || is.na(worker_output)) {
+    stop("'worker_output' must be TRUE or FALSE.", call. = FALSE)
   }
 
   workers <- as.integer(workers)
   if (workers <= 1L) {
     return(NULL)
-  }
-
-  # When the caller did not supply a source path explicitly, try to detect one
-  # from a live pkgload/devtools session so workers use the same source tree as
-  # the current process instead of falling back to a stale installed copy.
-  if (is.null(package_dir) && package_name %in% loadedNamespaces()) {
-    ns_obj <- asNamespace(package_name)
-    ns_path <- tryCatch(
-      getNamespaceInfo(ns_obj, "path"),
-      error = function(e) NULL
-    )
-    if (is.character(ns_path) &&
-      length(ns_path) == 1 &&
-      nzchar(ns_path) &&
-      file.exists(file.path(ns_path, "DESCRIPTION"))) {
-      package_dir <- ns_path
-    }
   }
 
   # Fork-based clusters on Unix share the parent process memory via
@@ -330,11 +329,36 @@ initialize_parallel_cluster <- function(workers,
     }
   }
 
-  cluster_obj <- parallel::makePSOCKcluster(workers)
+  # Some cross-platform shells inject the Unix-only `C.UTF-8` locale into the
+  # Windows process environment. Windows R warns once for every PSOCK worker
+  # when it inherits those values. Temporarily remove only that invalid value
+  # while workers are spawned, then restore the parent environment unchanged.
+  if (.Platform$OS.type == "windows") {
+    locale_names <- c("LANG", "LC_ALL", "LC_CTYPE", "LC_COLLATE", "LC_MONETARY", "LC_TIME")
+    locale_values <- Sys.getenv(locale_names, unset = NA_character_)
+    invalid_locale <- !is.na(locale_values) &
+      toupper(gsub("[^A-Z0-9]", "", locale_values)) == "CUTF8"
+    if (any(invalid_locale)) {
+      invalid_names <- locale_names[invalid_locale]
+      invalid_values <- locale_values[invalid_locale]
+      Sys.unsetenv(invalid_names)
+      on.exit(
+        do.call(Sys.setenv, as.list(stats::setNames(invalid_values, invalid_names))),
+        add = TRUE
+      )
+    }
+  }
+
+  cluster_obj <- if (isTRUE(worker_output)) {
+    parallel::makePSOCKcluster(workers, outfile = "")
+  } else {
+    parallel::makePSOCKcluster(workers)
+  }
   attr(cluster_obj, "cluster_type") <- "psock"
+  library_paths <- .libPaths()
   parallel::clusterExport(
     cluster_obj,
-    c("package_dir", "package_name"),
+    c("library_paths", "package_name"),
     envir = environment()
   )
 
@@ -343,34 +367,19 @@ initialize_parallel_cluster <- function(workers,
       parallel::clusterEvalQ(
         cluster_obj,
         {
+          .libPaths(unique(c(library_paths, .libPaths())))
           loadNamespace("graphics")
           loadNamespace("stats")
           loadNamespace("methods")
-          # PSOCK workers on Windows must load the live source tree when the
-          # parent session is running from devtools/pkgload. Otherwise workers
-          # silently fall back to an older installed copy that does not contain
-          # the current learner registry, which then breaks parallel cross-fit
-          # for newly added super-learner methods.
-          if (is.character(package_dir) &&
-            length(package_dir) == 1 &&
-            nzchar(package_dir) &&
-            file.exists(file.path(package_dir, "DESCRIPTION")) &&
-            requireNamespace("pkgload", quietly = TRUE)) {
-            pkgload::load_all(
-              path = package_dir,
-              quiet = TRUE,
-              helpers = FALSE,
-              attach_testthat = FALSE,
-              export_all = TRUE
-            )
-          } else if (requireNamespace(package_name, quietly = TRUE)) {
-            loadNamespace(package_name)
-          } else {
+          if (!requireNamespace(package_name, quietly = TRUE)) {
             stop(
-              "Parallel workers could not load the package source or an installed package copy.",
+              sprintf("Parallel workers could not load installed package '%s'.", package_name),
               call. = FALSE
             )
           }
+          suppressPackageStartupMessages(
+            library(package_name, character.only = TRUE)
+          )
 
           NULL
         }

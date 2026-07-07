@@ -1,15 +1,33 @@
 #' Candidate-Model Ingest and Preparation S7 Class
 #'
-#' `Candidates` is the main staged data object for downstream transferability
-#' analysis. It reads the study table, ingests any configured species metadata
-#' sources, enriches the species table, and prepares the final row-level
-#' candidate-model table used by later later stages.
+#' `Candidates` stores the study records, species metadata, candidate models,
+#' selected reference anchors, and downstream similarity/admissibility results
+#' used by transferability analysis.
 #'
 #' Construction is explicit. Callers must provide either:
 #' - a complete candidate-ingest config list,
 #' - a YAML path containing that config, or
-#' - a [Configurer] object whose `@data` contains the required candidate
-#'   ingest sections.
+#' - a [Configurer] object containing the required candidate-ingest sections.
+#'
+#' @section Properties:
+#' - `spec`: Normalized candidate-ingest specification.
+#' - `study_db`: Study metadata table read from the configured input.
+#' - `species_vector`: Character vector of species names queried during
+#'   metadata enrichment.
+#' - `source_dbs`: Named list of source-specific species tables.
+#' - `species_db`: Consolidated species metadata table after source precedence
+#'   rules are applied.
+#' - `candidate_models`: Final candidate-model table used by similarity,
+#'   admissibility, benchmarking, and policy selection.
+#' - `reference_anchors`: Candidate-model rows selected as reference anchors.
+#' - `similarity_matrix`: Prepared similarity state from
+#'   [prepare_similarities()].
+#' - `gower_distances`: Distance bundle from [construct_gower_distances()].
+#' - `ordination`: Ordination results from [run_ordination()].
+#' - `admissibility`: Admissibility-screen results from
+#'   [screen_admissibility()].
+#' - `similarity_tuning`: Similarity-tuning diagnostics from
+#'   [tune_similarities()].
 #'
 #' @examples
 #' cfg <- list(
@@ -31,7 +49,7 @@
 #' # live API access for remote sources.
 #' \dontrun{
 #' candidates <- build_candidates(cfg)
-#' candidates@candidate_models
+#' candidates
 #' }
 #'
 #' @name Candidates-class
@@ -711,6 +729,44 @@ configured_traits <- function(candidate_specification,
   )
 }
 
+#' Resolve traits required by configured policy constructor groups
+#'
+#' @param candidate_specification Normalized candidate specification.
+#' @param scope Trait scope to resolve.
+#'
+#' @return Character vector.
+#'
+#' @keywords internal
+#' @noRd
+configured_policy_group_traits <- function(candidate_specification,
+                                           scope = c("all", "species", "study")) {
+  scope <- match.arg(scope)
+  config_data <- candidate_specification$config_data %||% list()
+  policies_section <- config_data$policies %||% list()
+  if (!is.list(policies_section)) {
+    return(character(0))
+  }
+
+  resolve_trait_names <- function(x) {
+    if (is.null(x)) {
+      return(character(0))
+    }
+    if (!is.null(names(x)) && any(!is.na(names(x))) && any(nzchar(names(x)))) {
+      return(names(x))
+    }
+    values <- as.character(unlist(x, use.names = FALSE))
+    unique(values[!is.na(values) & nzchar(values)])
+  }
+
+  species_traits <- resolve_trait_names(policies_section$species_traits %||% NULL)
+  study_traits <- resolve_trait_names(policies_section$study_traits %||% NULL)
+  switch(scope,
+    species = species_traits,
+    study = study_traits,
+    all = unique(c(species_traits, study_traits))
+  )
+}
+
 #' Resolve configured admissibility trait names
 #'
 #' @param candidate_specification Normalized candidate specification.
@@ -1091,6 +1147,7 @@ candidate_working_columns <- function(candidate_specification) {
   configured_keep <- unique(c(
     configured_anchor_selector_fields(candidate_specification),
     configured_traits(candidate_specification, scope = "all"),
+    configured_policy_group_traits(candidate_specification, scope = "all"),
     configured_admissibility_traits(candidate_specification, scope = "all")
   ))
 
@@ -1105,6 +1162,7 @@ candidate_working_columns <- function(candidate_specification) {
     "length_metric",
     "frequency",
     "pressure_corrected",
+    "study_reference_id",
     "study_cell_id",
     "model_uid",
     "slope_standard",
@@ -1171,6 +1229,7 @@ trim_species_data <- function(data_table,
 
   keep_names <- unique(c(
     configured_traits(candidate_specification, scope = "species"),
+    configured_policy_group_traits(candidate_specification, scope = "species"),
     retained_traits,
     support_names
   ))
@@ -1250,7 +1309,7 @@ candidate_empty_species_db <- function(registry_path = NULL) {
 #' @param source_spec Normalized source specification.
 #' @param species_vector Character vector of species names to query.
 #'
-#' @return A staged source tibble.
+#' @return A prepared source tibble.
 #'
 #' @keywords internal
 #' @noRd
@@ -1295,7 +1354,7 @@ candidate_materialize_source <- function(source_name,
 #' @param spec Normalized candidate-ingest specification produced by
 #'   `normalize_candidates_config()`.
 #'
-#' @return Named list containing the staged study, source, species, and
+#' @return Named list containing the prepared study, source, species, and
 #'   candidate-model tables.
 #'
 #' @keywords internal
@@ -1319,7 +1378,7 @@ build_candidates_payload <- function(spec) {
   source_dbs <- list()
 
   # Materialize each declared source independently so the final object keeps the
-  # full staged ingest products rather than only the final merged result. The
+  # full prepared ingest products rather than only the final merged result. The
   # configured source name is just an instance label; the underlying adapter is
   # selected from the source spec itself.
   for (nm in spec$enrich$precedence) {
@@ -1335,7 +1394,7 @@ build_candidates_payload <- function(spec) {
     )
   }
 
-  # Merge the staged source tables into one enriched species table using the
+  # Merge the prepared source tables into one enriched species table using the
   # caller-specified precedence order and optional registry overrides. When no
   # species sources are configured, keep going with an empty registry-shaped
   # species table so study-only pipelines remain valid.
@@ -1546,7 +1605,7 @@ preserve_reference_pdf_columns <- function(data,
 candidates_with_similarity_matrix <- function(candidates,
                                               similarity_matrix) {
   # Rebuild the object explicitly so similarity preparation stays attached to
-  # the staged candidate object and the prepared expanded candidate-model table
+  # the Candidates object and the prepared expanded candidate-model table
   # becomes the default downstream table for later similarity steps.
   candidate_models_now <- trim_candidate_data(
     data_table = tibble::as_tibble(similarity_matrix$candidate_models),
@@ -1585,7 +1644,7 @@ candidates_with_similarity_matrix <- function(candidates,
 candidates_with_gower_distances <- function(candidates,
                                             gower_distances) {
   # Rebuild the object explicitly so the distance-building step stores its
-  # matrix bundle on the staged candidate object while preserving every other
+  # matrix bundle on the Candidates object while preserving every other
   # prepared layer.
   Candidates(
     spec = candidates@spec,
@@ -1645,7 +1704,7 @@ candidates_with_ordination <- function(candidates,
 candidates_with_admissibility <- function(candidates,
                                           admissibility) {
   # Rebuild the object explicitly so the admissibility screen stores one
-  # consolidated result bundle on the staged candidate object without dropping
+  # consolidated result bundle on the Candidates object without dropping
   # any of the upstream prepared state it depends on.
   Candidates(
     spec = candidates@spec,
@@ -1675,7 +1734,7 @@ candidates_with_admissibility <- function(candidates,
 candidates_with_similarity_tuning <- function(candidates,
                                               similarity_tuning) {
   # Rebuild the object explicitly so the tuning path stores its result on the
-  # staged candidate object without dropping any previously computed payloads
+  # Candidates object without dropping any previously computed payloads
   # or reference anchors.
   Candidates(
     spec = candidates@spec,
@@ -1720,7 +1779,7 @@ candidates_with_similarity_tuning <- function(candidates,
 #'
 #' \dontrun{
 #' candidates <- build_candidates(cfg)
-#' candidates@species_db
+#' candidates
 #' }
 #'
 #' @export
@@ -1778,7 +1837,7 @@ build_candidates <- function(config,
 #' @examples
 #' \dontrun{
 #' candidates <- build_candidates("path/to/candidates.yaml")
-#' candidates@candidate_models
+#' candidates
 #' }
 #'
 #' @keywords internal
@@ -1849,7 +1908,7 @@ S7::method(show_generic, Candidates) <- function(object) {
 
 #' Plot a `Candidates`
 #'
-#' Uses the package's S7 method on [base::plot()] so staged candidate objects
+#' Uses the package's S7 method on [base::plot()] so Candidates objects
 #' can be plotted directly with `plot(candidates, ...)`.
 #'
 #' @name plot.Candidates
@@ -2010,7 +2069,7 @@ S7::method(show_generic, Candidates) <- function(object) {
 
     if (length(x@gower_distances) == 0) {
       stop(
-        "No Gower-distance bundle is stored on this `Candidates` object. Run `build_gower_distances()` first.",
+        "No Gower-distance bundle is stored on this `Candidates` object. Run `construct_gower_distances()` first.",
         call. = FALSE
       )
     }
@@ -2302,7 +2361,7 @@ S7::method(show_generic, Candidates) <- function(object) {
       impact_tbl <- ((x@similarity_tuning %||% list())$component_impact_summary %||% tibble::tibble())
       if (nrow(tibble::as_tibble(impact_tbl)) == 0) {
         stop(
-          "No similarity-tuning component-importance summary is stored on this `Candidates` object. Run `tune_similarity_matrix()` first.",
+          "No similarity-tuning component-importance summary is stored on this `Candidates` object. Run `tune_similarities()` first.",
           call. = FALSE
         )
       }
@@ -2340,7 +2399,7 @@ S7::method(show_generic, Candidates) <- function(object) {
     variation_tbl <- tibble::as_tibble(((x@similarity_tuning %||% list())$component_weights %||% tibble::tibble()))
     if (nrow(variation_tbl) == 0 || !all(c("component", "multiplier") %in% names(variation_tbl))) {
       stop(
-        "No similarity-tuning resample multipliers are stored on this `Candidates` object. Run `tune_similarity_matrix()` with resampling enabled first.",
+        "No similarity-tuning resample multipliers are stored on this `Candidates` object. Run `tune_similarities()` with resampling enabled first.",
         call. = FALSE
       )
     }
@@ -2667,9 +2726,8 @@ filter_reference_anchor_rows_by_selector <- function(candidate_models,
 #'
 #' Filters a candidate-model table down to an explicit set of reference-anchor
 #' model IDs. When `object` is a [Candidates] instance, the selected anchor
-#' rows are stored in its `@reference_anchors` slot and a rebuilt object is
-#' returned. When `object` is a data frame, the filtered anchor rows are
-#' returned directly.
+#' rows are stored on the returned object. When `object` is a data frame, the
+#' filtered anchor rows are returned directly.
 #'
 #' @param object A candidate-model data frame/tibble or a [Candidates] object.
 #' @param model_ids Character vector of model IDs to retain as reference
@@ -2683,8 +2741,8 @@ filter_reference_anchor_rows_by_selector <- function(candidate_models,
 #'   error.
 #'
 #' @return If `object` is a data frame, a tibble containing only the selected
-#'   reference-anchor rows. If `object` is a [Candidates] object, a rebuilt
-#'   `Candidates` object with `@reference_anchors` set.
+#'   reference-anchor rows. If `object` is a [Candidates] object, an updated
+#'   [Candidates] object.
 #'
 #' @examples
 #' anchor_tbl <- set_reference_anchors(
@@ -2711,7 +2769,7 @@ filter_reference_anchor_rows_by_selector <- function(candidate_models,
 #'   candidates,
 #'   selector = list(regional_body = "SWFSC")
 #' )
-#' candidates@reference_anchors
+#' fetch_reference_anchors(candidates)
 #'
 #' configured_candidates <- build_candidates(list(
 #'   study = list(path = "input.xlsx"),
@@ -2759,7 +2817,7 @@ set_reference_anchors <- function(object = NULL,
     )
   }
 
-  # Rebuild the `Candidates` object when the caller passes a staged object.
+  # Rebuild the `Candidates` object when the caller passes a package object.
   if (is_s7_instance(object_, "Candidates")) {
     anchor_models <- if (!is.null(selector_)) {
       filter_reference_anchor_rows_by_selector(

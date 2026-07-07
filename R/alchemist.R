@@ -11,6 +11,18 @@
 #' is either inherited from the `Candidates` config (alchemist or
 #' similarity section) or supplied directly as a list or YAML path.
 #'
+#' @section Properties:
+#' - `candidates`: Source [Candidates] object.
+#' - `config`: Normalized Alchemist configuration.
+#' - `learner`: Fitted distance learner metadata from [forge_distances()].
+#' - `distance_matrix`: Learned model-by-model distance bundle from
+#'   [forge_distances()].
+#' - `trait_importance`: Trait-importance diagnostics from
+#'   [distill_traits()].
+#' - `ordination`: Ordination results from [run_ordination()].
+#' - `admissibility`: Admissibility-screen results from
+#'   [screen_admissibility()].
+#'
 #' @examples
 #' \dontrun{
 #' alchemist <- as_alchemist(candidates)
@@ -75,7 +87,7 @@ alchemist_config_from_config <- function(source) {
 
   alch <- cfg$alchemist %||% list()
   sim <- cfg$similarity %||% list()
-  ml <- cfg$metalearner %||% list()
+  ml <- cfg$selection %||% list()
 
   list(
     species_traits = alch$species_traits %||% sim$species_traits %||% list(),
@@ -84,7 +96,7 @@ alchemist_config_from_config <- function(source) {
     taxonomic_distance = alch$taxonomic_distance %||% FALSE,
     feature_type = alch$feature_type %||% "gower",
     learner = list(
-      methods = alch$learner$methods %||% ml$selection_super_methods %||% NULL,
+      methods = alch$learner$methods %||% ml$super_methods %||% NULL,
       inner_folds = as.integer(alch$learner$inner_folds %||% ml$inner_folds %||% 5L),
       seed = if (!is.null(alch$learner$seed %||% ml$seed)) {
         as.integer(alch$learner$seed %||% ml$seed)
@@ -129,7 +141,7 @@ normalize_alchemist_config <- function(config, candidates = NULL) {
     is_s7_instance(config, "Configurer")) {
     config <- alchemist_config_from_config(config)
   } else if (is.list(config) &&
-    any(c("alchemist", "similarity", "metalearner", "policy", "policies") %in% names(config))) {
+    any(c("alchemist", "similarity", "selection", "policy", "policies") %in% names(config))) {
     config <- alchemist_config_from_config(config)
   } else if (is.character(config) && length(config) == 1 && file.exists(config)) {
     raw <- yaml::read_yaml(config)
@@ -242,9 +254,9 @@ alchemist_rebuild <- function(object,
 
 #' Build an Alchemist from a Candidates object
 #'
-#' @param candidates A [Candidates] object. Must have `@candidate_models`
-#'   populated; `@similarity_matrix` is used to inherit trait names when no
-#'   explicit config is supplied.
+#' @param candidates A [Candidates] object with candidate-model rows. Prepared
+#'   similarity state is used to inherit trait names when no explicit config is
+#'   supplied.
 #' @param config Optional alchemist config list, YAML path, or [Configurer]
 #'   object. When `NULL`, trait names and learner settings are inherited from
 #'   `candidates`.
@@ -1081,7 +1093,16 @@ resolve_learner_methods <- function(methods,
   # Build the public Alchemist method namespace from the shared family catalog
   # so variant aliases are derived from config rather than hard-coded here.
   catalog <- meta_policy_method_catalog(method_settings = method_settings)
-  supported_families <- c("glm", "glmnet", "gam", "earth", "rpart", "ranger", "xgboost", "quantreg")
+  supported_families <- c(
+    "glm", 
+    "glm_penalized", 
+    "gam", 
+    "mars", 
+    "rpart", 
+    "rf", 
+    "xgboost", 
+    "qreg"
+  )
   valid <- names(Filter(function(spec) spec$family %in% supported_families, catalog$specs))
   defaults <- catalog$default_super_methods[
     vapply(catalog$default_super_methods, function(method) {
@@ -1101,7 +1122,7 @@ resolve_learner_methods <- function(methods,
     )
   }
   if (length(methods) == 0L) {
-    methods <- c("glmnet_elasticnet", "ranger", "xgboost")
+    methods <- c("glm_elastic", "rf", "xgboost")
   }
   methods
 }
@@ -1132,9 +1153,9 @@ feature_matrix <- function(data, feature_cols) {
 #' Extracts the settings block for one method family and applies any
 #' variant-specific overrides when the method name has a `_variant` suffix.
 #'
-#' @param family Character. One of `"glm"`, `"glmnet"`, `"gam"`, `"rpart"`,
-#'   `"ranger"`, `"xgboost"`.
-#' @param method Character. Full method name, e.g. `"ranger_shallow"`.
+#' @param family Character. One of `"glm"`, `"glm_penalized"`, `"gam"`,
+#'   `"rpart"`, `"rf"`, `"xgboost"`.
+#' @param method Character. Full method name, e.g. `"rf_shallow"`.
 #' @param method_settings Named list of per-family settings from config.
 #'
 #' @return Named list of resolved settings for this family+variant.
@@ -1202,7 +1223,7 @@ prepare_alchemist_regression_frame <- function(x_train) {
 #' @param method_settings Named list of per-family tuning settings.
 #' @param seed Integer random seed.
 #' @param lambda_rule Character. One of `"lambda.1se"` or `"lambda.min"`.
-#'   Only used by glmnet-family methods.
+#'   Only used by glm-penalized methods.
 #'
 #' @return A list with class `"BaseLearner"` and fields
 #'   `fit`, `method`, `family`, `lambda_rule`.
@@ -1217,7 +1238,7 @@ fit_base_learner <- function(x_train, y_train, method,
     set.seed(as.integer(seed))
   }
   # Resolve the family from the shared method catalog so config-defined
-  # variants such as xgboost_conservative and quantreg_q90 behave consistently.
+  # variants such as xgboost_conservative and qreg_q90 behave consistently.
   family <- meta_policy_method_spec(method, method_settings = method_settings)$family
 
   ms <- learner_method_settings(family, method, method_settings %||% list())
@@ -1233,11 +1254,11 @@ fit_base_learner <- function(x_train, y_train, method,
       df_train$.y <- y_train
       stats::lm(.y ~ ., data = df_train)
     },
-    glmnet = {
+    glm_penalized = {
       alpha_val <- switch(method,
-        glmnet_ridge = 0,
-        glmnet_lasso = 1,
-        glmnet_elasticnet = as.numeric(ms$alpha %||% 0.25),
+        glm_ridge = 0,
+        glm_lasso = 1,
+        glm_elastic = as.numeric(ms$alpha %||% 0.25),
         0.25
       )
       glmnet::cv.glmnet(
@@ -1282,9 +1303,9 @@ fit_base_learner <- function(x_train, y_train, method,
         )
       }
     },
-    earth = {
+    mars = {
       if (!requireNamespace("earth", quietly = TRUE)) {
-        stop("Fitting Alchemist method 'earth' requires the suggested package 'earth' to be installed.", call. = FALSE)
+        stop("Fitting Alchemist method 'mars' requires the suggested package 'earth' to be installed.", call. = FALSE)
       }
       earth_args <- list(
         x = x_train,
@@ -1298,19 +1319,33 @@ fit_base_learner <- function(x_train, y_train, method,
       }
       do.call(earth::earth, earth_args)
     },
-    ranger = {
-      rf <- ranger::ranger(
+    rf = {
+      ranger_args <- list(
         x = as.data.frame(x_train, check.names = FALSE),
         y = y_train,
-        seed = as.integer(seed),
         num.threads = 1L,
         verbose = FALSE,
         num.trees = as.integer(ms$num_trees %||% 500L),
         min.node.size = as.integer(ms$min_node_size %||% 5L),
         sample.fraction = as.numeric(ms$sample_fraction %||% 1.0),
         replace = isTRUE(ms$replace %||% TRUE),
-        respect.unordered.factors = "order"
+        respect.unordered.factors = as.character(
+          ms$respect_unordered_factors %||% "order"
+        )
       )
+      if (!is.null(ms$mtry)) {
+        ranger_args$mtry <- as.integer(ms$mtry)
+      }
+      # `as.integer(NULL)` is `integer(0)`, which Ranger's compiled interface
+      # rejects. Leave the argument absent when the caller intentionally uses
+      # Ranger's default RNG behavior.
+      if (!is.null(seed)) {
+        ranger_args$seed <- as.integer(seed)
+      }
+      if (!is.null(ms$max_depth)) {
+        ranger_args$max.depth <- as.integer(ms$max_depth)
+      }
+      rf <- do.call(ranger::ranger, ranger_args)
       rf$predictions <- NULL
       rf$call <- NULL
       rf
@@ -1349,9 +1384,9 @@ fit_base_learner <- function(x_train, y_train, method,
         verbose = 0L
       )
     },
-    quantreg = {
+    qreg = {
       if (!requireNamespace("quantreg", quietly = TRUE)) {
-        stop("Fitting Alchemist method 'quantreg' requires the suggested package 'quantreg' to be installed.", call. = FALSE)
+        stop("Fitting Alchemist method 'qreg' requires the suggested package 'quantreg' to be installed.", call. = FALSE)
       }
       # Reuse the same pruned predictor frame as glm so quantile fits do not
       # try to solve a singular design matrix.
@@ -1421,7 +1456,7 @@ predict_base_learner <- function(object, x_new) {
     glm = {
       as.numeric(stats::predict.lm(object$fit, newdata = df_new))
     },
-    glmnet = {
+    glm_penalized = {
       pfn <- utils::getFromNamespace("predict.cv.glmnet", "glmnet")
       as.numeric(pfn(object$fit, newx = x_new, s = object$lambda_rule %||% "lambda.1se"))
     },
@@ -1429,11 +1464,11 @@ predict_base_learner <- function(object, x_new) {
       pfn <- utils::getFromNamespace("predict.gam", "mgcv")
       as.numeric(pfn(object$fit, newdata = df_new, type = "response"))
     },
-    earth = {
+    mars = {
       pfn <- utils::getFromNamespace("predict.earth", "earth")
       as.numeric(pfn(object$fit, newdata = x_new, type = "response"))
     },
-    ranger = {
+    rf = {
       pfn <- utils::getFromNamespace("predict.ranger", "ranger")
       as.numeric(pfn(object$fit, data = df_new)$predictions)
     },
@@ -1446,7 +1481,7 @@ predict_base_learner <- function(object, x_new) {
       pfn <- utils::getFromNamespace("predict.xgb.Booster", "xgboost")
       as.numeric(pfn(object$fit, dtest))
     },
-    quantreg = {
+    qreg = {
       pfn <- utils::getFromNamespace("predict.rq", "quantreg")
       as.numeric(pfn(object$fit, newdata = df_new))
     },
@@ -1468,7 +1503,7 @@ predict_base_learner <- function(object, x_new) {
 #' @param foldid Integer fold-ID vector, length `nrow(x_all)`.
 #' @param method_settings Named list of per-family settings.
 #' @param seed Integer base seed. Each fold offsets this by its fold index.
-#' @param lambda_rule Character. Lambda selection rule for glmnet methods.
+#' @param lambda_rule Character. Lambda selection rule for glm-penalized methods.
 #'
 #' @return A named list with fields `method`, `oof_pred` (numeric vector or
 #'   `NULL`), and `error` (character or `NULL`).
@@ -1478,6 +1513,7 @@ predict_base_learner <- function(object, x_new) {
 run_oof_method <- function(method, x_all, y_all, foldid = NULL,
                            fold_splits = NULL,
                            method_settings, seed, lambda_rule) {
+  timing_start <- proc.time()
   n <- length(y_all)
   oof_pred <- rep(NA_real_, n)
   ok <- TRUE
@@ -1545,7 +1581,8 @@ run_oof_method <- function(method, x_all, y_all, foldid = NULL,
   list(
     method = method,
     oof_pred = if (ok && all(is.finite(oof_pred))) oof_pred else NULL,
-    error = err_msg
+    error = err_msg,
+    oof_seconds = unname((proc.time() - timing_start)[["elapsed"]])
   )
 }
 
@@ -1571,12 +1608,12 @@ run_oof_method <- function(method, x_all, y_all, foldid = NULL,
 #' @param outcome_transform One of `"log1p"` or `"identity"`. Applied to
 #'   `.outcome` before fitting; predictions are back-transformed before
 #'   storage.
-#' @param lambda_rule Lambda selection rule for glmnet-family base learners.
+#' @param lambda_rule Lambda selection rule for glm-penalized base learners.
 #'   One of `"lambda.1se"` or `"lambda.min"`.
 #' @param inner_folds Integer number of cross-validation folds.
 #' @param seed Integer random seed for fold assignment and base learner fits.
 #' @param method_settings Named list of per-family tuning overrides (same
-#'   structure as `metalearner.method_settings` in the config YAML).
+#'   structure as `selection.method_settings` in the config YAML).
 #' @param oof_mode Cross-validation split mode. `"anchor_species"` keeps the
 #'   current receiving-species grouping; `"species_purged"` removes the held-out
 #'   species from both anchor and donor roles in each OOF fold.
@@ -1750,7 +1787,8 @@ fit_super_learner <- function(training_data,
   )
 
   run_refit <- function(m) {
-    tryCatch(
+    timing_start <- proc.time()
+    learner <- tryCatch(
       fit_base_learner(
         x_train = x_all,
         y_train = y_all,
@@ -1760,6 +1798,10 @@ fit_super_learner <- function(training_data,
         lambda_rule = lambda_rule
       ),
       error = function(e) NULL
+    )
+    list(
+      learner = learner,
+      refit_seconds = unname((proc.time() - timing_start)[["elapsed"]])
     )
   }
 
@@ -1776,7 +1818,8 @@ fit_super_learner <- function(training_data,
   }
   names(refit_list) <- refit_methods
 
-  final_learners <- Filter(Negate(is.null), refit_list)
+  final_learners <- lapply(refit_list, `[[`, "learner")
+  final_learners <- Filter(Negate(is.null), final_learners)
 
   refit_failed <- setdiff(refit_methods, names(final_learners))
   if (length(refit_failed) > 0L) {
@@ -1791,6 +1834,27 @@ fit_super_learner <- function(training_data,
     stop("No Alchemist base learners could be refit on the full training data.", call. = FALSE)
   }
   weights <- weights / sum(weights)
+
+  learner_timings <- tibble::tibble(
+    method = methods,
+    oof_seconds = vapply(methods, function(method) {
+      suppressWarnings(as.numeric(oof_results[[method]]$oof_seconds %||% NA_real_))
+    }, numeric(1)),
+    refit_seconds = vapply(methods, function(method) {
+      if (!method %in% names(refit_list)) {
+        return(NA_real_)
+      }
+      suppressWarnings(as.numeric(refit_list[[method]]$refit_seconds %||% NA_real_))
+    }, numeric(1))
+  ) |>
+    dplyr::mutate(
+      total_seconds = rowSums(
+        cbind(.data$oof_seconds, .data$refit_seconds),
+        na.rm = TRUE
+      ),
+      succeeded_oof = .data$method %in% names(ok_methods),
+      succeeded_refit = .data$method %in% names(final_learners)
+    )
 
   # ---- Performance table ---------------------------------------------------
   perf_tbl <- dplyr::bind_rows(
@@ -1821,7 +1885,8 @@ fit_super_learner <- function(training_data,
       inner_fold_splits = fold_splits,
       oof_predictions = tibble::as_tibble(oof_mat),
       oof_ensemble_prediction = oof_ensemble_pred,
-      oof_performance = perf_tbl
+      oof_performance = perf_tbl,
+      learner_timings = learner_timings
     ),
     class = "SuperLearner"
   )
@@ -2026,7 +2091,7 @@ S7::method(forge_distances, Alchemist) <- function(object,
       training_data = pair_data$training_data,
       feature_cols = pair_data$feature_cols,
       methods = methods_lbl %||% c(
-        "glmnet_elasticnet", "ranger_shallow", "xgboost_conservative"
+        "glm_elastic", "rf", "xgboost"
       ),
       outcome_transform = learner_cfg$outcome_transform %||% "identity",
       lambda_rule = learner_cfg$lambda_rule %||% "lambda.1se",
@@ -2529,6 +2594,9 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
       "frequency", "frequency"
     )
   ))
+  if (!is.null(model_trait_table)) {
+    coh_cols <- setdiff(coh_cols, names(model_trait_table))
+  }
   if (length(coh_cols) > 0L) {
     coh_extra <- dplyr::select(candidate_models, dplyr::all_of(coh_cols)) |>
       dplyr::mutate(dplyr::across(
@@ -2655,9 +2723,9 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
 #' @noRd
 S7::method(print_generic, Alchemist) <- function(x, ...) {
   cat("Alchemist\n")
-  cat("  candidates:       ", nrow(x@candidates@candidate_models), " models\n", sep = "")
-  cat("  species_traits:   ", length(alchemist_trait_names(x@config$species_traits %||% list(), x@candidates@candidate_models)), "\n", sep = "")
-  cat("  study_traits:     ", length(alchemist_trait_names(x@config$study_traits %||% list(), x@candidates@candidate_models)), "\n", sep = "")
+  cat("  candidates:       ", nrow(x@candidates), " models\n", sep = "")
+  cat("  species_traits:   ", length(alchemist_trait_names(x@config$species_traits %||% list(), x@candidates)), "\n", sep = "")
+  cat("  study_traits:     ", length(alchemist_trait_names(x@config$study_traits %||% list(), x@candidates)), "\n", sep = "")
   cat("  learner_ready:    ", if (length(x@learner) > 0L) "yes" else "no", "\n", sep = "")
   cat("  distances_ready:  ", if (length(x@distance_matrix) > 0L) "yes" else "no", "\n", sep = "")
   cat("  importance_ready: ", if (length(x@trait_importance) > 0L) "yes" else "no", "\n", sep = "")
@@ -3005,7 +3073,7 @@ default_anchor_config <- function(config = NULL) {
 
 #' Resolve the key metadata fields used by admissibility screening
 #'
-#' @param config Anchor config list or staged object.
+#' @param config Anchor config list or package object carrying configuration.
 #'
 #' @return Character vector of column names.
 #' @keywords internal
@@ -3071,7 +3139,7 @@ admissibility_key_metadata_cols <- function(config = NULL) {
 #' Validate whether a stored admissibility bundle matches the current gate logic
 #'
 #' @param admissibility_bundle Stored admissibility result list.
-#' @param config Anchor config list or staged object.
+#' @param config Anchor config list or package object carrying configuration.
 #'
 #' @return Logical scalar.
 #' @keywords internal
@@ -3129,6 +3197,29 @@ admissibility_bundle_is_current <- function(admissibility_bundle,
   TRUE
 }
 
+#' Signal that one anchor cannot be scored
+#'
+#' @param message Human-readable failure reason.
+#' @param reason_code Stable machine-readable failure code.
+#' @param stage Workflow stage where the anchor became unscorable.
+#'
+#' @keywords internal
+#' @noRd
+abort_unscorable_anchor <- function(message,
+                                     reason_code,
+                                     stage = "anchor_density") {
+  condition <- structure(
+    list(
+      message = as.character(message)[[1]],
+      call = NULL,
+      reason_code = as.character(reason_code)[[1]],
+      stage = as.character(stage)[[1]]
+    ),
+    class = c("tsbiomass_unscorable_anchor", "error", "condition")
+  )
+  stop(condition)
+}
+
 #' Build an anchor length PDF
 #'
 #' Builds a length-density grid from the anchor study length metadata. When a
@@ -3166,7 +3257,10 @@ build_anchor_density <- function(anchor_row,
     lmax <- max(pmax(mins, maxs))
 
     if (!is.finite(lmin) || !is.finite(lmax) || lmin <= 0 || lmax <= 0) {
-      stop("Anchor length interval must be positive and finite.", call. = FALSE)
+      abort_unscorable_anchor(
+        "Anchor length interval must be positive and finite.",
+        reason_code = "invalid_study_length_interval"
+      )
     }
 
     if (lmax > lmin) {
@@ -3191,9 +3285,9 @@ build_anchor_density <- function(anchor_row,
       f_len = 1
     ))
   }
-  stop(
+  abort_unscorable_anchor(
     "No valid anchor study length interval or midpoint was available.",
-    call. = FALSE
+    reason_code = "missing_study_length_support"
   )
 }
 
@@ -3220,8 +3314,12 @@ compute_range_overlap <- function(a_min, a_max, b_min, b_max) {
     return(NA_real_)
   }
 
+  a_len <- a_max - a_min
+  if (a_len == 0) {
+    return(as.numeric(b_min <= a_min && b_max >= a_max))
+  }
+
   inter <- max(0, min(a_max, b_max) - max(a_min, b_min))
-  a_len <- max(1e-9, a_max - a_min)
   inter / a_len
 }
 
@@ -3254,8 +3352,15 @@ compute_range_overlap_vec <- function(a_min, a_max, b_min, b_max) {
     return(out)
   }
 
+  a_len <- a_max_ - a_min_
+  if (a_len == 0) {
+    # A point-valued study range overlaps a donor interval when the observed
+    # point is contained in that interval. It is not a zero-measure failure.
+    out[keep] <- as.numeric(b_min_[keep] <= a_min_ & b_max_[keep] >= a_max_)
+    return(out)
+  }
+
   inter <- pmax(0, pmin(a_max_, b_max_[keep]) - pmax(a_min_, b_min_[keep]))
-  a_len <- max(1e-9, a_max_ - a_min_)
   out[keep] <- inter / a_len
   out
 }
@@ -3564,7 +3669,9 @@ add_anchor_overlap <- function(candidate_models,
     nzchar(species_col) &&
     species_col %in% names(out) &&
     species_col %in% names(anchor_row)) {
-    !is.na(out[[species_col]]) & out[[species_col]] == anchor_species
+    !is_missing_species_identity(out[[species_col]]) &
+      !is_missing_species_identity(anchor_species) &
+      out[[species_col]] == anchor_species
   } else {
     rep(FALSE, nrow(out))
   }
@@ -4275,7 +4382,7 @@ anchor_backscatter <- function(model_eval,
 #' Add anchor distance columns
 #'
 #' @param model_eval Anchor scoring table.
-#' @param dist_obj Distance object from [build_gower_distances()].
+#' @param dist_obj Distance object from [construct_gower_distances()].
 #' @param anchor_id Anchor model identifier.
 #'
 #' @return A tibble.
@@ -4494,9 +4601,9 @@ build_admissible_pool <- function(model_eval,
 #' @param config Optional JSON path or list with similarity/anchor settings.
 #' @param registry_path Optional path to the trait-registry JSON.
 #' @param sim_obj Optional prebuilt similarity object from
-#'   [prepare_similarity_matrix()].
+#'   [prepare_similarities()].
 #' @param dist_obj Optional prebuilt distance object from
-#'   [build_gower_distances()].
+#'   [construct_gower_distances()].
 #' @param candidate_models_scored Optional candidate-model table that already
 #'   contains `key_metadata_missing_fraction`.
 #' @param excluded_model_ids Optional character vector of model IDs that should
@@ -4529,7 +4636,7 @@ screen_one_anchor_admissibility <- function(anchor_row,
   if (!is.null(candidates_obj)) {
     # Reuse object-stored similarity state whenever it is already present and
     # the caller did not explicitly override it with `sim_obj`. This keeps the
-    # staged pipeline from rebuilding the same matrices inside anchor loops.
+    # prepared pipeline from rebuilding the same matrices inside anchor loops.
     if (is.null(sim_obj) && length(candidates_obj@similarity_matrix) > 0) {
       sim_obj <- candidates_obj@similarity_matrix
     }
@@ -4568,7 +4675,7 @@ screen_one_anchor_admissibility <- function(anchor_row,
   # computed them once for a larger admissibility screen. Fall back to local
   # construction only for standalone one-anchor screening.
   if (is.null(sim_obj)) {
-    sim_obj <- prepare_similarity_matrix(
+    sim_obj <- prepare_similarities(
       candidate_models = candidate_models,
       species_traits = cfg$similarity_species_traits %||% NULL,
       study_traits = cfg$similarity_study_traits %||% NULL,
@@ -4581,7 +4688,7 @@ screen_one_anchor_admissibility <- function(anchor_row,
     )
   }
   if (is.null(dist_obj)) {
-    dist_obj <- build_gower_distances(sim_obj)
+    dist_obj <- construct_gower_distances(sim_obj)
   }
 
   # Reuse the model-level missingness screen when it was already computed
@@ -4691,7 +4798,7 @@ screen_one_anchor_admissibility <- function(anchor_row,
 #'
 #' @param reference_anchors Anchor table, typically from
 #'   [set_reference_anchors()]. When `candidate_models` is a [Candidates]
-#'   object, this may be left `NULL` to use `candidate_models@reference_anchors`.
+#'   object, this may be left `NULL` to use its reference anchors.
 #' @param candidate_models Candidate-model table or a [Candidates] object.
 #' @param config Optional JSON path or list with similarity/anchor settings.
 #' @param cache_path Optional `.rds` cache path.
@@ -4700,7 +4807,7 @@ screen_one_anchor_admissibility <- function(anchor_row,
 #' @param registry_path Optional path to the trait-registry JSON.
 #'
 #' @return When `candidate_models` is a [Candidates] object, returns that
-#'   object with the admissibility-screen result stored in `@admissibility`.
+#'   object containing the admissibility-screen result.
 #'   Otherwise, returns a list containing per-anchor results plus bound
 #'   score/summary tables.
 #'
@@ -4710,10 +4817,10 @@ screen_one_anchor_admissibility <- function(anchor_row,
 #'   study = list(path = "input.xlsx"),
 #'   anchors = list(selector = list(regional_body = "SWFSC"))
 #' ))
-#' candidates <- prepare_similarity_matrix(candidates)
+#' candidates <- prepare_similarities(candidates)
 #' candidates <- forge_distances(candidates)
 #' candidates <- screen_admissibility(candidate_models = candidates)
-#' candidates@admissibility$anchor_summary
+#' candidates
 #' }
 #'
 #' @export
@@ -4833,6 +4940,7 @@ screen_admissibility <- function(reference_anchors = NULL,
   all_gates <- list()
   all_summary <- list()
   anchor_results <- list()
+  anchor_failures <- list()
 
   # Build the donor-weighting context once for the full anchor set. When the
   # object already carries precomputed learned/Gower distances, keep using
@@ -4851,7 +4959,7 @@ screen_admissibility <- function(reference_anchors = NULL,
       candidate_models = tibble::as_tibble(candidate_models_)
     )
   } else {
-    sim_obj <- prepare_similarity_matrix(
+    sim_obj <- prepare_similarities(
       candidate_models = candidate_models_,
       species_traits = cfg$similarity_species_traits %||% NULL,
       study_traits = cfg$similarity_study_traits %||% NULL,
@@ -4866,7 +4974,7 @@ screen_admissibility <- function(reference_anchors = NULL,
   if (use_precomputed_dist) {
     dist_obj <- candidates_obj@gower_distances
   } else {
-    dist_obj <- build_gower_distances(sim_obj)
+    dist_obj <- construct_gower_distances(sim_obj)
   }
   candidate_models_prepared <- tibble::as_tibble(sim_obj$candidate_models %||% candidate_models_)
   candidate_models_scored <- screen_missing_metadata(
@@ -4886,16 +4994,43 @@ screen_admissibility <- function(reference_anchors = NULL,
     anchor_id <- build_anchor_model_id(anchor_row, cfg)
     anchor_species <- as.character(anchor_row[[build_anchor_field(cfg, "species_name")]][[1]])
 
-    eval_obj <- screen_one_anchor_admissibility(
-      anchor_row = anchor_row,
-      candidate_models = candidate_models_,
-      config = cfg,
-      registry_path = registry_path,
-      sim_obj = sim_obj,
-      dist_obj = dist_obj,
-      candidate_models_scored = candidate_models_scored,
-      excluded_model_ids = excluded_model_ids
+    screened_anchor <- tryCatch(
+      list(
+        evaluation = screen_one_anchor_admissibility(
+          anchor_row = anchor_row,
+          candidate_models = candidate_models_,
+          config = cfg,
+          registry_path = registry_path,
+          sim_obj = sim_obj,
+          dist_obj = dist_obj,
+          candidate_models_scored = candidate_models_scored,
+          excluded_model_ids = excluded_model_ids
+        ),
+        failure = NULL
+      ),
+      tsbiomass_unscorable_anchor = function(e) {
+        list(
+          evaluation = NULL,
+          failure = tibble::tibble(
+            anchor_model_id = anchor_id,
+            anchor_species = anchor_species,
+            failure_stage = as.character(e$stage %||% "anchor_screening"),
+            failure_code = as.character(e$reason_code %||% "unscorable_anchor"),
+            failure_message = conditionMessage(e)
+          )
+        )
+      }
     )
+    if (!is.null(screened_anchor$failure)) {
+      anchor_failures[[length(anchor_failures) + 1L]] <- screened_anchor$failure
+      report_progress(
+        progress_,
+        "Anchor ", anchor_id, " (", anchor_species,
+        ") is unscorable: ", screened_anchor$failure$failure_message[[1]]
+      )
+      next
+    }
+    eval_obj <- screened_anchor$evaluation
 
     scored <- collect_anchor_scores(eval_obj, anchor_row, cfg)
     ranked <- rank_anchor_models(eval_obj)
@@ -4904,12 +5039,12 @@ screen_admissibility <- function(reference_anchors = NULL,
     gates <- summarize_gate_counts(scored, anchor_row, cfg)
     summary <- summarize_anchor_pool(scored)
 
-    # Build a compact stored evaluation to avoid duplicating the full dist_obj
-    # (three NxN matrices) and sim_obj per anchor. Both are already on
-    # @gower_distances and @similarity_matrix and are never read back from the
-    # per-anchor evaluation slot. The model_eval column vectors are shared with
-    # `scored` rather than copied - R's copy-on-modify preserves this sharing
-    # both in-process and in saveRDS (which deduplicates shared objects).
+    # Build a compact stored evaluation to avoid duplicating the full distance
+    # and similarity objects per anchor. They are already available from the
+    # parent Candidates object and are never read back from the per-anchor
+    # evaluation slot. The model_eval column vectors are shared with `scored`
+    # rather than copied - R's copy-on-modify preserves this sharing both
+    # in-process and in saveRDS (which deduplicates shared objects).
     scored_extra_cols <- c(
       "anchor_model_id", "anchor_species",
       "study_cell_id", "study_cell_n_models",
@@ -4940,6 +5075,7 @@ screen_admissibility <- function(reference_anchors = NULL,
 
   result <- list(
     anchors = anchor_results,
+    anchor_failures = dplyr::bind_rows(anchor_failures),
     all_scores = dplyr::bind_rows(all_scores),
     all_overlap = dplyr::bind_rows(all_overlap),
     all_gates = dplyr::bind_rows(all_gates),

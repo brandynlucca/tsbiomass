@@ -1,7 +1,7 @@
 #' Policy Learner S7 Class
 #'
 #' `PolicyLearner` wraps the meta-policy and super-learner pipeline around a
-#' staged [PolicySelector]. It owns the cross-fitted meta-policy benchmark,
+#' [PolicySelector]. It owns the cross-fitted meta-policy benchmark,
 #' final learner fit, and post-selection calibration state used to rank
 #' anchor-policy predictions by predicted transferability score.
 #'
@@ -148,6 +148,13 @@ as_policylearner <- function(selector,
     error = function(e) tibble::tibble()
   )
   if (nrow(species_block_perf) > 0) {
+    random_intercepts <- policy_learner_selection_random_intercepts(merged_config)
+    species_block_perf <- attach_meta_policy_random_intercepts(
+      policy_perf = species_block_perf,
+      candidate_models = selector@candidates@candidate_models,
+      random_intercepts = setdiff(random_intercepts, ".split_group")
+    )
+
     # Attach fold-validity and leave-current-species-out policy summaries once
     # before learner fitting so the meta-learner can penalize fragile policy
     # classes without recomputing these summaries in every cross-fit call.
@@ -222,10 +229,11 @@ policy_learner_config <- function(object,
   # selector@config is merged into object@config at construction time, so we
   # no longer need to access the selector here.
   cfg <- merge_config_sections(
-    default_config(),
+    create_configuration_template(),
     merge_config_sections(object@config, policy_selector_config_data(config))
   )
-  cfg$metalearner <- normalize_metalearner_section(cfg$metalearner %||% list())
+  cfg$selection <- normalize_learner_section(cfg$selection %||% list())
+  cfg$uncertainty <- normalize_learner_section(cfg$uncertainty %||% list())
   cfg
 }
 
@@ -242,12 +250,8 @@ policy_learner_selection_method_settings <- function(cfg,
                                                      fallback = NULL) {
   settings_now <- policy_selector_config_value(
     cfg,
-    "selection_method_settings",
-    sections = c("metalearner", "policy_learner")
-  ) %||% policy_selector_config_value(
-    cfg,
     "method_settings",
-    sections = c("metalearner", "policy_learner")
+    sections = c("selection", "policy_learner")
   ) %||% fallback
 
   normalize_meta_policy_method_settings(settings_now)
@@ -266,16 +270,8 @@ policy_learner_uncertainty_method_settings <- function(cfg,
                                                        fallback = NULL) {
   settings_now <- policy_selector_config_value(
     cfg,
-    "uncertainty_method_settings",
-    sections = c("metalearner", "policy_learner")
-  ) %||% policy_selector_config_value(
-    cfg,
-    "selection_method_settings",
-    sections = c("metalearner", "policy_learner")
-  ) %||% policy_selector_config_value(
-    cfg,
     "method_settings",
-    sections = c("metalearner", "policy_learner")
+    sections = c("uncertainty", "policy_learner")
   ) %||% fallback
 
   normalize_meta_policy_method_settings(settings_now)
@@ -294,8 +290,8 @@ policy_learner_selection_super_methods <- function(cfg,
                                                    fallback = NULL) {
   policy_selector_config_value(
     cfg,
-    "selection_super_methods",
-    sections = c("metalearner", "policy_learner")
+    "super_methods",
+    sections = c("selection", "policy_learner")
   ) %||% fallback
 }
 
@@ -312,12 +308,112 @@ policy_learner_uncertainty_super_methods <- function(cfg,
                                                      fallback = NULL) {
   policy_selector_config_value(
     cfg,
-    "uncertainty_super_methods",
-    sections = c("metalearner", "policy_learner")
-  ) %||% policy_learner_selection_super_methods(
+    "super_methods",
+    sections = c("uncertainty", "policy_learner")
+  ) %||% fallback
+}
+
+#' Resolve active selection-learner random-intercept columns
+#'
+#' @param cfg Policy-learner configuration.
+#'
+#' @return Character vector of explicitly configured random-intercept columns.
+#'
+#' @keywords internal
+#' @noRd
+policy_learner_selection_random_intercepts <- function(cfg) {
+  selection_method <- policy_selector_config_value(
     cfg,
-    fallback = fallback
+    "method",
+    sections = c("selection", "policy_learner")
+  ) %||% "super_learner"
+  method_settings <- policy_learner_selection_method_settings(cfg)
+  methods <- if (identical(selection_method, "super_learner")) {
+    available_meta_policy_super_methods(
+      policy_learner_selection_super_methods(cfg),
+      method_settings = method_settings
+    )
+  } else {
+    selection_method
+  }
+  active_meta_policy_lmm_random_intercepts(
+    methods,
+    method_settings = method_settings
   )
+}
+
+#' Attach configured random-intercept metadata to benchmark rows
+#'
+#' @param policy_perf Policy benchmark rows keyed by `anchor_model_id`.
+#' @param candidate_models Candidate metadata keyed by `model_id`.
+#' @param random_intercepts Configured random-intercept column names.
+#'
+#' @return Benchmark rows with each configured random-intercept column added.
+#'
+#' @keywords internal
+#' @noRd
+attach_meta_policy_random_intercepts <- function(policy_perf,
+                                                 candidate_models,
+                                                 random_intercepts) {
+  policy_perf <- tibble::as_tibble(policy_perf)
+  candidate_models <- tibble::as_tibble(candidate_models)
+  random_intercepts <- unique(as.character(unlist(
+    random_intercepts %||% character(0),
+    use.names = FALSE
+  )))
+  random_intercepts <- random_intercepts[
+    !is.na(random_intercepts) & nzchar(random_intercepts)
+  ]
+  if (length(random_intercepts) == 0L || nrow(policy_perf) == 0L) {
+    return(policy_perf)
+  }
+  if (!"anchor_model_id" %in% names(policy_perf)) {
+    stop(
+      "Policy benchmark rows must contain `anchor_model_id` to attach random-intercept metadata.",
+      call. = FALSE
+    )
+  }
+  if (!"model_id" %in% names(candidate_models)) {
+    stop(
+      "Candidate models must contain `model_id` to attach random-intercept metadata.",
+      call. = FALSE
+    )
+  }
+  missing_intercepts <- setdiff(random_intercepts, names(candidate_models))
+  if (length(missing_intercepts) > 0L) {
+    stop(
+      sprintf(
+        "Configured LMM random-intercept column(s) are absent from candidate models: %s",
+        paste(missing_intercepts, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+
+  lookup <- candidate_models |>
+    dplyr::transmute(
+      anchor_model_id = as.character(.data$model_id),
+      dplyr::across(
+        dplyr::all_of(random_intercepts),
+        ~ as.character(.x)
+      )
+    ) |>
+    dplyr::distinct()
+  if (anyDuplicated(lookup$anchor_model_id)) {
+    stop(
+      "Candidate model IDs do not map uniquely to configured random-intercept metadata.",
+      call. = FALSE
+    )
+  }
+
+  existing_intercepts <- intersect(random_intercepts, names(policy_perf))
+  if (length(existing_intercepts) > 0L) {
+    policy_perf <- policy_perf |>
+      dplyr::select(-dplyr::all_of(existing_intercepts))
+  }
+  policy_perf |>
+    dplyr::mutate(anchor_model_id = as.character(.data$anchor_model_id)) |>
+    dplyr::left_join(lookup, by = "anchor_model_id")
 }
 
 #' Require stored benchmark rows for a `PolicyLearner`
@@ -455,8 +551,8 @@ policy_learner_selection_outcome_col <- function(policy_perf,
   explicit_outcome_col <- outcome_col %||%
     policy_selector_config_value(
       cfg,
-      "selection_outcome_col",
-      sections = c("metalearner", "policy_learner")
+      "outcome_col",
+      sections = c("selection", "policy_learner")
     )
 
   if (!is.null(explicit_outcome_col) &&
@@ -492,7 +588,7 @@ policy_learner_uncertainty_outcome_col <- function(predictions,
                                                    outcome_col = NULL) {
   predictions <- tibble::as_tibble(predictions)
   outcome_col <- outcome_col %||%
-    policy_selector_config_value(cfg, "uncertainty_outcome_col", sections = c("metalearner", "policy_learner")) %||%
+    policy_selector_config_value(cfg, "outcome_col", sections = c("uncertainty", "policy_learner")) %||%
     "error_abs_log"
 
   outcome_col <- as.character(outcome_col[[1]])
@@ -525,7 +621,7 @@ policy_learner_feature_cols <- function(cfg,
                                         policy_perf) {
   feature_cols <- policy_selector_config_value(
     cfg, "feature_cols",
-    sections = c("metalearner", "policy_learner")
+    sections = c("selection", "policy_learner")
   )
   if (is.null(feature_cols)) {
     feature_cols <- default_meta_policy_features(policy_perf)
@@ -585,8 +681,8 @@ is_default_policy_uncertainty_feature <- function(name,
 policy_learner_uncertainty_feature_cols <- function(cfg,
                                                     policy_perf) {
   feature_cols <- policy_selector_config_value(
-    cfg, "uncertainty_feature_cols",
-    sections = c("metalearner", "policy_learner")
+    cfg, "feature_cols",
+    sections = c("uncertainty", "policy_learner")
   )
   if (is.null(feature_cols)) {
     policy_perf <- tibble::as_tibble(policy_perf)
@@ -625,7 +721,6 @@ policy_learner_uncertainty_feature_cols <- function(cfg,
 #' @param method_settings Deprecated shared alias for
 #'   `selection_method_settings`.
 #' @param workers Optional worker count.
-#' @param package_dir Optional package source directory for worker bootstrap.
 #' @param progress Optional logical scalar controlling progress messages.
 #' @param config Optional config override.
 #'
@@ -650,7 +745,6 @@ S7::method(crossfit, PolicyLearner) <- function(object,
                                                 selection_method_settings = NULL,
                                                 method_settings = NULL,
                                                 workers = NULL,
-                                                package_dir = NULL,
                                                 progress = NULL,
                                                 config = NULL) {
   cfg <- policy_learner_config(object, config)
@@ -666,37 +760,49 @@ S7::method(crossfit, PolicyLearner) <- function(object,
   outcome_clip_quantile <- policy_selector_config_value(
     cfg,
     "outcome_clip_quantile",
-    sections = c("metalearner", "policy_learner")
+    sections = c("selection", "policy_learner")
   )
   group_col <- group_col %||%
-    policy_selector_config_value(cfg, "group_col", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "group_col", sections = c("selection", "policy_learner"))
   selection_method <- selection_method %||%
-    policy_selector_config_value(cfg, "selection_method", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "method", sections = c("selection", "policy_learner"))
   outcome_transform <- outcome_transform %||%
-    policy_selector_config_value(cfg, "outcome_transform", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "outcome_transform", sections = c("selection", "policy_learner"))
   lambda_rule <- lambda_rule %||%
-    policy_selector_config_value(cfg, "lambda_rule", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "lambda_rule", sections = c("selection", "policy_learner"))
   alpha <- alpha %||%
-    policy_selector_config_value(cfg, "alpha", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "alpha", sections = c("selection", "policy_learner"))
   n_folds <- n_folds %||%
-    policy_selector_config_value(cfg, "n_folds", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "n_folds", sections = c("selection", "policy_learner"))
   seed <- seed %||%
-    policy_selector_config_value(cfg, "seed", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "seed", sections = c("selection", "policy_learner"))
   inner_folds <- inner_folds %||%
-    policy_selector_config_value(cfg, "inner_folds", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "inner_folds", sections = c("selection", "policy_learner"))
   selection_super_methods <- selection_super_methods %||%
     policy_learner_selection_super_methods(cfg)
   metalearner_loss <- metalearner_loss %||%
-    policy_selector_config_value(cfg, "metalearner_loss", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "loss", sections = c("selection", "policy_learner"))
   # Resolve the selection learner settings explicitly so the cross-fit path no
   # longer depends on the shared `method_settings` alias.
   selection_method_settings <- selection_method_settings %||%
     method_settings %||%
     policy_learner_selection_method_settings(cfg)
+  selection_active_methods <- if (identical(selection_method, "super_learner")) {
+    available_meta_policy_super_methods(
+      selection_super_methods,
+      method_settings = selection_method_settings
+    )
+  } else {
+    selection_method
+  }
+  selection_lmm_random_intercepts <- active_meta_policy_lmm_random_intercepts(
+    selection_active_methods,
+    method_settings = selection_method_settings
+  )
   workers <- workers %||%
-    policy_selector_config_value(cfg, "workers", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "workers", sections = c("selection", "policy_learner"))
   progress <- progress %||%
-    policy_selector_config_value(cfg, "progress", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "progress", sections = c("selection", "policy_learner"))
   report_progress(
     progress,
     sprintf(
@@ -715,7 +821,8 @@ S7::method(crossfit, PolicyLearner) <- function(object,
     policy_perf = policy_perf,
     outcome_col = outcome_col,
     feature_cols = feature_cols,
-    outcome_clip_quantile = outcome_clip_quantile
+    outcome_clip_quantile = outcome_clip_quantile,
+    retain_cols = c(group_col, selection_lmm_random_intercepts)
   )
 
   crossfit_obj <- crossfit_meta_policy_learner(
@@ -735,7 +842,6 @@ S7::method(crossfit, PolicyLearner) <- function(object,
     metalearner_loss = metalearner_loss,
     method_settings = selection_method_settings,
     workers = workers,
-    package_dir = package_dir,
     progress = progress
   )
   report_progress(progress, "Completed policy-learner cross-fit.")
@@ -829,33 +935,45 @@ S7::method(fit, PolicyLearner) <- function(object,
     outcome_col = crossfit_obj$outcome_col
   )
   outcome_clip_quantile <- crossfit_obj$outcome_clip_quantile %||%
-    policy_selector_config_value(cfg, "outcome_clip_quantile", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "outcome_clip_quantile", sections = c("selection", "policy_learner"))
   group_col <- crossfit_obj$group_col %||%
-    policy_selector_config_value(cfg, "group_col", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "group_col", sections = c("selection", "policy_learner"))
   selection_method <- selection_method %||% crossfit_obj$selection_method %||%
-    policy_selector_config_value(cfg, "selection_method", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "method", sections = c("selection", "policy_learner"))
   outcome_transform <- outcome_transform %||% crossfit_obj$outcome_transform %||%
-    policy_selector_config_value(cfg, "outcome_transform", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "outcome_transform", sections = c("selection", "policy_learner"))
   lambda_rule <- lambda_rule %||% crossfit_obj$lambda_rule %||%
-    policy_selector_config_value(cfg, "lambda_rule", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "lambda_rule", sections = c("selection", "policy_learner"))
   alpha <- alpha %||% crossfit_obj$alpha %||%
-    policy_selector_config_value(cfg, "alpha", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "alpha", sections = c("selection", "policy_learner"))
   inner_folds <- inner_folds %||% crossfit_obj$inner_folds %||%
-    policy_selector_config_value(cfg, "inner_folds", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "inner_folds", sections = c("selection", "policy_learner"))
   seed <- seed %||% crossfit_obj$seed %||%
-    policy_selector_config_value(cfg, "seed", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "seed", sections = c("selection", "policy_learner"))
   selection_super_methods <- selection_super_methods %||% crossfit_obj$selection_super_methods %||%
     policy_learner_selection_super_methods(cfg)
   metalearner_loss <- metalearner_loss %||% crossfit_obj$metalearner_loss %||%
-    policy_selector_config_value(cfg, "metalearner_loss", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "loss", sections = c("selection", "policy_learner"))
   # Prefer the explicit selection-stage override, then fall back to the stored
   # cross-fit settings and finally the config defaults.
   selection_method_settings <- selection_method_settings %||%
     method_settings %||% crossfit_obj$selection_method_settings %||%
     crossfit_obj$method_settings %||%
     policy_learner_selection_method_settings(cfg)
+  selection_active_methods <- if (identical(selection_method, "super_learner")) {
+    available_meta_policy_super_methods(
+      selection_super_methods,
+      method_settings = selection_method_settings
+    )
+  } else {
+    selection_method
+  }
+  selection_lmm_random_intercepts <- active_meta_policy_lmm_random_intercepts(
+    selection_active_methods,
+    method_settings = selection_method_settings
+  )
   progress <- progress %||%
-    policy_selector_config_value(cfg, "progress", sections = c("metalearner", "policy_learner"))
+    policy_selector_config_value(cfg, "progress", sections = c("selection", "policy_learner"))
   report_progress(progress, "Fitting final policy learner.")
   group_col <- resolve_meta_policy_group_col(policy_perf, group_col = group_col)
 
@@ -867,7 +985,8 @@ S7::method(fit, PolicyLearner) <- function(object,
       policy_perf = policy_perf,
       outcome_col = outcome_col,
       feature_cols = feature_cols,
-      outcome_clip_quantile = outcome_clip_quantile
+      outcome_clip_quantile = outcome_clip_quantile,
+      retain_cols = c(group_col, selection_lmm_random_intercepts)
     )
   }
   # Restore the grouping column without duplicating the training table.
@@ -1463,7 +1582,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   # reducing them to the score-minimizing rows used for post-selection
   # conformal calibration.
   progress <- progress %||%
-    policy_selector_config_value(cfg, "progress", sections = c("metalearner", "selection", "policy_learner"))
+    policy_selector_config_value(cfg, "progress", sections = c("uncertainty", "selection", "policy_learner"))
   report_progress(progress, "Calibrating learner uncertainty.")
   predictions <- tibble::as_tibble(predictions %||% crossfit_obj$result$predictions %||% tibble::tibble())
   outcome_col <- policy_learner_uncertainty_outcome_col(
@@ -1501,7 +1620,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   max_selection_tolerance <- as.numeric(
     max_selection_tolerance %||%
       cal_obj$max_selection_tolerance %||%
-      policy_selector_config_value(cfg, "max_selection_tolerance", sections = c("metalearner", "policy_learner"))
+      policy_selector_config_value(cfg, "max_selection_tolerance", sections = c("selection", "policy_learner"))
   )
   one_se_multiplier <- as.numeric(
     policy_selector_config_value(cfg, "one_se_multiplier", sections = c("selection", "policy")) %||% 1
@@ -1511,12 +1630,12 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   }
   n_bins <- as.integer(
     n_bins %||%
-      policy_selector_config_value(cfg, "n_bins", sections = c("selection", "metalearner"))
+      policy_selector_config_value(cfg, "n_bins", sections = c("selection"))
   )
   support_bin_labels <- policy_selector_config_value(
     cfg,
     "support_bin_labels",
-    sections = c("selection", "metalearner")
+    sections = c("selection")
   )
   predictions <- policy_learner_prepare_context(predictions)
   anchor_lookup <- policy_learner_anchor_lookup(predictions)
@@ -1575,8 +1694,8 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     )
 
   alpha <- alpha %||%
-    policy_selector_config_value(cfg, "conformal_alpha", sections = c("selection", "policy", "metalearner")) %||%
-    policy_selector_config_value(cfg, "alpha", sections = c("selection", "metalearner"))
+    policy_selector_config_value(cfg, "conformal_alpha", sections = c("selection", "policy")) %||%
+    policy_selector_config_value(cfg, "alpha", sections = c("selection"))
 
   meta_calibration <- meta_selected |>
     dplyr::filter(is.finite(.data[[calibration_outcome_col]])) |>
@@ -1602,11 +1721,11 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     alpha = alpha
   )
   bin_alpha <- bin_alpha %||%
-    policy_selector_config_value(cfg, "bin_alpha", sections = c("selection", "metalearner")) %||%
-    policy_selector_config_value(cfg, "conformal_alpha", sections = c("selection", "policy", "metalearner"))
+    policy_selector_config_value(cfg, "bin_alpha", sections = c("selection")) %||%
+    policy_selector_config_value(cfg, "conformal_alpha", sections = c("selection", "policy"))
   min_bin_scores <- as.integer(
     min_bin_scores %||%
-      policy_selector_config_value(cfg, "min_bin_scores", sections = c("selection", "metalearner"))
+      policy_selector_config_value(cfg, "min_bin_scores", sections = c("selection"))
   )
 
   meta_bin_quantiles <- meta_calibration |>
@@ -1647,8 +1766,8 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   # Resolve the uncertainty learner independently from the selection learner so
   # calibration can use a simpler or differently tuned model family.
   width_method <- uncertainty_method %||% policy_selector_config_value(
-    cfg, "uncertainty_method",
-    sections = c("metalearner", "policy_learner")
+    cfg, "method",
+    sections = c("uncertainty", "policy_learner")
   ) %||% (object@fitted_model)$selection_method %||% crossfit_obj$selection_method
   uncertainty_method_settings <- uncertainty_method_settings %||%
     policy_learner_uncertainty_method_settings(
@@ -1674,13 +1793,13 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   width_fit_error <- NULL
   width_warning <- NULL
   width_selected <- meta_selected
-  min_width_rows <- as.integer(
-    policy_selector_config_value(
-      cfg,
-      "uncertainty_min_selected_rows",
-      sections = c("metalearner", "policy_learner")
-    ) %||% 25L
+  configured_min_width_rows <- policy_selector_config_value(
+    cfg,
+    "min_selected_rows",
+    sections = c("uncertainty", "policy_learner")
   )
+  configured_min_bin_scores <- if (length(min_bin_scores) > 0L) min_bin_scores else NULL
+  min_width_rows <- as.integer(configured_min_width_rows %||% configured_min_bin_scores %||% 25L)
   if (!is.finite(min_width_rows) || min_width_rows < 1L) {
     min_width_rows <- 25L
   }
@@ -1714,10 +1833,12 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
         suppressWarnings(as.numeric(nrow(meta_selected)))
       )
     )
-  min_width_rows <- max(
-    min_width_rows,
-    as.integer(crossfit_obj$n_folds %||% 1L) + 1L
-  )
+  if (is.null(configured_min_width_rows) && is.null(configured_min_bin_scores)) {
+    min_width_rows <- max(
+      min_width_rows,
+      as.integer(crossfit_obj$n_folds %||% 1L) + 1L
+    )
+  }
 
   if (nrow(meta_selected) < min_width_rows) {
     width_warning <- sprintf(
@@ -1734,21 +1855,33 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     width_prediction_source <- "global_selected_conformal"
   } else if (length(width_feature_cols) > 0) {
     attempt_width_method <- function(method_now) {
+      width_active_methods <- if (identical(method_now, "super_learner")) {
+        available_meta_policy_super_methods(
+          width_super_methods,
+          method_settings = uncertainty_method_settings
+        )
+      } else {
+        method_now
+      }
+      width_lmm_random_intercepts <- active_meta_policy_lmm_random_intercepts(
+        width_active_methods,
+        method_settings = uncertainty_method_settings
+      )
       width_crossfit_result <- crossfit_meta_policy_learner(
         policy_perf = meta_selected,
         group_col = width_group_col,
-        n_folds = crossfit_obj$n_folds %||% policy_selector_config_value(cfg, "n_folds", sections = c("metalearner", "policy_learner")),
+        n_folds = crossfit_obj$n_folds %||% policy_selector_config_value(cfg, "n_folds", sections = c("uncertainty", "policy_learner")),
         method = method_now,
-        seed = crossfit_obj$seed %||% policy_selector_config_value(cfg, "seed", sections = c("metalearner", "policy_learner")),
+        seed = crossfit_obj$seed %||% policy_selector_config_value(cfg, "seed", sections = c("uncertainty", "policy_learner")),
         feature_cols = width_feature_cols,
         outcome_col = calibration_outcome_col,
         outcome_clip_quantile = NULL,
-        outcome_transform = crossfit_obj$outcome_transform %||% policy_selector_config_value(cfg, "outcome_transform", sections = c("metalearner", "policy_learner")),
-        lambda_rule = crossfit_obj$lambda_rule %||% policy_selector_config_value(cfg, "lambda_rule", sections = c("metalearner", "policy_learner")),
+        outcome_transform = crossfit_obj$outcome_transform %||% policy_selector_config_value(cfg, "outcome_transform", sections = c("uncertainty", "policy_learner")),
+        lambda_rule = crossfit_obj$lambda_rule %||% policy_selector_config_value(cfg, "lambda_rule", sections = c("uncertainty", "policy_learner")),
         alpha = crossfit_obj$alpha,
-        inner_folds = crossfit_obj$inner_folds %||% policy_selector_config_value(cfg, "inner_folds", sections = c("metalearner", "policy_learner")),
+        inner_folds = crossfit_obj$inner_folds %||% policy_selector_config_value(cfg, "inner_folds", sections = c("uncertainty", "policy_learner")),
         super_methods = width_super_methods,
-        metalearner_loss = crossfit_obj$metalearner_loss %||% policy_selector_config_value(cfg, "metalearner_loss", sections = c("metalearner", "policy_learner")),
+        metalearner_loss = crossfit_obj$metalearner_loss %||% policy_selector_config_value(cfg, "loss", sections = c("uncertainty", "policy_learner")),
         method_settings = uncertainty_method_settings,
         # Keep the uncertainty-width fit in-process. On the current Windows
         # development path, PSOCK workers do not inherit the freshly loaded
@@ -1762,19 +1895,24 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
         policy_perf = meta_selected,
         outcome_col = calibration_outcome_col,
         feature_cols = width_feature_cols,
-        outcome_clip_quantile = NULL
+        outcome_clip_quantile = NULL,
+        retain_cols = c(width_group_col, width_lmm_random_intercepts)
       )
+      if (!".split_group" %in% names(width_training) &&
+        width_group_col %in% names(width_training)) {
+        width_training$.split_group <- width_training[[width_group_col]]
+      }
       width_fit_result <- fit_meta_policy_learner(
         training_data = width_training,
         method = method_now,
         feature_cols = width_feature_cols,
-        outcome_transform = crossfit_obj$outcome_transform %||% policy_selector_config_value(cfg, "outcome_transform", sections = c("metalearner", "policy_learner")),
+        outcome_transform = crossfit_obj$outcome_transform %||% policy_selector_config_value(cfg, "outcome_transform", sections = c("uncertainty", "policy_learner")),
         alpha = crossfit_obj$alpha,
-        lambda_rule = crossfit_obj$lambda_rule %||% policy_selector_config_value(cfg, "lambda_rule", sections = c("metalearner", "policy_learner")),
-        inner_folds = crossfit_obj$inner_folds %||% policy_selector_config_value(cfg, "inner_folds", sections = c("metalearner", "policy_learner")),
-        seed = crossfit_obj$seed %||% policy_selector_config_value(cfg, "seed", sections = c("metalearner", "policy_learner")),
+        lambda_rule = crossfit_obj$lambda_rule %||% policy_selector_config_value(cfg, "lambda_rule", sections = c("uncertainty", "policy_learner")),
+        inner_folds = crossfit_obj$inner_folds %||% policy_selector_config_value(cfg, "inner_folds", sections = c("uncertainty", "policy_learner")),
+        seed = crossfit_obj$seed %||% policy_selector_config_value(cfg, "seed", sections = c("uncertainty", "policy_learner")),
         super_methods = width_super_methods,
-        metalearner_loss = crossfit_obj$metalearner_loss %||% policy_selector_config_value(cfg, "metalearner_loss", sections = c("metalearner", "policy_learner")),
+        metalearner_loss = crossfit_obj$metalearner_loss %||% policy_selector_config_value(cfg, "loss", sections = c("uncertainty", "policy_learner")),
         method_settings = uncertainty_method_settings
       )
 
@@ -2045,7 +2183,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       use_support_bin_intervals = policy_selector_config_value(
         cfg,
         "use_support_bin_intervals",
-        sections = c("selection", "metalearner", "policy_learner")
+        sections = c("selection", "policy_learner")
       ) %||% FALSE,
       n_bins = as.integer(n_bins),
       support_bin_labels = resolve_post_selection_support_labels(
@@ -2104,12 +2242,13 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   cfg_use_support_bin_intervals <- policy_selector_config_value(
     cfg,
     "use_support_bin_intervals",
-    sections = c("selection", "metalearner", "policy_learner")
+    sections = c("selection", "policy_learner")
   )
-  # Honor the explicit config/method setting. Do not silently switch support-bin
-  # intervals on just because calibration objects happen to exist.
+  # Honor explicit config first, then use stored support-bin calibration when
+  # it is available on the learner.
   use_support_bin_intervals <- use_support_bin_intervals %||%
     cal_obj$use_support_bin_intervals %||%
+    has_support_bin_calibration %||%
     cfg_use_support_bin_intervals %||%
     FALSE
 
@@ -2132,7 +2271,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       scored,
       cutpoints = cal_obj$support_cutpoints %||% NULL,
       n_bins = cal_obj$n_bins %||%
-        policy_selector_config_value(cfg, "n_bins", sections = c("selection", "metalearner")),
+        policy_selector_config_value(cfg, "n_bins", sections = c("selection")),
       labels = cal_obj$support_bin_labels %||% NULL
     )
   } else {
@@ -2301,7 +2440,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
 
   max_selection_tolerance <- as.numeric(
     max_selection_tolerance %||%
-      policy_selector_config_value(cfg, "max_selection_tolerance", sections = c("metalearner", "policy_learner"))
+      policy_selector_config_value(cfg, "max_selection_tolerance", sections = c("selection", "policy_learner"))
   )
   uncertainty_rule <- normalize_uncertainty_rule(
     policy_selector_config_value(cfg, "uncertainty_rule", sections = c("selection", "policy")) %||% "tolerance"

@@ -7,7 +7,7 @@
 #' @noRd
 S7::method(screen_missing_metadata, Candidates) <- function(candidate_models,
                                                             key_cols = NULL) {
-  # Reuse the staged candidate key columns before delegating to the tabular
+  # Reuse the candidate key columns before delegating to the tabular
   # default method.
   key_cols <- key_cols %||% admissibility_key_metadata_cols(candidates_config_data(candidate_models))
 
@@ -37,7 +37,7 @@ S7::method(screen_missing_metadata, PolicySelector) <- function(candidate_models
 
 #' Build a species-block coverage table
 #'
-#' @param pseudo_sum Pseudo-anchor conformal summary list or a
+#' @param coverage_summary Pseudo-anchor conformal summary list or a
 #'   [PolicySelector] object.
 #' @param ... Method-specific arguments.
 #'
@@ -45,26 +45,26 @@ S7::method(screen_missing_metadata, PolicySelector) <- function(candidate_models
 #'
 #' @examples
 #' \dontrun{
-#' build_species_coverage(selector)
+#' construct_species_coverage(selector)
 #' }
 #'
 #' @export
-build_species_coverage <- S7::new_generic("build_species_coverage", "pseudo_sum")
+construct_species_coverage <- S7::new_generic("construct_species_coverage", "coverage_summary")
 
 #' Build a species-block coverage table from conformal summary lists
 #'
-#' @name build_species_coverage.default
+#' @name construct_species_coverage.default
 #' @usage NULL
-#' @param pseudo_sum Pseudo-anchor conformal summary list.
+#' @param coverage_summary Pseudo-anchor conformal summary list.
 #' @param species_sum Species-block conformal summary list.
 #' @param bench_label Species-block benchmark label.
-S7::method(build_species_coverage, S7::class_any) <- function(pseudo_sum,
+S7::method(construct_species_coverage, S7::class_any) <- function(coverage_summary,
                                                               species_sum,
                                                               bench_label = "species_block") {
   # Bind the conformal coverage summaries across benchmark schemes, then keep
   # only the requested benchmark label.
   dplyr::bind_rows(
-    tibble::as_tibble(pseudo_sum$overall),
+    tibble::as_tibble(coverage_summary$overall),
     tibble::as_tibble(species_sum$overall)
   ) |>
     dplyr::filter(.data$benchmark_label == bench_label) |>
@@ -74,20 +74,20 @@ S7::method(build_species_coverage, S7::class_any) <- function(pseudo_sum,
 
 #' Build a species-block coverage table from a [PolicySelector]
 #'
-#' @name build_species_coverage.PolicySelector
+#' @name construct_species_coverage.PolicySelector
 #' @usage NULL
-S7::method(build_species_coverage, PolicySelector) <- function(pseudo_sum,
+S7::method(construct_species_coverage, PolicySelector) <- function(coverage_summary,
                                                                species_sum = NULL,
                                                                bench_label = "species_block") {
   # Pull the stored uncertainty bundle from the selector, then reuse the
   # default summary-list method.
-  if (length(pseudo_sum@uncertainty) == 0) {
+  if (length(coverage_summary@uncertainty) == 0) {
     stop("No uncertainty calibration is stored on this `PolicySelector`.", call. = FALSE)
   }
-  uncertainty_obj <- pseudo_sum@uncertainty
+  uncertainty_obj <- coverage_summary@uncertainty
 
-  build_species_coverage(
-    pseudo_sum = uncertainty_obj$pseudo_sum %||% list(overall = tibble::tibble()),
+  construct_species_coverage(
+    coverage_summary = uncertainty_obj$pseudo_sum %||% list(overall = tibble::tibble()),
     species_sum = uncertainty_obj$species_sum %||% list(overall = tibble::tibble()),
     bench_label = bench_label
   )
@@ -98,7 +98,7 @@ S7::method(build_species_coverage, PolicySelector) <- function(pseudo_sum,
 #' Joins selected-policy intervals to global benchmark and conformal coverage
 #' summaries, and optionally appends sensitivity-drift diagnostics.
 #'
-#' @param sel_tbl Selected-policy interval table or a [PolicyPredictions]
+#' @param policy_intervals Selected-policy interval table or a [PolicyPredictions]
 #'   object.
 #' @param ... Method-specific arguments.
 #'
@@ -107,25 +107,26 @@ S7::method(build_species_coverage, PolicySelector) <- function(pseudo_sum,
 #' @examples
 #' \dontrun{
 #' predictions <- predict(selector)
-#' build_anchor_audit(predictions, selector = selector)
+#' construct_anchor_audit(predictions, selector = selector)
 #' }
 #'
 #' @export
-build_anchor_audit <- S7::new_generic("build_anchor_audit", "sel_tbl")
+construct_anchor_audit <- S7::new_generic("construct_anchor_audit", "policy_intervals")
 
 #' Build an anchor support audit from selected-policy interval tables
 #'
-#' @name build_anchor_audit.default
+#' @name construct_anchor_audit.default
 #' @usage NULL
-#' @param sel_tbl Selected-policy interval table.
+#' @param policy_intervals Selected-policy interval table.
 #' @param select_ref Policy-selection reference table.
 #' @param cover_tbl Policy-level coverage summary table.
 #' @param sens_detail Optional sensitivity-detail table.
 #' @param sens_tbl Optional full policy-sensitivity table.
 #' @param baseline_label Baseline scenario label.
-#' @param selector Optional [PolicySelector] object used when `sel_tbl` is a
+#' @param selector Optional [PolicySelector] object used when
+#'   `policy_intervals` is a
 #'   [PolicyPredictions] object.
-S7::method(build_anchor_audit, S7::class_any) <- function(sel_tbl,
+S7::method(construct_anchor_audit, S7::class_any) <- function(policy_intervals,
                                                           select_ref,
                                                           cover_tbl,
                                                           sens_detail = NULL,
@@ -134,19 +135,21 @@ S7::method(build_anchor_audit, S7::class_any) <- function(sel_tbl,
                                                           selector = NULL) {
   # Start from the selected-policy rows and layer on the global benchmark and
   # conformal coverage summaries by selected policy.
-  sel_tbl <- tibble::as_tibble(sel_tbl)
-  sel_tbl$selected_policy <- resolve_selected_policy_values(sel_tbl)
-  sel_tbl$selected_policy_display <- resolve_selected_policy_names(sel_tbl)
-  sel_tbl$selected_equation_branch_filter <- resolve_selected_policy_branches(sel_tbl)
-  sel_tbl$equivalent_policy_set <- resolve_equivalent_policy_sets(sel_tbl)
+  policy_intervals <- tibble::as_tibble(policy_intervals)
+  policy_intervals$selected_policy <- resolve_selected_policy_values(policy_intervals)
+  policy_intervals$selected_policy_display <- resolve_selected_policy_names(policy_intervals)
+  policy_intervals$selected_equation_branch_filter <- resolve_selected_policy_branches(policy_intervals)
+  policy_intervals$equivalent_policy_set <- resolve_equivalent_policy_sets(policy_intervals)
 
-  out <- sel_tbl |>
+  out <- policy_intervals |>
     dplyr::select(dplyr::any_of(c(
       "anchor_model_id", "anchor_species", "selected_policy", "selected_policy_display",
       "selected_equation_branch_filter",
       "equivalent_policy_set", "equivalent_policy_set_n",
       "equivalence_class_id", "equivalence_class_size", "equivalence_class_members",
       "multiplier_pred", "multiplier_lo", "multiplier_hi", "interval_log_width",
+      "valid_prediction", "prediction_error_stage", "prediction_error_code",
+      "prediction_error_message",
       "local_support_mass", "local_effective_support", "local_mean_combined_distance",
       "local_mean_length_overlap", "local_mean_depth_overlap", "local_weighted_missingness"
     ))) |>
@@ -226,9 +229,9 @@ S7::method(build_anchor_audit, S7::class_any) <- function(sel_tbl,
 
 #' Build an anchor support audit from a [PolicyPredictions] object
 #'
-#' @name build_anchor_audit.PolicyPredictions
+#' @name construct_anchor_audit.PolicyPredictions
 #' @usage NULL
-S7::method(build_anchor_audit, PolicyPredictions) <- function(sel_tbl,
+S7::method(construct_anchor_audit, PolicyPredictions) <- function(policy_intervals,
                                                               select_ref = NULL,
                                                               cover_tbl = NULL,
                                                               sens_detail = NULL,
@@ -242,7 +245,7 @@ S7::method(build_anchor_audit, PolicyPredictions) <- function(sel_tbl,
   selector <- selector %||% select_ref
   if (!is_s7_instance(selector, "PolicySelector")) {
     stop(
-      "When `sel_tbl` is a `PolicyPredictions` object, `selector` must be a `PolicySelector` object.",
+      "When `policy_intervals` is a `PolicyPredictions` object, `selector` must be a `PolicySelector` object.",
       call. = FALSE
     )
   }
@@ -250,10 +253,10 @@ S7::method(build_anchor_audit, PolicyPredictions) <- function(sel_tbl,
   # Pull the global selection summaries and policy-level coverage directly from
   # the selector unless the caller supplied explicit replacements.
   select_ref <- select_ref %||% (selector@selection)$final_ref %||% tibble::tibble()
-  cover_tbl <- cover_tbl %||% build_species_coverage(selector)
+  cover_tbl <- cover_tbl %||% construct_species_coverage(selector)
 
-  build_anchor_audit(
-    sel_tbl = sel_tbl@selections,
+  construct_anchor_audit(
+    policy_intervals = policy_intervals@selections,
     select_ref = select_ref,
     cover_tbl = cover_tbl,
     sens_detail = sens_detail,
@@ -273,12 +276,8 @@ S7::method(build_anchor_audit, PolicyPredictions) <- function(sel_tbl,
 #'
 #' @return A list of tibbles.
 #'
-#' @examples
-#' \dontrun{
-#' summarize_key_missing(selector)
-#' }
-#'
-#' @export
+#' @keywords internal
+#' @noRd
 summarize_key_missing <- S7::new_generic("summarize_key_missing", "candidate_models")
 
 #' Summarize key-field missingness for candidate-model tables
@@ -291,6 +290,8 @@ summarize_key_missing <- S7::new_generic("summarize_key_missing", "candidate_mod
 #' @param model_id_col Model identifier column.
 #' @param species_col Species label column.
 #' @param common_col Optional common-name column.
+#' @keywords internal
+#' @noRd
 S7::method(summarize_key_missing, S7::class_any) <- function(candidate_models,
                                                              key_cols,
                                                              threshold,
@@ -338,14 +339,16 @@ S7::method(summarize_key_missing, S7::class_any) <- function(candidate_models,
 #'
 #' @name summarize_key_missing.Candidates
 #' @usage NULL
+#' @keywords internal
+#' @noRd
 S7::method(summarize_key_missing, Candidates) <- function(candidate_models,
                                                           key_cols = NULL,
                                                           threshold = NA_real_,
                                                           model_id_col = "model_id",
                                                           species_col = "species_name",
                                                           common_col = "common") {
-  # Materialize the keyed missingness screen first, then summarize that staged
-  # table through the default method.
+  # Materialize the keyed missingness screen first, then summarize that
+  # prepared table through the default method.
   key_cols <- key_cols %||% candidates_similarity_key_cols(candidate_models)
   models_tbl <- screen_missing_metadata(
     candidate_models = candidate_models,
@@ -366,6 +369,8 @@ S7::method(summarize_key_missing, Candidates) <- function(candidate_models,
 #'
 #' @name summarize_key_missing.PolicySelector
 #' @usage NULL
+#' @keywords internal
+#' @noRd
 S7::method(summarize_key_missing, PolicySelector) <- function(candidate_models,
                                                               key_cols = NULL,
                                                               threshold = NULL,
@@ -392,12 +397,8 @@ S7::method(summarize_key_missing, PolicySelector) <- function(candidate_models,
 #'
 #' @return A tibble.
 #'
-#' @examples
-#' \dontrun{
-#' summarize_missing_gate(selector)
-#' }
-#'
-#' @export
+#' @keywords internal
+#' @noRd
 summarize_missing_gate <- S7::new_generic("summarize_missing_gate", "adm_tbl")
 
 #' Summarize missingness gate outcomes for admissibility summary tables
@@ -405,6 +406,8 @@ summarize_missing_gate <- S7::new_generic("summarize_missing_gate", "adm_tbl")
 #' @name summarize_missing_gate.default
 #' @usage NULL
 #' @param adm_tbl Admissibility summary table.
+#' @keywords internal
+#' @noRd
 S7::method(summarize_missing_gate, S7::class_any) <- function(adm_tbl) {
   # Reduce candidate-level or anchor-level admissibility results to the
   # missingness-gate view used in later reporting.
@@ -475,6 +478,8 @@ S7::method(summarize_missing_gate, S7::class_any) <- function(adm_tbl) {
 #'
 #' @name summarize_missing_gate.Candidates
 #' @usage NULL
+#' @keywords internal
+#' @noRd
 S7::method(summarize_missing_gate, Candidates) <- function(adm_tbl) {
   scores_tbl <- if (!is_s7_instance(adm_tbl, "Candidates") ||
     length(adm_tbl@admissibility) == 0) {
@@ -495,6 +500,8 @@ S7::method(summarize_missing_gate, Candidates) <- function(adm_tbl) {
 #'
 #' @name summarize_missing_gate.PolicySelector
 #' @usage NULL
+#' @keywords internal
+#' @noRd
 S7::method(summarize_missing_gate, PolicySelector) <- function(adm_tbl) {
   summarize_missing_gate(adm_tbl@candidates)
 }
@@ -891,7 +898,8 @@ weighted_quantile <- function(x,
 #'
 #' @return A numeric matrix with one column per model.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 predict_ts_matrix <- function(models_df,
                               lengths_cm,
                               slope_col = "slope_len",
@@ -1383,8 +1391,8 @@ summarize_missing_mix <- function(admissible_df,
 #' @param registry_path Optional trait-registry path.
 #' @param progress Optional logical scalar.
 #'
-#' @return An updated [Candidates] object with
-#'   `@admissibility$uncertainty_diagnostics`.
+#' @return An updated [Candidates] object containing anchor-level uncertainty
+#'   diagnostics in its admissibility results.
 #'
 #' @keywords internal
 #' @noRd
@@ -1395,9 +1403,9 @@ build_candidates_uncertainty_diagnostics <- function(candidates,
   if (!is_s7_instance(candidates, "Candidates")) {
     stop("'candidates' must be a `Candidates` object.", call. = FALSE)
   }
-  if (length(candidates@similarity_matrix) == 0) {
+  if (length(candidates) == 0) {
     stop(
-      "No prepared similarity state is stored on this `Candidates` object. Run `prepare_similarity_matrix()` first.",
+      "No prepared similarity state is stored on this `Candidates` object. Run `prepare_similarities()` first.",
       call. = FALSE
     )
   }

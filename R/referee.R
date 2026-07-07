@@ -14,7 +14,7 @@
 #' rows when partial output is allowed.
 #'
 #' Typical use is:
-#' - run the staged selector pipeline
+#' - run the prepared selector pipeline
 #' - optionally attach a [PolicyLearner]
 #' - call [predict()] on the selector
 #' - pass that prediction bundle into `Referee`
@@ -33,7 +33,7 @@
 #' predictions <- predict(selector, learner = learner)
 #' referee <- as_referee(selector, learner = learner, predictions = predictions)
 #' scorecard <- predict(referee)
-#' scorecard@selected
+#' scorecard
 #' }
 #'
 #' @name Referee-class
@@ -49,8 +49,8 @@ NULL
 #' @examples
 #' \dontrun{
 #' scorecard <- predict(as_referee(selector, predictions = predictions))
-#' scorecard@anchor_summary
-#' scorecard@selection_diagnostics
+#' scorecard
+#' scorecard
 #' }
 #'
 #' @name Scorecard-class
@@ -184,9 +184,10 @@ Referee <- S7::new_class(
 
 S7::S4_register(Referee)
 
-#' Test whether an object is a `Referee` instance
-#'
 #' Rebuild a `Referee`
+#'
+#' Reconstructs a [Referee] object, optionally replacing one or more of its
+#' component objects.
 #'
 #' @param object A [Referee] object.
 #' @param selector Optional replacement [PolicySelector].
@@ -197,14 +198,18 @@ S7::S4_register(Referee)
 #'
 #' @return A `Referee` object.
 #'
-#' @keywords internal
-#' @noRd
+#' @export
 referee_rebuild <- function(object,
-                            selector = object@selector,
-                            learner = object@learner,
-                            predictions = object@predictions,
-                            config = object@config,
-                            scorecard = object@scorecard) {
+                            selector = NULL,
+                            learner = NULL,
+                            predictions = NULL,
+                            config = NULL,
+                            scorecard = NULL) {
+  selector <- selector %||% object@selector
+  learner <- learner %||% object@learner
+  predictions <- predictions %||% object@predictions
+  config <- config %||% object@config
+  scorecard <- scorecard %||% object@scorecard
   Referee(
     selector = selector,
     learner = learner,
@@ -240,7 +245,8 @@ slim_referee_selector <- function(selector) {
     gower_distances = list(),
     ordination = candidates_now@ordination,
     admissibility = list(
-      all_scores = (candidates_now@admissibility %||% list())$all_scores %||% tibble::tibble()
+      all_scores = (candidates_now@admissibility %||% list())$all_scores %||% tibble::tibble(),
+      anchor_failures = (candidates_now@admissibility %||% list())$anchor_failures %||% tibble::tibble()
     ),
     similarity_tuning = list()
   )
@@ -359,18 +365,18 @@ validate_referee_provenance <- function(selector,
   }
 
   anchor_tbl <- tibble::as_tibble(selector@candidates@reference_anchors)
-  selected_tbl <- tibble::as_tibble(predictions@selections)
-  intervals_tbl <- tibble::as_tibble(predictions@intervals)
-  consensus_tbl <- tibble::as_tibble(predictions@consensus)
+  selected_tbl <- tibble::as_tibble(predictions)
+  intervals_tbl <- tibble::as_tibble(predictions)
+  consensus_tbl <- tibble::as_tibble(predictions)
 
   if (!all(c("anchor_model_id", "anchor_species") %in% names(selected_tbl))) {
-    stop("`predictions@selections` must contain 'anchor_model_id' and 'anchor_species'.", call. = FALSE)
+    stop("`predictions` must contain 'anchor_model_id' and 'anchor_species'.", call. = FALSE)
   }
   if (!all(c("anchor_model_id", "anchor_species") %in% names(consensus_tbl))) {
-    stop("`predictions@consensus` must contain 'anchor_model_id' and 'anchor_species'.", call. = FALSE)
+    stop("`predictions` must contain 'anchor_model_id' and 'anchor_species'.", call. = FALSE)
   }
   if (!all(c("anchor_model_id", "policy") %in% names(intervals_tbl))) {
-    stop("`predictions@intervals` must contain 'anchor_model_id' and 'policy'.", call. = FALSE)
+    stop("`predictions` must contain 'anchor_model_id' and 'policy'.", call. = FALSE)
   }
 
   anchor_ids <- if ("model_id" %in% names(anchor_tbl)) {
@@ -383,13 +389,13 @@ validate_referee_provenance <- function(selector,
 
   if (!setequal(selected_anchor_ids, anchor_ids)) {
     stop(
-      "`predictions@selections` does not match the selector's reference-anchor ids.",
+      "`predictions` does not match the selector's reference-anchor ids.",
       call. = FALSE
     )
   }
   if (!setequal(consensus_anchor_ids, anchor_ids)) {
     stop(
-      "`predictions@consensus` does not match the selector's reference-anchor ids.",
+      "`predictions` does not match the selector's reference-anchor ids.",
       call. = FALSE
     )
   }
@@ -429,7 +435,7 @@ validate_referee_provenance <- function(selector,
   )
   if (nrow(missing_keys) > 0) {
     stop(
-      "Selected anchor-policy rows are missing from `predictions@intervals`.",
+      "Selected anchor-policy rows are missing from `predictions`.",
       call. = FALSE
     )
   }
@@ -1345,12 +1351,12 @@ build_referee_scorecard <- function(object,
 
   species_coverage_result <- referee_component(
     "species_coverage",
-    build_species_coverage(selector),
+    construct_species_coverage(selector),
     allow_partial = allow_partial
   )
   anchor_audit_result <- referee_component(
     "anchor_audit",
-    build_anchor_audit(predictions_, selector = selector),
+    construct_anchor_audit(predictions_, selector = selector),
     allow_partial = allow_partial
   )
   key_missing_result <- referee_component(
@@ -1421,6 +1427,27 @@ build_referee_scorecard <- function(object,
     tibble::tibble(component = "ts_panel", status = "ok", message = NA_character_),
     tibble::tibble(component = "consensus", status = "ok", message = NA_character_),
     tibble::tibble(component = "anchor_summary", status = "ok", message = NA_character_),
+    {
+      failure_messages <- if ("prediction_error_message" %in% names(selected_tbl)) {
+        as.character(selected_tbl$prediction_error_message)
+      } else {
+        rep(NA_character_, nrow(selected_tbl))
+      }
+      n_unscorable <- sum(!is.na(failure_messages) & nzchar(failure_messages))
+      tibble::tibble(
+        component = "anchor_scoring",
+        status = if (n_unscorable > 0L) "partial" else "ok",
+        message = if (n_unscorable > 0L) {
+          sprintf(
+            "%d of %d reference anchors were unscorable; see `anchor_audit` for explicit reasons.",
+            n_unscorable,
+            nrow(selected_tbl)
+          )
+        } else {
+          NA_character_
+        }
+      )
+    },
     species_coverage_result$status,
     anchor_audit_result$status,
     key_missing_result$status,
@@ -1737,7 +1764,7 @@ S7::method(show_generic, Scorecard) <- function(object) {
 #' @param x A [Scorecard] object.
 #' @param ... Unused.
 #'
-#' @return Tibble of `x@recommendation_cards`.
+#' @return Tibble of recommendation cards.
 #'
 #' @examples
 #' \dontrun{
@@ -1768,8 +1795,8 @@ S7::method(print_generic, Referee) <- function(x, ...) {
   cat("Referee\n")
   cat("  anchors: ", nrow(x@selector@candidates@reference_anchors), "\n", sep = "")
   cat("  prediction_ready: ", if (is.null(x@predictions)) "no" else "yes", "\n", sep = "")
-  cat("  scorecard_ready: ", if (nrow(x@scorecard@status) == 0 && nrow(x@scorecard@selected) == 0) "no" else "yes", "\n", sep = "")
-  cat("  selected_rows: ", nrow(x@scorecard@selected), "\n", sep = "")
+  cat("  scorecard_ready: ", if (nrow(x@scorecard@status) == 0 && nrow(x@scorecard) == 0) "no" else "yes", "\n", sep = "")
+  cat("  selected_rows: ", nrow(x@scorecard), "\n", sep = "")
   cat("  status_rows: ", nrow(x@scorecard@status), "\n", sep = "")
   invisible(x)
 }
@@ -1801,8 +1828,8 @@ S7::method(show_generic, Referee) <- function(object) {
 #' @param y Unused.
 #' @param type Figure family to draw.
 #' @param scale Output scale used for `type = "ts_length"`.
-#' @param view Secondary plot selector used for
-#'   `type = "selected_policy_counts"`.
+#' @param view Secondary plot selector. For `type = "validation"`, supported
+#'   values are `"distribution"`, `"ranked"`, `"ranked_species"`, and `"fold"`.
 #' @param anchor_model_id Optional anchor model ID used for
 #'   `type = "ts_length_bands"` and `type = "strategy_competition"`.
 #' @param anchor_species Optional anchor species used when `anchor_model_id` is
@@ -1813,7 +1840,8 @@ S7::method(show_generic, Referee) <- function(object) {
 #' @param reference_label Reference label used for
 #'   `type = "selected_intervals"`.
 #' @param ... Additional arguments used by Sentinel scorecards, including
-#'   `metric`, `fold_summary`, and display labels.
+#'   `metric`, `summary_method`, `metric_scale`, `scenario_names`, and
+#'   `species_names`, `label_species`, and coverage-display arguments.
 #'
 #' @return A ggplot object.
 #'
@@ -1839,8 +1867,12 @@ S7::method(show_generic, Referee) <- function(object) {
                               "field_missingness",
                               "ablation",
                               "validation",
+                              "coverage",
+                              "ablation_decomposition",
                               "sentinel_ablation",
-                              "sentinel_validation"
+                              "sentinel_ablation_decomposition",
+                              "sentinel_validation",
+                              "sentinel_coverage"
                             ),
                             scale = c("ts", "multiplier"),
                             view = NULL,
@@ -1855,8 +1887,14 @@ S7::method(show_generic, Referee) <- function(object) {
   if (type %in% c("ablation", "sentinel_ablation")) {
     return(plot_sentinel_ablation_scorecard(x, ...))
   }
+  if (type %in% c("ablation_decomposition", "sentinel_ablation_decomposition")) {
+    return(plot_sentinel_ablation_decomposition_scorecard(x, ...))
+  }
   if (type %in% c("validation", "sentinel_validation")) {
-    return(plot_sentinel_validation_scorecard(x, ...))
+    return(plot_sentinel_validation_scorecard(x, view = view, ...))
+  }
+  if (type %in% c("coverage", "sentinel_coverage")) {
+    return(plot_sentinel_coverage_scorecard(x, ...))
   }
 
   if (identical(type, "ts_length")) {
@@ -2278,11 +2316,7 @@ S7::method(plot_generic, Scorecard) <- .plot_scorecard
         score_tbl = candidate_scores,
         interval_tbl = interval_tbl
       )
-      return(stack_plot_with_top_grob(
-        plot = base_plot,
-        legend_grob = biomass_change_legend_grob(),
-        legend_height = 0.17
-      ))
+      return(base_plot)
     }
   }
 

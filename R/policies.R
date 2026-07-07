@@ -1288,21 +1288,50 @@ read_policy_registry <- local({
   }
 })
 
-#' List policy names
+#' List available policy components
 #'
-#' Returns the coded policy names defined in the policy registry.
+#' Returns the policy groups, aggregation metrics, slope branches, and
+#' materialized policy definitions available from the policy registry.
 #'
 #' @param policy_path Optional path to a policy registry JSON file.
 #'
-#' @return Character vector of policy names.
+#' @return A named list with `groups`, `metrics`, `branches`, and `policies`
+#'   tibbles.
 #'
 #' @examples
-#' policy_names()
+#' available_policies()
 #'
 #' @export
-policy_names <- function(policy_path = NULL) {
-  # Pull just the coded names so callers can validate policy selections without
-  # reimplementing the registry parsing logic.
+available_policies <- function(policy_path = NULL) {
+  registry <- read_policy_registry(policy_path = policy_path)
+  list_to_tibble <- function(items) {
+    purrr::map_dfr(items %||% list(), function(item) {
+      tibble::as_tibble(as.list(item))
+    })
+  }
+
+  policies <- list_to_tibble(registry$policies)
+  groups <- list_to_tibble(registry$policy_groups)
+  metrics <- list_to_tibble(registry$policy_metrics)
+  branches <- list_to_tibble(registry$policy_branches)
+
+  list(
+    groups = groups,
+    metrics = metrics,
+    branches = branches,
+    policies = policies
+  )
+}
+
+#' Resolve available policy names
+#'
+#' @param policy_path Optional path to a policy registry JSON file.
+#'
+#' @return Character vector.
+#'
+#' @keywords internal
+#' @noRd
+available_policy_names <- function(policy_path = NULL) {
   registry <- read_policy_registry(policy_path = policy_path)
   unique(vapply(registry$policies, function(x) x$coded_name, character(1)))
 }
@@ -3093,6 +3122,276 @@ build_policy_execution_plan <- function(policies = NULL,
   )
 }
 
+#' Normalize the policy benchmark execution engine
+#'
+#' @param engine Requested engine name.
+#'
+#' @return `"r"` or `"cpp"`.
+#'
+#' @keywords internal
+#' @noRd
+normalize_policy_benchmark_engine <- function(engine = "r") {
+  match.arg(as.character(engine %||% "r")[[1]], c("r", "cpp"))
+}
+
+#' Compile a policy execution plan for the C++ benchmark engine
+#'
+#' @param execution_plan Plan returned by [build_policy_execution_plan()].
+#'
+#' @return A serialization-safe compiled-plan list. The C++ payload contains
+#'   atomic vectors only; `pool_specs` remains an R-side mask recipe.
+#'
+#' @keywords internal
+#' @noRd
+compile_policy_execution_plan_cpp <- function(execution_plan) {
+  plan_tbl <- tibble::as_tibble(execution_plan$plan %||% tibble::tibble())
+  if (nrow(plan_tbl) == 0L) {
+    stop("Cannot compile an empty policy execution plan.", call. = FALSE)
+  }
+
+  aggregation_codes <- c(
+    nearest_by_combined_distance = 1L,
+    nearest_by_trait_gower_distance = 2L,
+    nearest_by_taxonomic_distance = 3L,
+    nearest_by_species_distance = 4L,
+    kernel_weighted_mean = 5L,
+    arithmetic_mean = 6L
+  )
+  methods <- as.character(plan_tbl$aggregation_method)
+  unsupported <- setdiff(unique(methods), names(aggregation_codes))
+  if (length(unsupported) > 0L) {
+    stop(
+      sprintf(
+        "C++ policy benchmark does not yet support aggregation method(s): %s",
+        paste(unsupported, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+
+  pool_keys <- unique(as.character(plan_tbl$donor_cache_key))
+  pool_id <- match(as.character(plan_tbl$donor_cache_key), pool_keys)
+  pool_first <- match(pool_keys, as.character(plan_tbl$donor_cache_key))
+  pool_specs <- lapply(pool_first, function(i) {
+    list(
+      key = as.character(plan_tbl$donor_cache_key[[i]]),
+      branch_filter = as.character(plan_tbl$equation_branch_filter[[i]]),
+      policy_def = plan_tbl$policy_def[[i]],
+      policy_params = plan_tbl$policy_params[[i]]
+    )
+  })
+
+  # Keep metadata outside the C++ payload. It is joined once after the kernel
+  # returns instead of being copied through every donor computation.
+  metadata_cols <- c(
+    "policy", "policy_base", "policy_display", "equation_branch_filter",
+    "policy_family", "candidate_pool", "aggregation_method",
+    "candidate_pool_definition", "aggregation_definition",
+    "plain_language_definition", "display_name", "requested_policy"
+  )
+
+  structure(
+    list(
+      schema_version = 1L,
+      pool_keys = pool_keys,
+      pool_specs = pool_specs,
+      cpp = list(
+        pool_id = as.integer(pool_id),
+        aggregation_code = unname(as.integer(aggregation_codes[methods]))
+      ),
+      metadata = as.data.frame(
+        plan_tbl[, intersect(metadata_cols, names(plan_tbl)), drop = FALSE],
+        stringsAsFactors = FALSE
+      )
+    ),
+    class = "tsb_compiled_policy_plan"
+  )
+}
+
+#' Build unique donor-pool masks for one anchor
+#'
+#' @param eval_obj Anchor admissibility evaluation.
+#' @param compiled_plan Compiled plan from [compile_policy_execution_plan_cpp()].
+#' @param ordination_info Optional anchor ordination context.
+#'
+#' @return Logical matrix with one row per unique pool and one column per donor.
+#'
+#' @keywords internal
+#' @noRd
+policy_pool_masks_cpp <- function(eval_obj,
+                                  compiled_plan,
+                                  ordination_info = NULL) {
+  donors <- tibble::as_tibble(eval_obj$admissible_df)
+  donors$.cpp_donor_row <- seq_len(nrow(donors))
+  masks <- matrix(
+    FALSE,
+    nrow = length(compiled_plan$pool_specs),
+    ncol = nrow(donors)
+  )
+
+  branch_names <- unique(vapply(
+    compiled_plan$pool_specs,
+    function(x) x$branch_filter,
+    character(1)
+  ))
+  branch_cache <- stats::setNames(
+    lapply(branch_names, function(branch) policy_branch_filter(donors, branch)),
+    branch_names
+  )
+
+  for (i in seq_along(compiled_plan$pool_specs)) {
+    spec <- compiled_plan$pool_specs[[i]]
+    selected <- policy_rows(
+      rows = branch_cache[[spec$branch_filter]],
+      policy_def = spec$policy_def,
+      policy_params = spec$policy_params,
+      ordination_info = resolve_policy_context(ordination_info)
+    )
+    selected_ids <- suppressWarnings(as.integer(selected$.cpp_donor_row))
+    selected_ids <- selected_ids[is.finite(selected_ids)]
+    masks[i, selected_ids] <- TRUE
+  }
+  masks
+}
+
+#' Extract the flat donor payload consumed by the C++ policy engine
+#'
+#' @param eval_obj Anchor admissibility evaluation.
+#'
+#' @return Named list of atomic donor vectors and overlap matrix.
+#'
+#' @keywords internal
+#' @noRd
+policy_donor_payload_cpp <- function(eval_obj) {
+  donors <- policy_equation_aliases(tibble::as_tibble(eval_obj$admissible_df))
+  n <- nrow(donors)
+  numeric_col <- function(name, default = NA_real_) {
+    if (name %in% names(donors)) {
+      suppressWarnings(as.numeric(donors[[name]]))
+    } else {
+      rep(default, n)
+    }
+  }
+  character_col <- function(names_now) {
+    matches <- intersect(names_now, names(donors))
+    name <- if (length(matches) == 0L) NULL else matches[[1]]
+    if (is.null(name)) rep(NA_character_, n) else as.character(donors[[name]])
+  }
+
+  overlap_cols <- grep("^overlap_", names(donors), value = TRUE)
+  overlap_cols <- overlap_cols[!endsWith(overlap_cols, "_type")]
+  overlap <- if (length(overlap_cols) == 0L) {
+    matrix(FALSE, nrow = n, ncol = 0L)
+  } else {
+    out <- vapply(overlap_cols, function(name) {
+      as.logical(donors[[name]]) %in% TRUE
+    }, logical(n))
+    if (is.null(dim(out))) matrix(out, nrow = n) else out
+  }
+  colnames(overlap) <- sub("^overlap_", "local_n_", overlap_cols)
+
+  list(
+    slope = numeric_col("slope_len"),
+    intercept = numeric_col("intercept_len"),
+    weight = numeric_col("w_adm"),
+    combined_distance = numeric_col("combined_distance"),
+    trait_distance = numeric_col("trait_gower_distance"),
+    taxonomic_distance = numeric_col("taxonomic_distance_to_anchor"),
+    species_distance = numeric_col("d_species"),
+    has_trait_distance = "trait_gower_distance" %in% names(donors),
+    has_taxonomic_distance = "taxonomic_distance_to_anchor" %in% names(donors),
+    has_species_distance = "d_species" %in% names(donors),
+    length_overlap = numeric_col("length_overlap_fraction"),
+    depth_overlap = numeric_col("depth_overlap_fraction"),
+    donor_multiplier = numeric_col("biomass_multiplier_if_replace"),
+    donor_id = character_col(c("model_id", "model_id_chr")),
+    overlap = overlap
+  )
+}
+
+#' Evaluate a complete compiled policy plan for one anchor
+#'
+#' @param eval_obj Anchor admissibility evaluation.
+#' @param compiled_plan Compiled plan.
+#' @param ordination_info Optional ordination context.
+#'
+#' @return Policy prediction tibble matching [evaluate_policies()].
+#'
+#' @keywords internal
+#' @noRd
+evaluate_policies_cpp <- function(eval_obj,
+                                  compiled_plan,
+                                  ordination_info = NULL) {
+  if (!inherits(compiled_plan, "tsb_compiled_policy_plan")) {
+    stop("'compiled_plan' must come from compile_policy_execution_plan_cpp().", call. = FALSE)
+  }
+  anchor_pdf <- eval_obj$anchor_pdf
+  if (!is.null(anchor_pdf) && all(c("length_cm", "f_len") %in% names(anchor_pdf))) {
+    length_cm <- suppressWarnings(as.numeric(anchor_pdf$length_cm))
+    pdf_weight <- suppressWarnings(as.numeric(anchor_pdf$f_len))
+  } else {
+    length_cm <- numeric(0)
+    pdf_weight <- numeric(0)
+  }
+
+  core <- cpp_evaluate_policy_plan(
+    donors = policy_donor_payload_cpp(eval_obj),
+    pool_masks = policy_pool_masks_cpp(eval_obj, compiled_plan, ordination_info),
+    plan = compiled_plan$cpp,
+    length_cm = length_cm,
+    pdf_weight = pdf_weight,
+    anchor_sigma = suppressWarnings(as.numeric(eval_obj$anchor_sigma %||% NA_real_))[[1]]
+  )
+  metadata <- tibble::as_tibble(compiled_plan$metadata)
+  core <- tibble::as_tibble(core)
+  if (nrow(core) != nrow(metadata)) {
+    stop("C++ policy result row count did not match the compiled plan.", call. = FALSE)
+  }
+  dplyr::bind_cols(
+    metadata,
+    dplyr::rename(core, n_models = "n_models_pool")
+  )
+}
+
+#' Dispatch one policy-plan evaluation to the selected engine
+#'
+#' @param engine `"r"` or `"cpp"`.
+#' @param eval_obj Anchor admissibility evaluation.
+#' @param ordination_info Optional ordination context.
+#' @param policies,policy_params,policy_path R-engine policy inputs.
+#' @param execution_plan R policy execution plan.
+#' @param compiled_plan Optional compiled C++ plan.
+#'
+#' @return Policy prediction tibble.
+#'
+#' @keywords internal
+#' @noRd
+benchmark_evaluate_policies <- function(engine,
+                                        eval_obj,
+                                        ordination_info = NULL,
+                                        policies = NULL,
+                                        policy_params = list(),
+                                        policy_path = NULL,
+                                        execution_plan = NULL,
+                                        compiled_plan = NULL) {
+  engine <- normalize_policy_benchmark_engine(engine)
+  if (identical(engine, "cpp")) {
+    return(evaluate_policies_cpp(
+      eval_obj = eval_obj,
+      compiled_plan = compiled_plan,
+      ordination_info = ordination_info
+    ))
+  }
+  evaluate_policies(
+    eval_obj = eval_obj,
+    ordination_info = ordination_info,
+    policies = policies,
+    policy_params = policy_params,
+    policy_path = policy_path,
+    execution_plan = execution_plan
+  )
+}
+
 #' Evaluate registered policies
 #'
 #' Evaluates one or more policies against the admissible candidate pool for one
@@ -3318,6 +3617,28 @@ benchmark_field <- function(config,
   field_nm
 }
 
+#' Read an optional benchmark field without substituting another column
+#'
+#' @param data Benchmark input table.
+#' @param config Benchmark config list.
+#' @param key Field-map key to resolve.
+#'
+#' @return Character vector with one value per input row. If the configured
+#'   column is absent, every value is explicitly missing.
+#'
+#' @keywords internal
+#' @noRd
+benchmark_optional_field_values <- function(data,
+                                            config,
+                                            key) {
+  data <- tibble::as_tibble(data)
+  field_nm <- benchmark_field(config, key)
+  if (!field_nm %in% names(data)) {
+    return(rep(NA_character_, nrow(data)))
+  }
+  as.character(data[[field_nm]])
+}
+
 #' Normalize one reference-ID vector
 #'
 #' @param reference_ids Optional reference-model identifier vector.
@@ -3522,7 +3843,6 @@ build_benchmark_row <- function(eval_obj,
   # Collapse the admissible set to one row of anchor-level features used for
   # policy benchmarking and later policy-selection summaries.
   species_col <- benchmark_field(config, "species")
-  family_col <- benchmark_field(config, "family")
   id_col <- benchmark_field(config, "model_id")
   admissible <- tibble::as_tibble(eval_obj$admissible_df)
   n_admissible <- nrow(admissible)
@@ -3557,7 +3877,7 @@ build_benchmark_row <- function(eval_obj,
   tibble::tibble(
     anchor_model_id = as.character(anchor_row[[id_col]][[1]]),
     anchor_species = as.character(anchor_row[[species_col]][[1]]),
-    anchor_family = as.character(anchor_row[[family_col]][[1]]),
+    anchor_family = benchmark_optional_field_values(anchor_row, config, "family")[[1]],
     is_reference = is_reference,
     anchor_group = ifelse(is_reference, "reference", "candidate"),
     n_admissible = n_admissible,
@@ -3799,6 +4119,82 @@ build_benchmark_ts_error_table <- function(candidate_models,
   dplyr::bind_rows(out_rows)
 }
 
+#' Build benchmark TS errors with the compiled engine
+#'
+#' @param candidate_models Candidate-model table.
+#' @param policy_perf Pseudo-anchor policy-performance table.
+#' @param config Benchmark config list.
+#'
+#' @return A tibble matching [build_benchmark_ts_error_table()].
+#'
+#' @keywords internal
+#' @noRd
+build_benchmark_ts_error_table_cpp <- function(candidate_models,
+                                               policy_perf,
+                                               config) {
+  perf_tbl <- normalize_policy_columns(policy_perf)
+  if (!is.data.frame(candidate_models) || nrow(candidate_models) == 0L ||
+    nrow(perf_tbl) == 0L || !"anchor_model_id" %in% names(perf_tbl)) {
+    return(tibble::tibble())
+  }
+
+  perf_tbl$policy <- resolve_policy_names(perf_tbl)
+  perf_tbl$equation_branch_filter <- resolve_policy_branch_filters(perf_tbl)
+  candidate_tbl <- tibble::as_tibble(candidate_models)
+  id_col <- benchmark_field(config, "model_id")
+  species_col <- benchmark_field(config, "species")
+  slope_col <- benchmark_field(config, "slope")
+  intercept_col <- benchmark_field(config, "intercept")
+
+  candidate_numeric <- function(name) {
+    if (name %in% names(candidate_tbl)) {
+      suppressWarnings(as.numeric(candidate_tbl[[name]]))
+    } else {
+      rep(NA_real_, nrow(candidate_tbl))
+    }
+  }
+  candidate_character <- function(name) {
+    if (name %in% names(candidate_tbl)) {
+      as.character(candidate_tbl[[name]])
+    } else {
+      rep(NA_character_, nrow(candidate_tbl))
+    }
+  }
+  policy_numeric <- function(name) {
+    if (name %in% names(perf_tbl)) {
+      suppressWarnings(as.numeric(perf_tbl[[name]]))
+    } else {
+      rep(NA_real_, nrow(perf_tbl))
+    }
+  }
+
+  out <- cpp_build_benchmark_ts_errors(
+    anchors = list(
+      anchor_model_id = candidate_character(id_col),
+      anchor_species = candidate_character(species_col),
+      anchor_slope = candidate_numeric(slope_col),
+      anchor_intercept = candidate_numeric(intercept_col),
+      study_length_min = candidate_numeric("study_length_min"),
+      study_length_max = candidate_numeric("study_length_max")
+    ),
+    policies = list(
+      anchor_model_id = as.character(perf_tbl$anchor_model_id),
+      policy = as.character(perf_tbl$policy),
+      equation_branch_filter = as.character(perf_tbl$equation_branch_filter),
+      policy_slope_len = policy_numeric("policy_slope_len"),
+      policy_intercept_len = policy_numeric("policy_intercept_len"),
+      local_min_combined_distance = policy_numeric("local_min_combined_distance"),
+      local_weighted_mean_combined_distance = policy_numeric("local_weighted_mean_combined_distance"),
+      local_effective_support = policy_numeric("local_effective_support"),
+      local_mean_length_overlap = policy_numeric("local_mean_length_overlap"),
+      local_mean_depth_overlap = policy_numeric("local_mean_depth_overlap")
+    ),
+    grid_size = 11L
+  )
+  tibble::as_tibble(out) |>
+    dplyr::mutate(validation_scheme = "pseudo_anchor")
+}
+
 #' Remove same-species support from one anchor evaluation
 #'
 #' @param eval_obj Anchor evaluation object.
@@ -3816,6 +4212,19 @@ remove_species_support <- function(eval_obj,
   # so the leave-one-species-out benchmark uses a properly renormalized pool.
   species_col <- benchmark_field(config, "species")
   anchor_species <- as.character(anchor_row[[species_col]][[1]])
+  anchor_is_group <- if ("is_group_model" %in% names(anchor_row)) {
+    isTRUE(as.logical(anchor_row$is_group_model[[1]]))
+  } else {
+    FALSE
+  }
+  anchor_has_species_identity <- !is_missing_species_identity(anchor_species)
+
+  # Generalized equations do not represent one biological species. The
+  # benchmark caller excludes them from species-block evaluation; retain this
+  # guard so direct calls cannot collapse them into a synthetic species block.
+  if (anchor_is_group || !anchor_has_species_identity) {
+    return(eval_obj)
+  }
   core_weight_cutoff <- suppressWarnings(as.numeric(config$core_weight_cutoff %||% 0.8))
   if (!is.finite(core_weight_cutoff)) {
     core_weight_cutoff <- 0.8
@@ -3961,6 +4370,8 @@ benchmark_cached_anchor_eval <- function(cached_anchor_evals,
 #' @param policy_execution_plan Optional prebuilt policy execution plan from
 #'   `build_policy_execution_plan()`. When supplied, the benchmark reuses the
 #'   same registry and branch expansion across anchors.
+#' @param engine Policy evaluation engine, `"r"` or `"cpp"`.
+#' @param compiled_policy_plan Optional compiled C++ policy plan.
 #' @param sim_obj Optional prebuilt similarity object for the full benchmark
 #'   scenario.
 #' @param dist_obj Optional prebuilt distance object for the full benchmark
@@ -3994,6 +4405,8 @@ benchmark_one_anchor <- function(anchor_row,
                                  policy_params,
                                  policy_path,
                                  policy_execution_plan = NULL,
+                                 engine = "r",
+                                 compiled_policy_plan = NULL,
                                  sim_obj,
                                  dist_obj,
                                  candidate_models_scored,
@@ -4005,6 +4418,15 @@ benchmark_one_anchor <- function(anchor_row,
                                  group_block_col = NULL,
                                  ordination_info = NULL,
                                  resolve_ordination = TRUE) {
+  species_col <- benchmark_field(config, "species")
+  anchor_species_value <- as.character(anchor_row[[species_col]][[1]])
+  # Species-block validation is undefined for generalized equations. They
+  # remain available as donors and pseudo-anchors, but cannot constitute a
+  # biological holdout species.
+  if (isTRUE(species_block) && is_missing_species_identity(anchor_species_value)) {
+    return(NULL)
+  }
+
   # Evaluate one anchor first, optionally rebuild the donor pool without same-
   # species rows, then extract the policy benchmark tables.
   eval_obj_ <- eval_obj
@@ -4045,20 +4467,24 @@ benchmark_one_anchor <- function(anchor_row,
     )
   }
 
-  # Pass the selected policy set straight into the package policy
-  # layer so the packaged script does not need local wrapper functions.
-  # Fast-path the packaged evaluator so default benchmark runs skip repeated
-  # formals inspection and generic do.call dispatch inside the anchor loop.
+  engine <- normalize_policy_benchmark_engine(engine)
+  # The default evaluator has a centralized R/C++ dispatch. Custom policy
+  # functions remain supported by the R engine only.
   if (isTRUE(identical(policy_fun, evaluate_policies))) {
-    policy_tbl <- evaluate_policies(
+    policy_tbl <- benchmark_evaluate_policies(
+      engine = engine,
       eval_obj = eval_obj_,
       ordination_info = ordination_info_,
       policies = policies,
       policy_params = policy_params,
       policy_path = policy_path,
-      execution_plan = policy_execution_plan
+      execution_plan = policy_execution_plan,
+      compiled_plan = compiled_policy_plan
     )
   } else {
+    if (identical(engine, "cpp")) {
+      stop("The C++ benchmark engine supports the packaged policy evaluator only.", call. = FALSE)
+    }
     policy_args <- list(
       eval_obj = eval_obj_,
       ordination_info = ordination_info_,
@@ -4080,16 +4506,21 @@ benchmark_one_anchor <- function(anchor_row,
   }
 
   id_col <- benchmark_field(config, "model_id")
-  species_col <- benchmark_field(config, "species")
-  family_col <- benchmark_field(config, "family")
   anchor_id <- as.character(anchor_row[[id_col]][[1]])
   is_ref <- anchor_id %in% reference_ids
 
   # Add the benchmark annotations once so the same policy table can feed the
   # best-policy summary and any later conformal evaluation.
   policy_tbl$anchor_model_id <- anchor_id
-  policy_tbl$anchor_species <- as.character(anchor_row[[species_col]][[1]])
-  policy_tbl$anchor_family <- as.character(anchor_row[[family_col]][[1]])
+  policy_tbl$anchor_species <- if (is_missing_species_identity(anchor_species_value)) {
+    NA_character_
+  } else {
+    anchor_species_value
+  }
+  policy_tbl$anchor_family <- rep(
+    benchmark_optional_field_values(anchor_row, config, "family")[[1]],
+    nrow(policy_tbl)
+  )
   policy_tbl$anchor_group_block <- if (!is.null(group_block_col) && group_block_col %in% names(anchor_row)) {
     as.character(anchor_row[[group_block_col]][[1]])
   } else {
@@ -4222,8 +4653,7 @@ bind_best_policy_rows <- function(perf_tbl) {
 #' @param benchmark_schemes Validation schemes to compute. Supported values are
 #'   `"pseudo_anchor"`, `"species_block"`, and `"group_block"`.
 #' @param workers Number of parallel workers. Use `1` for sequential execution.
-#' @param package_dir Optional package source directory used to load the
-#'   development package on parallel workers when running from source.
+#' @param engine Policy evaluation engine, `"r"` or `"cpp"`.
 #' @param cache_path Optional `.rds` cache path.
 #' @param refresh Logical scalar. If `TRUE`, ignore any existing cache.
 #' @param progress Logical scalar. If `TRUE`, emit lightweight progress updates
@@ -4250,14 +4680,14 @@ run_policy_benchmark <- function(candidate_models,
                                  include_ts_error = TRUE,
                                  benchmark_schemes = c("pseudo_anchor", "species_block"),
                                  workers = 1L,
-                                 package_dir = NULL,
+                                 engine = "r",
                                  cache_path = NULL,
                                  refresh = FALSE,
                                  progress = FALSE,
                                  group_block_col = NULL,
                                  group_block_label = "leave_one_group_out",
                                  registry_path = NULL) {
-  # Support the staged `Candidates` object directly so the benchmark layer can
+  # Support the prepared `Candidates` object directly so the benchmark layer can
   # reuse prepared similarity, distance, ordination, and reference-anchor
   # state when those objects already exist.
   candidates_obj <- if (is_s7_instance(candidate_models, "Candidates")) {
@@ -4337,11 +4767,10 @@ run_policy_benchmark <- function(candidate_models,
     stop("'workers' must be one finite number >= 1.", call. = FALSE)
   }
   workers_ <- as.integer(workers)
-  if (!is.null(package_dir) &&
-    (!is.character(package_dir) || length(package_dir) != 1 || !nzchar(package_dir))) {
-    stop("'package_dir' must be NULL or a single non-empty path.", call. = FALSE)
+  engine_ <- normalize_policy_benchmark_engine(engine)
+  if (identical(engine_, "cpp") && !isTRUE(identical(policy_fun, evaluate_policies))) {
+    stop("The C++ benchmark engine cannot be combined with a custom `policy_fun`.", call. = FALSE)
   }
-
   # Reuse the cached benchmark object when available unless the caller asked
   # for a refresh.
   if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
@@ -4406,7 +4835,7 @@ run_policy_benchmark <- function(candidate_models,
       candidate_models = tibble::as_tibble(candidate_models_)
     )
   } else {
-    sim_obj <- prepare_similarity_matrix(
+    sim_obj <- prepare_similarities(
       candidate_models = candidate_models_,
       species_traits = config_values$species_traits %||% NULL,
       study_traits = config_values$study_traits %||% NULL,
@@ -4421,7 +4850,7 @@ run_policy_benchmark <- function(candidate_models,
   if (use_precomputed_dist) {
     dist_obj <- candidates_obj@gower_distances
   } else {
-    dist_obj <- build_gower_distances(sim_obj)
+    dist_obj <- construct_gower_distances(sim_obj)
   }
   candidate_models_prepared <- tibble::as_tibble(sim_obj$candidate_models %||% candidate_models_)
   candidate_models_scored <- screen_missing_metadata(
@@ -4560,11 +4989,10 @@ run_policy_benchmark <- function(candidate_models,
 
   # Build the anchor-metadata lookup from candidate_models_ (no computation needed).
   .spc_col_nm <- benchmark_field(config_values, "species")
-  .fam_col_nm <- benchmark_field(config_values, "family")
   anchor_meta_lookup <- data.frame(
     anchor_model_id = as.character(candidate_models_[[id_col_nm]]),
     anchor_species = as.character(candidate_models_[[.spc_col_nm]]),
-    anchor_family = as.character(candidate_models_[[.fam_col_nm]]),
+    anchor_family = benchmark_optional_field_values(candidate_models_, config_values, "family"),
     is_reference = as.character(candidate_models_[[id_col_nm]]) %in% ref_ids,
     stringsAsFactors = FALSE
   )
@@ -4579,7 +5007,7 @@ run_policy_benchmark <- function(candidate_models,
     NA_character_
   }
   anchor_meta_lookup <- unique(anchor_meta_lookup)
-  rm(.spc_col_nm, .fam_col_nm)
+  rm(.spc_col_nm)
 
   # Build the policy-metadata lookup by running policy_fun once on the first
   # admissible anchor. Policy metadata is identical across all anchors.
@@ -4637,6 +5065,11 @@ run_policy_benchmark <- function(candidate_models,
       policy_params = policy_params_,
       policy_path = policy_path
     )
+  }
+  compiled_policy_plan <- if (identical(engine_, "cpp")) {
+    compile_policy_execution_plan_cpp(policy_execution_plan)
+  } else {
+    NULL
   }
   if (!isTRUE(needs_ordination_context)) {
     model_scores_ <- NULL
@@ -4764,6 +5197,8 @@ run_policy_benchmark <- function(candidate_models,
           policy_params = policy_params_,
           policy_path = policy_path,
           policy_execution_plan = policy_execution_plan,
+          engine = engine_,
+          compiled_policy_plan = compiled_policy_plan,
           sim_obj = sim_obj,
           dist_obj = dist_obj,
           candidate_models_scored = candidate_models_scored,
@@ -4805,6 +5240,8 @@ run_policy_benchmark <- function(candidate_models,
           policy_params = policy_params_,
           policy_path = policy_path,
           policy_execution_plan = policy_execution_plan,
+          engine = engine_,
+          compiled_policy_plan = compiled_policy_plan,
           sim_obj = sim_obj,
           dist_obj = dist_obj,
           candidate_models_scored = candidate_models_scored,
@@ -4838,6 +5275,8 @@ run_policy_benchmark <- function(candidate_models,
           policy_params = policy_params_,
           policy_path = policy_path,
           policy_execution_plan = policy_execution_plan,
+          engine = engine_,
+          compiled_policy_plan = compiled_policy_plan,
           sim_obj = sim_obj,
           dist_obj = dist_obj,
           candidate_models_scored = candidate_models_scored,
@@ -4872,8 +5311,7 @@ run_policy_benchmark <- function(candidate_models,
     }
   } else {
     cluster_obj <- initialize_parallel_cluster(
-      workers = workers_,
-      package_dir = package_dir
+      workers = workers_
     )
     on.exit(parallel::stopCluster(cluster_obj), add = TRUE)
 
@@ -4890,6 +5328,8 @@ run_policy_benchmark <- function(candidate_models,
         "policy_params_",
         "policy_path",
         "policy_execution_plan",
+        "compiled_policy_plan",
+        "engine_",
         "sim_obj",
         "dist_obj",
         "candidate_models_scored",
@@ -4998,6 +5438,8 @@ run_policy_benchmark <- function(candidate_models,
               policy_params = policy_params_,
               policy_path = policy_path,
               policy_execution_plan = policy_execution_plan,
+              engine = engine_,
+              compiled_policy_plan = compiled_policy_plan,
               sim_obj = sim_obj,
               dist_obj = dist_obj,
               candidate_models_scored = candidate_models_scored,
@@ -5026,6 +5468,8 @@ run_policy_benchmark <- function(candidate_models,
               policy_params = policy_params_,
               policy_path = policy_path,
               policy_execution_plan = policy_execution_plan,
+              engine = engine_,
+              compiled_policy_plan = compiled_policy_plan,
               sim_obj = sim_obj,
               dist_obj = dist_obj,
               candidate_models_scored = candidate_models_scored,
@@ -5055,6 +5499,8 @@ run_policy_benchmark <- function(candidate_models,
               policy_params = policy_params_,
               policy_path = policy_path,
               policy_execution_plan = policy_execution_plan,
+              engine = engine_,
+              compiled_policy_plan = compiled_policy_plan,
               sim_obj = sim_obj,
               dist_obj = dist_obj,
               candidate_models_scored = candidate_models_scored,
@@ -5147,12 +5593,22 @@ run_policy_benchmark <- function(candidate_models,
   gb_perf_tbl <- .recompute_perf_derived(gb_perf_tbl)
 
   if (isTRUE(include_ts_error) && is.function(curve_fun)) {
-    err_tbl <- build_benchmark_ts_error_table(
-      candidate_models = candidate_models_,
-      policy_perf = perf_tbl,
-      config = config_values,
-      progress = progress
-    ) |>
+    err_tbl <- if (identical(engine_, "cpp")) {
+      build_benchmark_ts_error_table_cpp(
+        candidate_models = candidate_models_,
+        policy_perf = perf_tbl,
+        config = config_values
+      )
+    } else {
+      build_benchmark_ts_error_table(
+        candidate_models = candidate_models_,
+        policy_perf = perf_tbl,
+        config = config_values,
+        progress = progress
+      )
+    }
+    err_tbl <- err_tbl |>
+      dplyr::mutate(validation_scheme = "pseudo_anchor") |>
       dplyr::select(dplyr::any_of(c(
         "anchor_model_id", "anchor_species", "policy", "equation_branch_filter",
         "policy_slope_len", "policy_intercept_len",
@@ -5176,6 +5632,7 @@ run_policy_benchmark <- function(candidate_models,
   }
 
   result <- list(
+    engine = engine_,
     policy_perf = perf_tbl,
     anchor_features = feat_tbl,
     best_policy = bind_best_policy_rows(perf_tbl),
@@ -5673,11 +6130,11 @@ available_meta_policy_super_methods <- function(methods = NULL,
 #' @noRd
 default_meta_policy_method_settings <- function() {
   list(
-    glmnet = list(
+    glm_penalized = list(
       standardize = TRUE,
       type_measure = "mae"
     ),
-    quantreg = list(
+    qreg = list(
       tau = 0.50,
       fit_method = "fn",
       variants = list(
@@ -5693,9 +6150,9 @@ default_meta_policy_method_settings <- function() {
       fit_method = "REML",
       select_terms = TRUE
     ),
-    lmer = list(
+    lmm = list(
       fit_method = "REML",
-      group_cols = c(".split_group", "anchor_species", "anchor_family")
+      random_intercept = ".split_group"
     ),
     rpart = list(
       cp = 0.01,
@@ -5717,10 +6174,11 @@ default_meta_policy_method_settings <- function() {
         )
       )
     ),
-    ranger = list(
+    rf = list(
       num_trees = 500L,
       mtry = NULL,
       min_node_size = 5L,
+      max_depth = NULL,
       sample_fraction = 1,
       replace = TRUE,
       respect_unordered_factors = "order",
@@ -5770,11 +6228,67 @@ default_meta_policy_method_settings <- function() {
     # MARS defaults: degree 2 permits pairwise interactions, penalty 3 is
     # earth's recommended GCV complexity penalty when degree > 1, and a NULL
     # nprune lets the backward pass choose the retained term count by GCV.
-    earth = list(
+    mars = list(
       degree = 2L,
       penalty = 3,
       nprune = NULL,
       pmethod = "backward"
+    ),
+    # BART family (stochtree). Shared, user-tunable priors for the five
+    # self-contained BART learners (bart, xbart, wsbart, vfbart, rebart). Each
+    # learner's *defining* sampler schedule and mode (num_gfr/num_mcmc, variance
+    # forest, random effects) is intrinsic to the model and hardcoded by name in
+    # meta_policy_method_arguments() -- exactly as alpha is intrinsic to
+    # glm_ridge/glm_lasso/glm_elastic -- so it does not live here.
+    # Tree/draw counts are leaned down from standalone BART because an ensemble
+    # base learner only needs the posterior mean; alpha/beta carry BART's
+    # weakly-informative tree prior; split-variable selection is uniform.
+    # `variance_forest_num_trees` is consumed only by vfbart, `random_effects_group`
+    # only by rebart.
+    bart = list(
+      num_trees = 75L,
+      alpha = 0.95,
+      beta = 2,
+      min_samples_leaf = 5L,
+      max_depth = 10L,
+      keep_gfr = TRUE,
+      variance_forest_num_trees = 50L,
+      random_effects_group = ".split_group"
+    ),
+    # k-nearest-neighbours regression (FNN::knn.reg) on the standardized feature
+    # matrix. A purely local, non-parametric learner whose bias/variance profile
+    # differs from every tree/linear/spline learner in the library.
+    knn = list(
+      k = 10L
+    ),
+    # Cubist (Cubist::cubist). committees are boosting-like model iterations;
+    # neighbors (0-9) applies an instance-based correction at predict time.
+    cubist = list(
+      committees = 1L,
+      neighbors = 0L
+    ),
+    # Support-vector regression (kernlab::ksvm, eps-svr, RBF). The RBF width
+    # (sigma) is estimated automatically via kernlab's sigest heuristic; C is the
+    # cost and epsilon the tube width.
+    svr = list(
+      C = 1,
+      epsilon = 0.1
+    ),
+    # Quantile regression forest (ranger, quantreg = TRUE). `quantile` is the
+    # conditional quantile predicted (an upper quantile suits interval widths).
+    qrf = list(
+      num_trees = 500L,
+      mtry = NULL,
+      min_node_size = 10L,
+      max_depth = NULL,
+      sample_fraction = 1,
+      replace = TRUE,
+      quantile = 0.9
+    ),
+    # Gaussian-process regression (kernlab::gausspr, RBF). sigma is estimated
+    # automatically; `var` is the Gaussian noise-variance regularizer.
+    gpr = list(
+      var = 0.001
     )
     # The "mean" baseline has no tunable hyperparameters, so it is intentionally
     # absent here; effective_family_settings() returns an empty list for it.
@@ -5816,21 +6330,54 @@ normalize_meta_policy_method_settings <- function(method_settings = NULL) {
 meta_policy_method_catalog <- function(method_settings = NULL) {
   method_settings <- normalize_meta_policy_method_settings(method_settings)
   specs <- list(
-    glmnet_ridge = list(family = "glmnet", variant = NULL),
-    glmnet_lasso = list(family = "glmnet", variant = NULL),
-    glmnet_elasticnet = list(family = "glmnet", variant = NULL),
-    quantreg = list(family = "quantreg", variant = NULL),
+    glm_ridge = list(family = "glm_penalized", variant = NULL),
+    glm_lasso = list(family = "glm_penalized", variant = NULL),
+    glm_elastic = list(family = "glm_penalized", variant = NULL),
+    qreg = list(family = "qreg", variant = NULL),
     glm = list(family = "glm", variant = NULL),
     gam = list(family = "gam", variant = NULL),
-    lmer = list(family = "lmer", variant = NULL),
+    lmm = list(family = "lmm", variant = NULL),
     rpart = list(family = "rpart", variant = NULL),
-    ranger = list(family = "ranger", variant = NULL),
+    rf = list(family = "rf", variant = NULL),
     xgboost = list(family = "xgboost", variant = NULL),
-    # Multivariate adaptive regression splines (MARS). earth builds its own
-    # piecewise-linear hinge basis from the plain additive formula, contributing
-    # nonlinear main effects and low-order interactions that the linear (glm,
-    # glmnet) and tree (rpart, ranger, xgboost) learners do not otherwise cover.
-    earth = list(family = "earth", variant = NULL),
+    # Multivariate adaptive regression splines (MARS, via the earth package).
+    # Builds its own piecewise-linear hinge basis from the plain additive
+    # formula, contributing nonlinear main effects and low-order interactions
+    # that the linear (glm, glm_penalized) and tree (rpart, rf, xgboost) learners
+    # do not otherwise cover.
+    mars = list(family = "mars", variant = NULL),
+    # BART family (Bayesian additive regression trees, via stochtree). Five
+    # self-contained learners in the `bart` family -- structured exactly like the
+    # glm_ridge/glm_lasso/glm_elastic trio: separate named entries
+    # whose defining characteristic (here the sampler schedule / mode, there the
+    # alpha mixing) is hardcoded by name in meta_policy_method_arguments():
+    #   bart   - pure-MCMC BART (root-initialized).
+    #   xbart  - accelerated grow-from-root only (num_mcmc = 0).
+    #   wsbart - warm start: short grow-from-root pass, then MCMC.
+    #   vfbart - heteroskedastic BART with a variance forest.
+    #   rebart - BART with an additive group random effect (lmm-style).
+    bart = list(family = "bart", variant = NULL),
+    xbart = list(family = "bart", variant = NULL),
+    wsbart = list(family = "bart", variant = NULL),
+    vfbart = list(family = "bart", variant = NULL),
+    rebart = list(family = "bart", variant = NULL),
+    # k-nearest-neighbours regression (FNN::knn.reg). A local, non-parametric
+    # learner distinct from the parametric/tree/spline learners above.
+    knn = list(family = "knn", variant = NULL),
+    # Cubist (Cubist::cubist): rule-based model with linear regressions in the
+    # leaves (M5-style) -- a piecewise-linear function class distinct from the
+    # CART/RF/boosting learners.
+    cubist = list(family = "cubist", variant = NULL),
+    # Support-vector regression (kernlab::ksvm, RBF kernel): the global kernel
+    # method complementing the local KNN learner.
+    svr = list(family = "svr", variant = NULL),
+    # Quantile regression forest (ranger with quantreg = TRUE): predicts a
+    # conditional quantile, so it is naturally suited to the uncertainty role.
+    # (Distinct from `rf`, which is the plain random-forest mean learner.)
+    qrf = list(family = "qrf", variant = NULL),
+    # Gaussian-process regression (kernlab::gausspr, RBF kernel): a kernel learner
+    # with a native predictive variance, well suited to the uncertainty role.
+    gpr = list(family = "gpr", variant = NULL),
     # Intercept-only mean baseline: the SuperLearner "floor". It guarantees the
     # ensemble degrades gracefully to the training-set mean on folds where every
     # richer learner overfits, rather than extrapolating wildly.
@@ -5853,24 +6400,13 @@ meta_policy_method_catalog <- function(method_settings = NULL) {
     invisible(NULL)
   }
 
-  for (family_name in c("quantreg", "lmer", "rpart", "ranger", "xgboost")) {
+  for (family_name in c("qreg", "lmm", "rpart", "rf", "xgboost")) {
     add_variant_specs(family_name)
   }
 
   default_super_methods <- c(
     "glm",
-    if ("quantreg_q75" %in% names(specs)) "quantreg_q75" else "quantreg",
-    if ("quantreg_q90" %in% names(specs)) "quantreg_q90" else "quantreg",
-    "gam",
-    "glmnet_ridge",
-    "glmnet_lasso",
-    "glmnet_elasticnet",
-    if ("rpart_shallow" %in% names(specs)) "rpart_shallow" else "rpart",
-    if ("rpart_deep" %in% names(specs)) "rpart_deep" else "rpart",
-    if ("ranger_shallow" %in% names(specs)) "ranger_shallow" else "ranger",
-    if ("ranger_deep" %in% names(specs)) "ranger_deep" else "ranger",
-    if ("xgboost_conservative" %in% names(specs)) "xgboost_conservative" else "xgboost",
-    if ("xgboost_flexible" %in% names(specs)) "xgboost_flexible" else "xgboost"
+    "xgboost"
   )
   default_super_methods <- unique(default_super_methods[default_super_methods %in% names(specs)])
 
@@ -5879,6 +6415,21 @@ meta_policy_method_catalog <- function(method_settings = NULL) {
     default_super_methods = default_super_methods,
     specs = specs
   )
+}
+
+#' List the Super Learner learners available in tsbiomass
+#'
+#' Prints the learner method names available to the package's Super Learners.
+#' The package analogue of [SuperLearner::listWrappers()].
+#'
+#' @return (Invisibly) a character vector of the available learner names.
+#'
+#' @examples
+#' list_learners()
+#'
+#' @export
+list_learners <- function() {
+  print(sort(meta_policy_method_catalog()$methods))
 }
 
 #' Resolve one public meta-policy method name
@@ -5928,11 +6479,11 @@ meta_policy_method_arguments <- function(method,
     merge_config_sections(family_cfg, variant_cfg)
   }
 
-  if (identical(method_spec$family, "glmnet")) {
-    return(effective_family_settings("glmnet"))
+  if (identical(method_spec$family, "glm_penalized")) {
+    return(effective_family_settings("glm_penalized"))
   }
-  if (identical(method_spec$family, "quantreg")) {
-    quantreg_cfg <- effective_family_settings("quantreg")
+  if (identical(method_spec$family, "qreg")) {
+    quantreg_cfg <- effective_family_settings("qreg")
     return(compact_nulls(list(
       tau = as.numeric(quantreg_cfg$tau %||% 0.50),
       method = as.character(quantreg_cfg$fit_method %||% "fn")
@@ -5949,14 +6500,22 @@ meta_policy_method_arguments <- function(method,
     }
     return(compact_nulls(out))
   }
-  if (identical(method_spec$family, "lmer")) {
-    lmer_cfg <- effective_family_settings("lmer")
+  if (identical(method_spec$family, "lmm")) {
+    lmm_cfg <- effective_family_settings("lmm")
+    random_intercept <- as.character(unlist(
+      lmm_cfg$random_intercept %||% character(0),
+      use.names = FALSE
+    ))
+    if (length(random_intercept) != 1L || is.na(random_intercept[[1]]) ||
+      !nzchar(stringr::str_squish(random_intercept[[1]]))) {
+      stop(
+        "LMM method settings require one explicit `random_intercept` column.",
+        call. = FALSE
+      )
+    }
     return(compact_nulls(list(
-      fit_method = as.character(lmer_cfg$fit_method %||% "REML"),
-      group_cols = as.character(unlist(
-        lmer_cfg$group_cols %||% c(".split_group", "anchor_species", "anchor_family"),
-        use.names = FALSE
-      ))
+      fit_method = as.character(lmm_cfg$fit_method %||% "REML"),
+      random_intercept = stringr::str_squish(random_intercept[[1]])
     )))
   }
   if (identical(method_spec$family, "rpart")) {
@@ -5974,12 +6533,17 @@ meta_policy_method_arguments <- function(method,
     )
     return(compact_nulls(out))
   }
-  if (identical(method_spec$family, "ranger")) {
-    ranger_cfg <- effective_family_settings("ranger")
+  if (identical(method_spec$family, "rf")) {
+    ranger_cfg <- effective_family_settings("rf")
     out <- list(
       num.trees = as.integer(ranger_cfg$num_trees %||% 500L),
       mtry = ranger_cfg$mtry %||% NULL,
       min.node.size = as.integer(ranger_cfg$min_node_size %||% 5L),
+      max.depth = if (is.null(ranger_cfg$max_depth)) {
+        NULL
+      } else {
+        as.integer(ranger_cfg$max_depth)
+      },
       sample.fraction = as.numeric(ranger_cfg$sample_fraction %||% 1),
       replace = isTRUE(ranger_cfg$replace %||% TRUE),
       respect.unordered.factors = as.character(
@@ -5998,7 +6562,8 @@ meta_policy_method_arguments <- function(method,
       subsample = as.numeric(xgboost_cfg$subsample %||% 1),
       colsample_bytree = as.numeric(xgboost_cfg$colsample_bytree %||% 1),
       lambda = as.numeric(xgboost_cfg$lambda %||% 1),
-      alpha = as.numeric(xgboost_cfg$alpha %||% 0)
+      alpha = as.numeric(xgboost_cfg$alpha %||% 0),
+      nthread = as.integer(xgboost_cfg$nthread %||% 1L)
     )
     return(compact_nulls(list(
       params = params,
@@ -6006,8 +6571,8 @@ meta_policy_method_arguments <- function(method,
       verbose = 0
     )))
   }
-  if (identical(method_spec$family, "earth")) {
-    earth_cfg <- effective_family_settings("earth")
+  if (identical(method_spec$family, "mars")) {
+    earth_cfg <- effective_family_settings("mars")
     # Map the YAML-facing names onto earth::earth() argument names. Dropping
     # NULLs lets earth fall back to its own GCV-driven defaults (e.g. when
     # nprune is unset the backward pass selects the term count automatically).
@@ -6018,6 +6583,74 @@ meta_policy_method_arguments <- function(method,
       pmethod = as.character(earth_cfg$pmethod %||% "backward")
     )))
   }
+  if (identical(method_spec$family, "bart")) {
+    # Shared, user-tunable priors from the single `bart` settings block.
+    bart_cfg <- effective_family_settings("bart")
+    # Each learner's defining sampler schedule + mode is intrinsic to the model
+    # and hardcoded by name -- the direct analogue of the alpha switch that
+    # distinguishes glm_ridge/glm_lasso/glm_elastic in the fit branch.
+    mode <- switch(method_spec$name,
+      bart = list(num_gfr = 0L, num_burnin = 100L, num_mcmc = 200L, variance_forest = FALSE, random_effects = FALSE),
+      xbart = list(num_gfr = 40L, num_burnin = 0L, num_mcmc = 0L, variance_forest = FALSE, random_effects = FALSE),
+      wsbart = list(num_gfr = 20L, num_burnin = 0L, num_mcmc = 200L, variance_forest = FALSE, random_effects = FALSE),
+      vfbart = list(num_gfr = 0L, num_burnin = 100L, num_mcmc = 200L, variance_forest = TRUE, random_effects = FALSE),
+      rebart = list(num_gfr = 0L, num_burnin = 100L, num_mcmc = 200L, variance_forest = FALSE, random_effects = TRUE),
+      stop(sprintf("Unknown BART learner '%s'.", method_spec$name), call. = FALSE)
+    )
+    return(compact_nulls(list(
+      num_trees = as.integer(bart_cfg$num_trees %||% 75L),
+      num_gfr = as.integer(mode$num_gfr),
+      num_burnin = as.integer(mode$num_burnin),
+      num_mcmc = as.integer(mode$num_mcmc),
+      alpha = as.numeric(bart_cfg$alpha %||% 0.95),
+      beta = as.numeric(bart_cfg$beta %||% 2),
+      min_samples_leaf = as.integer(bart_cfg$min_samples_leaf %||% 5L),
+      max_depth = as.integer(bart_cfg$max_depth %||% 10L),
+      keep_gfr = isTRUE(bart_cfg$keep_gfr %||% TRUE),
+      variance_forest = isTRUE(mode$variance_forest),
+      variance_forest_num_trees = as.integer(bart_cfg$variance_forest_num_trees %||% 50L),
+      random_effects = isTRUE(mode$random_effects),
+      random_effects_group = as.character(bart_cfg$random_effects_group %||% ".split_group")
+    )))
+  }
+  if (identical(method_spec$family, "knn")) {
+    knn_cfg <- effective_family_settings("knn")
+    return(compact_nulls(list(
+      k = as.integer(knn_cfg$k %||% 10L)
+    )))
+  }
+  if (identical(method_spec$family, "cubist")) {
+    cubist_cfg <- effective_family_settings("cubist")
+    return(compact_nulls(list(
+      committees = as.integer(cubist_cfg$committees %||% 1L),
+      neighbors = as.integer(cubist_cfg$neighbors %||% 0L)
+    )))
+  }
+  if (identical(method_spec$family, "svr")) {
+    svr_cfg <- effective_family_settings("svr")
+    return(compact_nulls(list(
+      C = as.numeric(svr_cfg$C %||% 1),
+      epsilon = as.numeric(svr_cfg$epsilon %||% 0.1)
+    )))
+  }
+  if (identical(method_spec$family, "qrf")) {
+    qrf_cfg <- effective_family_settings("qrf")
+    return(compact_nulls(list(
+      num.trees = as.integer(qrf_cfg$num_trees %||% 500L),
+      mtry = qrf_cfg$mtry %||% NULL,
+      min.node.size = as.integer(qrf_cfg$min_node_size %||% 10L),
+      max.depth = if (is.null(qrf_cfg$max_depth)) NULL else as.integer(qrf_cfg$max_depth),
+      sample.fraction = as.numeric(qrf_cfg$sample_fraction %||% 1),
+      replace = isTRUE(qrf_cfg$replace %||% TRUE),
+      quantile = as.numeric(qrf_cfg$quantile %||% 0.9)
+    )))
+  }
+  if (identical(method_spec$family, "gpr")) {
+    gpr_cfg <- effective_family_settings("gpr")
+    return(compact_nulls(list(
+      var = as.numeric(gpr_cfg$var %||% 0.001)
+    )))
+  }
   # The "mean" family (and any family without explicit arguments) falls through
   # to an empty argument list; its fit needs nothing beyond the outcome column.
   list()
@@ -6026,42 +6659,246 @@ meta_policy_method_arguments <- function(method,
 #' Resolve one mixed-effects grouping column for the meta-policy learner
 #'
 #' @param training_data Prepared learner training table.
-#' @param group_cols Candidate grouping columns in priority order.
+#' @param random_intercept Exactly one explicitly configured random-intercept
+#'   column.
 #'
 #' @return A list with the selected grouping column and normalized factor.
 #'
 #' @keywords internal
 #' @noRd
-resolve_meta_policy_lmer_group <- function(training_data,
-                                           group_cols) {
+resolve_meta_policy_lmm_group <- function(training_data,
+                                           random_intercept) {
   training_data <- tibble::as_tibble(training_data)
-  group_cols <- unique(as.character(unlist(group_cols %||% character(), use.names = FALSE)))
-  group_cols <- group_cols[!is.na(group_cols) & nzchar(group_cols) & group_cols %in% names(training_data)]
-  if (length(group_cols) == 0) {
+  random_intercept <- as.character(unlist(
+    random_intercept %||% character(0),
+    use.names = FALSE
+  ))
+  if (length(random_intercept) != 1L || is.na(random_intercept[[1]]) ||
+    !nzchar(stringr::str_squish(random_intercept[[1]]))) {
     stop(
-      "The mixed-effects meta-policy learner requires at least one available grouping column.",
+      "The mixed-effects meta-policy learner requires one explicit `random_intercept` column.",
+      call. = FALSE
+    )
+  }
+  group_col <- stringr::str_squish(random_intercept[[1]])
+  if (!group_col %in% names(training_data)) {
+    stop(
+      sprintf(
+        "Configured LMM grouping column '%s' is absent from the training data.",
+        group_col
+      ),
       call. = FALSE
     )
   }
 
-  # Use the first grouping column with at least two observed levels after
-  # missing values are collapsed into one explicit level.
-  for (group_col in group_cols) {
-    group_values <- as.character(training_data[[group_col]])
-    group_values[is.na(group_values) | !nzchar(group_values)] <- "missing"
-    if (length(unique(group_values)) < 2L) {
-      next
-    }
-    return(list(
-      group_col = group_col,
-      group_factor = factor(group_values)
-    ))
+  group_values <- as.character(training_data[[group_col]])
+  group_values[is.na(group_values) | !nzchar(group_values)] <- "missing"
+  if (length(unique(group_values)) < 2L) {
+    stop(
+      sprintf(
+        "Configured LMM grouping column '%s' has fewer than two observed levels.",
+        group_col
+      ),
+      call. = FALSE
+    )
   }
 
-  stop(
-    "No mixed-effects grouping column had at least two observed levels in the training data.",
-    call. = FALSE
+  list(
+    group_col = group_col,
+    group_factor = factor(group_values)
   )
+}
+
+#' Fit one stochtree BART variant for the meta-policy learner
+#'
+#' Localizes every stochtree API call so the five BART variants
+#' (bart/xbart/wsbart/vfbart/rebart) map onto a single `stochtree::bart()`
+#' invocation. The variant is already baked into `args` (num_gfr/num_mcmc plus the
+#' variance-forest and random-effect flags) by `meta_policy_method_arguments()`.
+#'
+#' @param x Numeric model matrix of features.
+#' @param y Numeric (already outcome-transformed) response vector.
+#' @param args Resolved BART fit arguments from `meta_policy_method_arguments()`.
+#' @param training_data Prepared learner training table (supplies the rebart
+#'   grouping column).
+#' @param seed Optional integer seed.
+#'
+#' @return A list with the fitted `model`, the resolved `rfx_group_col`
+#'   (`NA_character_` unless rebart), and the training `rfx_levels`.
+#'
+#' @keywords internal
+#' @noRd
+fit_stochtree_bart <- function(x, y, args, training_data, seed) {
+  # --- stochtree argument groups (verify names against installed stochtree) ---
+  general_params <- list(
+    random_seed = if (is.null(seed)) -1L else as.integer(seed),
+    standardize = TRUE,
+    # keep_gfr retains the grow-from-root draws; required for xbart, where
+    # num_mcmc = 0 means the GFR sweep is the only posterior available.
+    keep_gfr = isTRUE(args$keep_gfr %||% TRUE),
+    verbose = FALSE
+  )
+  mean_forest_params <- list(
+    num_trees = as.integer(args$num_trees %||% 75L),
+    alpha = as.numeric(args$alpha %||% 0.95),
+    beta = as.numeric(args$beta %||% 2),
+    min_samples_leaf = as.integer(args$min_samples_leaf %||% 5L),
+    max_depth = as.integer(args$max_depth %||% 10L)
+  )
+  # A variance forest with num_trees = 0 is disabled; vfbart turns it on.
+  variance_forest_params <- list(
+    num_trees = if (isTRUE(args$variance_forest)) {
+      as.integer(args$variance_forest_num_trees %||% 50L)
+    } else {
+      0L
+    }
+  )
+  random_effects_params <- if (isTRUE(args$random_effects)) {
+    list(model_spec = "intercept_only")
+  } else {
+    list()
+  }
+
+  # rebart: resolve an additive group random effect from the configured column.
+  rfx_group_ids <- NULL
+  rfx_levels <- NULL
+  rfx_group_col <- NA_character_
+  if (isTRUE(args$random_effects)) {
+    grp <- resolve_meta_policy_lmm_group(
+      training_data = training_data,
+      random_intercept = args$random_effects_group %||% ".split_group"
+    )
+    rfx_group_col <- grp$group_col
+    rfx_levels <- levels(grp$group_factor)
+    # stochtree expects 1-based contiguous integer group ids.
+    rfx_group_ids <- as.integer(grp$group_factor)
+  }
+
+  model <- stochtree::bart(
+    X_train = as.matrix(x),
+    y_train = as.numeric(y),
+    num_gfr = as.integer(args$num_gfr %||% 0L),
+    num_burnin = as.integer(args$num_burnin %||% 100L),
+    num_mcmc = as.integer(args$num_mcmc %||% 200L),
+    general_params = general_params,
+    mean_forest_params = mean_forest_params,
+    variance_forest_params = variance_forest_params,
+    random_effects_params = random_effects_params,
+    rfx_group_ids_train = rfx_group_ids
+  )
+
+  list(
+    model = model,
+    rfx_group_col = rfx_group_col,
+    rfx_levels = rfx_levels
+  )
+}
+
+#' Predict from a fitted stochtree BART variant
+#'
+#' Localizes stochtree's `predict()` call and normalizes its return value to a
+#' single posterior-mean vector. Handles rebart's group ids, mapping unseen
+#' groups (e.g. a held-out species under `species_holdout`) to the population
+#' mean so cold-start prediction degrades to the mean-forest fit rather than
+#' erroring.
+#'
+#' @param object Fitted `tsb_meta_policy_learner` (BART family).
+#' @param x Numeric prediction model matrix aligned to training columns.
+#' @param prediction_tbl New policy table (supplies the rebart grouping column).
+#'
+#' @return Numeric posterior-mean prediction vector.
+#'
+#' @keywords internal
+#' @noRd
+predict_stochtree_bart <- function(object, x, prediction_tbl) {
+  rfx_group_ids <- NULL
+  rfx_group_col <- as.character(object$rfx_group_col %||% NA_character_)[[1]]
+  if (!is.na(rfx_group_col) && nzchar(rfx_group_col)) {
+    rfx_levels <- object$rfx_levels %||% character(0)
+    group_values <- if (rfx_group_col %in% names(prediction_tbl)) {
+      as.character(prediction_tbl[[rfx_group_col]])
+    } else {
+      rep(NA_character_, nrow(x))
+    }
+    # Unseen/new groups (id 0) fall back to the population-mean random effect.
+    ids <- match(group_values, rfx_levels)
+    ids[is.na(ids)] <- 0L
+    rfx_group_ids <- as.integer(ids)
+  }
+
+  draws <- if (is.null(rfx_group_ids)) {
+    stats::predict(object$fit, as.matrix(x))
+  } else {
+    stats::predict(object$fit, as.matrix(x), rfx_group_ids = rfx_group_ids)
+  }
+
+  # stochtree predict() returns either a draws matrix ([obs x samples]) or a list
+  # carrying the mean prediction under y_hat/mean_forest_predictions; reduce to a
+  # posterior-mean vector either way.
+  yhat <- if (is.list(draws)) {
+    draws$y_hat %||% draws$mean_forest_predictions %||% draws[[1]]
+  } else {
+    draws
+  }
+  if (is.null(dim(yhat))) as.numeric(yhat) else as.numeric(rowMeans(yhat))
+}
+
+#' Predict from a fitted KNN-regression meta-policy learner
+#'
+#' Reapplies the stored training column centers/scales to the new design matrix
+#' (KNN distances are scale-sensitive) and returns the `FNN::knn.reg` local mean.
+#'
+#' @param object Fitted `tsb_meta_policy_learner` (knn family).
+#' @param x Numeric prediction model matrix aligned to training columns.
+#'
+#' @return Numeric prediction vector.
+#'
+#' @keywords internal
+#' @noRd
+predict_knn_regression <- function(object, x) {
+  train_x <- object$fit$x
+  train_y <- object$fit$y
+  x_std <- scale(x, center = object$fit$center, scale = object$fit$scale)
+  # Never request more neighbours than training rows.
+  k <- min(as.integer(object$fit$k %||% 10L), nrow(train_x))
+  reg <- FNN::knn.reg(
+    train = train_x,
+    test = x_std,
+    y = train_y,
+    k = max(1L, k)
+  )
+  as.numeric(reg$pred)
+}
+
+#' Resolve configured LMM random-intercept columns that must survive pruning
+#'
+#' @param methods Active learner method names.
+#' @param method_settings Shared method settings.
+#'
+#' @return Character vector of configured grouping columns, or `character()`
+#'   when no active method belongs to the LMM family.
+#'
+#' @keywords internal
+#' @noRd
+active_meta_policy_lmm_random_intercepts <- function(methods,
+                                                      method_settings = NULL) {
+  methods <- unique(as.character(unlist(methods %||% character(), use.names = FALSE)))
+  methods <- methods[!is.na(methods) & nzchar(methods)]
+  lmm_methods <- methods[vapply(methods, function(method) {
+    spec <- try(
+      meta_policy_method_spec(method, method_settings = method_settings),
+      silent = TRUE
+    )
+    !inherits(spec, "try-error") && identical(spec$family, "lmm")
+  }, logical(1))]
+  if (length(lmm_methods) == 0L) {
+    return(character())
+  }
+
+  unique(unlist(lapply(lmm_methods, function(method) {
+    args <- meta_policy_method_arguments(method, method_settings = method_settings)
+    as.character(args$random_intercept)
+  }), use.names = FALSE))
 }
 
 #' Fit ensemble weights for the meta-policy super learner
@@ -6159,6 +6996,49 @@ fit_meta_policy_base_safely <- function(training_data,
   )
 }
 
+#' Fit one ensemble base learner without hiding LMM configuration failures
+#'
+#' The Super Learner may tolerate numerical failure of an optional base
+#' learner, but it must not silently change its library because an explicitly
+#' configured random intercept is unavailable. LMM failures therefore remain
+#' hard errors; other learner failures retain the existing safe-fit behavior.
+#'
+#' @keywords internal
+#' @noRd
+fit_meta_policy_ensemble_base <- function(training_data,
+                                          method,
+                                          feature_cols,
+                                          outcome_transform,
+                                          lambda_rule,
+                                          inner_folds,
+                                          seed,
+                                          method_settings = NULL) {
+  method_spec <- meta_policy_method_spec(method, method_settings = method_settings)
+  if (identical(method_spec$family, "lmm")) {
+    return(fit_meta_policy_learner(
+      training_data = training_data,
+      method = method,
+      feature_cols = feature_cols,
+      outcome_transform = outcome_transform,
+      lambda_rule = lambda_rule,
+      alpha = NULL,
+      inner_folds = inner_folds,
+      seed = seed,
+      method_settings = method_settings
+    ))
+  }
+  fit_meta_policy_base_safely(
+    training_data = training_data,
+    method = method,
+    feature_cols = feature_cols,
+    outcome_transform = outcome_transform,
+    lambda_rule = lambda_rule,
+    inner_folds = inner_folds,
+    seed = seed,
+    method_settings = method_settings
+  )
+}
+
 #' Predict super-learner scores for one outer crossfit fold with streaming fits
 #'
 #' Runs the inner OOF loop to derive metalearner weights, then fits each base
@@ -6200,6 +7080,10 @@ stream_super_learner_fold <- function(train_data,
   metalearner_loss <- match.arg(metalearner_loss)
   methods <- available_meta_policy_super_methods(super_methods, method_settings = method_settings)
   n_methods <- length(methods)
+  lmm_random_intercepts <- active_meta_policy_lmm_random_intercepts(
+    methods,
+    method_settings = method_settings
+  )
 
   # Strip context/anchor columns from train_data before the inner-fold loop.
   # Each train_data[tr_idx, ] subset copies the data frame; removing unused
@@ -6207,7 +7091,7 @@ stream_super_learner_fold <- function(train_data,
   # explicitly provided; when NULL features are discovered from the data itself.
   if (!is.null(feature_cols) && length(feature_cols) > 0L) {
     keep_train <- intersect(
-      unique(c(feature_cols, ".outcome", ".split_group")),
+      unique(c(feature_cols, ".outcome", ".split_group", lmm_random_intercepts)),
       names(train_data)
     )
     train_data <- train_data[, keep_train, drop = FALSE]
@@ -6225,9 +7109,11 @@ stream_super_learner_fold <- function(train_data,
 
   y <- train_data$.outcome
   pred_cols <- list()
+  oof_seconds <- stats::setNames(rep(NA_real_, n_methods), methods)
 
   for (i_method in seq_along(methods)) {
     method_now <- methods[[i_method]]
+    timing_start <- proc.time()
     report_progress(progress, sprintf("  [%d/%d] OOF: %s", i_method, n_methods, method_now))
     pred_now <- rep(NA_real_, nrow(train_data))
     ok_method <- TRUE
@@ -6239,7 +7125,7 @@ stream_super_learner_fold <- function(train_data,
         next
       }
       fold_seed <- if (is.null(seed)) NULL else as.integer(seed) + as.integer(fold_now)
-      bl <- fit_meta_policy_base_safely(
+      bl <- fit_meta_policy_ensemble_base(
         training_data = train_data[tr_idx, , drop = FALSE],
         method = method_now,
         feature_cols = feature_cols,
@@ -6264,6 +7150,9 @@ stream_super_learner_fold <- function(train_data,
     if (ok_method && all(is.finite(pred_now))) {
       pred_cols[[method_now]] <- pred_now
     }
+    oof_seconds[[method_now]] <- unname(
+      (proc.time() - timing_start)[["elapsed"]]
+    )
   }
 
   if (length(pred_cols) == 0) {
@@ -6284,14 +7173,16 @@ stream_super_learner_fold <- function(train_data,
   acc_pred <- rep(0, n_test)
   weight_sum <- 0
   methods_final <- names(weights)
+  refit_seconds <- stats::setNames(rep(NA_real_, length(methods)), methods)
 
   report_progress(progress, sprintf("  Streaming %d final fits ...", length(methods_final)))
   for (i_final in seq_along(methods_final)) {
     method_now <- methods_final[[i_final]]
     w <- weights[[method_now]]
     if (!is.finite(w) || w <= 0) next
+    timing_start <- proc.time()
     report_progress(progress, sprintf("  [%d/%d] Final: %s (w=%.3f)", i_final, length(methods_final), method_now, w))
-    bl <- fit_meta_policy_base_safely(
+    bl <- fit_meta_policy_ensemble_base(
       training_data = train_data,
       method = method_now,
       feature_cols = feature_cols,
@@ -6309,12 +7200,29 @@ stream_super_learner_fold <- function(train_data,
       }
       rm(bl, sc)
     }
+    refit_seconds[[method_now]] <- unname(
+      (proc.time() - timing_start)[["elapsed"]]
+    )
   }
   if (weight_sum > 0) {
     acc_pred <- acc_pred / weight_sum
   }
   acc_pred <- pmin(pmax(0, acc_pred), prediction_cap)
-  test_data |> dplyr::mutate(.meta_predicted_score = acc_pred)
+  out <- test_data |> dplyr::mutate(.meta_predicted_score = acc_pred)
+  attr(out, "learner_timings") <- tibble::tibble(
+    method = methods,
+    oof_seconds = unname(oof_seconds[methods]),
+    refit_seconds = unname(refit_seconds[methods])
+  ) |>
+    dplyr::mutate(
+      total_seconds = rowSums(
+        cbind(.data$oof_seconds, .data$refit_seconds),
+        na.rm = TRUE
+      ),
+      succeeded_oof = .data$method %in% names(pred_cols),
+      succeeded_refit = .data$method %in% methods_final
+    )
+  out
 }
 
 #' Fit the meta-policy super learner
@@ -6322,7 +7230,7 @@ stream_super_learner_fold <- function(train_data,
 #' @param training_data Model-ready training data.
 #' @param feature_cols Feature columns.
 #' @param outcome_transform Outcome transform.
-#' @param lambda_rule Regularization rule for glmnet-based base learners.
+#' @param lambda_rule Regularization rule for glm-penalized base learners.
 #' @param inner_folds Number of inner folds.
 #' @param seed Integer seed.
 #' @param super_methods Optional requested base methods.
@@ -6348,11 +7256,15 @@ fit_meta_policy_super_learner <- function(training_data,
   metalearner_loss <- match.arg(metalearner_loss)
   methods <- available_meta_policy_super_methods(super_methods, method_settings = method_settings)
   n_methods <- length(methods)
+  lmm_random_intercepts <- active_meta_policy_lmm_random_intercepts(
+    methods,
+    method_settings = method_settings
+  )
 
   # Strip context/anchor columns before inner-fold loop - only feature_cols +
-  # .outcome + .split_group are needed, and every train_idx/valid_idx subset
-  # copies the full data frame.
-  keep_cols <- unique(c(feature_cols, ".outcome", ".split_group"))
+  # .outcome + split/configured random-effect groups are needed, and every
+  # train_idx/valid_idx subset copies the full data frame.
+  keep_cols <- unique(c(feature_cols, ".outcome", ".split_group", lmm_random_intercepts))
   keep_cols <- intersect(keep_cols, names(training_data))
   training_data <- training_data[, keep_cols, drop = FALSE]
 
@@ -6369,8 +7281,10 @@ fit_meta_policy_super_learner <- function(training_data,
   y <- training_data$.outcome
   pred_cols <- list()
   learner_errors <- list()
+  oof_seconds <- stats::setNames(rep(NA_real_, n_methods), methods)
   for (i_method in seq_along(methods)) {
     method_now <- methods[[i_method]]
+    timing_start <- proc.time()
     report_progress(progress, sprintf("  [%d/%d] OOF: %s", i_method, n_methods, method_now))
     pred_now <- rep(NA_real_, nrow(training_data))
     ok_method <- TRUE
@@ -6382,7 +7296,7 @@ fit_meta_policy_super_learner <- function(training_data,
         next
       }
       fold_seed <- if (is.null(seed)) NULL else as.integer(seed) + as.integer(fold_now)
-      learner <- fit_meta_policy_base_safely(
+      learner <- fit_meta_policy_ensemble_base(
         training_data = training_data[train_idx, , drop = FALSE],
         method = method_now,
         feature_cols = feature_cols,
@@ -6411,6 +7325,9 @@ fit_meta_policy_super_learner <- function(training_data,
     if (ok_method && all(is.finite(pred_now))) {
       pred_cols[[method_now]] <- pred_now
     }
+    oof_seconds[[method_now]] <- unname(
+      (proc.time() - timing_start)[["elapsed"]]
+    )
   }
 
   if (length(pred_cols) == 0) {
@@ -6424,10 +7341,12 @@ fit_meta_policy_super_learner <- function(training_data,
   report_progress(progress, sprintf("  Refitting %d base learners on full training data ...", length(weights)))
   final_learners <- list()
   final_method_names <- names(weights)
+  refit_seconds <- stats::setNames(rep(NA_real_, length(final_method_names)), final_method_names)
   for (i_final in seq_along(final_method_names)) {
     method_now <- final_method_names[[i_final]]
+    timing_start <- proc.time()
     report_progress(progress, sprintf("  [%d/%d] Final fit: %s", i_final, length(final_method_names), method_now))
-    learner <- fit_meta_policy_base_safely(
+    learner <- fit_meta_policy_ensemble_base(
       training_data = training_data,
       method = method_now,
       feature_cols = feature_cols,
@@ -6440,6 +7359,9 @@ fit_meta_policy_super_learner <- function(training_data,
     if (!inherits(learner, "try-error")) {
       final_learners[[method_now]] <- learner
     }
+    refit_seconds[[method_now]] <- unname(
+      (proc.time() - timing_start)[["elapsed"]]
+    )
   }
   weights <- weights[names(final_learners)]
   if (length(final_learners) == 0 || length(weights) == 0) {
@@ -6455,6 +7377,19 @@ fit_meta_policy_super_learner <- function(training_data,
   oof_pred <- as.numeric(oof_mat[, names(weights), drop = FALSE] %*% weights)
   oof_weights <- weights[colnames(oof_mat)]
   oof_weights[!is.finite(oof_weights)] <- 0
+  learner_timings <- tibble::tibble(
+    method = methods,
+    oof_seconds = unname(oof_seconds[methods]),
+    refit_seconds = unname(refit_seconds[methods])
+  ) |>
+    dplyr::mutate(
+      total_seconds = rowSums(
+        cbind(.data$oof_seconds, .data$refit_seconds),
+        na.rm = TRUE
+      ),
+      succeeded_oof = .data$method %in% colnames(oof_mat),
+      succeeded_refit = .data$method %in% names(final_learners)
+    )
   structure(
     list(
       fit = final_learners,
@@ -6482,7 +7417,8 @@ fit_meta_policy_super_learner <- function(training_data,
         ),
         weight = c(oof_weights, 1)
       ),
-      learner_errors = learner_errors
+      learner_errors = learner_errors,
+      learner_timings = learner_timings
     ),
     class = "tsb_meta_policy_learner"
   )
@@ -6495,13 +7431,15 @@ fit_meta_policy_super_learner <- function(training_data,
 #' @param feature_cols Optional feature columns. `NULL` uses defaults.
 #' @param outcome_clip_quantile Optional upper quantile used to clip extreme
 #'   outcomes during training-data preparation.
+#' @param retain_cols Optional non-feature columns that downstream learners
+#'   require, such as user-configured random-effect grouping columns.
 #'
 #' @return A tibble with model-ready features and `.outcome`.
 #'
 #' @examples
 #' \dontrun{
 #' training_data <- prepare_meta_policy_data(
-#'   policy_perf = selector@benchmark$species_block_perf,
+#'   policy_perf = species_block_perf,
 #'   outcome_col = "error_abs_log"
 #' )
 #' }
@@ -6510,7 +7448,8 @@ fit_meta_policy_super_learner <- function(training_data,
 prepare_meta_policy_data <- function(policy_perf,
                                      outcome_col = "error_abs_log",
                                      feature_cols = NULL,
-                                     outcome_clip_quantile = NULL) {
+                                     outcome_clip_quantile = NULL,
+                                     retain_cols = NULL) {
   policy_perf <- tibble::as_tibble(policy_perf)
   if (!outcome_col %in% names(policy_perf)) {
     stop(sprintf("Outcome column '%s' was not found.", outcome_col), call. = FALSE)
@@ -6523,11 +7462,15 @@ prepare_meta_policy_data <- function(policy_perf,
   if (length(feature_cols) == 0) {
     stop("No usable meta-policy feature columns were supplied.", call. = FALSE)
   }
+  retain_cols <- intersect(
+    unique(as.character(unlist(retain_cols %||% character(), use.names = FALSE))),
+    names(policy_perf)
+  )
 
   out <- policy_perf |>
     dplyr::filter(.data$valid_prediction, is.finite(.data[[outcome_col]])) |>
     dplyr::select(
-      dplyr::any_of(meta_policy_context_columns(policy_perf)),
+      dplyr::any_of(c(meta_policy_context_columns(policy_perf), retain_cols)),
       dplyr::all_of(feature_cols),
       .outcome = dplyr::all_of(outcome_col)
     )
@@ -6567,14 +7510,14 @@ prepare_meta_policy_data <- function(policy_perf,
 #'
 #' @param training_data Output from `prepare_meta_policy_data()`.
 #' @param method Learner method. `glm` is the simplest linear baseline;
-#'   `gam` fits smooth additive terms; `rpart`, `ranger`, and `xgboost`
-#'   provide tree-based nonlinear learners; the `glmnet_*` variants apply
+#'   `gam` fits smooth additive terms; `rpart`, `rf`, and `xgboost`
+#'   provide tree-based nonlinear learners; the `glm_*` penalized variants apply
 #'   penalized Gaussian regression; and `super_learner` fits a convex ensemble
 #'   over the supported base methods.
 #' @param feature_cols Optional feature columns.
 #' @param outcome_transform Outcome transform. `log1p` stabilizes heavy tails.
 #' @param alpha Optional elastic-net mixing parameter.
-#' @param lambda_rule Regularization rule for glmnet-based learners.
+#' @param lambda_rule Regularization rule for glm-penalized learners.
 #' @param inner_folds Number of inner cross-validation folds.
 #' @param seed Integer seed.
 #' @param super_methods Optional super-learner base methods.
@@ -6588,7 +7531,7 @@ prepare_meta_policy_data <- function(policy_perf,
 #'
 #' @examples
 #' \dontrun{
-#' training_data <- prepare_meta_policy_data(selector@benchmark$species_block_perf)
+#' training_data <- prepare_meta_policy_data(species_block_perf)
 #' learner <- fit_meta_policy_learner(
 #'   training_data = training_data,
 #'   method = "glm"
@@ -6677,11 +7620,11 @@ fit_meta_policy_learner <- function(training_data,
     stop("No non-constant meta-policy feature columns remained after preprocessing.", call. = FALSE)
   }
 
-  if (identical(method_spec$family, "glmnet")) {
+  if (identical(method_spec$family, "glm_penalized")) {
     alpha <- alpha %||% switch(method,
-      glmnet_ridge = 0,
-      glmnet_lasso = 1,
-      glmnet_elasticnet = 0.25
+      glm_ridge = 0,
+      glm_lasso = 1,
+      glm_elastic = 0.25
     )
     mm <- meta_policy_model_matrix(model_frame)
     foldid <- if (".split_group" %in% names(training_data)) {
@@ -6740,7 +7683,7 @@ fit_meta_policy_learner <- function(training_data,
     response = ".outcome_model"
   )
 
-  if (identical(method_spec$family, "quantreg")) {
+  if (identical(method_spec$family, "qreg")) {
     mm <- meta_policy_model_matrix(model_frame)
     qr_now <- qr(mm$x)
     keep_idx <- seq_len(qr_now$rank)
@@ -6781,8 +7724,13 @@ fit_meta_policy_learner <- function(training_data,
 
   if (identical(method_spec$family, "xgboost")) {
     mm <- meta_policy_model_matrix(model_frame)
-    dtrain <- xgboost::xgb.DMatrix(data = mm$x, label = y)
     xgboost_params <- fit_arguments$params %||% list(objective = "reg:squarederror")
+    xgboost_nthread <- as.integer(xgboost_params$nthread %||% 1L)
+    dtrain <- xgboost::xgb.DMatrix(
+      data = mm$x,
+      label = y,
+      nthread = xgboost_nthread
+    )
     fit <- xgboost::xgb.train(
       params = xgboost_params,
       data = dtrain,
@@ -6812,22 +7760,170 @@ fit_meta_policy_learner <- function(training_data,
     ))
   }
 
-  if (identical(method_spec$family, "lmer")) {
+  if (identical(method_spec$family, "bart")) {
+    if (!requireNamespace("stochtree", quietly = TRUE)) {
+      stop(
+        paste(
+          "Fitting BART methods (bart/xbart/wsbart/vfbart/rebart) requires the",
+          "suggested package 'stochtree' to be installed."
+        ),
+        call. = FALSE
+      )
+    }
+    # stochtree consumes a numeric design matrix, so build one via the shared
+    # model-matrix path (same as glmnet/xgboost) rather than a formula. The
+    # rebart variant additionally needs the group column, resolved inside the
+    # helper from `training_data`. All stochtree-specific arguments are confined
+    # to fit_stochtree_bart() so the API surface lives in one place.
+    mm <- meta_policy_model_matrix(model_frame)
+    bart_fit <- fit_stochtree_bart(
+      x = mm$x,
+      y = y,
+      args = fit_arguments,
+      training_data = training_data,
+      seed = seed
+    )
+    return(structure(
+      list(
+        fit = bart_fit$model,
+        method = method,
+        method_family = method_spec$family,
+        method_variant = method_spec$variant,
+        method_settings = method_settings,
+        method_arguments = fit_arguments,
+        feature_cols = feature_cols,
+        blueprint = prep$blueprint,
+        dropped_model_cols = dropped_model_cols,
+        terms = mm$terms,
+        x_columns = colnames(mm$x),
+        rfx_group_col = bart_fit$rfx_group_col,
+        rfx_levels = bart_fit$rfx_levels,
+        outcome_transform = outcome_transform,
+        prediction_cap = meta_policy_prediction_cap(training_data$.outcome),
+        training_n = nrow(model_frame),
+        model_matrix_ncol = ncol(mm$x)
+      ),
+      class = "tsb_meta_policy_learner"
+    ))
+  }
+
+  if (identical(method_spec$family, "knn")) {
+    if (!requireNamespace("FNN", quietly = TRUE)) {
+      stop(
+        "Fitting method 'knn' requires the suggested package 'FNN' to be installed.",
+        call. = FALSE
+      )
+    }
+    # KNN is a lazy learner: "fitting" standardizes the training design matrix
+    # (KNN distances are scale-sensitive) and stashes it with y and k. The stored
+    # column centers/scales are reapplied to new data at predict time.
+    mm <- meta_policy_model_matrix(model_frame)
+    center <- colMeans(mm$x)
+    scale <- apply(mm$x, 2L, stats::sd)
+    scale[!is.finite(scale) | scale == 0] <- 1
+    x_std <- scale(mm$x, center = center, scale = scale)
+    return(structure(
+      list(
+        fit = list(
+          x = x_std,
+          y = as.numeric(y),
+          k = as.integer(fit_arguments$k %||% 10L),
+          center = center,
+          scale = scale
+        ),
+        method = method,
+        method_family = method_spec$family,
+        method_variant = method_spec$variant,
+        method_settings = method_settings,
+        method_arguments = fit_arguments,
+        feature_cols = feature_cols,
+        blueprint = prep$blueprint,
+        dropped_model_cols = dropped_model_cols,
+        terms = mm$terms,
+        x_columns = colnames(mm$x),
+        outcome_transform = outcome_transform,
+        prediction_cap = meta_policy_prediction_cap(training_data$.outcome),
+        training_n = nrow(model_frame),
+        model_matrix_ncol = ncol(mm$x)
+      ),
+      class = "tsb_meta_policy_learner"
+    ))
+  }
+
+  if (identical(method_spec$family, "svr") || identical(method_spec$family, "gpr")) {
+    if (!requireNamespace("kernlab", quietly = TRUE)) {
+      stop(
+        sprintf(
+          "Fitting method '%s' requires the suggested package 'kernlab' to be installed.",
+          method
+        ),
+        call. = FALSE
+      )
+    }
+    # Both kernlab learners take a numeric matrix (built via the shared
+    # model-matrix path) and scale it internally; the RBF width is auto-estimated
+    # by kernlab's sigest heuristic (kpar = "automatic").
+    mm <- meta_policy_model_matrix(model_frame)
+    fit <- if (identical(method_spec$family, "svr")) {
+      kernlab::ksvm(
+        x = mm$x,
+        y = as.numeric(y),
+        type = "eps-svr",
+        kernel = "rbfdot",
+        kpar = "automatic",
+        C = as.numeric(fit_arguments$C %||% 1),
+        epsilon = as.numeric(fit_arguments$epsilon %||% 0.1),
+        scaled = TRUE
+      )
+    } else {
+      kernlab::gausspr(
+        x = mm$x,
+        y = as.numeric(y),
+        type = "regression",
+        kernel = "rbfdot",
+        kpar = "automatic",
+        var = as.numeric(fit_arguments$var %||% 0.001),
+        scaled = TRUE
+      )
+    }
+    return(structure(
+      list(
+        fit = fit,
+        method = method,
+        method_family = method_spec$family,
+        method_variant = method_spec$variant,
+        method_settings = method_settings,
+        method_arguments = fit_arguments,
+        feature_cols = feature_cols,
+        blueprint = prep$blueprint,
+        dropped_model_cols = dropped_model_cols,
+        terms = mm$terms,
+        x_columns = colnames(mm$x),
+        outcome_transform = outcome_transform,
+        prediction_cap = meta_policy_prediction_cap(training_data$.outcome),
+        training_n = nrow(model_frame),
+        model_matrix_ncol = ncol(mm$x)
+      ),
+      class = "tsb_meta_policy_learner"
+    ))
+  }
+
+  if (identical(method_spec$family, "lmm")) {
     if (!requireNamespace("lme4", quietly = TRUE)) {
       stop(
-        "Fitting method 'lmer' requires the suggested package 'lme4' to be installed.",
+        "Fitting method 'lmm' requires the suggested package 'lme4' to be installed.",
         call. = FALSE
       )
     }
 
     # Resolve one conservative random-intercept grouping column before fitting.
-    lmer_group <- resolve_meta_policy_lmer_group(
+    lmm_group <- resolve_meta_policy_lmm_group(
       training_data = training_data,
-      group_cols = fit_arguments$group_cols %||% c(".split_group", "anchor_species", "anchor_family")
+      random_intercept = fit_arguments$random_intercept
     )
-    model_data[[lmer_group$group_col]] <- lmer_group$group_factor
+    model_data[[lmm_group$group_col]] <- lmm_group$group_factor
 
-    fixed_terms <- setdiff(names(model_frame), lmer_group$group_col)
+    fixed_terms <- setdiff(names(model_frame), lmm_group$group_col)
     fixed_term_string <- if (length(fixed_terms) == 0) {
       "1"
     } else {
@@ -6836,7 +7932,7 @@ fit_meta_policy_learner <- function(training_data,
     formula_now <- stats::as.formula(sprintf(
       ".outcome_model ~ %s + (1 | `%s`)",
       fixed_term_string,
-      lmer_group$group_col
+      lmm_group$group_col
     ))
 
     fit <- lme4::lmer(
@@ -6860,8 +7956,8 @@ fit_meta_policy_learner <- function(training_data,
           model_data[intersect(feature_cols, names(model_data))],
           function(x) if (is.factor(x)) levels(x) else NULL
         ),
-        group_col = lmer_group$group_col,
-        group_levels = levels(lmer_group$group_factor),
+        group_col = lmm_group$group_col,
+        group_levels = levels(lmm_group$group_factor),
         outcome_transform = outcome_transform,
         prediction_cap = meta_policy_prediction_cap(training_data$.outcome),
         training_n = nrow(model_data)
@@ -6871,7 +7967,7 @@ fit_meta_policy_learner <- function(training_data,
   }
 
   fit <- switch(method_spec$family,
-    quantreg = quantreg::rq(
+    qreg = quantreg::rq(
       formula_now,
       data = model_data,
       tau = as.numeric(fit_arguments$tau %||% 0.50),
@@ -6886,13 +7982,13 @@ fit_meta_policy_learner <- function(training_data,
       select = isTRUE(fit_arguments$select %||% TRUE),
       ...
     ),
-    earth = {
-      # earth is an optional dependency; guard on it the same way the lmer
+    mars = {
+      # earth is an optional dependency; guard on it the same way the lmm
       # branch guards on lme4 so a missing package fails loudly rather than
       # silently degrading the library.
       if (!requireNamespace("earth", quietly = TRUE)) {
         stop(
-          "Fitting method 'earth' requires the suggested package 'earth' to be installed.",
+          "Fitting method 'mars' requires the suggested package 'earth' to be installed.",
           call. = FALSE
         )
       }
@@ -6914,7 +8010,7 @@ fit_meta_policy_learner <- function(training_data,
       control = fit_arguments$control %||% rpart::rpart.control(),
       ...
     ),
-    ranger = do.call(
+    rf = do.call(
       ranger::ranger,
       c(
         list(
@@ -6932,10 +8028,55 @@ fit_meta_policy_learner <- function(training_data,
         if (!is.null(seed)) list(seed = as.integer(seed)) else list(),
         list(...)
       )
-    )
+    ),
+    cubist = {
+      if (!requireNamespace("Cubist", quietly = TRUE)) {
+        stop(
+          "Fitting method 'cubist' requires the suggested package 'Cubist' to be installed.",
+          call. = FALSE
+        )
+      }
+      # Cubist uses an x/y interface (data frame of predictors); `neighbors` is a
+      # predict-time correction, carried in method_arguments to the predict path.
+      Cubist::cubist(
+        x = as.data.frame(model_frame),
+        y = y,
+        committees = as.integer(fit_arguments$committees %||% 1L)
+      )
+    },
+    qrf = {
+      if (!requireNamespace("ranger", quietly = TRUE)) {
+        stop(
+          "Fitting method 'qrf' requires the suggested package 'ranger' to be installed.",
+          call. = FALSE
+        )
+      }
+      # Quantile regression forest: quantreg + keep.inbag enable conditional
+      # quantile prediction; num.threads pinned to 1 like the ranger learner.
+      do.call(
+        ranger::ranger,
+        c(
+          list(
+            x = as.data.frame(model_frame),
+            y = y,
+            num.threads = 1L,
+            verbose = FALSE,
+            quantreg = TRUE,
+            keep.inbag = TRUE,
+            num.trees = as.integer(fit_arguments$num.trees %||% 500L),
+            mtry = fit_arguments$mtry %||% NULL,
+            min.node.size = as.integer(fit_arguments$min.node.size %||% 10L),
+            sample.fraction = as.numeric(fit_arguments$sample.fraction %||% 1),
+            replace = isTRUE(fit_arguments$replace %||% TRUE),
+            max.depth = if (is.null(fit_arguments$max.depth)) NULL else as.integer(fit_arguments$max.depth)
+          ),
+          if (!is.null(seed)) list(seed = as.integer(seed)) else list()
+        )
+      )
+    }
   )
 
-  if (identical(method_spec$family, "ranger")) {
+  if (identical(method_spec$family, "rf")) {
     fit$predictions <- NULL
     fit$call <- NULL
   }
@@ -6974,7 +8115,7 @@ fit_meta_policy_learner <- function(training_data,
 #' \dontrun{
 #' scored <- predict_meta_policy_score(
 #'   learner,
-#'   new_policy_tbl = selector@predictions@intervals
+#'   new_policy_tbl = selector@predictions
 #' )
 #' }
 #' @keywords internal
@@ -7004,7 +8145,7 @@ predict_meta_policy_score <- function(object,
     }, numeric(nrow(new_policy_tbl)))
     pred <- as.numeric(pred_mat %*% object$weights[colnames(pred_mat)])
     pred <- pmin(pmax(0, pred), object$prediction_cap %||% Inf)
-  } else if (identical(method_family, "glmnet") || identical(method_family, "xgboost") || identical(method_family, "quantreg")) {
+  } else if (identical(method_family, "glm_penalized") || identical(method_family, "xgboost") || identical(method_family, "qreg") || identical(method_family, "bart") || identical(method_family, "knn") || identical(method_family, "svr") || identical(method_family, "gpr")) {
     prep <- meta_policy_blueprint(
       prediction_tbl,
       object$feature_cols,
@@ -7016,21 +8157,44 @@ predict_meta_policy_score <- function(object,
       terms_obj = object$terms,
       x_columns = object$x_columns
     )
-    pred <- if (identical(method_family, "glmnet")) {
+    pred <- if (identical(method_family, "glm_penalized")) {
       glmnet_predict <- if (inherits(object$fit, "cv.glmnet")) {
         utils::getFromNamespace("predict.cv.glmnet", "glmnet")
       } else {
         utils::getFromNamespace("predict.glmnet", "glmnet")
       }
       as.numeric(glmnet_predict(object$fit, newx = mm$x, s = object$lambda))
-    } else if (identical(method_family, "quantreg")) {
+    } else if (identical(method_family, "qreg")) {
       coef_now <- suppressWarnings(as.numeric(object$fit$coefficients %||% object$fit$coef))
       coef_now[!is.finite(coef_now)] <- 0
       as.numeric(mm$x %*% coef_now)
+    } else if (identical(method_family, "bart")) {
+      predict_stochtree_bart(object, mm$x, prediction_tbl)
+    } else if (identical(method_family, "knn")) {
+      predict_knn_regression(object, mm$x)
+    } else if (identical(method_family, "svr") || identical(method_family, "gpr")) {
+      # kernlab dispatches an S4 predict method for ksvm/gausspr; return the mean.
+      as.numeric(kernlab::predict(object$fit, mm$x))
     } else {
       as.numeric(stats::predict(object$fit, newdata = xgboost::xgb.DMatrix(mm$x)))
     }
-  } else if (identical(method_family, "ranger")) {
+  } else if (identical(method_family, "qrf")) {
+    prep <- meta_policy_blueprint(
+      prediction_tbl,
+      object$feature_cols,
+      blueprint = object$blueprint
+    )
+    pred_frame <- prep$data[, setdiff(names(prep$data), object$dropped_model_cols %||% character()), drop = FALSE]
+    ranger_predict <- utils::getFromNamespace("predict.ranger", "ranger")
+    quantile_now <- as.numeric(object$method_arguments$quantile %||% 0.9)
+    preds <- ranger_predict(
+      object$fit,
+      data = pred_frame,
+      type = "quantiles",
+      quantiles = quantile_now
+    )$predictions
+    pred <- as.numeric(if (is.null(dim(preds))) preds else preds[, 1L])
+  } else if (identical(method_family, "rf")) {
     prep <- meta_policy_blueprint(
       prediction_tbl,
       object$feature_cols,
@@ -7071,10 +8235,11 @@ predict_meta_policy_score <- function(object,
       }
       mm <- mm[, names(coef_now), drop = FALSE]
       pred <- as.numeric(mm %*% coef_now)
-    } else if (identical(method_family, "lmer")) {
+    } else if (identical(method_family, "lmm")) {
       # Carry the stored grouping column forward and allow new levels so cold
       # groups fall back to the fixed-effect mean rather than erroring.
       group_col <- as.character(object$group_col %||% "")[[1]]
+      group_values <- rep("missing", nrow(pred_frame))
       if (nzchar(group_col)) {
         group_values <- if (group_col %in% names(prediction_tbl)) {
           as.character(prediction_tbl[[group_col]])
@@ -7087,7 +8252,45 @@ predict_meta_policy_score <- function(object,
           levels = unique(c(object$group_levels %||% character(), group_values))
         )
       }
-      pred <- as.numeric(stats::predict(object$fit, newdata = pred_frame, allow.new.levels = TRUE))
+      # lme4's predict() builds the full fixed-effect design matrix from the
+      # formula. When the training fit was rank deficient, fixef() omits
+      # aliased columns but the new matrix retains them, causing
+      # `X %*% fixef(object)` to be non-conformable. Align by coefficient name
+      # explicitly, then add the fitted random intercept for known groups.
+      fixed_formula <- lme4::nobars(stats::formula(object$fit))
+      fixed_terms <- stats::delete.response(stats::terms(fixed_formula))
+      fixed_matrix <- stats::model.matrix(fixed_terms, data = pred_frame)
+      fixed_coef <- lme4::fixef(object$fit)
+      missing_fixed <- setdiff(names(fixed_coef), colnames(fixed_matrix))
+      if (length(missing_fixed) > 0L) {
+        add <- matrix(0, nrow = nrow(fixed_matrix), ncol = length(missing_fixed))
+        colnames(add) <- missing_fixed
+        fixed_matrix <- cbind(fixed_matrix, add)
+      }
+      fixed_matrix <- fixed_matrix[, names(fixed_coef), drop = FALSE]
+      pred <- as.numeric(fixed_matrix %*% fixed_coef)
+      if (nzchar(group_col)) {
+        random_effects <- tryCatch(
+          lme4::ranef(object$fit)[[group_col]][, "(Intercept)"],
+          error = function(e) NULL
+        )
+        if (!is.null(random_effects)) {
+          random_add <- unname(random_effects[match(group_values, names(random_effects))])
+          random_add[!is.finite(random_add)] <- 0
+          pred <- pred + random_add
+        }
+      }
+    } else if (identical(method_family, "mars")) {
+      earth_predict <- utils::getFromNamespace("predict.earth", "earth")
+      pred <- as.numeric(earth_predict(object$fit, newdata = pred_frame))
+    } else if (identical(method_family, "cubist")) {
+      # `neighbors` (0-9) applies Cubist's instance-based prediction correction.
+      cubist_predict <- utils::getFromNamespace("predict.cubist", "Cubist")
+      pred <- as.numeric(cubist_predict(
+        object$fit,
+        pred_frame,
+        neighbors = as.integer(object$method_arguments$neighbors %||% 0L)
+      ))
     } else {
       pred <- as.numeric(stats::predict(object$fit, newdata = pred_frame))
     }
@@ -7117,15 +8320,13 @@ predict_meta_policy_score <- function(object,
 #' @param outcome_clip_quantile Optional upper quantile used to clip extreme
 #'   outcomes before fitting.
 #' @param outcome_transform Outcome transform used during training.
-#' @param lambda_rule Regularization rule for glmnet-based learners.
+#' @param lambda_rule Regularization rule for glm-penalized learners.
 #' @param alpha Optional elastic-net mixing parameter.
 #' @param inner_folds Number of inner cross-validation folds.
 #' @param super_methods Optional super-learner base methods.
 #' @param metalearner_loss Loss used to combine super-learner base predictions.
 #' @param method_settings Optional shared method-specific tuning settings.
 #' @param workers Number of workers used for cross-fitting.
-#' @param package_dir Optional package source directory used to initialize
-#'   worker processes.
 #' @param progress Logical. Emit `tsb_message()` progress lines when `TRUE`.
 #'
 #' @return A list with cross-fitted predictions and fold assignments.
@@ -7133,7 +8334,7 @@ predict_meta_policy_score <- function(object,
 #' @examples
 #' \dontrun{
 #' crossfit_obj <- crossfit_meta_policy_learner(
-#'   policy_perf = selector@benchmark$species_block_perf,
+#'   policy_perf = species_block_perf,
 #'   method = "glm"
 #' )
 #' }
@@ -7155,7 +8356,6 @@ crossfit_meta_policy_learner <- function(policy_perf,
                                          metalearner_loss = "squared_error",
                                          method_settings = NULL,
                                          workers = 1L,
-                                         package_dir = NULL,
                                          progress = FALSE) {
   policy_perf <- tibble::as_tibble(policy_perf)
   group_col <- resolve_meta_policy_group_col(policy_perf, group_col = group_col)
@@ -7176,11 +8376,23 @@ crossfit_meta_policy_learner <- function(policy_perf,
     fold_id = rep(seq_len(n_folds), length.out = length(groups))
   )
 
+  is_super <- identical(as.character(method), "super_learner")
+  active_methods <- if (is_super) {
+    available_meta_policy_super_methods(super_methods, method_settings = method_settings)
+  } else {
+    method
+  }
+  lmm_random_intercepts <- active_meta_policy_lmm_random_intercepts(
+    active_methods,
+    method_settings = method_settings
+  )
+
   data_all <- prepare_meta_policy_data(
     policy_perf = policy_perf,
     outcome_col = outcome_col,
     feature_cols = feature_cols,
-    outcome_clip_quantile = outcome_clip_quantile
+    outcome_clip_quantile = outcome_clip_quantile,
+    retain_cols = c(group_col, lmm_random_intercepts)
   ) |>
     dplyr::mutate(.split_group = as.character(.data[[group_col]])) |>
     dplyr::left_join(fold_tbl, by = c(".split_group" = "group_id"))
@@ -7195,9 +8407,8 @@ crossfit_meta_policy_learner <- function(policy_perf,
   data_all <- data_all |>
     dplyr::select(-dplyr::any_of(c("fold_id.x", "fold_id.y")))
 
-  is_super <- identical(as.character(method), "super_learner")
   n_base_methods <- if (is_super) {
-    length(available_meta_policy_super_methods(super_methods, method_settings = method_settings))
+    length(active_methods)
   } else {
     1L
   }
@@ -7212,7 +8423,9 @@ crossfit_meta_policy_learner <- function(policy_perf,
   data_clip_cap <- attr(data_all, "outcome_clip_cap")
   train_keep <- if (!is.null(feature_cols) && length(feature_cols) > 0L) {
     intersect(
-      unique(c(feature_cols, ".outcome", ".split_group", "fold_id")),
+      unique(c(
+        feature_cols, ".outcome", ".split_group", "fold_id", lmm_random_intercepts
+      )),
       names(data_all)
     )
   } else {
@@ -7276,7 +8489,13 @@ crossfit_meta_policy_learner <- function(policy_perf,
       )
       preds <- predict_meta_policy_score(learner, test)
     }
-    preds |> dplyr::mutate(fold_id = f)
+    learner_timings <- attr(preds, "learner_timings")
+    out <- preds |> dplyr::mutate(fold_id = f)
+    if (is.data.frame(learner_timings) && nrow(learner_timings) > 0L) {
+      attr(out, "learner_timings") <- learner_timings |>
+        dplyr::mutate(outer_fold = f)
+    }
+    out
   }
 
   # Replace the closure's captured environment with a minimal set of scalars.
@@ -7313,8 +8532,7 @@ crossfit_meta_policy_learner <- function(policy_perf,
 
   if (workers > 1L && n_folds > 1L) {
     cluster_obj <- initialize_parallel_cluster(
-      workers = n_workers_eff,
-      package_dir = package_dir
+      workers = n_workers_eff
     )
     on.exit(parallel::stopCluster(cluster_obj), add = TRUE)
     tsb_cluster_export(
@@ -7325,10 +8543,9 @@ crossfit_meta_policy_learner <- function(policy_perf,
       c("run_fold_split"),
       envir = environment()
     )
-    pred_rows <- parallel::parLapplyLB(cluster_obj, fold_splits, run_fold_split) |>
-      dplyr::bind_rows()
+    fold_results <- parallel::parLapplyLB(cluster_obj, fold_splits, run_fold_split)
   } else {
-    pred_rows <- purrr::map_dfr(seq_along(fold_splits), function(i) {
+    fold_results <- lapply(seq_along(fold_splits), function(i) {
       report_progress(
         progress,
         sprintf(
@@ -7339,6 +8556,11 @@ crossfit_meta_policy_learner <- function(policy_perf,
       run_fold_split(fold_splits[[i]])
     })
   }
+  learner_timings <- dplyr::bind_rows(lapply(
+    fold_results,
+    function(result) attr(result, "learner_timings") %||% tibble::tibble()
+  ))
+  pred_rows <- dplyr::bind_rows(fold_results)
 
   report_progress(progress, sprintf("Cross-fit complete: %d prediction rows collected.", nrow(pred_rows)))
 
@@ -7352,6 +8574,7 @@ crossfit_meta_policy_learner <- function(policy_perf,
   list(
     fold_assignments = fold_tbl,
     predictions = pred_rows,
+    learner_timings = learner_timings,
     outcome_clip_quantile = data_clip_quantile,
     outcome_clip_cap = data_clip_cap
   )
@@ -7653,7 +8876,7 @@ prepare_recommendation_context <- function(candidate_models,
     length(candidates_obj@similarity_matrix) > 0) {
     candidates_obj@similarity_matrix
   } else {
-    prepare_similarity_matrix(
+    prepare_similarities(
       candidate_models = candidate_models_,
       species_traits = cfg$species_traits %||% NULL,
       study_traits = cfg$study_traits %||% NULL,
@@ -7670,7 +8893,7 @@ prepare_recommendation_context <- function(candidate_models,
     length(candidates_obj@gower_distances) > 0) {
     candidates_obj@gower_distances
   } else {
-    build_gower_distances(sim_obj)
+    construct_gower_distances(sim_obj)
   }
   candidate_models_prepared <- tibble::as_tibble(sim_obj$candidate_models %||% candidate_models_)
   candidate_models_scored <- screen_missing_metadata(
@@ -8667,7 +9890,7 @@ recommend_ts_model <- function(target_species,
   }
   if (is.null(candidate_models) && is.null(context)) {
     stop(
-      "Supply `candidate_models` as a table or staged object, or provide an explicit recommendation `context`.",
+      "Supply `candidate_models` as a table or package object, or provide an explicit recommendation `context`.",
       call. = FALSE
     )
   }

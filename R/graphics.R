@@ -1440,7 +1440,7 @@ plot_overlap_heatmap <- function(overlap_tbl,
 
 #' Resolve raw admissibility plotting config
 #'
-#' @param config Raw config list or staged object.
+#' @param config Raw config list or package object.
 #'
 #' @return Named list.
 #' @keywords internal
@@ -1466,7 +1466,7 @@ admissibility_plot_config_data <- function(config = NULL) {
 
 #' Resolve one raw admissibility section
 #'
-#' @param config Raw config list or staged object.
+#' @param config Raw config list or package object.
 #'
 #' @return Named list.
 #' @keywords internal
@@ -1648,7 +1648,7 @@ admissibility_plot_gate_colors <- function(reasons) {
 
 #' Resolve admissibility gate specifications for plotting
 #'
-#' @param config Raw config list or staged object.
+#' @param config Raw config list or package object.
 #' @param observed_reasons Gate reason codes found in the data.
 #' @param gate_labs Optional named vector mapping gate codes to labels.
 #' @param gate_cols Optional named vector mapping gate labels to colors.
@@ -1727,7 +1727,7 @@ admissibility_plot_gate_spec <- function(config = NULL,
 #' Plot admissibility gate composition
 #'
 #' @param gate_tbl Admissibility gate-count table.
-#' @param config Raw config list or staged object used to derive the active gate
+#' @param config Raw config list or package object used to derive the active gate
 #'   legend.
 #' @param gate_labs Optional named vector mapping gate codes to labels.
 #' @param gate_cols Optional named vector mapping gate labels to colors.
@@ -2003,7 +2003,7 @@ conjurer_heatmap_plot <- function(x,
                                   show_values = TRUE,
                                   na_value = "grey90",
                                   tile_colour = "white") {
-  # Accept either the staged class or a plain summary table for figure work.
+  # Accept either the prepared class or a plain summary table for figure work.
   conjurer_obj <- is_s7_instance(x, "Conjurer")
   plot_df <- if (conjurer_obj) {
     tibble::as_tibble(x@summary)
@@ -2872,13 +2872,13 @@ plot_selected_intervals <- function(sel_tbl,
     )
   ) +
     ggplot2::geom_hline(yintercept = 1, linetype = "dashed", colour = "grey55") +
+    ggplot2::geom_errorbar(width = 0.14) +
+    ggplot2::geom_point(size = 2.8) +
     ggplot2::geom_vline(
       xintercept = seq_along(levels(plot_df$anchor_species)),
       linewidth = 0.35,
       colour = "grey88"
     ) +
-    ggplot2::geom_errorbar(width = 0.14) +
-    ggplot2::geom_point(size = 2.8) +
     ggplot2::coord_flip() +
     ggplot2::scale_y_log10(
       breaks = axis_breaks,
@@ -3069,7 +3069,7 @@ plot_anchor_summary <- function(integrated_tbl,
           TRUE ~ NA_character_
         )
       ) |>
-      dplyr::select(.data$anchor_species, .data$x_pos, .data$q50, .data$ymin, .data$ymax, .data$interval_level) |>
+      dplyr::select("anchor_species", "x_pos", "q50", "ymin", "ymax", "interval_level") |>
       dplyr::filter(
         is.finite(.data$ymin),
         is.finite(.data$ymax),
@@ -3711,8 +3711,22 @@ plot_policy_coefficients <- function(coefficient_tbl) {
   } else {
     tibble::tibble()
   }
-  conditional_key <- conditional_df |>
-    dplyr::select(.data$anchor_species, .data$parameter, conditional_lo = .data$lo, conditional_hi = .data$hi)
+  conditional_key <- if (nrow(conditional_df) > 0L) {
+    conditional_df |>
+      dplyr::select(
+        "anchor_species",
+        "parameter",
+        conditional_lo = "lo",
+        conditional_hi = "hi"
+      )
+  } else {
+    tibble::tibble(
+      anchor_species = character(),
+      parameter = character(),
+      conditional_lo = numeric(),
+      conditional_hi = numeric()
+    )
+  }
   post_df <- post_df |>
     dplyr::left_join(conditional_key, by = c("anchor_species", "parameter")) |>
     dplyr::mutate(
@@ -4551,7 +4565,7 @@ plot_anchor_audit <- function(audit_tbl) {
   plot_df <- audit_tbl |>
     dplyr::mutate(anchor_species = forcats::fct_inorder(.data$anchor_species)) |>
     dplyr::select(dplyr::all_of(keep_cols)) |>
-    tidyr::pivot_longer(cols = -c(.data$anchor_species, .data$selected_policy_display), names_to = "metric", values_to = "value") |>
+    tidyr::pivot_longer(cols = -c("anchor_species", "selected_policy_display"), names_to = "metric", values_to = "value") |>
     dplyr::mutate(
       metric = factor(
         dplyr::recode(.data$metric, !!!metric_labs),

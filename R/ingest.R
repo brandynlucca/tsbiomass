@@ -3276,19 +3276,22 @@ convert_to_length_form <- function(tbl) {
   }
 
   length_bounds <- extract_length_bounds(tbl_)
-  ts_at_lower <- tbl_$slope_len * log10(pmax(length_bounds$lower, 1e-6)) + tbl_$intercept_len
-  ts_at_upper <- tbl_$slope_len * log10(pmax(length_bounds$upper, 1e-6)) + tbl_$intercept_len
-  tbl_$implausible_ts_length_coefficients <- is.finite(tbl_$slope_len) &
-    is.finite(tbl_$intercept_len) &
-    (
-      tbl_$slope_len <= 0 |
-        tbl_$slope_len > 40 |
-        tbl_$intercept_len > -20
-    )
+  ts_at_lower <- rep(NA_real_, nrow(tbl_))
+  ts_at_upper <- rep(NA_real_, nrow(tbl_))
+  valid_lower <- is.finite(length_bounds$lower) & length_bounds$lower > 0
+  valid_upper <- is.finite(length_bounds$upper) & length_bounds$upper > 0
+  ts_at_lower[valid_lower] <- tbl_$slope_len[valid_lower] *
+    log10(length_bounds$lower[valid_lower]) + tbl_$intercept_len[valid_lower]
+  ts_at_upper[valid_upper] <- tbl_$slope_len[valid_upper] *
+    log10(length_bounds$upper[valid_upper]) + tbl_$intercept_len[valid_upper]
+  # Standardization is algebraic, not a coefficient plausibility screen.
+  # Preserve every finite coefficient pair supplied in a compatible equation
+  # form instead of erasing observations with hard-coded slope/intercept rules.
+  tbl_$implausible_ts_length_coefficients <- rep(FALSE, nrow(tbl_))
   tbl_$invalid_ts_length_curve <- (
     is.finite(ts_at_lower) & is.finite(ts_at_upper) &
       (ts_at_lower >= 0 | ts_at_upper >= 0)
-  ) | (tbl_$implausible_ts_length_coefficients %in% TRUE)
+  )
   tbl_$slope_len[tbl_$invalid_ts_length_curve %in% TRUE] <- NA_real_
   tbl_$intercept_len[tbl_$invalid_ts_length_curve %in% TRUE] <- NA_real_
 

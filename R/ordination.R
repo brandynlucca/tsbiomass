@@ -77,7 +77,7 @@ drop_ordination_synthetic_overlap_traits <- function(x,
 #' vectors and factor centroids with `vegan::envfit()`.
 #'
 #' @param dist_mat A distance matrix, `dist` object, or a [Candidates] object
-#'   with populated `@gower_distances`.
+#'   with constructed Gower distances.
 #' @param trait_table Optional trait table aligned to `dist_mat`.
 #' @param nmds_args Optional named list of arguments passed to
 #'   `vegan::metaMDS()`.
@@ -89,7 +89,7 @@ drop_ordination_synthetic_overlap_traits <- function(x,
 #'   `vegan::envfit()`.
 #' @param reference_ids Optional vector of reference model IDs. When `dist_mat`
 #'   is a [Candidates] object and `reference_ids` is `NULL`, the stored
-#'   `@reference_anchors` table is used automatically.
+#'   reference-anchor table is used automatically.
 #' @param join_cols Additional model metadata columns to join onto the stored
 #'   model-level ordination points when `dist_mat` is a [Candidates] object.
 #' @param cluster_args Optional named list passed to
@@ -103,7 +103,7 @@ drop_ordination_synthetic_overlap_traits <- function(x,
 #' @param progress Logical scalar controlling stage messages.
 #'
 #' @return When `dist_mat` is a [Candidates] object, returns that object with a
-#'   downstream-ready ordination bundle stored in `@ordination`. Otherwise,
+#'   downstream-ready ordination bundle. Otherwise,
 #'   returns a list with `ordination`, `points`, `loadings`, and `centroids`.
 #'
 #' @examples
@@ -112,10 +112,10 @@ drop_ordination_synthetic_overlap_traits <- function(x,
 #'   study = list(path = "input.xlsx"),
 #'   anchors = list(selector = list(regional_body = "SWFSC"))
 #' ))
-#' candidates <- prepare_similarity_matrix(candidate_models = candidates)
-#' candidates <- build_gower_distances(candidates)
+#' candidates <- prepare_similarities(candidate_models = candidates)
+#' candidates <- construct_gower_distances(candidates)
 #' candidates <- run_ordination(candidates)
-#' candidates@ordination$model$model_scores
+#' candidates
 #' }
 #'
 #' @export
@@ -151,7 +151,7 @@ run_ordination <- function(dist_mat,
 
   # Support the high-level `Candidates` path first so model and
   # species ordination support objects can be built in one call and stored back
-  # onto the staged candidate object.
+  # onto the Candidates object.
   if (is_s7_instance(dist_mat, "Candidates")) {
     candidates_obj <- dist_mat
     cfg_data <- candidates_config_data(candidates_obj)
@@ -164,13 +164,13 @@ run_ordination <- function(dist_mat,
     include_centroids <- include_centroids %||% ordination_cfg$include_centroids %||% FALSE
     if (length(candidates_obj@gower_distances) == 0) {
       stop(
-        "Candidates object has no Gower-distance bundle. Run `build_gower_distances()` first.",
+        "Candidates object has no Gower-distance bundle. Run `construct_gower_distances()` first.",
         call. = FALSE
       )
     }
     if (length(candidates_obj@similarity_matrix) == 0) {
       stop(
-        "Candidates object has no prepared similarity state. Run `prepare_similarity_matrix()` first.",
+        "Candidates object has no prepared similarity state. Run `prepare_similarities()` first.",
         call. = FALSE
       )
     }
@@ -414,7 +414,7 @@ run_ordination <- function(dist_mat,
 
   # Start from the standard package defaults, then let the caller override only
   # the metaMDS arguments they actually care about.
-  # Keep the default restart budget modest because the staged object may run
+  # Keep the default restart budget modest because the package object may run
   # both model-level and species-level ordinations in one pass, and callers can
   # always raise these values explicitly when they want a more exhaustive NMDS
   # search.

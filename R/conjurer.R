@@ -1,13 +1,22 @@
 #' Conjurer S7 Class
 #'
 #' `Conjurer` runs a targeted missing-study-metadata uncertainty analysis on a
-#' staged [PolicySelector] and an optional fitted [PolicyLearner]. It keeps the
+#' [PolicySelector] and an optional fitted [PolicyLearner]. It keeps the
 #' fitted selector state fixed, disables only the missingness admissibility gate for
 #' the auxiliary analysis, imputes one selected study trait at a time, and
 #' reruns the downstream recommendation path across repeated stochastic draws.
 #'
 #' The resulting object stores the raw draw-level recommendation outputs and a
 #' compact anchor-by-trait instability summary.
+#'
+#' @section Properties:
+#' - `selector`: Source [PolicySelector].
+#' - `learner`: Optional fitted [PolicyLearner].
+#' - `config`: Conjurer analysis configuration.
+#' - `results`: Raw simulation result bundle.
+#' - `manifest`: Draw manifest.
+#' - `draws`: Draw-level recommendation rows.
+#' - `summary`: Anchor-by-trait instability summary.
 #'
 #' @examples
 #' \dontrun{
@@ -22,7 +31,7 @@
 #'
 #' conjurer <- as_conjurer(selector, learner = learner)
 #' conjurer <- simulate(conjurer)
-#' conjurer@summary
+#' conjurer
 #' }
 #'
 #' @name Conjurer-class
@@ -30,6 +39,7 @@
 #' @aliases Conjurer
 NULL
 
+#' @export
 Conjurer <- S7::new_class(
   "Conjurer",
   properties = list(
@@ -259,6 +269,12 @@ conjurer_trait_columns <- function(object,
                                    traits = NULL,
                                    config = NULL) {
   cfg <- conjurer_analysis_config(object, config)
+  candidate_models <- if (is_s7_instance(object@selector@candidates, "Candidates")) {
+    object@selector@candidates@candidate_models
+  } else {
+    object@selector@candidates
+  }
+  candidate_names <- names(candidate_models)
 
   # Default to the fitted study-trait set rather than all study metadata.
   if (is.null(traits)) {
@@ -267,7 +283,7 @@ conjurer_trait_columns <- function(object,
 
   traits <- unique(as.character(unlist(traits, use.names = FALSE)))
   traits <- traits[!is.na(traits) & nzchar(traits)]
-  intersect(traits, names(object@selector@candidates@candidate_models))
+  intersect(traits, candidate_names)
 }
 
 #' Disable only the missingness gate in one config bundle
@@ -375,7 +391,7 @@ conjurer_prepare_draw_candidates <- function(candidates,
                                              reference_anchors,
                                              cfg,
                                              registry_path = NULL) {
-  # Rebuild the staged candidate object before any optional geometry refresh.
+  # Rebuild the Candidates object before any optional geometry refresh.
   out <- conjurer_rebuild_candidates(
     candidates = candidates,
     candidate_models = candidate_models,
@@ -388,7 +404,7 @@ conjurer_prepare_draw_candidates <- function(candidates,
   }
 
   # Recompute the similarity state from the fitted selector settings.
-  out <- prepare_similarity_matrix(
+  out <- prepare_similarities(
     candidate_models = out,
     species_traits = as.list(cfg$species_weights),
     study_traits = as.list(cfg$study_weights),
@@ -401,7 +417,7 @@ conjurer_prepare_draw_candidates <- function(candidates,
   )
 
   # Recompute the distance bundle used by admissibility screening.
-  out <- build_gower_distances(out)
+  out <- construct_gower_distances(out)
 
   # Recompute ordination only when the base selector already had it.
   if (length(candidates@ordination) > 0) {
@@ -440,7 +456,7 @@ conjurer_trait_distance_matrix <- function(object,
   }
 
   # Build one context-specific similarity bundle for the imputation donor map.
-  sim_obj <- prepare_similarity_matrix(
+  sim_obj <- prepare_similarities(
     candidate_models = models_tbl,
     species_traits = as.list(species_weights_now),
     study_traits = as.list(study_weights_now),
@@ -451,7 +467,7 @@ conjurer_trait_distance_matrix <- function(object,
     registry_path = registry_path,
     seed = cfg$seed
   )
-  dist_obj <- build_gower_distances(sim_obj)
+  dist_obj <- construct_gower_distances(sim_obj)
   dist_obj$combined_dist
 }
 
@@ -634,7 +650,7 @@ conjurer_trait_draw_results <- function(object,
       candidate_models = draw_tbl
     )
 
-    # Rebuild the staged candidates object for this imputed draw.
+    # Rebuild the candidates object for this imputed draw.
     draw_candidates <- conjurer_prepare_draw_candidates(
       candidates = object@selector@candidates,
       candidate_models = draw_tbl,
@@ -650,7 +666,7 @@ conjurer_trait_draw_results <- function(object,
     )
 
     # Disable only the missingness gate for the uncertainty-propagation draw.
-    draw_predictions <- stats::predict(
+    draw_predictions <- predict_generic(
       draw_selector,
       learner = object@learner,
       config = conjurer_draw_config(
@@ -666,9 +682,9 @@ conjurer_trait_draw_results <- function(object,
     )
 
     # Attach the draw metadata to the selected rows and donor consensus rows.
-    selected_rows[[length(selected_rows) + 1L]] <- tibble::as_tibble(draw_predictions@selections) |>
+    selected_rows[[length(selected_rows) + 1L]] <- tibble::as_tibble(draw_predictions) |>
       dplyr::mutate(trait = trait_name, draw_id = draw_id, .before = 1)
-    consensus_rows[[length(consensus_rows) + 1L]] <- tibble::as_tibble(draw_predictions@consensus) |>
+    consensus_rows[[length(consensus_rows) + 1L]] <- tibble::as_tibble(draw_predictions) |>
       dplyr::mutate(trait = trait_name, draw_id = draw_id, .before = 1)
   }
 
@@ -893,7 +909,7 @@ conjurer_summarize_draws <- function(selected_draws,
 
   # Build the operational baseline prediction once for later switch-rate totals.
   report_progress(progress, "Conjurer: building baseline predictions.")
-  baseline_predictions <- stats::predict(object@selector, learner = object@learner)
+  baseline_predictions <- predict_generic(object@selector, learner = object@learner)
 
   trait_results <- list()
   manifest_rows <- list()
@@ -932,7 +948,7 @@ conjurer_summarize_draws <- function(selected_draws,
     conjurer_summarize_draws(
       selected_draws = draw_tbl,
       consensus_draws = consensus_tbl,
-      baseline_selected = baseline_predictions@selections
+      baseline_selected = baseline_predictions
     )
   } else {
     tibble::tibble()
@@ -1042,7 +1058,7 @@ S7::method(print_generic, Conjurer) <- function(x, ...) {
   stage_label <- if (nrow(x@summary) > 0 || nrow(x@draws) > 0 || nrow(x@manifest) > 0) {
     "simulated"
   } else {
-    "staged"
+    "configured"
   }
   trait_status <- {
     manifest_tbl <- tibble::as_tibble(x@manifest)
@@ -1095,7 +1111,7 @@ S7::method(show_generic, Conjurer) <- function(object) {
 #' @param x A [Conjurer] object.
 #' @param ... Unused.
 #'
-#' @return Tibble of `x@summary`.
+#' @return Tibble of Conjurer summary rows.
 #'
 #' @examples
 #' \dontrun{

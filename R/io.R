@@ -229,7 +229,7 @@ resolve_command_line <- function(arguments = commandArgs(trailingOnly = TRUE),
 
   if (!is.null(cli_values$config_path)) {
     return(
-      read_config(
+      read_configuration(
         path = cli_values$config_path,
         base_dir = dirname(path_absolute(cli_values$config_path, base_dir = base_dir)),
         registry_path = registry_path,
@@ -240,7 +240,7 @@ resolve_command_line <- function(arguments = commandArgs(trailingOnly = TRUE),
 
   # Build the fallback positional config from the generic registry-derived
   # baseline, then normalize it through the same validator and path resolver.
-  config_data <- default_config(
+  config_data <- create_configuration_template(
     input_file = cli_values$input_file %||% "input.xlsx",
     output_root = cli_values$output_root %||% "outputs",
     cache_folder = cli_values$cache_folder %||% "cache"
@@ -302,7 +302,7 @@ write_config_yaml <- function(path,
 
   ensure_parent_path(path)
   yaml::write_yaml(
-    x = default_config(
+    x = create_configuration_template(
       input_file = input_file,
       output_root = output_root,
       cache_folder = cache_folder,
@@ -337,7 +337,7 @@ script_call_from_config <- function(config_path,
     rscript_path <- file.path(R.home("bin"), "Rscript")
   }
 
-  config_data <- read_config(config_path)
+  config_data <- read_configuration(config_path)
 
   # Force evaluation
   force(config_data)

@@ -10,8 +10,6 @@
 #' @param benchmark_args Optional named list of extra arguments passed to
 #'   `benchmark_fun` for every non-baseline scenario.
 #' @param workers Number of parallel workers. Use `1` for sequential execution.
-#' @param package_dir Optional package source directory used to load the
-#'   development package on parallel workers when running from source.
 #' @param config Optional JSON path or list with sensitivity settings.
 #' @param cache_path Optional `.rds` cache path.
 #' @param refresh Logical scalar. If `TRUE`, ignore any existing cache.
@@ -26,7 +24,6 @@ run_sensitivity_tests <- function(sensitivity_specs,
                                   baseline_obj = NULL,
                                   benchmark_args = list(),
                                   workers = 1L,
-                                  package_dir = NULL,
                                   config = NULL,
                                   cache_path = NULL,
                                   refresh = FALSE,
@@ -51,10 +48,6 @@ run_sensitivity_tests <- function(sensitivity_specs,
   }
   if (!is.numeric(workers) || length(workers) != 1 || !is.finite(workers) || workers < 1) {
     stop("'workers' must be one finite number >= 1.", call. = FALSE)
-  }
-  if (!is.null(package_dir) &&
-    (!is.character(package_dir) || length(package_dir) != 1 || !nzchar(package_dir))) {
-    stop("'package_dir' must be NULL or a single non-empty path.", call. = FALSE)
   }
   if (!is.logical(progress) || length(progress) != 1 || is.na(progress)) {
     stop("'progress' must be TRUE or FALSE.", call. = FALSE)
@@ -127,8 +120,7 @@ run_sensitivity_tests <- function(sensitivity_specs,
     }
   } else if (length(scenario_names) > 0) {
     cluster_obj <- initialize_parallel_cluster(
-      workers = workers,
-      package_dir = package_dir
+      workers = workers
     )
     on.exit(parallel::stopCluster(cluster_obj), add = TRUE)
 
@@ -210,12 +202,12 @@ run_sensitivity_tests <- function(sensitivity_specs,
   sens_map
 }
 
-#' Build a scenario manifest
+#' Construct a scenario manifest
 #'
 #' Summarizes the scenario specifications and the corresponding benchmark
 #' outputs into one scenario-level manifest table.
 #'
-#' @param sensitivity_specs Named scenario-specification list.
+#' @param scenario_specifications Named scenario-specification list.
 #' @param ... Method-specific arguments.
 #'
 #' @return A tibble.
@@ -224,21 +216,21 @@ run_sensitivity_tests <- function(sensitivity_specs,
 #' \dontrun{
 #' simulator <- as_policysimulator(selector)
 #' simulator <- simulate(simulator)
-#' build_sensitivity_table(simulator)
+#' construct_sensitivity_table(simulator)
 #' }
 #'
 #' @export
-build_sensitivity_table <- S7::new_generic("build_sensitivity_table", "sensitivity_specs")
+construct_sensitivity_table <- S7::new_generic("construct_sensitivity_table", "scenario_specifications")
 
-#' Build a scenario manifest from named sensitivity scenario lists
+#' Construct a scenario manifest from named sensitivity scenario lists
 #'
-#' @name build_sensitivity_table.default
+#' @name construct_sensitivity_table.default
 #' @usage NULL
-#' @param sensitivity_specs Named scenario-specification list.
-#' @param sensitivity_map Named scenario benchmark map.
+#' @param scenario_specifications Named scenario-specification list.
+#' @param scenario_results Named scenario benchmark result list.
 #' @param config Optional JSON path or list with sensitivity settings.
-S7::method(build_sensitivity_table, S7::class_any) <- function(sensitivity_specs,
-                                                               sensitivity_map,
+S7::method(construct_sensitivity_table, S7::class_any) <- function(scenario_specifications,
+                                                               scenario_results,
                                                                config = NULL) {
   # Combine the scenario inputs and the benchmark outputs into one compact
   # scenario-level manifest for later audits.
@@ -253,8 +245,8 @@ S7::method(build_sensitivity_table, S7::class_any) <- function(sensitivity_specs
     read_similarity_config(config)
   )
 
-  purrr::imap_dfr(sensitivity_specs, function(spec, scenario_nm) {
-    bench_obj <- sensitivity_map[[scenario_nm]]
+  purrr::imap_dfr(scenario_specifications, function(spec, scenario_nm) {
+    bench_obj <- scenario_results[[scenario_nm]]
     selection_tbl <- tibble::as_tibble(bench_obj$selection_ref)
     spec_config <- spec$config %||% spec$cfg %||% list()
 
@@ -297,33 +289,33 @@ S7::method(build_sensitivity_table, S7::class_any) <- function(sensitivity_specs
   })
 }
 
-#' Build a scenario manifest from a [PolicySimulator]
+#' Construct a scenario manifest from a [PolicySimulator]
 #'
-#' @name build_sensitivity_table.PolicySimulator
+#' @name construct_sensitivity_table.PolicySimulator
 #' @usage NULL
-S7::method(build_sensitivity_table, PolicySimulator) <- function(sensitivity_specs,
-                                                                 sensitivity_map = NULL,
+S7::method(construct_sensitivity_table, PolicySimulator) <- function(scenario_specifications,
+                                                                 scenario_results = NULL,
                                                                  config = NULL) {
-  if (nrow(sensitivity_specs@manifest) > 0) {
-    return(tibble::as_tibble(sensitivity_specs@manifest))
+  if (nrow(scenario_specifications@manifest) > 0) {
+    return(tibble::as_tibble(scenario_specifications@manifest))
   }
-  if (length(sensitivity_specs@scenarios) == 0 || length(sensitivity_specs@results) == 0) {
+  if (length(scenario_specifications@scenarios) == 0 || length(scenario_specifications@results) == 0) {
     return(tibble::tibble())
   }
 
-  build_sensitivity_table(
-    sensitivity_specs = sensitivity_specs@scenarios,
-    sensitivity_map = sensitivity_specs@results,
-    config = sensitivity_specs@config
+  construct_sensitivity_table(
+    scenario_specifications = scenario_specifications@scenarios,
+    scenario_results = scenario_specifications@results,
+    config = scenario_specifications@config
   )
 }
 
-#' Bind scenario benchmark tables
+#' Collect scenario benchmark tables
 #'
-#' Binds selection, pairwise equivalence, equivalence-class, and conformal
+#' Collects selection, pairwise equivalence, equivalence-class, and conformal
 #' tables across all scenario benchmark objects.
 #'
-#' @param sensitivity_map Named scenario benchmark map or a
+#' @param scenario_results Named scenario benchmark result list or a
 #'   [PolicySimulator] object.
 #' @param ... Method-specific arguments.
 #'
@@ -333,57 +325,57 @@ S7::method(build_sensitivity_table, PolicySimulator) <- function(sensitivity_spe
 #' \dontrun{
 #' simulator <- as_policysimulator(selector)
 #' simulator <- simulate(simulator)
-#' bind_sensitivity_data(simulator)
+#' collect_sensitivity_results(simulator)
 #' }
 #'
 #' @export
-bind_sensitivity_data <- S7::new_generic("bind_sensitivity_data", "sensitivity_map")
+collect_sensitivity_results <- S7::new_generic("collect_sensitivity_results", "scenario_results")
 
-#' Bind scenario benchmark tables from a named scenario-result map
+#' Collect scenario benchmark tables from a named scenario-result list
 #'
-#' @name bind_sensitivity_data.default
+#' @name collect_sensitivity_results.default
 #' @usage NULL
-#' @param sensitivity_map Named scenario benchmark map.
-S7::method(bind_sensitivity_data, S7::class_any) <- function(sensitivity_map) {
+#' @param scenario_results Named scenario benchmark result list.
+S7::method(collect_sensitivity_results, S7::class_any) <- function(scenario_results) {
   # Bind the benchmark reference tables across scenarios while keeping the
   # scenario name as the leading key column.
   list(
-    select_ref = purrr::imap_dfr(sensitivity_map, function(obj, scenario_nm) {
+    select_ref = purrr::imap_dfr(scenario_results, function(obj, scenario_nm) {
       tibble::as_tibble(obj$selection_ref) |>
         dplyr::mutate(scenario = scenario_nm, .before = 1)
     }),
-    anchor_selected = purrr::imap_dfr(sensitivity_map, function(obj, scenario_nm) {
+    anchor_selected = purrr::imap_dfr(scenario_results, function(obj, scenario_nm) {
       tibble::as_tibble(obj$anchor_selected %||% tibble::tibble()) |>
         dplyr::mutate(scenario = scenario_nm, .before = 1)
     }),
-    equiv_pairs = purrr::imap_dfr(sensitivity_map, function(obj, scenario_nm) {
+    equiv_pairs = purrr::imap_dfr(scenario_results, function(obj, scenario_nm) {
       tibble::as_tibble(obj$equivalence_pairs) |>
         dplyr::mutate(scenario = scenario_nm, .before = 1)
     }),
-    equiv_sets = purrr::imap_dfr(sensitivity_map, function(obj, scenario_nm) {
+    equiv_sets = purrr::imap_dfr(scenario_results, function(obj, scenario_nm) {
       tibble::as_tibble(obj$equivalence_classes) |>
         dplyr::mutate(scenario = scenario_nm, .before = 1)
     }),
-    conf_cal = purrr::imap_dfr(sensitivity_map, function(obj, scenario_nm) {
+    conf_cal = purrr::imap_dfr(scenario_results, function(obj, scenario_nm) {
       tibble::as_tibble(obj$conf_cal) |>
         dplyr::mutate(scenario = scenario_nm, .before = 1)
     })
   )
 }
 
-#' Bind scenario benchmark tables from a [PolicySimulator]
+#' Collect scenario benchmark tables from a [PolicySimulator]
 #'
-#' @name bind_sensitivity_data.PolicySimulator
+#' @name collect_sensitivity_results.PolicySimulator
 #' @usage NULL
-S7::method(bind_sensitivity_data, PolicySimulator) <- function(sensitivity_map) {
-  if (length(sensitivity_map@tables) > 0) {
-    return(sensitivity_map@tables)
+S7::method(collect_sensitivity_results, PolicySimulator) <- function(scenario_results) {
+  if (length(scenario_results@tables) > 0) {
+    return(scenario_results@tables)
   }
-  if (length(sensitivity_map@results) == 0) {
+  if (length(scenario_results@results) == 0) {
     return(list())
   }
 
-  bind_sensitivity_data(sensitivity_map@results)
+  collect_sensitivity_results(scenario_results@results)
 }
 
 #' Summarize policy sensitivity
@@ -401,7 +393,8 @@ S7::method(bind_sensitivity_data, PolicySimulator) <- function(sensitivity_map) 
 #'
 #' @return A list with `detail` and `summary`.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 summarize_sensitivity <- function(sensitivity_table,
                                   baseline_label = "baseline") {
   out <- tibble::as_tibble(sensitivity_table)
@@ -709,7 +702,7 @@ build_policy_sensitivity_scenarios <- function(candidate_models,
 #' Decompose sensitivity variance
 #'
 #' Computes a two-component variance decomposition from the output of
-#' [bind_sensitivity_data()]:
+#' [collect_sensitivity_results()]:
 #'
 #' - **Between-scenario** (`between_scenario`): per-anchor spread of the
 #'   selected log-multiplier across scenarios. Quantifies how much the biomass
@@ -722,7 +715,7 @@ build_policy_sensitivity_scenarios <- function(candidate_models,
 #' a fraction of the within-scenario SD, giving a rough relative importance of
 #' "how we set up the analysis" versus "which policy we pick given the setup".
 #'
-#' @param sens_data Named list returned by [bind_sensitivity_data()], with at
+#' @param sens_data Named list returned by [collect_sensitivity_results()], with at
 #'   least `anchor_selected` and `select_ref` elements.
 #' @param log_multiplier_col Name of the log-scale central prediction column in
 #'   `anchor_selected`. Defaults to `"log_multiplier_central"`.
@@ -845,7 +838,7 @@ bind_sensitivity_variance <- function(sens_data,
 #' @param reference_ids Optional reference-anchor model IDs.
 #' @param tolerance Practical equivalence tolerance.
 #' @param n_boot Number of bootstrap resamples used in policy selection.
-#' @param candidate_template Optional staged [Candidates] object used to rebuild
+#' @param candidate_template Optional [Candidates] object used to rebuild
 #'   anchor-level predictions for each scenario.
 #' @param reference_anchors Optional reference-anchor table override used for
 #'   scenario prediction.
@@ -897,7 +890,7 @@ run_policy_sensitivity_reference <- function(candidate_models,
     )
   )
 
-  similarity_obj <- prepare_similarity_matrix(
+  similarity_obj <- prepare_similarities(
     candidate_models = candidate_models,
     species_traits = as.list(config_values$species_traits %||% list()),
     study_traits = as.list(config_values$study_traits %||% list()),
@@ -910,7 +903,7 @@ run_policy_sensitivity_reference <- function(candidate_models,
 
   # Recompute the model-level and species-level ordinations for the scenario so
   # any ordination-dependent policies use a scenario-consistent neighborhood.
-  distance_obj <- build_gower_distances(similarity_obj)
+  distance_obj <- construct_gower_distances(similarity_obj)
   ordination_obj <- run_ordination(
     dist_mat = distance_obj$combined_dist,
     trait_table = candidate_models |>

@@ -8,11 +8,14 @@ Description: Bundles the TS-model transferability analysis pipeline, benchmark l
     and figure-generation pipeline used for TS-to-biomass transfer analyses.
     The package is configuration-driven and can be run from YAML/JSON
     files or from the preserved command-line interface.
+URL: https://github.com/brandynlucca/tsbiomass
+BugReports: https://github.com/brandynlucca/tsbiomass/issues
 License: MIT + file LICENSE
 Encoding: UTF-8
 Depends:
     R (>= 4.1.0)
 Imports:
+    Rcpp,
     S7,
     dplyr,
     forcats,
@@ -33,13 +36,19 @@ Imports:
     tidyr,
     tidyselect,
     yaml
-Suggests: 
+LinkingTo:
+    Rcpp
+Suggests:
     ape,
     cluster,
+    Cubist,
+    earth,
+    FNN,
     glmnet,
+    kernlab,
+    lme4,
     mgcv,
     nnls,
-    pkgload,
     quantreg,
     ranger,
     rfishbase,
@@ -47,6 +56,7 @@ Suggests:
     rpart,    
     sf,
     sfheaders,
+    stochtree,
     testthat (>= 3.0.0),
     vegan,
     wk,
@@ -55,36 +65,29 @@ Suggests:
 Config/testthat/edition: 3
 Roxygen: list(markdown = TRUE)
 Collate:
+    'RcppExports.R'
+    'rcpp-package.R'
     'utils.R'
     'io.R'
-    'base_generics.R'
-    'configurer_s7.R'
-    'candidates_s7.R'
-    'alchemist_s7.R'
-    'admissibility.R'
-    'anchors.R'
-    'config.R'
-    'conjurer_s7.R'
+    'generics.R'
+    'configure.R'
+    'candidates.R'
+    'alchemist.R'
+    'conjurer.R'
     'data.R'
-    'diagnostics.R'
     'graphics.R'
     'ingest.R'
-    'meta_policy.R'
-    'nested_validation.R'
     'ordination.R'
     'policies.R'
-    'policy_benchmark.R'
-    'policy_learner_s7.R'
-    'policy_selector_s7.R'
-    'policy_simulator_s7.R'
-    'post_selection_conformal.R'
-    'prep_traits.R'
-    'recommendation.R'
-    'referee_s7.R'
+    'policylearner.R'
+    'policyselector.R'
+    'policysimulator.R'
+    'conformal.R'
+    'referee.R'
+    'scorecard.R'
     'sensitivity.R'
-    'policy_selection.R'
+    'sentinel.R'
     'similarity.R'
-    'summary.R'
-    's3_bridges.R'
+    'zzz.R'
 Config/roxygen2/version: 8.0.0
 RoxygenNote: 7.3.3

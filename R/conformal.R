@@ -607,7 +607,7 @@ run_nested_policy_fold <- function(task,
   test_models <- candidate_models |>
     dplyr::filter(.data$species_name == task$outer_species)
 
-  tune_obj <- tune_similarity_matrix(
+  tune_obj <- tune_similarities(
     candidate_models = tune_models,
     species_traits = base_policy_config$species_traits,
     study_traits = base_policy_config$study_traits,
@@ -849,16 +849,8 @@ run_nested_policy_fold <- function(task,
 #'
 #' @return A list of nested validation tables.
 #'
-#' @examples
-#' \dontrun{
-#' nested_obj <- run_nested_policy_validation(
-#'   candidate_models = selector,
-#'   config = selector@config
-#' )
-#' nested_obj$coverage_summary
-#' }
-#'
-#' @export
+#' @keywords internal
+#' @noRd
 run_nested_policy_validation <- function(candidate_models,
                                          policies = NULL,
                                          config = NULL,
@@ -899,7 +891,7 @@ run_nested_policy_validation <- function(candidate_models,
   if (!is.null(selector_obj)) {
     config_ <- config_ %||% selector_obj@config
     candidates_obj <- selector_obj@candidates
-    candidate_models_ <- selector_obj@candidates@candidate_models
+    candidate_models_ <- selector_obj@candidates
   } else if (!is.null(candidates_obj)) {
     config_ <- config_ %||% list(
       policy = merge_config_sections(
@@ -912,7 +904,7 @@ run_nested_policy_validation <- function(candidate_models,
   if (!is.data.frame(candidate_models_)) {
     stop("'candidate_models' must be a data frame or tibble.", call. = FALSE)
   }
-  registered_policies <- policy_names(policy_path = policy_path)
+  registered_policies <- available_policy_names(policy_path = policy_path)
   policies_ <- policies %||% registered_policies
   if (!is.character(policies_) || any(!nzchar(policies_))) {
     stop("'policies' must be a non-empty character vector.", call. = FALSE)
@@ -1466,7 +1458,7 @@ summarize_coeff_calibration <- function(selected_tbl,
     return(tibble::tibble())
   }
 
-  id_col <- if ("model_id" %in% names(candidate_models_)) "model_id" else "model_id"
+  id_col <- reference_anchor_id_column(candidate_models_)
   selected_policy_values <- if ("selected_policy" %in% names(selected_tbl_)) {
     as.character(selected_tbl_$selected_policy)
   } else if ("policy" %in% names(selected_tbl_)) {
@@ -3584,7 +3576,7 @@ anchor_local_log_sigma_calibration <- function(row_now,
   if (nrow(curve) == 0) {
     return(NULL)
   }
-  id_col <- if ("model_id" %in% names(candidate_models)) "model_id" else "model_id"
+  id_col <- reference_anchor_id_column(candidate_models)
   anchor_id_chr <- as.character(row_now$anchor_model_id[[1]] %||% NA_character_)
   anchor_row <- candidate_models |>
     dplyr::filter(as.character(.data[[id_col]]) == anchor_id_chr) |>
@@ -4254,7 +4246,7 @@ augment_anchor_length_context <- function(policy_tbl,
   if (length(drop_cols) > 0) {
     policy_tbl <- dplyr::select(policy_tbl, -dplyr::all_of(drop_cols))
   }
-  id_col <- if ("model_id" %in% names(candidate_models)) "model_id" else "model_id"
+  id_col <- reference_anchor_id_column(candidate_models)
   policy_tbl$anchor_model_id <- as.character(policy_tbl$anchor_model_id)
   anchor_context <- purrr::map_dfr(unique(policy_tbl$anchor_model_id), function(anchor_id_chr) {
     anchor_row <- candidate_models |>
@@ -4304,7 +4296,7 @@ augment_anchor_coefficient_context <- function(policy_tbl,
   if (nrow(policy_tbl) == 0 || !"anchor_model_id" %in% names(policy_tbl)) {
     return(policy_tbl)
   }
-  id_col <- if ("model_id" %in% names(candidate_models)) "model_id" else "model_id"
+  id_col <- reference_anchor_id_column(candidate_models)
   drop_cols <- intersect(
     c("anchor_slope_standard", "anchor_intercept_standard"),
     names(policy_tbl)
@@ -4669,7 +4661,7 @@ strategy_uncertainty_context <- function(row_now,
                                          length_grid_n = 400L,
                                          ts_band_method = c("current", "smooth_scale_shape")) {
   ts_band_method <- match.arg(ts_band_method)
-  id_col <- if ("model_id" %in% names(candidate_models)) "model_id" else "model_id"
+  id_col <- reference_anchor_id_column(candidate_models)
   anchor_id_chr <- as.character(row_now$anchor_model_id[[1]])
   anchor_row <- candidate_models |>
     dplyr::filter(as.character(.data[[id_col]]) == anchor_id_chr) |>
@@ -4731,7 +4723,7 @@ strategy_uncertainty_context <- function(row_now,
     policy_selector_config_value(
       config,
       "min_bin_scores",
-      sections = c("selection", "metalearner")
+      sections = c("selection")
     ) %||% 10L
   ))
   if (!is.finite(ts_min_anchor_neighbors) || ts_min_anchor_neighbors < 1L) {
@@ -4900,12 +4892,12 @@ strategy_uncertainty_context <- function(row_now,
     policy_selector_config_value(
       policy_selector_config_data(config),
       "uncertainty_shape_min_scores",
-      sections = c("selection", "metalearner", "policy_learner")
+      sections = c("selection", "policy_learner")
     ) %||%
       policy_selector_config_value(
         policy_selector_config_data(config),
         "min_bin_scores",
-        sections = c("selection", "metalearner", "policy_learner")
+        sections = c("selection", "policy_learner")
       ) %||%
       10
   ))
@@ -4923,9 +4915,13 @@ strategy_uncertainty_context <- function(row_now,
     0
   }
   shape_strength_source <- as.character(
-    row_now$meta_q_abs_log_source[[1]] %||%
-      row_now$selected_q_abs_log_source[[1]] %||%
+    if ("meta_q_abs_log_source" %in% names(row_now)) {
+      row_now$meta_q_abs_log_source[[1]]
+    } else if ("selected_q_abs_log_source" %in% names(row_now)) {
+      row_now$selected_q_abs_log_source[[1]]
+    } else {
       NA_character_
+    }
   )
   if (!is.na(shape_strength_source) && nzchar(shape_strength_source)) {
     if (grepl("shrunk", shape_strength_source, ignore.case = TRUE)) {
@@ -6459,7 +6455,8 @@ augment_policy_ts_envelope_summary <- function(policy_tbl,
 #'
 #' @return A list containing calibration and summary tables.
 #'
-#' @export
+#' @keywords internal
+#' @noRd
 run_anchor_conformal <- function(policy_perf,
                                  species_performance_table = NULL,
                                  ts_error = NULL,

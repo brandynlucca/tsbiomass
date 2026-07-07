@@ -837,9 +837,8 @@ normalize_trait_weights <- function(models_tbl,
 #' @param progress Logical scalar controlling stage messages.
 #'
 #' @return When `candidate_models` is a [Candidates] object, returns that
-#'   object with the prepared similarity state stored in `@similarity_matrix`
-#'   and the expanded candidate-model table written back to
-#'   `@candidate_models`. Otherwise, returns a list containing the normalized
+#'   object with prepared similarity state and an expanded candidate-model
+#'   table. Otherwise, returns a list containing the normalized
 #'   tuning configuration, selected traits, starting weights, expanded
 #'   species/study matrices, and collapsed species profiles.
 #'
@@ -850,7 +849,7 @@ normalize_trait_weights <- function(models_tbl,
 #'   anchors = list(selector = list(regional_body = "SWFSC"))
 #' ))
 #'
-#' candidates <- prepare_similarity_matrix(
+#' candidates <- prepare_similarities(
 #'   candidate_models = candidates,
 #'   config = build_configurer(list(
 #'     paths = list(
@@ -875,11 +874,11 @@ normalize_trait_weights <- function(models_tbl,
 #'   ))
 #' )
 #'
-#' candidates@similarity_matrix
+#' candidates
 #' }
 #'
 #' @export
-prepare_similarity_matrix <- function(candidate_models,
+prepare_similarities <- function(candidate_models,
                                       species_traits = NULL,
                                       study_traits = NULL,
                                       alpha = NULL,
@@ -889,7 +888,7 @@ prepare_similarity_matrix <- function(candidate_models,
                                       registry_path = NULL,
                                       seed = NULL,
                                       progress = NULL) {
-  # Preserve the staged `Candidates` object boundary when present so prepared
+  # Preserve the prepared `Candidates` object boundary when present so prepared
   # similarity state is stored on the object rather than returned only as a
   # detached sidecar list.
   candidates_obj <- if (is_s7_instance(candidate_models, "Candidates")) {
@@ -1068,7 +1067,7 @@ prepare_similarity_matrix <- function(candidate_models,
   #    coerced forms from study_expanded$data and add new binary indicator
   #    columns for any set-valued traits (e.g. fao_area__1, fao_area__27).
   #    Set-valued raw columns (e.g. fao_area) are PRESERVED in the table so
-  #    that subsequent calls to prepare_similarity_matrix on already-prepared
+  #    that subsequent calls to prepare_similarities on already-prepared
   #    data (e.g. inside parallel scoring workers) can still validate those
   #    traits without hitting an "all-NA" rejection.
   if (length(study_cols) > 0) {
@@ -1554,13 +1553,13 @@ compute_gower_matrix <- function(df_traits,
 #' prepared similarity object, expands the species matrix back to model rows,
 #' and combines the two blocks with the prepared alpha value.
 #'
-#' @param sim_obj Prepared similarity object returned by
-#'   [prepare_similarity_matrix()] or a [Candidates] object whose
-#'   `@similarity_matrix` slot has already been populated.
+#' @param similarity Prepared similarity object returned by
+#'   [prepare_similarities()] or a [Candidates] object with prepared
+#'   similarity state.
 #' @param progress Logical scalar controlling stage messages.
 #'
-#' @return When `sim_obj` is a [Candidates] object, returns that object with
-#'   the Gower-distance bundle stored in `@gower_distances`. Otherwise,
+#' @return When `similarity` is a [Candidates] object, returns that object with
+#'   the Gower-distance bundle attached. Otherwise,
 #'   returns a list containing `species_dist`, `study_dist`,
 #'   `species_dist_model`, `combined_dist`, and `trait_cols`.
 #'
@@ -1570,19 +1569,19 @@ compute_gower_matrix <- function(df_traits,
 #'   study = list(path = "input.xlsx"),
 #'   anchors = list(selector = list(regional_body = "SWFSC"))
 #' ))
-#' candidates <- prepare_similarity_matrix(candidate_models = candidates)
-#' candidates <- build_gower_distances(candidates)
-#' candidates@gower_distances
+#' candidates <- prepare_similarities(candidate_models = candidates)
+#' candidates <- construct_gower_distances(candidates)
+#' candidates
 #' }
 #'
 #' @export
-build_gower_distances <- function(sim_obj,
+construct_gower_distances <- function(similarity,
                                   progress = NULL) {
-  # Preserve the staged `Candidates` object boundary when present so the
+  # Preserve the prepared `Candidates` object boundary when present so the
   # distance bundle is stored on the object instead of returned only as a
   # detached list.
-  candidates_obj <- if (is_s7_instance(sim_obj, "Candidates")) {
-    sim_obj
+  candidates_obj <- if (is_s7_instance(similarity, "Candidates")) {
+    similarity
   } else {
     NULL
   }
@@ -1590,29 +1589,29 @@ build_gower_distances <- function(sim_obj,
     progress <- progress %||% resolve_config_value(candidates_obj, "progress", sections = c("similarity", "ordination")) %||% FALSE
     if (length(candidates_obj@similarity_matrix) == 0) {
       stop(
-        "Candidates object has no prepared similarity state. Run `prepare_similarity_matrix()` first.",
+        "Candidates object has no prepared similarity state. Run `prepare_similarities()` first.",
         call. = FALSE
       )
     }
-    sim_obj <- candidates_obj@similarity_matrix
-    if (is.null(sim_obj$candidate_models)) {
+    similarity <- candidates_obj@similarity_matrix
+    if (is.null(similarity$candidate_models)) {
       # The stored similarity state on `Candidates` is intentionally slimmed
       # down to avoid caching a second full model table. Reattach the canonical
       # trimmed table only for the duration of this distance build.
-      sim_obj$candidate_models <- tibble::as_tibble(candidates_obj@candidate_models)
+      similarity$candidate_models <- tibble::as_tibble(candidates_obj@candidate_models)
     }
-    if (is.null(sim_obj$study_data)) {
+    if (is.null(similarity$study_data)) {
       # The stored `Candidates` object does not retain the expanded row-level
       # study matrix because it can be rebuilt deterministically from the
       # trimmed model table and the retained study-trait specification.
       study_expanded <- expand_trait_block(
-        df = tibble::as_tibble(sim_obj$candidate_models),
-        weight_spec = sim_obj$study_weights %||% numeric(0),
-        trait_defs = sim_obj$study_trait_defs %||% list()
+        df = tibble::as_tibble(similarity$candidate_models),
+        weight_spec = similarity$study_weights %||% numeric(0),
+        trait_defs = similarity$study_trait_defs %||% list()
       )
-      sim_obj$study_data <- study_expanded$data
-      sim_obj$study_matrix_weights <- study_expanded$weights
-      sim_obj$study_component_lookup <- study_expanded$lookup
+      similarity$study_data <- study_expanded$data
+      similarity$study_matrix_weights <- study_expanded$weights
+      similarity$study_component_lookup <- study_expanded$lookup
     }
   }
   progress <- progress %||% FALSE
@@ -1625,11 +1624,11 @@ build_gower_distances <- function(sim_obj,
     "study_matrix_weights", "candidate_models", "alpha",
     "species_traits", "study_traits"
   )
-  missing_fields <- setdiff(required_fields, names(sim_obj))
+  missing_fields <- setdiff(required_fields, names(similarity))
   if (length(missing_fields) > 0) {
     stop(
       sprintf(
-        "'sim_obj' is missing required field(s): %s",
+        "'similarity' is missing required field(s): %s",
         paste(missing_fields, collapse = ", ")
       ),
       call. = FALSE
@@ -1638,39 +1637,39 @@ build_gower_distances <- function(sim_obj,
 
   # Build the species-level matrix on the collapsed species profiles so
   # biology distances are not affected by repeated model rows per species.
-  species_trait_cols <- setdiff(names(sim_obj$species_profiles), "species_name")
+  species_trait_cols <- setdiff(names(similarity$species_profiles), "species_name")
 
-  species_dist <- if (nrow(sim_obj$species_profiles) > 0) {
+  species_dist <- if (nrow(similarity$species_profiles) > 0) {
     compute_gower_matrix(
-      df_traits = sim_obj$species_profiles[, species_trait_cols, drop = FALSE],
-      trait_weights = sim_obj$species_matrix_weights,
-      trait_defs = sim_obj$species_trait_defs,
-      component_lookup = sim_obj$species_component_lookup
+      df_traits = similarity$species_profiles[, species_trait_cols, drop = FALSE],
+      trait_weights = similarity$species_matrix_weights,
+      trait_defs = similarity$species_trait_defs,
+      component_lookup = similarity$species_component_lookup
     )
   } else {
     matrix(NA_real_, nrow = 0, ncol = 0)
   }
 
-  if (nrow(sim_obj$species_profiles) > 0) {
-    rownames(species_dist) <- sim_obj$species_profiles$species_name
-    colnames(species_dist) <- sim_obj$species_profiles$species_name
+  if (nrow(similarity$species_profiles) > 0) {
+    rownames(species_dist) <- similarity$species_profiles$species_name
+    colnames(species_dist) <- similarity$species_profiles$species_name
   }
 
   # Build the study-level matrix directly on the model rows because the donor
   # pool is evaluated at the individual model level.
   study_dist <- compute_gower_matrix(
-    df_traits = sim_obj$study_data,
-    trait_weights = sim_obj$study_matrix_weights,
-    trait_defs = sim_obj$study_trait_defs,
-    component_lookup = sim_obj$study_component_lookup
+    df_traits = similarity$study_data,
+    trait_weights = similarity$study_matrix_weights,
+    trait_defs = similarity$study_trait_defs,
+    component_lookup = similarity$study_component_lookup
   )
-  model_ids <- sim_obj$candidate_models$model_id
+  model_ids <- similarity$candidate_models$model_id
   rownames(study_dist) <- model_ids
   colnames(study_dist) <- model_ids
 
   # Expand the species-level matrix back to model rows using the candidate
   # models' species labels so the two distance blocks share one index.
-  species_vec <- stringr::str_squish(as.character(sim_obj$candidate_models$species_name))
+  species_vec <- stringr::str_squish(as.character(similarity$candidate_models$species_name))
 
   # Fail fast when candidate-model species labels cannot be mapped back to the
   # collapsed species-profile matrix. Silent NA expansion here can distort the
@@ -1719,8 +1718,8 @@ build_gower_distances <- function(sim_obj,
   # When one component is missing for a pair, rescale by the available weight
   # instead of propagating NA into the combined matrix.
   # Note: use explicit ifelse guards so that 0 * NA -> 0 (not NA).
-  w_species <- ifelse(is.finite(species_dist_model), sim_obj$alpha, 0)
-  w_study <- ifelse(is.finite(study_dist), 1 - sim_obj$alpha, 0)
+  w_species <- ifelse(is.finite(species_dist_model), similarity$alpha, 0)
+  w_study <- ifelse(is.finite(study_dist), 1 - similarity$alpha, 0)
   w_total <- w_species + w_study
 
   species_contrib <- ifelse(is.finite(species_dist_model), w_species * species_dist_model, 0)
@@ -1737,8 +1736,8 @@ build_gower_distances <- function(sim_obj,
   # Return the EXPANDED trait column names so callers get the binary indicators
   # for set-valued traits (ocean_basin__*, fao_area__*) instead of the original
   # semi-colon-delimited strings.
-  expanded_species_cols <- setdiff(names(sim_obj$species_profiles), "species_name")
-  expanded_study_cols <- names(sim_obj$study_data)
+  expanded_species_cols <- setdiff(names(similarity$species_profiles), "species_name")
+  expanded_study_cols <- names(similarity$study_data)
   trait_cols <- unique(c(expanded_species_cols, expanded_study_cols))
 
   result <- list(
@@ -2269,7 +2268,7 @@ prepare_similarity_score_basis <- function(models_subset,
   # Rebuild the prepared similarity inputs for the exact weight/config state
   # being scored so the downstream basis reflects the current trait and
   # coherence weights.
-  sim_obj <- prepare_similarity_matrix(
+  similarity <- prepare_similarities(
     candidate_models = models_subset,
     species_traits = as.list(species_weights),
     study_traits = as.list(study_weights),
@@ -2285,33 +2284,33 @@ prepare_similarity_score_basis <- function(models_subset,
   # Build the prepared species and study distance matrices only once for the
   # current weight/config state; alpha and kernel values can then be rescored
   # cheaply without rebuilding these matrices.
-  dist_obj <- build_gower_distances(sim_obj, progress = FALSE)
+  dist_obj <- construct_gower_distances(similarity, progress = FALSE)
   species_dist_model <- dist_obj$species_dist_model
   study_dist <- dist_obj$study_dist
 
-  model_ids <- sim_obj$candidate_models$model_id
+  model_ids <- similarity$candidate_models$model_id
   model_n <- length(model_ids)
 
   # Resolve the study interval column names once so the scorer can work with
   # either the current prepared schema or older cached candidate-model tables.
   study_length_min_col <- resolve_similarity_column_name(
-    sim_obj$candidate_models,
+    similarity$candidate_models,
     c("study_length_min", "length_minimum")
   )
   study_length_max_col <- resolve_similarity_column_name(
-    sim_obj$candidate_models,
+    similarity$candidate_models,
     c("study_length_max", "length_maximum")
   )
   study_length_mid_col <- resolve_similarity_column_name(
-    sim_obj$candidate_models,
+    similarity$candidate_models,
     c("study_length_midpoint", "length_midpoint")
   )
   study_depth_min_col <- resolve_similarity_column_name(
-    sim_obj$candidate_models,
+    similarity$candidate_models,
     c("study_depth_min", "depth_minimum")
   )
   study_depth_max_col <- resolve_similarity_column_name(
-    sim_obj$candidate_models,
+    similarity$candidate_models,
     c("study_depth_max", "depth_maximum")
   )
 
@@ -2364,7 +2363,7 @@ prepare_similarity_score_basis <- function(models_subset,
     NULL
   }
 
-  models_df <- sim_obj$candidate_models
+  models_df <- similarity$candidate_models
   len_min_vals <- resolve_numeric_col(models_df, study_length_min_col)
   len_max_vals <- resolve_numeric_col(models_df, study_length_max_col)
   dep_min_vals <- resolve_numeric_col(models_df, study_depth_min_col)
@@ -2380,7 +2379,7 @@ prepare_similarity_score_basis <- function(models_subset,
   frequency_distance_matrix <- frequency_offset_distance_matrix(
     freq_vals,
     cfg_now$frequency_coherence$method,
-    sim_obj$frequency_span
+    similarity$frequency_span
   )
 
   length_distance_matrix <- interval_distance_matrix(
@@ -2923,7 +2922,7 @@ score_similarity_config <- function(models_subset,
 #'
 #' @param tune_models Tuning subset returned by `build_tuning_subset()`.
 #' @param base_sim Prepared similarity object returned by
-#'   [prepare_similarity_matrix()].
+#'   [prepare_similarities()].
 #' @param registry_path Optional path to the trait-registry JSON.
 #'
 #' @return A list with `baseline`, `grid_scores`, `alpha_best`, `k_species_best`,
@@ -3676,7 +3675,7 @@ run_tuning_grid_search <- function(tune_models,
 #'
 #' @param tune_models Tuning subset returned by `build_tuning_subset()`.
 #' @param base_sim Prepared similarity object returned by
-#'   [prepare_similarity_matrix()].
+#'   [prepare_similarities()].
 #' @param alpha_best Tuned alpha value.
 #' @param k_species_best Tuned species-kernel value.
 #' @param k_study_best Tuned study-kernel value.
@@ -3779,7 +3778,7 @@ run_component_dropout <- function(tune_models,
 #' Apply component-impact multipliers
 #'
 #' @param base_sim Prepared similarity object returned by
-#'   [prepare_similarity_matrix()].
+#'   [prepare_similarities()].
 #' @param component_impact_summary Component-impact summary returned by
 #'   `run_component_dropout()`.
 #'
@@ -3940,7 +3939,7 @@ apply_component_weights <- function(base_sim,
 
 #' Collect per-component tuned multipliers
 #'
-#' @param tune_obj Result returned by [tune_similarity_matrix()].
+#' @param tune_obj Result returned by [tune_similarities()].
 #' @param resample_id Integer resample identifier.
 #'
 #' @return A tibble.
@@ -4032,7 +4031,7 @@ collect_component_weights <- function(tune_obj,
 
 #' Summarize tuning stability across resamples
 #'
-#' @param tune_obj Result returned by [tune_similarity_matrix()].
+#' @param tune_obj Result returned by [tune_similarities()].
 #'
 #' @return A tibble.
 #'
@@ -4174,10 +4173,10 @@ summarize_similarity_tuning_strata <- function(anchor_rows,
 #'
 #' @param candidate_models Prepared candidate-model table.
 #' @param species_traits Optional species-trait specification. See
-#'   [prepare_similarity_matrix()] for the accepted forms. When `NULL`, a
+#'   [prepare_similarities()] for the accepted forms. When `NULL`, a
 #'   config-supplied value is used when present.
 #' @param study_traits Optional study-trait specification. See
-#'   [prepare_similarity_matrix()] for the accepted forms. When `NULL`, a
+#'   [prepare_similarities()] for the accepted forms. When `NULL`, a
 #'   config-supplied value is used when present.
 #' @param alpha Optional starting species-versus-study mixing parameter. When
 #'   `NULL`, a config-supplied value is used when present.
@@ -4203,7 +4202,7 @@ summarize_similarity_tuning_strata <- function(anchor_rows,
 #' @param registry_path Optional path to a trait-registry JSON file.
 #'
 #' @return When `candidate_models` is a [Candidates] object, returns that
-#'   object with the tuning result stored in `@similarity_tuning`. Otherwise,
+#'   object with the tuning result attached. Otherwise,
 #'   returns a list containing the tuned configuration, tuning subset, score
 #'   history, and per-trait component-impact summary.
 #'
@@ -4240,15 +4239,15 @@ summarize_similarity_tuning_strata <- function(anchor_rows,
 #'   policies = list(active = "closest_within_species")
 #' ))
 #'
-#' tune_obj <- tune_similarity_matrix(
+#' tune_obj <- tune_similarities(
 #'   candidate_models = candidates,
 #'   config = cfg_data
 #' )
-#' tune_obj@similarity_tuning
+#' tune_obj
 #' }
 #'
 #' @export
-tune_similarity_matrix <- function(candidate_models,
+tune_similarities <- function(candidate_models,
                                    species_traits = NULL,
                                    study_traits = NULL,
                                    alpha = NULL,
@@ -4269,7 +4268,7 @@ tune_similarity_matrix <- function(candidate_models,
       return(candidates_with_similarity_tuning(candidates_obj, tuning_result))
     }
 
-    prepared_candidates <- prepare_similarity_matrix(
+    prepared_candidates <- prepare_similarities(
       candidate_models = candidates_obj,
       species_traits = as.list(tuned_cfg$species_weights %||% list()),
       study_traits = as.list(tuned_cfg$study_weights %||% list()),
@@ -4289,7 +4288,7 @@ tune_similarity_matrix <- function(candidate_models,
     candidates_with_similarity_tuning(prepared_candidates, tuning_result)
   }
 
-  # Preserve the staged `Candidates` object boundary when present so the
+  # Preserve the prepared `Candidates` object boundary when present so the
   # tuning result can be written back onto that object instead of returned as
   # a detached sidecar list.
   candidates_obj <- if (is_s7_instance(candidate_models, "Candidates")) {
@@ -4361,11 +4360,11 @@ tune_similarity_matrix <- function(candidate_models,
   # Prepare the baseline similarity inputs once against the full candidate
   # table so the trait set, starting weights, and search grid are fixed before
   # subset selection begins. Unspecified traits already default to weight `1`
-  # inside `prepare_similarity_matrix()`, so there is no separate equalization
+  # inside `prepare_similarities()`, so there is no separate equalization
   # pass here that would overwrite explicit starting weights.
   report_progress(progress, "Tuning similarity settings.")
 
-  base_sim <- prepare_similarity_matrix(
+  base_sim <- prepare_similarities(
     candidate_models = candidate_models,
     species_traits = species_traits,
     study_traits = study_traits,
@@ -4739,7 +4738,7 @@ tune_similarity_matrix <- function(candidate_models,
 
 #' Refit similarity tuning across resampled tuning subsets
 #'
-#' Internal helper that reruns [tune_similarity_matrix()] across multiple
+#' Internal helper that reruns [tune_similarities()] across multiple
 #' resampled per-species tuning subsets to summarize tuning stability.
 #'
 #' @param candidate_models Prepared candidate-model table or a [Candidates]
@@ -4821,7 +4820,7 @@ tune_similarity_resamples <- function(candidate_models,
 
   # Resolve the baseline similarity inputs once so every resample uses the
   # same selected traits, starting weights, and scalar defaults.
-  base_sim <- prepare_similarity_matrix(
+  base_sim <- prepare_similarities(
     candidate_models = candidate_models,
     species_traits = species_traits,
     study_traits = study_traits,
@@ -4855,7 +4854,7 @@ tune_similarity_resamples <- function(candidate_models,
     ) |>
       dplyr::mutate(resample_id = resample_id)
 
-    tune_obj <- tune_similarity_matrix(
+    tune_obj <- tune_similarities(
       candidate_models = sampled_subset,
       species_traits = as.list(base_sim$species_weights),
       study_traits = as.list(base_sim$study_weights),
