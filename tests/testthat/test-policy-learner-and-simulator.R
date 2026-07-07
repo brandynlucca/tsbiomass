@@ -66,11 +66,8 @@ test_that("PolicyLearner warns and records explicit uncertainty fallback state",
   )
   learner <- fit(learner)
 
-  learner@config$metalearner <- list(
-    selection_method = "glm",
-    uncertainty_method = "glm",
-    uncertainty_feature_cols = character()
-  )
+  learner@config$selection <- list(method = "glm")
+  learner@config$uncertainty <- list(method = "glm", feature_cols = character())
 
   expect_warning(
     learner <- calibrate_uncertainty(learner, min_bin_scores = 1L),
@@ -99,13 +96,15 @@ test_that("PolicyLearner uncertainty calibration respects uncertainty-specific l
   learner <- crossfit(learner)
   learner <- fit(learner)
 
-  learner@config$metalearner <- list(
-    selection_method = "glm",
-    uncertainty_method = "super_learner",
-    selection_super_methods = c("glm", "rpart"),
-    uncertainty_super_methods = "ranger",
-    method_settings = list(ranger = list(num_trees = 50L)),
-    uncertainty_method_settings = list(ranger = list(num_trees = 7L))
+  learner@config$selection <- list(
+    method = "glm",
+    super_methods = c("glm", "rpart"),
+    method_settings = list(rf = list(num_trees = 50L))
+  )
+  learner@config$uncertainty <- list(
+    method = "super_learner",
+    super_methods = "rf",
+    method_settings = list(rf = list(num_trees = 7L))
   )
 
   captured <- new.env(parent = emptyenv())
@@ -120,12 +119,12 @@ test_that("PolicyLearner uncertainty calibration respects uncertainty-specific l
     },
     crossfit_meta_policy_learner = function(super_methods = NULL, method_settings = NULL, ...) {
       captured$crossfit_super_methods <- super_methods
-      captured$crossfit_num_trees <- method_settings$ranger$num_trees
+      captured$crossfit_num_trees <- method_settings$rf$num_trees
       list(predictions = minimal_crossfit_predictions())
     },
     fit_meta_policy_learner = function(method = "glm", super_methods = NULL, method_settings = NULL, ...) {
       captured$fit_super_methods <- super_methods
-      captured$fit_num_trees <- method_settings$ranger$num_trees
+      captured$fit_num_trees <- method_settings$rf$num_trees
       structure(list(method = method), class = "tsb_meta_policy_learner")
     },
     .package = "tsbiomass"
@@ -133,26 +132,27 @@ test_that("PolicyLearner uncertainty calibration respects uncertainty-specific l
 
   learner <- calibrate_uncertainty(learner, min_bin_scores = 1L)
 
-  expect_equal(captured$crossfit_super_methods, "ranger")
-  expect_equal(captured$fit_super_methods, "ranger")
+  expect_equal(captured$crossfit_super_methods, "rf")
+  expect_equal(captured$fit_super_methods, "rf")
   expect_equal(captured$crossfit_num_trees, 7L)
   expect_equal(captured$fit_num_trees, 7L)
-  expect_equal(learner@calibration$uncertainty_super_methods, "ranger")
-  expect_equal(learner@calibration$uncertainty_method_settings$ranger$num_trees, 7L)
+  expect_equal(learner@calibration$uncertainty_super_methods, "rf")
+  expect_equal(learner@calibration$uncertainty_method_settings$rf$num_trees, 7L)
 })
 
 test_that("PolicyLearner selection fit respects selection-specific learner settings", {
   selector <- make_selector(benchmark = list(species_block_perf = minimal_policy_performance()))
   learner <- as_policylearner(selector)
 
-  learner@config$metalearner <- list(
-    selection_method = "super_learner",
-    uncertainty_method = "glm",
-    selection_super_methods = c("glm", "ranger"),
-    uncertainty_super_methods = "rpart",
-    method_settings = list(ranger = list(num_trees = 50L)),
-    selection_method_settings = list(ranger = list(num_trees = 11L)),
-    uncertainty_method_settings = list(ranger = list(num_trees = 7L))
+  learner@config$selection <- list(
+    method = "super_learner",
+    super_methods = c("glm", "rf"),
+    method_settings = list(rf = list(num_trees = 11L))
+  )
+  learner@config$uncertainty <- list(
+    method = "glm",
+    super_methods = "rpart",
+    method_settings = list(rf = list(num_trees = 7L))
   )
 
   captured <- new.env(parent = emptyenv())
@@ -167,12 +167,12 @@ test_that("PolicyLearner selection fit respects selection-specific learner setti
     },
     crossfit_meta_policy_learner = function(super_methods = NULL, method_settings = NULL, ...) {
       captured$crossfit_super_methods <- super_methods
-      captured$crossfit_num_trees <- method_settings$ranger$num_trees
+      captured$crossfit_num_trees <- method_settings$rf$num_trees
       list(predictions = minimal_crossfit_predictions())
     },
     fit_meta_policy_learner = function(method = "glm", super_methods = NULL, method_settings = NULL, ...) {
       captured$fit_super_methods <- super_methods
-      captured$fit_num_trees <- method_settings$ranger$num_trees
+      captured$fit_num_trees <- method_settings$rf$num_trees
       structure(list(method = method), class = "tsb_meta_policy_learner")
     },
     .package = "tsbiomass"
@@ -181,13 +181,13 @@ test_that("PolicyLearner selection fit respects selection-specific learner setti
   learner <- crossfit(learner)
   learner <- fit(learner)
 
-  expect_equal(captured$crossfit_super_methods, c("glm", "ranger"))
-  expect_equal(captured$fit_super_methods, c("glm", "ranger"))
+  expect_equal(captured$crossfit_super_methods, c("glm", "rf"))
+  expect_equal(captured$fit_super_methods, c("glm", "rf"))
   expect_equal(captured$crossfit_num_trees, 11L)
   expect_equal(captured$fit_num_trees, 11L)
-  expect_equal(learner@crossfit$selection_method_settings$ranger$num_trees, 11L)
-  expect_equal(learner@fitted_model$selection_method_settings$ranger$num_trees, 11L)
-  expect_equal(learner@fitted_model$selection_super_methods, c("glm", "ranger"))
+  expect_equal(learner@crossfit$selection_method_settings$rf$num_trees, 11L)
+  expect_equal(learner@fitted_model$selection_method_settings$rf$num_trees, 11L)
+  expect_equal(learner@fitted_model$selection_super_methods, c("glm", "rf"))
 })
 
 test_that("PolicyLearner uncertainty calibration honors explicit override args", {
@@ -209,11 +209,11 @@ test_that("PolicyLearner uncertainty calibration honors explicit override args",
   learner <- crossfit(learner)
   learner <- fit(learner)
 
-  learner@config$metalearner <- list(
-    selection_method = "glm",
-    uncertainty_method = "super_learner",
-    uncertainty_super_methods = c("glm", "rpart"),
-    uncertainty_method_settings = list(ranger = list(num_trees = 3L))
+  learner@config$selection <- list(method = "glm")
+  learner@config$uncertainty <- list(
+    method = "super_learner",
+    super_methods = c("glm", "rpart"),
+    method_settings = list(rf = list(num_trees = 3L))
   )
 
   captured <- new.env(parent = emptyenv())
@@ -231,13 +231,13 @@ test_that("PolicyLearner uncertainty calibration honors explicit override args",
     crossfit_meta_policy_learner = function(method = NULL, super_methods = NULL, method_settings = NULL, ...) {
       captured$crossfit_method <- method
       captured$crossfit_super_methods <- super_methods
-      captured$crossfit_num_trees <- method_settings$ranger$num_trees
+      captured$crossfit_num_trees <- method_settings$rf$num_trees
       list(predictions = minimal_crossfit_predictions())
     },
     fit_meta_policy_learner = function(method = "glm", super_methods = NULL, method_settings = NULL, ...) {
       captured$fit_method <- method
       captured$fit_super_methods <- super_methods
-      captured$fit_num_trees <- method_settings$ranger$num_trees
+      captured$fit_num_trees <- method_settings$rf$num_trees
       structure(list(method = method), class = "tsb_meta_policy_learner")
     },
     .package = "tsbiomass"
@@ -247,18 +247,18 @@ test_that("PolicyLearner uncertainty calibration honors explicit override args",
     learner,
     min_bin_scores = 1L,
     uncertainty_method = "super_learner",
-    uncertainty_super_methods = "ranger",
-    uncertainty_method_settings = list(ranger = list(num_trees = 9L))
+    uncertainty_super_methods = "rf",
+    uncertainty_method_settings = list(rf = list(num_trees = 9L))
   )
 
   expect_equal(captured$crossfit_method, "super_learner")
   expect_equal(captured$fit_method, "super_learner")
-  expect_equal(captured$crossfit_super_methods, "ranger")
-  expect_equal(captured$fit_super_methods, "ranger")
+  expect_equal(captured$crossfit_super_methods, "rf")
+  expect_equal(captured$fit_super_methods, "rf")
   expect_equal(captured$crossfit_num_trees, 9L)
   expect_equal(captured$fit_num_trees, 9L)
-  expect_equal(learner@calibration$uncertainty_super_methods, "ranger")
-  expect_equal(learner@calibration$uncertainty_method_settings$ranger$num_trees, 9L)
+  expect_equal(learner@calibration$uncertainty_super_methods, "rf")
+  expect_equal(learner@calibration$uncertainty_method_settings$rf$num_trees, 9L)
 })
 
 test_that("PolicyLearner prediction uses pooled local width conformal factors", {
@@ -363,7 +363,7 @@ test_that("PolicyLearner calibration uses modeled clipped outcomes when availabl
   )
   learner <- PolicyLearner(
     selector = NULL,
-    config = list(metalearner = list()),
+    config = list(selection = list()),
     training_data = tibble::tibble(),
     crossfit = list(
       result = list(
@@ -500,7 +500,7 @@ test_that("conditional-uncertainty features exclude taxonomic and overlap summar
   expect_false("local_min_trait_gower_distance" %in% width_features)
 })
 
-test_that("meta-policy learner supports gam, ranger, and xgboost base methods", {
+test_that("meta-policy learner supports gam, rf, and xgboost base methods", {
   training_data <- tibble::tibble(
     .outcome = c(0.10, 0.20, 0.15, 0.12, 0.25, 0.18, 0.14, 0.22, 0.11, 0.19),
     feature_a = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
@@ -508,7 +508,7 @@ test_that("meta-policy learner supports gam, ranger, and xgboost base methods", 
     .split_group = rep(c("g1", "g2", "g3", "g4", "g5"), each = 2)
   )
 
-  for (method_now in c("gam", "ranger", "xgboost")) {
+  for (method_now in c("gam", "rf", "xgboost")) {
     learner <- fit_meta_policy_learner(
       training_data = training_data,
       method = method_now,
@@ -522,27 +522,28 @@ test_that("meta-policy learner supports gam, ranger, and xgboost base methods", 
   }
 })
 
-test_that("meta-policy learner supports lmer with unseen grouping levels", {
+test_that("meta-policy learner supports lmm with unseen grouping levels", {
   testthat::skip_if_not_installed("lme4")
 
   training_data <- tibble::tibble(
     .outcome = c(0.10, 0.20, 0.15, 0.12, 0.25, 0.18, 0.14, 0.22, 0.11, 0.19),
     feature_a = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
     feature_b = c(10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    anchor_species = rep(c("alpha", "beta", "gamma", "delta", "epsilon"), each = 2),
-    anchor_family = rep(c("f1", "f2", "f3", "f4", "f5"), each = 2)
+    .split_group = rep(c("g1", "g2", "g3", "g4", "g5"), each = 2)
   )
 
-  learner <- fit_meta_policy_learner(
-    training_data = training_data,
-    method = "lmer",
-    feature_cols = c("feature_a", "feature_b"),
-    inner_folds = 3L,
-    seed = 20260524L,
-    method_settings = list(
-      lmer = list(
-        fit_method = "ML",
-        group_cols = c("anchor_species", "anchor_family")
+  learner <- suppressMessages(
+    fit_meta_policy_learner(
+      training_data = training_data,
+      method = "lmm",
+      feature_cols = c("feature_a", "feature_b"),
+      inner_folds = 3L,
+      seed = 20260524L,
+      method_settings = list(
+        lmm = list(
+          fit_method = "ML",
+          random_intercept = ".split_group"
+        )
       )
     )
   )
@@ -552,16 +553,126 @@ test_that("meta-policy learner supports lmer with unseen grouping levels", {
     tibble::tibble(
       feature_a = c(2.5, 8.5),
       feature_b = c(8.5, 2.5),
-      anchor_species = c("alpha", "novel_species"),
-      anchor_family = c("f1", "novel_family")
+      .split_group = c("g1", "novel_group")
     )
   )
 
   expect_s3_class(learner, "tsb_meta_policy_learner")
-  expect_equal(learner$method_family, "lmer")
-  expect_equal(learner$group_col, "anchor_species")
+  expect_equal(learner$method_family, "lmm")
+  expect_equal(learner$group_col, ".split_group")
   expect_true(all(is.finite(scored_train$.meta_predicted_score)))
   expect_true(all(is.finite(scored_new$.meta_predicted_score)))
+})
+
+test_that("lmm preserves explicitly configured non-trait groups through crossfit", {
+  testthat::skip_if_not_installed("lme4")
+  set.seed(1L)
+  policy_perf <- tibble::tibble(
+    outer_group = rep(paste0("outer_", seq_len(6L)), each = 6L),
+    study_group = rep(rep(c("site_a", "site_b", "site_c"), each = 2L), 6L),
+    policy = "test_policy",
+    valid_prediction = TRUE,
+    error_abs_log = stats::runif(36L, 0.1, 0.5),
+    feature_a = stats::rnorm(36L),
+    feature_b = stats::rnorm(36L)
+  )
+
+  result <- suppressMessages(tsbiomass:::crossfit_meta_policy_learner(
+    policy_perf = policy_perf,
+    group_col = "outer_group",
+    n_folds = 3L,
+    method = "lmm",
+    feature_cols = c("feature_a", "feature_b"),
+    outcome_col = "error_abs_log",
+    outcome_transform = "identity",
+    inner_folds = 2L,
+    method_settings = list(
+      lmm = list(fit_method = "ML", random_intercept = "study_group")
+    ),
+    workers = 1L,
+    progress = FALSE
+  ))
+
+  expect_equal(nrow(result$predictions), nrow(policy_perf))
+  expect_true(all(c("outer_group", "study_group") %in% names(result$predictions)))
+  expect_true(all(is.finite(result$predictions$.meta_predicted_score)))
+})
+
+test_that("lmm rejects missing, constant, or multiple random intercepts", {
+  training_data <- tibble::tibble(
+    .outcome = c(0.1, 0.2, 0.3, 0.4),
+    feature_a = seq_len(4L),
+    configured_group = "one_level"
+  )
+
+  expect_error(
+    tsbiomass:::resolve_meta_policy_lmm_group(training_data, "absent_group"),
+    "absent from the training data"
+  )
+  expect_error(
+    tsbiomass:::resolve_meta_policy_lmm_group(training_data, "configured_group"),
+    "fewer than two observed levels"
+  )
+  expect_error(
+    tsbiomass:::resolve_meta_policy_lmm_group(
+      training_data,
+      c("configured_group", "absent_group")
+    ),
+    "one explicit `random_intercept` column"
+  )
+})
+
+test_that("super learner does not silently remove lmm when its random intercept is unavailable", {
+  training_data <- tibble::tibble(
+    .outcome = seq(0.10, 0.30, length.out = 18L),
+    feature_a = seq_len(18L),
+    anchor_family = NA_character_,
+    .split_group = rep(paste0("fold_", seq_len(6L)), each = 3L)
+  )
+
+  expect_error(
+    fit_meta_policy_super_learner(
+      training_data = training_data,
+      feature_cols = "feature_a",
+      outcome_transform = "identity",
+      lambda_rule = "lambda.min",
+      inner_folds = 3L,
+      seed = 42L,
+      super_methods = c("mean", "lmm"),
+      method_settings = list(
+        lmm = list(fit_method = "REML", random_intercept = "anchor_family")
+      ),
+      progress = FALSE
+    ),
+    "fewer than two observed levels"
+  )
+})
+
+test_that("configured random intercept metadata is joined by anchor model ID", {
+  policy_perf <- tibble::tibble(
+    anchor_model_id = c("model_b", "model_a", "model_b"),
+    policy = c("p1", "p1", "p2")
+  )
+  candidate_models <- tibble::tibble(
+    model_id = c("model_a", "model_b"),
+    arbitrary_study_group = c("study_1", "study_2")
+  )
+
+  out <- tsbiomass:::attach_meta_policy_random_intercepts(
+    policy_perf = policy_perf,
+    candidate_models = candidate_models,
+    random_intercepts = "arbitrary_study_group"
+  )
+
+  expect_equal(out$arbitrary_study_group, c("study_2", "study_1", "study_2"))
+  expect_error(
+    tsbiomass:::attach_meta_policy_random_intercepts(
+      policy_perf = policy_perf,
+      candidate_models = candidate_models,
+      random_intercepts = "not_present"
+    ),
+    "absent from candidate models"
+  )
 })
 
 test_that("meta-policy learner applies method-specific tuning settings", {
@@ -574,8 +685,8 @@ test_that("meta-policy learner applies method-specific tuning settings", {
 
   method_settings <- list(
     gam = list(fit_method = "ML", select_terms = FALSE),
-    ranger = list(num_trees = 25L, min_node_size = 2L, sample_fraction = 0.8, replace = TRUE),
-    xgboost = list(nrounds = 7L, eta = 0.2, max_depth = 3L)
+    rf = list(num_trees = 25L, min_node_size = 2L, sample_fraction = 0.8, replace = TRUE),
+    xgboost = list(nrounds = 7L, nthread = 2L, eta = 0.2, max_depth = 3L)
   )
 
   gam_fit <- fit_meta_policy_learner(
@@ -588,15 +699,15 @@ test_that("meta-policy learner applies method-specific tuning settings", {
   )
   expect_equal(gam_fit$method_arguments$method, "ML")
 
-  ranger_fit <- fit_meta_policy_learner(
+  rf_fit <- fit_meta_policy_learner(
     training_data = training_data,
-    method = "ranger",
+    method = "rf",
     feature_cols = c("feature_a", "feature_b"),
     inner_folds = 3L,
     seed = 20260524L,
     method_settings = method_settings
   )
-  expect_equal(ranger_fit$method_arguments$num.trees, 25L)
+  expect_equal(rf_fit$method_arguments$num.trees, 25L)
 
   xgboost_fit <- fit_meta_policy_learner(
     training_data = training_data,
@@ -607,6 +718,7 @@ test_that("meta-policy learner applies method-specific tuning settings", {
     method_settings = method_settings
   )
   expect_equal(xgboost_fit$method_arguments$nrounds, 7L)
+  expect_equal(xgboost_fit$method_arguments$params$nthread, 2L)
 })
 
 test_that("study-level structural uncertainty preserves within-group donor heterogeneity", {
@@ -764,13 +876,13 @@ test_that("PolicySimulator stores sensitivity reruns and exposes bound tables", 
         )
       )
     },
-    build_sensitivity_table = function(sensitivity_specs, sensitivity_map, config = NULL) {
+    construct_sensitivity_table = function(scenario_specifications, scenario_results, config = NULL) {
       tibble::tibble(
         scenario = "baseline",
         benchmark_best_policy = "closest_within_species"
       )
     },
-    bind_sensitivity_data = function(sensitivity_map) {
+    collect_sensitivity_results = function(scenario_results) {
       list(
         select_ref = tibble::tibble(scenario = "baseline", policy = "closest_within_species"),
         equiv_pairs = tibble::tibble(scenario = "baseline", policy = "closest_within_species"),
@@ -805,6 +917,6 @@ test_that("sensitivity generics return stored simulator outputs directly", {
     )
   )
 
-  expect_equal(build_sensitivity_table(simulator)$scenario[[1]], "baseline")
-  expect_equal(bind_sensitivity_data(simulator)$select_ref$policy[[1]], "closest_within_species")
+  expect_equal(construct_sensitivity_table(simulator)$scenario[[1]], "baseline")
+  expect_equal(collect_sensitivity_results(simulator)$select_ref$policy[[1]], "closest_within_species")
 })

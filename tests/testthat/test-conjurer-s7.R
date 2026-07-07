@@ -1,4 +1,4 @@
-test_that("as_conjurer builds a staged Conjurer object", {
+test_that("as_conjurer builds a Conjurer object", {
   selector <- make_selector(candidates = make_candidates(seed_similarity_tuning = TRUE))
 
   conjurer <- as_conjurer(selector)
@@ -14,6 +14,8 @@ test_that("as_conjurer builds a staged Conjurer object", {
 
 test_that("simulate.Conjurer stores draw-level and summary outputs", {
   selector <- make_selector(candidates = make_candidates(seed_similarity_tuning = TRUE))
+
+
   conjurer <- as_conjurer(selector, config = list(conjurer = list(n_draws = 2L, seed = 7L)))
 
   baseline_predictions <- PolicyPredictions(
@@ -35,11 +37,11 @@ test_that("simulate.Conjurer stores draw-level and summary outputs", {
   )
 
   testthat::local_mocked_bindings(
-    predict = function(object,
-                       ...) {
+    predict_generic = function(object,
+                               ...) {
       baseline_predictions
     },
-    .package = "stats"
+    .package = "tsbiomass"
   )
   testthat::local_mocked_bindings(
     conjurer_trait_draw_results = function(object,

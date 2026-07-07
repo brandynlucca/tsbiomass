@@ -170,7 +170,7 @@ test_that("anchor overlap tolerates dropped taxonomy columns", {
     study_depth_max = c(15, 15)
   )
   anchor_row <- tibble::tibble(
-    model_id_chr = "a1",
+    model_id = "a1",
     species_name = "sp1",
     study_length_min = 10,
     study_length_max = 20,
@@ -207,12 +207,12 @@ test_that("admissibility gates reuse precomputed overlap columns when available"
   ))
 
   anchor_row <- tibble::tibble(
-    model_id_chr = "a1",
+    model_id = "a1",
     swimbladder_type = "physostome",
     frequency = 38
   )
   scored <- tibble::tibble(
-    model_id_chr = c("m1", "m2"),
+    model_id = c("m1", "m2"),
     swimbladder_type = c("physostome", "swimbladderless"),
     overlap_same_swimbladder_type = c(TRUE, FALSE),
     length_overlap_fraction = c(1, 1),
@@ -231,4 +231,31 @@ test_that("admissibility gates reuse precomputed overlap columns when available"
 
   expect_identical(gated$gate_trait_swimbladder_type, c(TRUE, FALSE))
   expect_identical(gated$admissible, c(TRUE, FALSE))
+})
+test_that("point-valued anchor ranges use point-mass containment overlap", {
+  expect_equal(tsbiomass:::compute_range_overlap(4, 4, 0, 100), 1)
+  expect_equal(tsbiomass:::compute_range_overlap(4, 4, 5, 100), 0)
+  expect_equal(
+    tsbiomass:::compute_range_overlap_vec(4, 4, c(0, 4, 5), c(100, 4, 100)),
+    c(1, 1, 0)
+  )
+})
+
+test_that("generalized equations never satisfy same-species overlap", {
+  cfg <- tsbiomass:::default_anchor_config(minimal_config_data())
+  candidate_models <- tibble::tibble(
+    model_id = c("1", "2"),
+    species_name = c("NA NA", "Gadus morhua"),
+    genus = c(NA_character_, "Gadus"),
+    species = c(NA_character_, "morhua")
+  )
+  anchor_row <- candidate_models[1, , drop = FALSE]
+
+  overlap <- tsbiomass:::add_anchor_overlap(
+    candidate_models = candidate_models,
+    anchor_row = anchor_row,
+    config = cfg
+  )
+
+  expect_false(any(overlap$overlap_same_species))
 })

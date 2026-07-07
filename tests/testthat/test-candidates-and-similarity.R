@@ -43,10 +43,10 @@ test_that("candidate source ids infer built-in adapters without type or engine",
   expect_equal(spec$enrich$precedence, c("pelagic", "azorestraits", "fishbase", "worms"))
 })
 
-test_that("prepare_similarity_matrix stores prepared state on Candidates", {
+test_that("prepare_similarities stores prepared state on Candidates", {
   candidates <- make_candidates(seed_similarity_tuning = FALSE)
 
-  prepared <- prepare_similarity_matrix(
+  prepared <- prepare_similarities(
     candidate_models = candidates,
     config = minimal_similarity_config()
   )
@@ -58,7 +58,7 @@ test_that("prepare_similarity_matrix stores prepared state on Candidates", {
   expect_false(any(grepl("^fao_area__", names(prepared@candidate_models))))
 })
 
-test_that("prepare_similarity_matrix preserves tuning state and trims stored candidate table", {
+test_that("prepare_similarities preserves tuning state and trims stored candidate table", {
   candidates <- make_candidates(seed_similarity_tuning = TRUE)
   candidates@spec$config_data <- tsbiomass:::merge_config_sections(
     minimal_config_data(),
@@ -70,7 +70,7 @@ test_that("prepare_similarity_matrix preserves tuning state and trims stored can
     )
   )
 
-  prepared <- prepare_similarity_matrix(
+  prepared <- prepare_similarities(
     candidate_models = candidates,
     config = minimal_similarity_config()
   )
@@ -85,14 +85,14 @@ test_that("prepare_similarity_matrix preserves tuning state and trims stored can
   expect_true("fao_area" %in% names(prepared@candidate_models))
 })
 
-test_that("build_gower_distances stores distance matrices on Candidates", {
+test_that("construct_gower_distances stores distance matrices on Candidates", {
   candidates <- make_candidates(seed_similarity_tuning = FALSE)
-  candidates <- prepare_similarity_matrix(
+  candidates <- prepare_similarities(
     candidate_models = candidates,
     config = minimal_similarity_config()
   )
 
-  distance_candidates <- build_gower_distances(candidates)
+  distance_candidates <- construct_gower_distances(candidates)
 
   expect_true(S7::S7_inherits(distance_candidates, Candidates))
   expect_true(length(distance_candidates@gower_distances) > 0)
@@ -224,6 +224,55 @@ test_that("Alchemist fit_super_learner accepts species-purged OOF splits", {
   expect_equal(length(fit$oof_ensemble_prediction), nrow(training_data))
 })
 
+test_that("Alchemist rf honors configured forest controls", {
+  testthat::skip_if_not_installed("ranger")
+  set.seed(1L)
+  x_train <- matrix(stats::rnorm(240), nrow = 80L, ncol = 3L)
+  colnames(x_train) <- paste0("feature_", seq_len(ncol(x_train)))
+  y_train <- stats::rnorm(nrow(x_train))
+
+  learner <- tsbiomass:::fit_base_learner(
+    x_train = x_train,
+    y_train = y_train,
+    method = "rf",
+    method_settings = list(
+      rf = list(
+        num_trees = 5L,
+        mtry = 1L,
+        min_node_size = 2L,
+        max_depth = 3L,
+        sample_fraction = 0.632,
+        replace = FALSE,
+        respect_unordered_factors = "ignore"
+      )
+    ),
+    seed = 1L
+  )
+
+  expect_equal(learner$fit$num.trees, 5L)
+  expect_equal(learner$fit$mtry, 1L)
+  expect_equal(learner$fit$min.node.size, 2L)
+  expect_equal(learner$fit$max.depth, 3L)
+  expect_false(learner$fit$replace)
+
+  learner_without_seed <- tsbiomass:::fit_base_learner(
+    x_train = x_train,
+    y_train = y_train,
+    method = "rf",
+    method_settings = list(
+      rf = list(
+        num_trees = 5L,
+        min_node_size = 2L,
+        max_depth = 3L,
+        sample_fraction = 0.632,
+        replace = FALSE
+      )
+    ),
+    seed = NULL
+  )
+  expect_s3_class(learner_without_seed$fit, "ranger")
+})
+
 test_that("run_ordination works on Alchemist distance objects with model trait tables", {
   candidates <- make_candidates(seed_similarity_tuning = FALSE)
   alchemist <- as_alchemist(candidates, config = minimal_config_data())
@@ -276,7 +325,9 @@ test_that("run_ordination works on Alchemist distance objects with model trait t
 
   alchemist <- forge_distances(alchemist)
   expect_no_error(
-    ord <- run_ordination(alchemist, include_loadings = FALSE, include_centroids = FALSE)
+    ord <- suppressWarnings(
+      run_ordination(alchemist, include_loadings = FALSE, include_centroids = FALSE)
+    )
   )
   expect_true(length(ord@ordination) > 0L)
 })
@@ -319,11 +370,11 @@ test_that("missingness summaries dispatch through Candidates and PolicySelector"
   expect_true("missing_fraction" %in% names(summary_obj$by_field))
 })
 
-test_that("tune_similarity_matrix writes tuning results back to Candidates", {
+test_that("tune_similarities writes tuning results back to Candidates", {
   candidates <- make_candidates(seed_similarity_tuning = FALSE)
 
   testthat::local_mocked_bindings(
-    prepare_similarity_matrix = function(candidate_models,
+    prepare_similarities = function(candidate_models,
                                          species_traits = NULL,
                                          study_traits = NULL,
                                          alpha = NULL,
@@ -411,7 +462,7 @@ test_that("tune_similarity_matrix writes tuning results back to Candidates", {
     .package = "tsbiomass"
   )
 
-  tuned <- tune_similarity_matrix(candidates)
+  tuned <- tune_similarities(candidates)
 
   expect_true(S7::S7_inherits(tuned, Candidates))
   expect_true(length(tuned@similarity_tuning) > 0)
@@ -426,7 +477,7 @@ test_that("tune_similarity_matrix writes tuning results back to Candidates", {
   expect_true(all(c("component", "component_type", "median_value") %in% names(tuned@similarity_tuning$stability_summary)))
 })
 
-test_that("run_tuning_grid_search uses staged screening and refinement", {
+test_that("run_tuning_grid_search uses screening and refinement", {
   search_object <- tsbiomass:::run_tuning_grid_search(
     tune_models = minimal_candidate_models(),
     base_sim = minimal_similarity_matrix(),
@@ -539,8 +590,55 @@ test_that("anchor density uses study interval or midpoint without Lmax fallback"
   )
   expect_error(
     tsbiomass:::build_anchor_density(missing_anchor, cfg, n = 5),
-    "No valid anchor study length interval or midpoint was available"
+    "No valid anchor study length interval or midpoint was available",
+    class = "tsbiomass_unscorable_anchor"
   )
+})
+
+test_that("admissibility records unscorable anchors without dropping valid anchors", {
+  cfg <- minimal_config_data()
+  cfg$admissibility$species_traits <- c("family")
+  cfg$admissibility$study_traits <- character(0)
+  cfg$admissibility$coherence$frequency$mode <- "none"
+  cfg_obj <- build_configurer(cfg, base_dir = tempdir())
+
+  candidates <- set_reference_anchors(
+    make_candidates(seed_similarity_tuning = FALSE),
+    model_ids = c("1", "4")
+  )
+  anchors <- candidates@reference_anchors
+  failed_id <- as.character(anchors$model_id[[1]])
+  anchors$study_length_min[[1]] <- NA_real_
+  anchors$study_length_max[[1]] <- NA_real_
+  anchors$study_length_midpoint[[1]] <- NA_real_
+  candidates <- Candidates(
+    spec = candidates@spec,
+    study_db = candidates@study_db,
+    species_vector = candidates@species_vector,
+    source_dbs = candidates@source_dbs,
+    species_db = candidates@species_db,
+    candidate_models = candidates@candidate_models,
+    reference_anchors = anchors,
+    similarity_matrix = candidates@similarity_matrix,
+    gower_distances = candidates@gower_distances,
+    ordination = candidates@ordination,
+    admissibility = list(),
+    similarity_tuning = candidates@similarity_tuning
+  )
+
+  screened <- screen_admissibility(
+    candidate_models = candidates,
+    config = cfg_obj,
+    refresh = TRUE,
+    progress = FALSE
+  )
+  failures <- tibble::as_tibble(screened@admissibility$anchor_failures)
+
+  expect_equal(nrow(failures), 1L)
+  expect_equal(failures$anchor_model_id, failed_id)
+  expect_equal(failures$failure_code, "missing_study_length_support")
+  expect_match(failures$failure_message, "No valid anchor study length interval")
+  expect_equal(length(screened@admissibility$anchors), 1L)
 })
 
 test_that("reference anchor PDFs can be set from raw empirical lengths", {
@@ -699,7 +797,7 @@ test_that("equal-weight starts preserve trait names from named numeric maps", {
   expect_equal(out, c(swimbladder_type = 1, body_shape = 1, family = 1))
 })
 
-test_that("tune_similarity_matrix accepts Configurer trait maps under equal starts", {
+test_that("tune_similarities accepts Configurer trait maps under equal starts", {
   candidates <- make_candidates(seed_similarity_tuning = FALSE)
   cfg <- build_configurer(minimal_config_data(), base_dir = tempdir())
 
@@ -739,7 +837,7 @@ test_that("tune_similarity_matrix accepts Configurer trait maps under equal star
     .package = "tsbiomass"
   )
 
-  tuned <- tune_similarity_matrix(
+  tuned <- tune_similarities(
     candidate_models = candidates,
     config = cfg
   )

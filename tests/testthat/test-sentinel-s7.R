@@ -7,7 +7,7 @@ test_that("Sentinel infers split columns and builds manifests", {
     value = c(1, 2, 3, 4)
   )
 
-  scenarios <- build_sentinel_scenarios(
+  scenarios <- create_scenarios(
     trait_ablations = list(no_value = "value")
   )
   out_dir <- file.path(tempdir(), paste0("sentinel-test-", as.integer(Sys.time())))
@@ -32,7 +32,7 @@ test_that("Sentinel infers split columns and builds manifests", {
 })
 
 test_that("Sentinel scenario grids can encode row-filter ablations", {
-  scenarios <- build_sentinel_scenarios(
+  scenarios <- create_scenarios(
     model_ablations = list(
       no_policy_a = list(policy = "policy_a")
     )
@@ -43,13 +43,15 @@ test_that("Sentinel scenario grids can encode row-filter ablations", {
 })
 
 test_that("Sentinel trait scenarios support automatic leave-one-trait-out grids", {
-  scenarios <- build_sentinel_scenarios(
+  scenarios <- create_scenarios(
     trait_ablations = c("family", "mean_depth")
   )
 
   expect_setequal(names(scenarios), c("baseline", "without_family", "without_mean_depth"))
   expect_equal(scenarios$without_family$scenario_type, "trait_ablation")
   expect_equal(scenarios$without_family$ablated_traits, "family")
+  expect_equal(scenarios$without_family$exclude_similarity_traits, "family")
+  expect_null(scenarios$without_family$drop_columns)
 
   candidate_models <- tibble::tibble(
     model_id_chr = c("m1", "m2"),
@@ -74,6 +76,50 @@ test_that("Sentinel trait scenarios support automatic leave-one-trait-out grids"
   expect_equal(sentinel@options$trait_ablation_missing, "absent_trait")
 })
 
+test_that("Sentinel collapses configured taxonomic ranks into one effective-feature ablation", {
+  candidate_models <- tibble::tibble(
+    model_id_chr = paste0("m", 1:4),
+    species_name = paste0("sp", 1:4),
+    family = c("f1", "f1", "f2", "f2"),
+    genus = c("g1", "g2", "g3", "g4"),
+    species = paste0("Species ", 1:4),
+    mean_depth = c(10, 20, 30, 40)
+  )
+  sentinel <- build_sentinel(
+    candidate_models,
+    config = list(
+      alchemist = list(
+        taxonomic_distance = TRUE,
+        species_traits = c("family", "genus", "species"),
+        study_traits = "mean_depth"
+      ),
+      policies = list(
+        group = list(family = NULL, genus = NULL, species = NULL)
+      )
+    ),
+    split_mode = "species_holdout",
+    trait_ablations = TRUE,
+    output_dir = file.path(tempdir(), paste0("sentinel-taxonomic-ablation-", as.integer(Sys.time())))
+  )
+
+  expect_setequal(
+    names(sentinel@scenario_grid),
+    c("baseline", "without_taxonomic_distance", "without_mean_depth")
+  )
+  taxonomy <- sentinel@scenario_grid$without_taxonomic_distance
+  expect_setequal(taxonomy$exclude_similarity_traits, c("family", "genus", "species"))
+  expect_setequal(taxonomy$ablated_traits, c("family", "genus", "species"))
+  expect_equal(taxonomy$ablation_component, "taxonomic_distance")
+
+  fold_config <- sentinel_exclude_similarity_traits(
+    config = sentinel@config,
+    traits = taxonomy$exclude_similarity_traits
+  )
+  expect_length(fold_config$alchemist$species_traits, 0L)
+  expect_identical(fold_config$policies, sentinel@config$policies)
+  expect_true(all(c("family", "genus", "species") %in% names(sentinel@data)))
+})
+
 test_that("Sentinel manifests pair scenarios on stable outer-fold IDs", {
   candidate_models <- tibble::tibble(
     model_id_chr = paste0("m", 1:4),
@@ -83,7 +129,7 @@ test_that("Sentinel manifests pair scenarios on stable outer-fold IDs", {
   sentinel <- build_sentinel(
     data = candidate_models,
     split_mode = "species_holdout",
-    scenario_grid = build_sentinel_scenarios(trait_ablations = "trait_a"),
+    scenario_grid = create_scenarios(trait_ablations = "trait_a"),
     output_dir = file.path(tempdir(), paste0("sentinel-pairing-", as.integer(Sys.time())))
   )
   sentinel <- build_sentinel_manifest(sentinel)
@@ -109,7 +155,7 @@ test_that("Sentinel ablation summaries are paired and plot-ready", {
     )
   )
 
-  scorecard <- summarize_sentinel_ablation(results, n_boot = 100L, seed = 4L)
+  scorecard <- summarize_sentinel_ablation(results, bootstrap = FALSE, seed = 4L)
   summary_tbl <- scorecard@recommendation_cards
   depth <- dplyr::filter(summary_tbl, .data$scenario == "without_depth")
   family <- dplyr::filter(summary_tbl, .data$scenario == "without_family")
@@ -128,6 +174,340 @@ test_that("Sentinel ablation summaries are paired and plot-ready", {
   validation_plot <- plot(validation_card, type = "validation")
   expect_s3_class(validation_plot, "ggplot")
   expect_null(validation_plot$labels$title)
+  expect_null(validation_plot$labels$subtitle)
+  expect_true(any(grepl(
+    "Validation (all traits)",
+    unique(validation_plot$data$series_display),
+    fixed = TRUE
+  )))
+})
+
+test_that("Sentinel ablation decomposition returns a three-panel Scorecard plot", {
+  baseline_raw <- c(0.20, 0.30, 0.40, 0.50)
+  baseline_oracle <- c(0.10, 0.20, 0.30, 0.40)
+  results <- dplyr::bind_rows(
+    tibble::tibble(
+      scenario = "baseline",
+      scenario_type = "baseline",
+      ablated_traits = "",
+      ablation_component = "",
+      outer_fold_id = 1:4,
+      holdout_id = paste0("sp", 1:4),
+      error_abs_log = baseline_raw,
+      oracle_abs_log_error = baseline_oracle,
+      selection_regret_abs_log = baseline_raw - baseline_oracle
+    ),
+    tibble::tibble(
+      scenario = "without_depth",
+      scenario_type = "trait_ablation",
+      ablated_traits = "depth",
+      ablation_component = "depth",
+      outer_fold_id = 1:4,
+      holdout_id = paste0("sp", 1:4),
+      error_abs_log = baseline_raw + 0.09,
+      oracle_abs_log_error = baseline_oracle + 0.04,
+      selection_regret_abs_log = baseline_raw - baseline_oracle + 0.05
+    ),
+    tibble::tibble(
+      scenario = "without_taxonomic_distance",
+      scenario_type = "trait_ablation",
+      ablated_traits = "family|genus|species",
+      ablation_component = "taxonomic_distance",
+      outer_fold_id = 1:4,
+      holdout_id = paste0("sp", 1:4),
+      error_abs_log = baseline_raw - 0.03,
+      oracle_abs_log_error = baseline_oracle - 0.01,
+      selection_regret_abs_log = baseline_raw - baseline_oracle - 0.02
+    )
+  )
+
+  scorecard <- summarize_sentinel_ablation_decomposition(
+    results,
+    bootstrap = FALSE,
+    cluster_names = "holdout_id",
+    strata_names = character(0)
+  )
+  cards <- scorecard@recommendation_cards
+
+  expect_true(S7::S7_inherits(scorecard, Scorecard))
+  expect_equal(nrow(cards), 6L)
+  expect_setequal(cards$component, c("raw", "oracle", "regret"))
+  expect_lt(max(abs(cards$decomposition_residual)), 1e-12)
+  expect_equal(
+    cards$importance[cards$scenario == "without_depth" & cards$component == "raw"],
+    0.09
+  )
+
+  decomposition_plot <- plot(scorecard, type = "ablation_decomposition")
+  expect_s3_class(decomposition_plot, "ggplot")
+  expect_null(decomposition_plot$labels$title)
+  expect_null(decomposition_plot$labels$subtitle)
+  expect_equal(length(decomposition_plot$facet$params$cols), 1L)
+  expect_true("Taxonomic distance" %in% levels(decomposition_plot$data$display_label))
+  expect_silent(ggplot2::ggplot_build(decomposition_plot))
+})
+
+test_that("Sentinel validation plots expose grouped species holdout results", {
+  results <- tibble::tibble(
+    scenario = "baseline",
+    split_mode = "species_holdout",
+    repeat_id = 1L,
+    outer_fold_id = c(1L, 1L, 1L, 2L, 2L, 2L),
+    holdout_id = c(
+      "species_fold_01", "species_fold_01", "species_fold_01",
+      "species_fold_02", "species_fold_02", "species_fold_02"
+    ),
+    anchor_species = c("sp1", "sp1", "sp2", "sp3", "sp3", "sp3"),
+    anchor_model_id = seq_len(6L),
+    error_abs_log = c(0.1, 0.3, NA, 0.2, 0.4, 0.6)
+  )
+  scorecard <- summarize_sentinel_validation(
+    results,
+    metric_cols = "error_abs_log"
+  )
+
+  distribution <- plot(scorecard, type = "validation")
+  expect_s3_class(distribution, "ggplot")
+  expect_equal(nrow(distribution$data), 2L)
+  expect_equal(max(distribution$data$cumulative_species), 2 / 3)
+  expect_match(
+    unique(distribution$data$series_display),
+    "Species holdout \\(all traits\\) \\(2/3 species estimable\\)"
+  )
+  expect_equal(
+    distribution$labels$y,
+    "Cumulative proportion of held-out species"
+  )
+  expect_null(distribution$labels$title)
+
+  compact <- plot(
+    scorecard,
+    type = "validation",
+    view = "ranked",
+    metric_scale = "pseudo_log",
+    label_species = "sp3"
+  )
+  expect_s3_class(compact, "ggplot")
+  expect_equal(nrow(compact$data), 2L)
+  expect_setequal(compact$data$species_rank, c(1L, 2L))
+  expect_equal(nrow(compact$layers[[2]]$data), 1L)
+  expect_match(compact$labels$caption, "2/3 species estimable")
+  expect_null(compact$labels$title)
+  expect_silent(ggplot2::ggplot_build(compact))
+
+  ranked <- plot(
+    scorecard,
+    type = "validation",
+    view = "ranked_species",
+    metric_scale = "pseudo_log"
+  )
+  expect_s3_class(ranked, "ggplot")
+  expect_equal(nrow(ranked$data), 2L)
+  expect_match(ranked$labels$caption, "1 species without a finite estimate")
+  expect_match(ranked$labels$caption, "individual equations")
+  expect_equal(nrow(ranked$layers[[1]]$data), 5L)
+  expect_null(ranked$labels$title)
+  expect_silent(ggplot2::ggplot_build(ranked))
+
+  fold <- plot(scorecard, type = "validation", view = "fold")
+  expect_s3_class(fold, "ggplot")
+  expect_equal(nrow(fold$data), 2L)
+  expect_setequal(fold$data$.sentinel_series, "Species holdout (all traits)")
+  expect_null(fold$labels$title)
+})
+
+test_that("Sentinel validation marks configured reference-anchor species", {
+  source <- tibble::tibble(
+    model_id = 1:4,
+    species_name = c("sp1", "sp2", "sp3", "sp4"),
+    regional_body = c("reference", "candidate", "reference", "candidate")
+  )
+  sentinel <- build_sentinel(
+    data = source,
+    config = list(
+      candidates = list(
+        anchors = list(selector = list(regional_body = "reference"))
+      )
+    ),
+    split_mode = "species_holdout",
+    output_dir = file.path(tempdir(), paste0("sentinel-reference-labels-", as.integer(Sys.time())))
+  )
+  expect_setequal(
+    sentinel_reference_anchor_species(sentinel),
+    c("sp1", "sp3")
+  )
+  flagged <- sentinel_add_reference_anchor_flag(
+    sentinel,
+    tibble::tibble(anchor_species = c("sp1", "sp2", "sp3"))
+  )
+  expect_identical(
+    flagged$is_reference_anchor_species,
+    c(TRUE, FALSE, TRUE)
+  )
+})
+
+test_that("Sentinel coverage separates conditional, operational, and estimability rates", {
+  results <- tibble::tibble(
+    scenario = "baseline",
+    split_mode = "species_holdout",
+    outer_fold_id = c(1L, 1L, 1L, 2L, 2L, 2L),
+    anchor_species = paste0("sp", 1:6),
+    anchor_model_id = 1:6,
+    error_abs_log = c(0.1, 0.2, NA, 0.3, 0.4, NA),
+    interval_log_width = c(0.5, 0.5, NA, 0.6, 0.6, NA),
+    valid_prediction = c(TRUE, TRUE, FALSE, TRUE, TRUE, FALSE),
+    covered = c(TRUE, FALSE, FALSE, TRUE, TRUE, FALSE)
+  )
+  scorecard <- summarize_sentinel_coverage(
+    results,
+    nominal = 0.9,
+    confidence_level = 0.95
+  )
+  coverage <- scorecard@recommendation_cards
+
+  expect_true(S7::S7_inherits(scorecard, Scorecard))
+  expect_equal(coverage$n_total, 6L)
+  expect_equal(coverage$n_estimable, 4L)
+  expect_equal(coverage$n_covered, 3L)
+  expect_equal(coverage$conditional_coverage, 0.75)
+  expect_equal(coverage$operational_coverage, 0.5)
+  expect_equal(coverage$estimability_rate, 2 / 3)
+  expect_equal(coverage$nominal_coverage, 0.9)
+  expect_true(all(is.finite(c(
+    coverage$conditional_lower,
+    coverage$conditional_upper,
+    coverage$operational_lower,
+    coverage$operational_upper,
+    coverage$estimability_lower,
+    coverage$estimability_upper
+  ))))
+
+  conditional_plot <- plot(scorecard, type = "coverage", estimand = "conditional")
+  operational_plot <- plot(scorecard, type = "coverage", estimand = "operational")
+  estimability_plot <- plot(scorecard, type = "coverage", estimand = "estimability")
+  expect_s3_class(conditional_plot, "ggplot")
+  expect_s3_class(operational_plot, "ggplot")
+  expect_s3_class(estimability_plot, "ggplot")
+  expect_null(conditional_plot$labels$title)
+  expect_silent(ggplot2::ggplot_build(conditional_plot))
+  expect_silent(ggplot2::ggplot_build(operational_plot))
+  expect_silent(ggplot2::ggplot_build(estimability_plot))
+})
+
+test_that("Sentinel ablation summaries support paired clustered bootstrap inference", {
+  species <- paste0("sp", 1:8)
+  folds <- rep(1:2, each = 4)
+  baseline_error <- c(0.20, 0.25, 0.30, 0.35, 0.22, 0.27, 0.32, 0.37)
+  results <- dplyr::bind_rows(
+    tibble::tibble(
+      scenario = "baseline",
+      scenario_type = "baseline",
+      ablated_traits = "",
+      outer_fold_id = folds,
+      holdout_id = paste0("species_fold_", folds),
+      anchor_species = species,
+      anchor_model_id = seq_along(species),
+      error_abs_log = baseline_error
+    ),
+    tibble::tibble(
+      scenario = "without_depth",
+      scenario_type = "trait_ablation",
+      ablated_traits = "depth",
+      outer_fold_id = folds,
+      holdout_id = paste0("species_fold_", folds),
+      anchor_species = species,
+      anchor_model_id = seq_along(species),
+      error_abs_log = baseline_error + c(0.04, 0.05, 0.06, 0.07, 0.05, 0.06, 0.07, 0.08)
+    ),
+    tibble::tibble(
+      scenario = "without_family",
+      scenario_type = "trait_ablation",
+      ablated_traits = "family",
+      outer_fold_id = folds,
+      holdout_id = paste0("species_fold_", folds),
+      anchor_species = species,
+      anchor_model_id = seq_along(species),
+      error_abs_log = baseline_error + c(-0.01, 0.00, 0.01, 0.00, -0.01, 0.00, 0.01, 0.00)
+    )
+  )
+
+  scorecard <- summarize_sentinel_ablation(
+    results,
+    bootstrap = TRUE,
+    cluster_names = "anchor_species",
+    strata_names = "outer_fold_id",
+    bootstrap_method = "studentized",
+    bootstrap_adjustment = "max_t",
+    n_realizations = 200L,
+    seed = 12L
+  )
+  cards <- scorecard@recommendation_cards
+  depth <- dplyr::filter(cards, .data$scenario == "without_depth")
+
+  expect_true(all(cards$bootstrap))
+  expect_true(all(cards$bootstrap_method == "studentized"))
+  expect_true(all(cards$bootstrap_adjustment == "max_t"))
+  expect_true(all(cards$n_realizations == 200L))
+  expect_true(all(cards$confidence_level == 0.95))
+  expect_false("alpha_level" %in% names(cards))
+  expect_true(all(cards$n_clusters == 8L))
+  expect_true(all(is.finite(cards$conf_low)))
+  expect_true(all(is.finite(cards$conf_high)))
+  expect_true(all(is.finite(cards$p_adjusted)))
+  expect_equal(depth$importance, 0.06)
+  expect_true(depth$interval_excludes_zero)
+  ablation_plot <- plot(scorecard, type = "ablation")
+  built_plot <- ggplot2::ggplot_build(ablation_plot)
+  plotted_colors <- unique(unlist(lapply(built_plot$data, function(layer) layer$colour %||% character(0))))
+  expect_true("palegreen3" %in% plotted_colors)
+  expect_true("azure3" %in% plotted_colors)
+  display_labels <- levels(ablation_plot$layers[[2]]$data$display_label)
+  expect_true(all(substr(display_labels, 1L, 1L) == toupper(substr(display_labels, 1L, 1L))))
+
+  expect_error(
+    summarize_sentinel_ablation(
+      results,
+      bootstrap = TRUE,
+      cluster_names = "anchor_species",
+      bootstrap_method = "bca",
+      bootstrap_adjustment = "max_t"
+    ),
+    "requires.*studentized"
+  )
+  expect_error(
+    summarize_sentinel_ablation(
+      results,
+      bootstrap = TRUE,
+      cluster_names = "missing_cluster"
+    ),
+    "Cluster column"
+  )
+  expect_error(
+    summarize_sentinel_ablation(
+      results,
+      bootstrap = TRUE,
+      cluster_names = "anchor_species",
+      n_realizations = 1L
+    ),
+    "integer >= 2"
+  )
+
+  binary_results <- results |>
+    dplyr::mutate(covered = TRUE)
+  binary_scorecard <- summarize_sentinel_ablation(
+    binary_results,
+    metric = "covered",
+    bootstrap = TRUE,
+    cluster_names = "anchor_species",
+    bootstrap_method = "studentized",
+    bootstrap_adjustment = "max_t",
+    n_realizations = 50L,
+    seed = 13L
+  )
+  expect_true(all(binary_scorecard@recommendation_cards$inference_status == "degenerate_zero"))
+  expect_true(all(binary_scorecard@recommendation_cards$conf_low == 0))
+  expect_true(all(binary_scorecard@recommendation_cards$conf_high == 0))
+  expect_true(all(binary_scorecard@recommendation_cards$p_adjusted == 1))
 })
 
 test_that("Sentinel run persists fold outputs and supports resume/collect", {
@@ -202,7 +582,7 @@ test_that("Sentinel object workflow receives fold Candidates and Configurer", {
     study_reference_id = c("study_a", "study_b", "study_c"),
     study_cell_id = c("cell_1", "cell_2", "cell_3")
   )
-  config_s7 <- build_configurer(default_config(
+  config_s7 <- build_configurer(create_configuration_template(
     input_file = file.path(tempdir(), "input.xlsx"),
     output_root = file.path(tempdir(), "outputs"),
     cache_folder = file.path(tempdir(), "cache")
@@ -247,7 +627,7 @@ test_that("Sentinel object workflow can return a Scorecard directly", {
     study_reference_id = c("study_a", "study_b"),
     study_cell_id = c("cell_1", "cell_2")
   )
-  config_s7 <- build_configurer(default_config(
+  config_s7 <- build_configurer(create_configuration_template(
     input_file = file.path(tempdir(), "input.xlsx"),
     output_root = file.path(tempdir(), "outputs"),
     cache_folder = file.path(tempdir(), "cache")
@@ -389,7 +769,7 @@ test_that("Sentinel prunes dropped trait columns from config sections", {
       species_traits = c("family", "genus"),
       study_traits = c("study_reference_id")
     ),
-    metalearner = list(
+    selection = list(
       feature_cols = c("family", "depth", "study_cell_id")
     )
   )
@@ -402,7 +782,7 @@ test_that("Sentinel prunes dropped trait columns from config sections", {
   expect_false("family" %in% out$similarity$species_traits)
   expect_false("study_cell_id" %in% out$similarity$study_traits)
   expect_false("family" %in% out$alchemist$species_traits)
-  expect_false("family" %in% out$metalearner$feature_cols)
+  expect_false("family" %in% out$selection$feature_cols)
 })
 
 test_that("Sentinel trait pruning drops unavailable fold columns", {
@@ -411,7 +791,7 @@ test_that("Sentinel trait pruning drops unavailable fold columns", {
       species_traits = c("family", "genus"),
       study_traits = c("study_reference_id", "fao_area")
     ),
-    metalearner = list(
+    selection = list(
       feature_cols = c("family", "depth", "study_cell_id")
     )
   )
@@ -423,7 +803,49 @@ test_that("Sentinel trait pruning drops unavailable fold columns", {
 
   expect_equal(out$similarity$species_traits, "genus")
   expect_equal(out$similarity$study_traits, "study_reference_id")
-  expect_equal(out$metalearner$feature_cols, "depth")
+  expect_equal(out$selection$feature_cols, "depth")
+})
+
+test_that("Sentinel similarity ablation retains source columns and policy groups", {
+  cfg <- list(
+    similarity = list(
+      species_traits = c("species", "ocean_basin"),
+      study_traits = "season"
+    ),
+    alchemist = list(
+      species_traits = c("species", "ocean_basin"),
+      study_traits = "season"
+    ),
+    policies = list(
+      group = list(
+        species = list(joint = list("ocean_basin")),
+        ocean_basin = NULL,
+        all = NULL
+      )
+    )
+  )
+
+  out <- sentinel_exclude_similarity_traits(
+    config = cfg,
+    traits = "ocean_basin"
+  )
+
+  expect_equal(out$similarity$species_traits, "species")
+  expect_equal(out$alchemist$species_traits, "species")
+  expect_identical(out$policies, cfg$policies)
+
+  data <- tibble::tibble(
+    model_id = c("m1", "m2"),
+    species = c("sp1", "sp2"),
+    ocean_basin = c("pacific", "atlantic")
+  )
+  dropped <- sentinel_apply_drop_columns(
+    train_data = data,
+    test_data = data,
+    drop_columns = NULL
+  )
+  expect_true("ocean_basin" %in% names(dropped$train_data))
+  expect_true("ocean_basin" %in% names(dropped$test_data))
 })
 
 test_that("Sentinel-built candidates retain fold config data", {
@@ -630,7 +1052,14 @@ test_that("Sentinel can throttle inner workers and apply fast ordination setting
   cfg <- sentinel_patch_fold_config(
     config = list(
       benchmark = list(workers = 8L),
-      metalearner = list(workers = 5L),
+      selection = list(
+        workers = 5L,
+        method_settings = list(xgboost = list(nthread = 7L))
+      ),
+      uncertainty = list(
+        workers = 6L,
+        method_settings = list(xgboost = list(nthread = 6L))
+      ),
       simulation = list(workers = 4L),
       alchemist = list(
         learner = list(workers = 6L),
@@ -647,13 +1076,46 @@ test_that("Sentinel can throttle inner workers and apply fast ordination setting
 
   expect_equal(cfg$benchmark$workers, 1L)
   expect_false(cfg$benchmark$include_ts_error)
-  expect_equal(cfg$metalearner$workers, 1L)
+  expect_equal(cfg$selection$workers, 1L)
+  expect_equal(cfg$selection$method_settings$xgboost$nthread, 1L)
+  expect_equal(cfg$uncertainty$workers, 1L)
+  expect_equal(cfg$uncertainty$method_settings$xgboost$nthread, 1L)
   expect_equal(cfg$simulation$workers, 1L)
   expect_equal(cfg$alchemist$learner$workers, 1L)
   expect_equal(cfg$alchemist$distill_workers, 1L)
   expect_equal(cfg$ordination$nmds_args$try, 2)
   expect_equal(cfg$ordination$nmds_args$trymax, 4)
   expect_true(grepl("sentinel-fold-cache", cfg$paths$cache_dir, fixed = TRUE))
+})
+
+test_that("Sentinel reads TS-error control from workflow config independently", {
+  sentinel <- build_sentinel(
+    data = tibble::tibble(
+      model_id_chr = c("m1", "m2"),
+      species_name = c("sp1", "sp2")
+    ),
+    config = list(
+      sentinel = list(
+        include_ts_error = FALSE,
+        fast_validation = FALSE
+      )
+    ),
+    output_dir = file.path(tempdir(), paste0("sentinel-ts-config-", as.integer(Sys.time())))
+  )
+
+  cfg <- sentinel_patch_fold_config(
+    config = list(
+      benchmark = list(include_ts_error = TRUE),
+      ordination = list(nmds_args = list(try = 9L, trymax = 12L))
+    ),
+    split_mode = "species_holdout",
+    object = sentinel
+  )
+
+  expect_false(sentinel@options$include_ts_error)
+  expect_false(cfg$benchmark$include_ts_error)
+  expect_equal(cfg$ordination$nmds_args$try, 9L)
+  expect_equal(cfg$ordination$nmds_args$trymax, 12L)
 })
 
 test_that("Sentinel species holdout purges held-out species from all configured roles", {
@@ -705,6 +1167,63 @@ test_that("Sentinel split plan precomputes species holdout row membership", {
   expect_false(any(split$train_data$species_name == "sp1"))
   expect_false(any(split$train_data$anchor_species == "sp1"))
   expect_false(any(split$train_data$donor_species == "sp1"))
+})
+
+test_that("Sentinel species folds exclude generalized equation placeholders", {
+  candidate_models <- tibble::tibble(
+    model_id_chr = c("m1", "m2", "g1", "g2"),
+    species_name = c("sp1", "sp2", "NA NA", "NA NA")
+  )
+
+  split_plan <- tsbiomass:::sentinel_split_plan(
+    data = candidate_models,
+    split_col = "species_name",
+    split_mode = "species_holdout"
+  )
+
+  expect_setequal(split_plan$holdout_ids, c("sp1", "sp2"))
+  expect_false("NA NA" %in% split_plan$holdout_ids)
+  expect_true(all(vapply(
+    split_plan$train_indices,
+    function(idx) all(c(3L, 4L) %in% idx),
+    logical(1)
+  )))
+})
+
+test_that("Sentinel species holdout supports deterministic grouped K-fold", {
+  candidate_models <- tibble::tibble(
+    model_id_chr = paste0("m", seq_len(12L)),
+    species_name = rep(paste0("sp", seq_len(6L)), each = 2L),
+    anchor_species = rep(paste0("sp", seq_len(6L)), each = 2L),
+    donor_species = rep(paste0("sp", seq_len(6L)), each = 2L)
+  )
+
+  split_plan <- tsbiomass:::sentinel_split_plan(
+    data = candidate_models,
+    split_col = "species_name",
+    split_mode = "species_holdout",
+    options = list(species_folds = 3L, seed = 42L)
+  )
+
+  expect_equal(length(split_plan$holdout_ids), 3L)
+  expect_setequal(unlist(split_plan$holdout_groups), paste0("sp", seq_len(6L)))
+  expect_true(all(lengths(split_plan$holdout_groups) == 2L))
+
+  for (holdout_id in split_plan$holdout_ids) {
+    heldout_species <- split_plan$holdout_groups[[holdout_id]]
+    split <- tsbiomass:::sentinel_partition_data(
+      data = candidate_models,
+      split_col = "species_name",
+      holdout_id = holdout_id,
+      split_mode = "species_holdout",
+      options = list(species_folds = 3L, seed = 42L),
+      split_plan = split_plan
+    )
+    expect_setequal(unique(split$test_data$species_name), heldout_species)
+    expect_false(any(split$train_data$species_name %in% heldout_species))
+    expect_false(any(split$train_data$anchor_species %in% heldout_species))
+    expect_false(any(split$train_data$donor_species %in% heldout_species))
+  }
 })
 
 test_that("Sentinel can drop action-space rows from both train and test slices", {
@@ -917,6 +1436,91 @@ test_that("Sentinel suite can run generic species holdout and scenario stress wo
   expect_true(all(dropped_rows$dropped_column_absent))
   expect_true(all(action_rows$action_drop_applied))
   expect_true(all(schema_rows$schema_flag_present))
+})
+
+test_that("Sentinel writes isolated fold logs beneath the configured cache", {
+  root <- file.path(tempdir(), paste0("sentinel-logging-", as.integer(Sys.time())))
+  configured_cache <- file.path(root, "configured-cache")
+  explicit_cache <- file.path(root, "explicit-cache")
+  output_dir <- file.path(root, "validation")
+  candidate_models <- tibble::tibble(
+    model_id_chr = c("m1", "m2", "m3", "m4"),
+    species_name = c("sp1", "sp1", "sp2", "sp2")
+  )
+  workflow_fn <- function(train_data, test_data, params, config, manifest_row, sentinel) {
+    message("fold-message")
+    cat("fold-output\n")
+    list(metrics = tibble::tibble(train_n = nrow(train_data), test_n = nrow(test_data)))
+  }
+
+  configured <- build_sentinel(
+    data = candidate_models,
+    workflow_fn = workflow_fn,
+    config = list(
+      paths = list(cache_dir = configured_cache),
+      sentinel = list(progress = FALSE, logging = TRUE)
+    ),
+    split_mode = "species_holdout",
+    output_dir = output_dir
+  )
+  expect_true(startsWith(
+    tsbiomass:::sentinel_output_paths(configured)$cache_root_dir,
+    normalizePath(configured_cache, winslash = "/", mustWork = FALSE)
+  ))
+
+  sentinel <- build_sentinel(
+    data = candidate_models,
+    workflow_fn = workflow_fn,
+    config = list(paths = list(cache_dir = configured_cache)),
+    split_mode = "species_holdout",
+    output_dir = output_dir,
+    cache_dir = explicit_cache,
+    logging = TRUE
+  )
+  expect_true(startsWith(
+    tsbiomass:::sentinel_output_paths(sentinel)$cache_root_dir,
+    normalizePath(explicit_cache, winslash = "/", mustWork = FALSE)
+  ))
+
+  sentinel <- run_sentinel(sentinel, max_folds = 2L, workers = 2L)
+  completed <- sentinel@manifest |>
+    dplyr::filter(.data$status == "completed")
+  expect_equal(nrow(completed), 2L)
+  expect_true(all(file.exists(completed$log_file)))
+  fold_lines <- unlist(lapply(completed$log_file, readLines, warn = FALSE))
+  expect_true(any(grepl("fold-message", fold_lines, fixed = TRUE)))
+  expect_true(any(grepl("fold-output", fold_lines, fixed = TRUE)))
+
+  combined_log <- tsbiomass:::sentinel_output_paths(sentinel)$log_file
+  expect_true(file.exists(combined_log))
+  combined_lines <- readLines(combined_log, warn = FALSE)
+  expect_true(any(grepl("fold=0001", combined_lines, fixed = TRUE)))
+  expect_true(any(grepl("fold=0002", combined_lines, fixed = TRUE)))
+  expect_true(any(grepl("fold-message", combined_lines, fixed = TRUE)))
+})
+
+test_that("Sentinel progress logging relays messages while retaining them", {
+  log_file <- tempfile(fileext = ".log")
+  utils::capture.output(
+    expect_message(
+      tsbiomass:::sentinel_with_fold_logging(
+        work = function() {
+          message("visible-worker-message")
+          1L
+        },
+        log_file = log_file,
+        progress = TRUE,
+        fold_label = "fold=0001"
+      ),
+      "visible-worker-message"
+    ),
+    type = "output"
+  )
+  expect_true(any(grepl(
+    "visible-worker-message",
+    readLines(log_file, warn = FALSE),
+    fixed = TRUE
+  )))
 })
 
 test_that("Sentinel suite summaries aggregate numeric and logical metrics", {

@@ -87,8 +87,8 @@ minimal_config_data <- function() {
       active = c("closest_within_species", "weighted_mean_within_genus"),
       equation_branch_filters = c("all", "fixed20_only")
     ),
-    metalearner = list(
-      selection_method = "glm",
+    selection = list(
+      method = "glm",
       n_folds = 5L,
       inner_folds = 5L,
       workers = 1L,
@@ -96,14 +96,14 @@ minimal_config_data <- function() {
       outcome_col = "error_abs_log",
       outcome_transform = "log1p",
       lambda_rule = "lambda.1se",
-      metalearner_loss = "squared_error",
+      loss = "squared_error",
       max_selection_tolerance = 1e-12,
       method_settings = list(
         gam = list(
           fit_method = "REML",
           select_terms = TRUE
         ),
-        ranger = list(
+        rf = list(
           num_trees = 200L,
           min_node_size = 3L,
           sample_fraction = 0.8,
@@ -119,6 +119,26 @@ minimal_config_data <- function() {
           colsample_bytree = 0.9,
           lambda = 1,
           alpha = 0
+        )
+      )
+    ),
+    uncertainty = list(
+      method = "glm",
+      n_folds = 5L,
+      inner_folds = 5L,
+      workers = 1L,
+      seed = 20260524L,
+      outcome_col = "error_abs_log",
+      outcome_transform = "log1p",
+      lambda_rule = "lambda.1se",
+      loss = "squared_error",
+      method_settings = list(
+        rf = list(
+          num_trees = 200L,
+          min_node_size = 3L,
+          sample_fraction = 0.8,
+          replace = TRUE,
+          respect_unordered_factors = "order"
         )
       )
     )

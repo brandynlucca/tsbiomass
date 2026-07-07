@@ -95,7 +95,7 @@ test_that("installed-style S3 bridges are registered for base predict and plot",
   expect_true(is.function(utils::getS3method("plot", "tsbiomass::Referee", optional = TRUE)))
   expect_true(is.function(utils::getS3method("plot", "tsbiomass::PolicySimulator", optional = TRUE)))
   expect_true(is.function(utils::getS3method("plot", "tsbiomass::Conjurer", optional = TRUE)))
-  expect_false("referee_rebuild" %in% getNamespaceExports("tsbiomass"))
+  expect_true("referee_rebuild" %in% getNamespaceExports("tsbiomass"))
 })
 
 test_that("as_tibble returns canonical result tables for predictions and scorecards", {
@@ -158,11 +158,11 @@ test_that("predict returns PolicyPredictions and summary helpers use selector st
   expect_false(any(grepl("__", predictions@intervals$policy, fixed = TRUE)))
   expect_true("equation_branch_filter" %in% names(predictions@intervals))
 
-  coverage <- build_species_coverage(selector)
+  coverage <- construct_species_coverage(selector)
   expect_equal(nrow(coverage), 2)
   expect_true(all(c("policy", "equation_branch_filter", "empirical_coverage") %in% names(coverage)))
 
-  audit <- build_anchor_audit(predictions, selector = selector)
+  audit <- construct_anchor_audit(predictions, selector = selector)
   expect_equal(nrow(audit), nrow(predictions@selections))
   expect_true(all(c("anchor_model_id", "selected_policy", "bootstrap_median_rank") %in% names(audit)))
 })
@@ -191,6 +191,55 @@ test_that("cached anchor admissibility is returned even when config is supplied"
   expect_true(is.list(cached_eval))
   expect_true(isTRUE(cached_eval$cached))
   expect_equal(cached_eval$anchor_id, as.character(anchor_row$model_id_chr[[1]]))
+})
+
+test_that("cached unscorable anchors become explicit invalid prediction rows", {
+  candidates <- set_reference_anchors(
+    make_candidates(),
+    selector = list(regional_body = "SWFSC")
+  )
+  failed_anchor <- candidates@reference_anchors[1, , drop = FALSE]
+  failed_id <- as.character(failed_anchor$model_id[[1]])
+  failed_species <- as.character(failed_anchor$species_name[[1]])
+  cached_admissibility <- list(
+    anchors = list(),
+    anchor_failures = tibble::tibble(
+      anchor_model_id = failed_id,
+      anchor_species = failed_species,
+      failure_stage = "anchor_density",
+      failure_code = "missing_study_length_support",
+      failure_message = "No valid anchor study length interval or midpoint was available."
+    )
+  )
+  candidates <- candidates_with_admissibility(candidates, cached_admissibility)
+  selector <- make_selector(
+    candidates = candidates,
+    benchmark = list(policy_perf = minimal_policy_performance()),
+    uncertainty = minimal_uncertainty(),
+    selection = list(final_ref = minimal_selection_ref())
+  )
+
+  testthat::local_mocked_bindings(
+    screen_one_anchor_admissibility = function(...) {
+      stop("Only the uncached anchors should be screened in this test.")
+    },
+    .package = "tsbiomass"
+  )
+
+  predictions <- predict(selector)
+  failed_prediction <- predictions@selections |>
+    dplyr::filter(.data$anchor_model_id == failed_id)
+  audit <- construct_anchor_audit(predictions, selector = selector)
+  failed_audit <- audit |>
+    dplyr::filter(.data$anchor_model_id == failed_id)
+
+  expect_equal(nrow(failed_prediction), 1L)
+  expect_false(failed_prediction$valid_prediction)
+  expect_equal(failed_prediction$prediction_error_stage, "anchor_density")
+  expect_equal(failed_prediction$prediction_error_code, "missing_study_length_support")
+  expect_match(failed_prediction$prediction_error_message, "No valid anchor study length interval")
+  expect_equal(failed_audit$prediction_error_code, "missing_study_length_support")
+  expect_match(failed_audit$prediction_error_message, "No valid anchor study length interval")
 })
 
 test_that("predict reuses cached anchor admissibility instead of rescreening donors", {
@@ -570,7 +619,7 @@ test_that("Scorecard and Configurer show compact console summaries", {
 
   cfg_path <- tempfile(fileext = ".yaml")
   write_config_yaml(cfg_path, overwrite = TRUE)
-  cfg <- build_configurer(read_config(cfg_path, base_dir = dirname(cfg_path)))
+  cfg <- build_configurer(read_configuration(cfg_path, base_dir = dirname(cfg_path)))
   cfg_output <- capture.output(show(cfg))
   expect_true(any(grepl("^Configurer$", cfg_output)))
   expect_true(any(grepl("species_traits:", cfg_output, fixed = TRUE)))

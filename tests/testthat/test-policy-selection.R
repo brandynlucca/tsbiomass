@@ -26,6 +26,23 @@ make_selection_reference <- function(lhs_errors,
   )
 }
 
+test_that("species summaries exclude generalized equation placeholders", {
+  perf_tbl <- tibble::tibble(
+    anchor_species = c("NA NA", "Gadus morhua", "Clupea harengus"),
+    policy = "test_policy",
+    equation_branch_filter = "all",
+    error_abs_log = c(0.001, 0.2, 0.3),
+    valid_prediction = TRUE
+  )
+
+  summarized <- species_performance(perf_tbl)
+
+  expect_setequal(
+    summarized$anchor_species,
+    c("Gadus morhua", "Clupea harengus")
+  )
+})
+
 test_that("build_equivalence_table marks full margin containment as equivalent", {
   perf_tbl <- make_species_performance_table(
     lhs_errors = c(0.10, 0.11, 0.12, 0.13),
@@ -97,6 +114,55 @@ test_that("build_equivalence_table only names a better policy when the full inte
   expect_equal(equiv$pairs$pair_decision[[1]], "lhs_better")
   expect_false(equiv$pairs$equivalent_pair[[1]])
   expect_equal(equiv$pairs$better_policy[[1]], "alpha_policy")
+})
+
+test_that("compiled pairwise bootstrap matches the R oracle exactly", {
+  policies <- c("alpha_policy", "beta_policy", "gamma_policy", "delta_policy")
+  species <- paste("Species", seq_len(8))
+  error_matrix <- cbind(
+    alpha_policy = c(.10, .11, .12, .13, .12, .11, .10, .14),
+    beta_policy = c(.12, .13, .14, .15, .13, .12, .11, .16),
+    gamma_policy = c(.20, .18, .19, .21, .20, .17, .22, .18),
+    delta_policy = c(.09, .12, .11, .14, .13, .10, .12, .15)
+  )
+  perf_tbl <- tidyr::expand_grid(
+    anchor_species = species,
+    policy = policies
+  ) |>
+    dplyr::mutate(
+      equation_branch_filter = "all",
+      error_abs_log = error_matrix[cbind(
+        match(.data$anchor_species, species),
+        match(.data$policy, policies)
+      )],
+      valid_prediction = !(.data$anchor_species == "Species 8" & .data$policy == "gamma_policy")
+    )
+  select_ref <- tibble::tibble(
+    policy = policies,
+    equation_branch_filter = "all",
+    mean_species_median_abs_log = colMeans(error_matrix),
+    specificity_rank = seq_along(policies)
+  )
+
+  r_result <- build_equivalence_table(
+    species_performance_table = perf_tbl,
+    select_ref = select_ref,
+    tolerance = 0.05,
+    n_boot = 250L,
+    seed = 1979L,
+    engine = "r"
+  )
+  cpp_result <- build_equivalence_table(
+    species_performance_table = perf_tbl,
+    select_ref = select_ref,
+    tolerance = 0.05,
+    n_boot = 250L,
+    seed = 1979L,
+    engine = "cpp"
+  )
+
+  expect_equal(cpp_result$pairs, r_result$pairs, tolerance = 1e-15)
+  expect_equal(cpp_result$best_flags, r_result$best_flags, tolerance = 1e-15)
 })
 
 test_that("default_anchor_config is idempotent for normalized anchor configs", {

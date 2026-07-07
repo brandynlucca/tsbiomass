@@ -79,6 +79,46 @@ test_that("policy benchmark reuses cached admissibility in sequential runs", {
   expect_true(all(out$policy_perf$valid_prediction))
 })
 
+test_that("policy benchmark preserves missing optional family metadata", {
+  candidate_models <- make_candidates(seed_similarity_tuning = FALSE)@candidate_models |>
+    dplyr::select(-dplyr::any_of("family"))
+  benchmark_config <- list(
+    fields = list(
+      model_id = "model_id",
+      species = "species_name",
+      family = "family",
+      slope = "slope_standard",
+      intercept = "intercept_standard"
+    )
+  )
+  optional_family <- benchmark_optional_field_values(
+    candidate_models,
+    benchmark_config,
+    "family"
+  )
+  eval_obj <- list(
+    admissible_df = tibble::tibble(
+      combined_distance = 0.2,
+      taxonomic_distance_to_anchor = 1,
+      overlap_same_species = FALSE,
+      overlap_same_family = FALSE,
+      w_adm = 1
+    )
+  )
+  feature_row <- build_benchmark_row(
+    eval_obj = eval_obj,
+    anchor_row = candidate_models[1, , drop = FALSE],
+    best_policy_name = "all_models_weighted_mean",
+    best_equation_branch_filter = "all",
+    is_reference = FALSE,
+    config = benchmark_config
+  )
+
+  expect_length(optional_family, nrow(candidate_models))
+  expect_true(all(is.na(optional_family)))
+  expect_true(is.na(feature_row$anchor_family))
+})
+
 test_that("policy benchmark skips ordination rebuild when active pools do not need it", {
   candidates <- make_candidates(
     seed_similarity_tuning = FALSE,
@@ -463,4 +503,37 @@ test_that("policy benchmark builds one shared execution plan per run", {
 
   expect_equal(plan_builds, 1L)
   expect_equal(nrow(out$policy_perf), nrow(candidates@candidate_models))
+})
+test_that("species-block benchmarking skips generalized equations", {
+  cfg <- tsbiomass:::default_anchor_config(minimal_config_data())
+  cfg$fields <- list(
+    model_id = "model_id",
+    species = "species_name"
+  )
+  generic_anchor <- tibble::tibble(
+    model_id = "generic_1",
+    species_name = "NA NA"
+  )
+
+  result <- tsbiomass:::benchmark_one_anchor(
+    anchor_row = generic_anchor,
+    candidate_models = tibble::tibble(),
+    policy_fun = tsbiomass:::evaluate_policies,
+    curve_fun = NULL,
+    model_scores = NULL,
+    species_lookup = NULL,
+    reference_ids = character(0),
+    policies = character(0),
+    policy_params = list(),
+    policy_path = NULL,
+    sim_obj = NULL,
+    dist_obj = NULL,
+    candidate_models_scored = NULL,
+    config = cfg,
+    registry_path = NULL,
+    scheme = "species_block",
+    species_block = TRUE
+  )
+
+  expect_null(result)
 })
