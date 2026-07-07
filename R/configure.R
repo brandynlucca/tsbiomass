@@ -2984,7 +2984,7 @@ validate_metalearner_method_settings <- function(method_settings) {
   # "mars" is settable (degree/penalty/nprune/pmethod); "mean" is intentionally
   # omitted because the intercept-only baseline exposes no hyperparameters.
   allowed_sections <- c(
-    "glm_penalized", "qreg", "gam", "lmm", "rpart", "rf", "xgboost", "mars", "bart", "knn", 
+    "glm_penalized", "qreg", "gam", "lmm", "rpart", "rf", "xgboost", "mars", "bart", "knn",
     "cubist", "svr", "qrf", "gpr"
   )
   bad_sections <- setdiff(names(method_settings), allowed_sections)

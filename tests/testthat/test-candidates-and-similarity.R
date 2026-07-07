@@ -375,12 +375,12 @@ test_that("tune_similarities writes tuning results back to Candidates", {
 
   testthat::local_mocked_bindings(
     prepare_similarities = function(candidate_models,
-                                         species_traits = NULL,
-                                         study_traits = NULL,
-                                         alpha = NULL,
-                                         k_species = NULL,
-                                         k_study = NULL,
-                                         ...) {
+                                    species_traits = NULL,
+                                    study_traits = NULL,
+                                    alpha = NULL,
+                                    k_species = NULL,
+                                    k_study = NULL,
+                                    ...) {
       candidate_tbl <- if (inherits(candidate_models, "S7_object")) {
         candidate_models@candidate_models
       } else {

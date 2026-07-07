@@ -397,10 +397,10 @@ sentinel_resolve_target <- function(deployment_target = NULL,
 #'
 #' @export
 create_scenarios <- function(trait_ablations = NULL,
-                                     gate_ablations = NULL,
-                                     model_ablations = NULL,
-                                     schema_scenarios = NULL,
-                                     baseline_label = "baseline") {
+                             gate_ablations = NULL,
+                             model_ablations = NULL,
+                             schema_scenarios = NULL,
+                             baseline_label = "baseline") {
   # Seed every grid with a baseline scenario so comparisons stay aligned.
   if (!is.character(baseline_label) || length(baseline_label) != 1L || !nzchar(baseline_label)) {
     stop("'baseline_label' must be one non-empty string.", call. = FALSE)
@@ -1991,7 +1991,7 @@ build_sentinel <- function(data,
   configurer_input <- if (is_s7_instance(config, "Configurer")) {
     config
   } else if (is_s7_instance(data, "Candidates") &&
-      is_s7_instance(data@spec$configurer %||% NULL, "Configurer")) {
+    is_s7_instance(data@spec$configurer %||% NULL, "Configurer")) {
     data@spec$configurer
   } else {
     NULL
@@ -2436,12 +2436,15 @@ sentinel_with_fold_logging <- function(work,
   connection <- file(log_file, open = "wt", encoding = "UTF-8")
   output_sink_depth <- sink.number(type = "output")
   sink(connection, split = isTRUE(progress), type = "output")
-  on.exit({
-    while (sink.number(type = "output") > output_sink_depth) {
-      sink(type = "output")
-    }
-    close(connection)
-  }, add = TRUE)
+  on.exit(
+    {
+      while (sink.number(type = "output") > output_sink_depth) {
+        sink(type = "output")
+      }
+      close(connection)
+    },
+    add = TRUE
+  )
 
   write_condition <- function(kind, condition) {
     text <- conditionMessage(condition)
@@ -3070,7 +3073,11 @@ sentinel_scorecard <- function(summary_tbl = tibble::tibble(),
     anchor_audit = if (summary_type %in% c(
       "sentinel_ablation",
       "sentinel_ablation_decomposition"
-    )) summary_tbl else tibble::tibble(),
+    )) {
+      summary_tbl
+    } else {
+      tibble::tibble()
+    },
     species_coverage = tibble::tibble(),
     selection_diagnostics = detail_tbl,
     key_missing_overall = tibble::tibble(),
@@ -3515,8 +3522,8 @@ sentinel_inference_names <- function(x,
 #' @keywords internal
 #' @noRd
 sentinel_ablation_add_source_columns <- function(x,
-                                                  results,
-                                                  column_names) {
+                                                 results,
+                                                 column_names) {
   missing_names <- setdiff(column_names, names(results))
   if (length(missing_names) == 0L || !is_s7_instance(x, "Sentinel")) {
     return(results)
@@ -3550,8 +3557,8 @@ sentinel_ablation_add_source_columns <- function(x,
 #' @keywords internal
 #' @noRd
 sentinel_ablation_cluster_names <- function(x,
-                                             results,
-                                             cluster_names) {
+                                            results,
+                                            cluster_names) {
   explicit <- !is.null(cluster_names)
   cluster_names <- sentinel_inference_names(
     cluster_names,
@@ -3673,7 +3680,7 @@ sentinel_fixed_stratum_mean <- function(values,
 #' @keywords internal
 #' @noRd
 sentinel_bootstrap_tail_probability <- function(statistics,
-                                                 observed) {
+                                                observed) {
   statistics <- abs(as.numeric(statistics[is.finite(statistics)]))
   if (length(statistics) == 0L || !is.finite(observed)) {
     return(NA_real_)
@@ -3772,7 +3779,7 @@ summarize_sentinel_ablation <- function(x,
     stop("`bootstrap_adjustment = \"max_t\"` requires `bootstrap_method = \"studentized\"`.", call. = FALSE)
   }
   if (!is.numeric(n_realizations) || length(n_realizations) != 1L || !is.finite(n_realizations) ||
-      n_realizations != as.integer(n_realizations) || n_realizations < 2L) {
+    n_realizations != as.integer(n_realizations) || n_realizations < 2L) {
     stop("`n_realizations` must be one integer >= 2.", call. = FALSE)
   }
   n_realizations <- as.integer(n_realizations)
@@ -4156,17 +4163,18 @@ summarize_sentinel_ablation <- function(x,
 #' @keywords internal
 #' @noRd
 summarize_sentinel_ablation_decomposition <- function(
-    x,
-    baseline_label = "baseline",
-    fold_summary = c("mean", "median"),
-    conf_level = 0.95,
-    bootstrap = FALSE,
-    cluster_names = NULL,
-    strata_names = "outer_fold_id",
-    bootstrap_method = c("studentized", "bca", "percentile", "basic", "normal"),
-    bootstrap_adjustment = c("max_t", "bonferroni", "none"),
-    n_realizations = 1000L,
-    seed = 1L) {
+  x,
+  baseline_label = "baseline",
+  fold_summary = c("mean", "median"),
+  conf_level = 0.95,
+  bootstrap = FALSE,
+  cluster_names = NULL,
+  strata_names = "outer_fold_id",
+  bootstrap_method = c("studentized", "bca", "percentile", "basic", "normal"),
+  bootstrap_adjustment = c("max_t", "bonferroni", "none"),
+  n_realizations = 1000L,
+  seed = 1L
+) {
   fold_summary <- match.arg(fold_summary)
   bootstrap_method <- match.arg(bootstrap_method)
   bootstrap_adjustment <- match.arg(bootstrap_adjustment)
@@ -4548,6 +4556,8 @@ plot_sentinel_ablation_scorecard <- function(x,
 #'
 #' @return A ggplot object.
 #'
+#' @keywords internal
+#' @noRd
 sentinel_validation_split_label <- function(split_mode) {
   split_mode <- as.character(split_mode)
   labels <- c(
@@ -4606,13 +4616,13 @@ sentinel_validation_series <- function(results) {
   ifelse(
     is.na(scenario) | !nzchar(scenario) | scenario == "baseline",
     paste0(split_label, " (all traits)"),
-    paste0(split_label, " — ", scenario_label)
+    paste0(split_label, " - ", scenario_label)
   )
 }
 
 sentinel_validation_species_values <- function(results,
-                                                metric,
-                                                summary_method) {
+                                               metric,
+                                               summary_method) {
   species_col <- if ("anchor_species" %in% names(results) &&
     any(!is.na(results$anchor_species) & nzchar(as.character(results$anchor_species)))) {
     "anchor_species"
@@ -4682,9 +4692,9 @@ sentinel_validation_metric_scale <- function(plot,
   }
   scale <- if (identical(axis, "x")) ggplot2::scale_x_continuous else ggplot2::scale_y_continuous
   plot + scale(
-      trans = scales::pseudo_log_trans(sigma = 1, base = 10),
-      labels = scales::label_number(accuracy = 0.01)
-    )
+    trans = scales::pseudo_log_trans(sigma = 1, base = 10),
+    labels = scales::label_number(accuracy = 0.01)
+  )
 }
 
 plot_sentinel_validation_scorecard <- function(x,
@@ -5036,12 +5046,12 @@ plot_sentinel_validation_scorecard <- function(x,
 #' @return A ggplot object.
 #'
 plot_sentinel_coverage_scorecard <- function(
-    x,
-    estimand = c("conditional", "operational", "estimability")) {
+  x,
+  estimand = c("conditional", "operational", "estimability")
+) {
   estimand <- match.arg(estimand)
   coverage <- tibble::as_tibble(x@recommendation_cards)
-  fields <- switch(
-    estimand,
+  fields <- switch(estimand,
     conditional = c("conditional_coverage", "conditional_lower", "conditional_upper"),
     operational = c("operational_coverage", "operational_lower", "operational_upper"),
     estimability = c("estimability_rate", "estimability_lower", "estimability_upper")
@@ -5067,8 +5077,7 @@ plot_sentinel_coverage_scorecard <- function(
   if (nrow(coverage) == 0L) {
     stop("No finite Sentinel coverage results were available to plot.", call. = FALSE)
   }
-  axis_label <- switch(
-    estimand,
+  axis_label <- switch(estimand,
     conditional = "Conditional interval coverage",
     operational = "Operational interval coverage",
     estimability = "Estimable predictions"
@@ -5199,13 +5208,13 @@ S7::method(show_generic, Sentinel) <- function(object) {
 #' @keywords internal
 #' @noRd
 S7::method(summary_generic, Sentinel) <- function(object,
-                                                   type = c(
-                                                     "validation",
-                                                     "ablation",
-                                                     "ablation_decomposition",
-                                                     "coverage"
-                                                   ),
-                                                   ...) {
+                                                  type = c(
+                                                    "validation",
+                                                    "ablation",
+                                                    "ablation_decomposition",
+                                                    "coverage"
+                                                  ),
+                                                  ...) {
   type <- match.arg(type)
   if (identical(type, "ablation")) {
     return(summarize_sentinel_ablation(object, ...))

@@ -59,8 +59,8 @@ construct_species_coverage <- S7::new_generic("construct_species_coverage", "cov
 #' @param species_sum Species-block conformal summary list.
 #' @param bench_label Species-block benchmark label.
 S7::method(construct_species_coverage, S7::class_any) <- function(coverage_summary,
-                                                              species_sum,
-                                                              bench_label = "species_block") {
+                                                                  species_sum,
+                                                                  bench_label = "species_block") {
   # Bind the conformal coverage summaries across benchmark schemes, then keep
   # only the requested benchmark label.
   dplyr::bind_rows(
@@ -77,8 +77,8 @@ S7::method(construct_species_coverage, S7::class_any) <- function(coverage_summa
 #' @name construct_species_coverage.PolicySelector
 #' @usage NULL
 S7::method(construct_species_coverage, PolicySelector) <- function(coverage_summary,
-                                                               species_sum = NULL,
-                                                               bench_label = "species_block") {
+                                                                   species_sum = NULL,
+                                                                   bench_label = "species_block") {
   # Pull the stored uncertainty bundle from the selector, then reuse the
   # default summary-list method.
   if (length(coverage_summary@uncertainty) == 0) {
@@ -127,12 +127,12 @@ construct_anchor_audit <- S7::new_generic("construct_anchor_audit", "policy_inte
 #'   `policy_intervals` is a
 #'   [PolicyPredictions] object.
 S7::method(construct_anchor_audit, S7::class_any) <- function(policy_intervals,
-                                                          select_ref,
-                                                          cover_tbl,
-                                                          sens_detail = NULL,
-                                                          sens_tbl = NULL,
-                                                          baseline_label = "baseline",
-                                                          selector = NULL) {
+                                                              select_ref,
+                                                              cover_tbl,
+                                                              sens_detail = NULL,
+                                                              sens_tbl = NULL,
+                                                              baseline_label = "baseline",
+                                                              selector = NULL) {
   # Start from the selected-policy rows and layer on the global benchmark and
   # conformal coverage summaries by selected policy.
   policy_intervals <- tibble::as_tibble(policy_intervals)
@@ -232,12 +232,12 @@ S7::method(construct_anchor_audit, S7::class_any) <- function(policy_intervals,
 #' @name construct_anchor_audit.PolicyPredictions
 #' @usage NULL
 S7::method(construct_anchor_audit, PolicyPredictions) <- function(policy_intervals,
-                                                              select_ref = NULL,
-                                                              cover_tbl = NULL,
-                                                              sens_detail = NULL,
-                                                              sens_tbl = NULL,
-                                                              baseline_label = "baseline",
-                                                              selector = NULL) {
+                                                                  select_ref = NULL,
+                                                                  cover_tbl = NULL,
+                                                                  sens_detail = NULL,
+                                                                  sens_tbl = NULL,
+                                                                  baseline_label = "baseline",
+                                                                  selector = NULL) {
   if (is_s7_instance(select_ref, "PolicySelector") && is.null(selector)) {
     selector <- select_ref
     select_ref <- NULL

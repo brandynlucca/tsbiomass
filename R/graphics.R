@@ -3597,18 +3597,18 @@ plot_ts_panel <- function(curve_tbl,
   p +
     ggplot2::scale_colour_manual(
       values = colour_values,
-      name = expression(italic(TS)~predictions),
+      name = expression(italic(TS) ~ predictions),
       labels = c("Selected policy" = "Selected policy", "Anchor" = "SWFSC", "Top candidate" = "Top candidate")
     ) +
     ggplot2::scale_linetype_manual(
       values = linetype_values,
-      name = expression(italic(TS)~predictions),
+      name = expression(italic(TS) ~ predictions),
       labels = c("Selected policy" = "Selected policy", "Anchor" = "SWFSC", "Top candidate" = "Top candidate")
     ) +
     ggplot2::facet_wrap(stats::as.formula(paste("~", reference_col)), ncol = 2, scales = "free_x") +
     ggplot2::labs(
       x = "Length (cm)",
-      y = expression(italic(TS)~(dB~re.~1~m^2))
+      y = expression(italic(TS) ~ (dB ~ re. ~ 1 ~ m^2))
     ) +
     ggplot2::coord_cartesian(expand = FALSE) +
     ggplot2::theme_bw(base_size = 12) +

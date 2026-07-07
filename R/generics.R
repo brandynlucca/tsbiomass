@@ -9,6 +9,7 @@
 #' @return The updated object.
 #'
 #' @importFrom methods show
+#' @importFrom stats predict simulate
 #' @export
 benchmark <- S7::new_generic("benchmark", "object")
 

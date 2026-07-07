@@ -879,15 +879,15 @@ normalize_trait_weights <- function(models_tbl,
 #'
 #' @export
 prepare_similarities <- function(candidate_models,
-                                      species_traits = NULL,
-                                      study_traits = NULL,
-                                      alpha = NULL,
-                                      k_species = NULL,
-                                      k_study = NULL,
-                                      config = NULL,
-                                      registry_path = NULL,
-                                      seed = NULL,
-                                      progress = NULL) {
+                                 species_traits = NULL,
+                                 study_traits = NULL,
+                                 alpha = NULL,
+                                 k_species = NULL,
+                                 k_study = NULL,
+                                 config = NULL,
+                                 registry_path = NULL,
+                                 seed = NULL,
+                                 progress = NULL) {
   # Preserve the prepared `Candidates` object boundary when present so prepared
   # similarity state is stored on the object rather than returned only as a
   # detached sidecar list.
@@ -1576,7 +1576,7 @@ compute_gower_matrix <- function(df_traits,
 #'
 #' @export
 construct_gower_distances <- function(similarity,
-                                  progress = NULL) {
+                                      progress = NULL) {
   # Preserve the prepared `Candidates` object boundary when present so the
   # distance bundle is stored on the object instead of returned only as a
   # detached list.
@@ -4248,19 +4248,19 @@ summarize_similarity_tuning_strata <- function(anchor_rows,
 #'
 #' @export
 tune_similarities <- function(candidate_models,
-                                   species_traits = NULL,
-                                   study_traits = NULL,
-                                   alpha = NULL,
-                                   k_species = NULL,
-                                   k_study = NULL,
-                                   max_models_per_species = NULL,
-                                   n_resamples = NULL,
-                                   seed = NULL,
-                                   config = NULL,
-                                   cache_path = NULL,
-                                   refresh = NULL,
-                                   progress = NULL,
-                                   registry_path = NULL) {
+                              species_traits = NULL,
+                              study_traits = NULL,
+                              alpha = NULL,
+                              k_species = NULL,
+                              k_study = NULL,
+                              max_models_per_species = NULL,
+                              n_resamples = NULL,
+                              seed = NULL,
+                              config = NULL,
+                              cache_path = NULL,
+                              refresh = NULL,
+                              progress = NULL,
+                              registry_path = NULL) {
   apply_tuned_similarity_state <- function(candidates_obj,
                                            tuning_result) {
     tuned_cfg <- tuning_result$config_tuned %||% list()

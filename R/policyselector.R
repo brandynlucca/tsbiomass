@@ -1489,8 +1489,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
       } else {
         "no_selected_policy"
       }
-      prediction_error_message <- switch(
-        prediction_error_code,
+      prediction_error_message <- switch(prediction_error_code,
         no_admissible_donors = "No donor satisfied all configured admissibility gates.",
         no_valid_policy_prediction = "The admissible donor pool produced no finite positive policy prediction.",
         no_selected_policy = "Valid policy predictions were available, but policy selection returned no row."
@@ -3363,93 +3362,93 @@ build_equivalence_table <- function(species_performance_table,
   } else {
     utils::combn(policy_keys, 2, simplify = FALSE) |>
       purrr::map_dfr(function(pair) {
-      lhs_key <- pair[[1]]
-      rhs_key <- pair[[2]]
-      lhs_idx <- match(lhs_key, policy_keys)
-      rhs_idx <- match(rhs_key, policy_keys)
-      lhs <- policy_nodes$policy[[lhs_idx]]
-      lhs_branch <- policy_nodes$equation_branch_filter[[lhs_idx]]
-      rhs <- policy_nodes$policy[[rhs_idx]]
-      rhs_branch <- policy_nodes$equation_branch_filter[[rhs_idx]]
+        lhs_key <- pair[[1]]
+        rhs_key <- pair[[2]]
+        lhs_idx <- match(lhs_key, policy_keys)
+        rhs_idx <- match(rhs_key, policy_keys)
+        lhs <- policy_nodes$policy[[lhs_idx]]
+        lhs_branch <- policy_nodes$equation_branch_filter[[lhs_idx]]
+        rhs <- policy_nodes$policy[[rhs_idx]]
+        rhs_branch <- policy_nodes$equation_branch_filter[[rhs_idx]]
 
-      # Look up the two policy columns directly from the pre-pivoted matrix.
-      lhs_col <- eq_wide_mat[, lhs_key]
-      rhs_col <- eq_wide_mat[, rhs_key]
-      both_finite <- is.finite(lhs_col) & is.finite(rhs_col)
-      n_common <- sum(both_finite)
+        # Look up the two policy columns directly from the pre-pivoted matrix.
+        lhs_col <- eq_wide_mat[, lhs_key]
+        rhs_col <- eq_wide_mat[, rhs_key]
+        both_finite <- is.finite(lhs_col) & is.finite(rhs_col)
+        n_common <- sum(both_finite)
 
-      if (n_common == 0L) {
-        return(tibble::tibble(
+        if (n_common == 0L) {
+          return(tibble::tibble(
+            policy_a = lhs,
+            equation_branch_filter_a = lhs_branch,
+            policy_b = rhs,
+            equation_branch_filter_b = rhs_branch,
+            n_species_common = 0L,
+            paired_mean_diff = NA_real_,
+            paired_median_diff = NA_real_,
+            paired_boot_q025 = NA_real_,
+            paired_boot_q975 = NA_real_,
+            equivalent_pair = FALSE,
+            pair_decision = "inconclusive",
+            better_policy = NA_character_
+          ))
+        }
+
+        # Vectorized bootstrap: single sample.int + matrix colMeans replaces
+        # replicate(n_boot, { sample + mean }) for a ~20-50x speedup per pair.
+        diff_vec <- (lhs_col - rhs_col)[both_finite]
+        set.seed(as.integer(seed) + sum(utf8ToInt(paste(lhs_key, rhs_key, sep = "|"))))
+        n_d <- length(diff_vec)
+        boot_idx_eq <- matrix(sample.int(n_d, n_d * n_boot_int_eq, replace = TRUE), nrow = n_d)
+        boot_means <- colMeans(matrix(diff_vec[boot_idx_eq], nrow = n_d), na.rm = TRUE)
+
+        q025 <- stats::quantile(boot_means, probs = 0.025, na.rm = TRUE, names = FALSE, type = 8)
+        q975 <- stats::quantile(boot_means, probs = 0.975, na.rm = TRUE, names = FALSE, type = 8)
+        mean_diff <- mean(diff_vec, na.rm = TRUE)
+        med_diff <- stats::median(diff_vec, na.rm = TRUE)
+
+        # Treat overlap with the tolerance boundary as inconclusive. A pair is
+        # equivalent only when the full bootstrap interval lies inside the
+        # practical-equivalence band; a policy is better only when the full
+        # interval lies beyond that band on one side.
+        eq_pair <- is.finite(q025) &&
+          is.finite(q975) &&
+          q025 >= -tolerance &&
+          q975 <= tolerance
+        lhs_better <- is.finite(q975) && q975 < -tolerance
+        rhs_better <- is.finite(q025) && q025 > tolerance
+
+        # Force evaluation
+        force(lhs_better)
+        force(rhs_better)
+
+        pair_decision <- dplyr::case_when(
+          eq_pair ~ "equivalent",
+          lhs_better ~ "lhs_better",
+          rhs_better ~ "rhs_better",
+          TRUE ~ "inconclusive"
+        )
+
+        better <- dplyr::case_when(
+          pair_decision == "lhs_better" ~ lhs,
+          pair_decision == "rhs_better" ~ rhs,
+          TRUE ~ NA_character_
+        )
+
+        tibble::tibble(
           policy_a = lhs,
           equation_branch_filter_a = lhs_branch,
           policy_b = rhs,
           equation_branch_filter_b = rhs_branch,
-          n_species_common = 0L,
-          paired_mean_diff = NA_real_,
-          paired_median_diff = NA_real_,
-          paired_boot_q025 = NA_real_,
-          paired_boot_q975 = NA_real_,
-          equivalent_pair = FALSE,
-          pair_decision = "inconclusive",
-          better_policy = NA_character_
-        ))
-      }
-
-      # Vectorized bootstrap: single sample.int + matrix colMeans replaces
-      # replicate(n_boot, { sample + mean }) for a ~20-50x speedup per pair.
-      diff_vec <- (lhs_col - rhs_col)[both_finite]
-      set.seed(as.integer(seed) + sum(utf8ToInt(paste(lhs_key, rhs_key, sep = "|"))))
-      n_d <- length(diff_vec)
-      boot_idx_eq <- matrix(sample.int(n_d, n_d * n_boot_int_eq, replace = TRUE), nrow = n_d)
-      boot_means <- colMeans(matrix(diff_vec[boot_idx_eq], nrow = n_d), na.rm = TRUE)
-
-      q025 <- stats::quantile(boot_means, probs = 0.025, na.rm = TRUE, names = FALSE, type = 8)
-      q975 <- stats::quantile(boot_means, probs = 0.975, na.rm = TRUE, names = FALSE, type = 8)
-      mean_diff <- mean(diff_vec, na.rm = TRUE)
-      med_diff <- stats::median(diff_vec, na.rm = TRUE)
-
-      # Treat overlap with the tolerance boundary as inconclusive. A pair is
-      # equivalent only when the full bootstrap interval lies inside the
-      # practical-equivalence band; a policy is better only when the full
-      # interval lies beyond that band on one side.
-      eq_pair <- is.finite(q025) &&
-        is.finite(q975) &&
-        q025 >= -tolerance &&
-        q975 <= tolerance
-      lhs_better <- is.finite(q975) && q975 < -tolerance
-      rhs_better <- is.finite(q025) && q025 > tolerance
-
-      # Force evaluation
-      force(lhs_better)
-      force(rhs_better)
-
-      pair_decision <- dplyr::case_when(
-        eq_pair ~ "equivalent",
-        lhs_better ~ "lhs_better",
-        rhs_better ~ "rhs_better",
-        TRUE ~ "inconclusive"
-      )
-
-      better <- dplyr::case_when(
-        pair_decision == "lhs_better" ~ lhs,
-        pair_decision == "rhs_better" ~ rhs,
-        TRUE ~ NA_character_
-      )
-
-      tibble::tibble(
-        policy_a = lhs,
-        equation_branch_filter_a = lhs_branch,
-        policy_b = rhs,
-        equation_branch_filter_b = rhs_branch,
-        n_species_common = n_common,
-        paired_mean_diff = mean_diff,
-        paired_median_diff = med_diff,
-        paired_boot_q025 = q025,
-        paired_boot_q975 = q975,
-        equivalent_pair = eq_pair,
-        pair_decision = pair_decision,
-        better_policy = better
-      )
+          n_species_common = n_common,
+          paired_mean_diff = mean_diff,
+          paired_median_diff = med_diff,
+          paired_boot_q025 = q025,
+          paired_boot_q975 = q975,
+          equivalent_pair = eq_pair,
+          pair_decision = pair_decision,
+          better_policy = better
+        )
       })
   }
 

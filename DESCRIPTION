@@ -20,6 +20,7 @@ Imports:
     dplyr,
     forcats,
     fs,
+    grDevices,
     ggplot2,
     ggrepel,
     janitor,
@@ -31,10 +32,12 @@ Imports:
     rlang,
     scales,
     scico,
+    stats,
     stringr,
     tibble,
     tidyr,
     tidyselect,
+    utils,
     yaml
 LinkingTo:
     Rcpp

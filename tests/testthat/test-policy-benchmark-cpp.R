@@ -118,7 +118,8 @@ test_that("C++ policy engine matches the R oracle column by column", {
 
 test_that("C++ engine matches the complete production policy plan", {
   config <- read_configuration(system.file(
-    "templates", "swfscfish_config.yaml", package = "tsbiomass"
+    "templates", "swfscfish_config.yaml",
+    package = "tsbiomass"
   ))
   policies <- tsbiomass:::policy_selector_active_policies(config, NULL)
   plan <- tsbiomass:::build_policy_execution_plan(

@@ -1305,8 +1305,28 @@ read_policy_registry <- local({
 available_policies <- function(policy_path = NULL) {
   registry <- read_policy_registry(policy_path = policy_path)
   list_to_tibble <- function(items) {
-    purrr::map_dfr(items %||% list(), function(item) {
-      tibble::as_tibble(as.list(item))
+    items <- items %||% list()
+    field_names <- unique(unlist(lapply(items, names), use.names = FALSE))
+    complex_fields <- field_names[vapply(field_names, function(field_name) {
+      any(vapply(items, function(item) {
+        value <- as.list(item)[[field_name]]
+        is.null(value) || is.list(value) || length(value) != 1L
+      }, logical(1)))
+    }, logical(1))]
+
+    purrr::map_dfr(items, function(item) {
+      row <- as.list(item)
+      row <- stats::setNames(lapply(field_names, function(field_name) {
+        value <- row[[field_name]]
+        if (field_name %in% complex_fields) {
+          return(list(value))
+        }
+        if (is.null(value) || length(value) == 0L) {
+          return(NA)
+        }
+        value
+      }), field_names)
+      tibble::as_tibble(row)
     })
   }
 
@@ -6667,7 +6687,7 @@ meta_policy_method_arguments <- function(method,
 #' @keywords internal
 #' @noRd
 resolve_meta_policy_lmm_group <- function(training_data,
-                                           random_intercept) {
+                                          random_intercept) {
   training_data <- tibble::as_tibble(training_data)
   random_intercept <- as.character(unlist(
     random_intercept %||% character(0),
@@ -6881,7 +6901,7 @@ predict_knn_regression <- function(object, x) {
 #' @keywords internal
 #' @noRd
 active_meta_policy_lmm_random_intercepts <- function(methods,
-                                                      method_settings = NULL) {
+                                                     method_settings = NULL) {
   methods <- unique(as.character(unlist(methods %||% character(), use.names = FALSE)))
   methods <- methods[!is.na(methods) & nzchar(methods)]
   lmm_methods <- methods[vapply(methods, function(method) {

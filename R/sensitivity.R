@@ -230,8 +230,8 @@ construct_sensitivity_table <- S7::new_generic("construct_sensitivity_table", "s
 #' @param scenario_results Named scenario benchmark result list.
 #' @param config Optional JSON path or list with sensitivity settings.
 S7::method(construct_sensitivity_table, S7::class_any) <- function(scenario_specifications,
-                                                               scenario_results,
-                                                               config = NULL) {
+                                                                   scenario_results,
+                                                                   config = NULL) {
   # Combine the scenario inputs and the benchmark outputs into one compact
   # scenario-level manifest for later audits.
   # Resolve the scenario-summary defaults directly at the call site to avoid
@@ -294,8 +294,8 @@ S7::method(construct_sensitivity_table, S7::class_any) <- function(scenario_spec
 #' @name construct_sensitivity_table.PolicySimulator
 #' @usage NULL
 S7::method(construct_sensitivity_table, PolicySimulator) <- function(scenario_specifications,
-                                                                 scenario_results = NULL,
-                                                                 config = NULL) {
+                                                                     scenario_results = NULL,
+                                                                     config = NULL) {
   if (nrow(scenario_specifications@manifest) > 0) {
     return(tibble::as_tibble(scenario_specifications@manifest))
   }
