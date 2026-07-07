@@ -1,8 +1,4 @@
-# tsbiomass
-
-<p align="center">
-  <img src="man/figures/tsbiomass-hex.svg" alt="tsbiomass hex logo" width="340" />
-</p>
+# tsbiomass <img src="man/figures/tsbiomass-hex.svg" align="right" height="158" alt="tsbiomass hex logo" />
 
 `tsbiomass` is an R package for TS-model transferability analysis, policy benchmarking, uncertainty calibration, and outer-loop validation.
 
