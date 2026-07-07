@@ -26,3 +26,4 @@
 \.rds$
 ^temp_.*$
 ^\.github$
+\.r-lib$

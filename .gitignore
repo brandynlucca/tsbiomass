@@ -31,3 +31,4 @@ inst/slides
 tmp_*
 temp_*
 artifacts/
+.r-lib
