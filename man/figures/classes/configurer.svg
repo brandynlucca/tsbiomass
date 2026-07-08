@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="128"
+   height="128"
+   viewBox="0 0 128 128"
+   role="img"
+   aria-label="Configurer icon"
+   version="1.1"
+   id="svg10"
+   sodipodi:docname="configurer.svg"
+   inkscape:version="1.4.3 (0d15f75, 2025-12-25)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs10" />
+  <sodipodi:namedview
+     id="namedview10"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="3.3398438"
+     inkscape:cx="39.073684"
+     inkscape:cy="63.026901"
+     inkscape:window-width="1920"
+     inkscape:window-height="1057"
+     inkscape:window-x="1912"
+     inkscape:window-y="-8"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg10" />
+  <rect
+     x="7.7138171"
+     y="8"
+     width="112"
+     height="112"
+     rx="24"
+     fill="#0f314c"
+     id="rect1"
+     ry="24" />
+  <path
+     d="m 22.37661,25.581212 h 87.79681 M 22.37661,57.485343 h 87.79681 M 22.37661,89.389474 h 87.79681"
+     stroke="#dbeafe"
+     stroke-width="7"
+     stroke-linecap="round"
+     id="path1"
+     style="stroke:#6482a6;stroke-width:9;stroke-dasharray:none;stroke-opacity:1" />
+  <circle
+     cx="41.969593"
+     cy="25.490057"
+     r="10.395322"
+     fill="#f59e0b"
+     id="circle1"
+     style="stroke-width:1" />
+  <circle
+     cx="51.448132"
+     cy="89.493973"
+     fill="#7dd3fc"
+     id="circle2"
+     style="stroke-width:1"
+     r="10.3955" />
+  <circle
+     cx="58.802517"
+     cy="56.903103"
+     fill="#93c5fd"
+     id="circle3"
+     style="stroke-width:1"
+     r="10.3955" />
+  <g
+     id="g12"
+     transform="translate(3.2484282,0.45976219)">
+    <path
+       d="M 33.147645,97.686728 38.8045,103.34358 24.662364,116.0715 c -2.828427,2.82843 -7.071068,-1.41421 -4.242641,-4.24264 z"
+       fill="#dbeafe"
+       id="path3" />
+    <circle
+       cx="96.51387"
+       cy="62.636024"
+       r="1.5"
+       fill="#0f314c"
+       id="circle4"
+       transform="rotate(45)" />
+    <path
+       d="M 28.93042,88.149769 C 36.694838,76.503142 59.988093,99.796395 48.341466,107.56081 Z"
+       fill="#dbeafe"
+       id="path4"
+       style="stroke-width:1" />
+    <rect
+       x="89.51387"
+       y="41.636024"
+       width="14"
+       height="4"
+       rx="1"
+       fill="#7dd3fc"
+       id="rect6"
+       ry="1"
+       transform="rotate(45)"
+       style="fill:#56686f;fill-opacity:1" />
+    <rect
+       x="91.51387"
+       y="41.636024"
+       width="1"
+       height="4"
+       fill="#0f314c"
+       id="rect7"
+       transform="rotate(45)" />
+    <rect
+       x="94.51387"
+       y="41.636024"
+       width="1"
+       height="4"
+       fill="#0f314c"
+       id="rect8"
+       transform="rotate(45)" />
+    <rect
+       x="97.51387"
+       y="41.636024"
+       width="1"
+       height="4"
+       fill="#0f314c"
+       id="rect9"
+       transform="rotate(45)" />
+    <rect
+       x="100.51387"
+       y="41.636024"
+       width="1"
+       height="4"
+       fill="#0f314c"
+       id="rect10"
+       transform="rotate(45)" />
+    <path
+       d="m 31.060968,86.000474 6.914207,-6.914207 c 1.382842,-1.38284 6.222787,3.457104 4.839944,4.839946 l -6.914206,6.914206 z"
+       fill="#dbeafe"
+       id="path10"
+       style="stroke-width:1" />
+    <path
+       d="m 45.790886,100.33161 6.914207,-6.914211 c 1.382842,-1.382841 6.222787,3.457102 4.839944,4.839944 l -6.914206,6.914217 z"
+       fill="#dbeafe"
+       id="path11"
+       style="stroke-width:1" />
+  </g>
+</svg>
