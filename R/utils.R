@@ -194,6 +194,26 @@ path_absolute <- function(path,
     path <- file.path(base_dir, path)
   }
 
+  if (!must_work && !file.exists(path)) {
+    ancestor <- path
+    suffix <- character(0)
+    while (!file.exists(ancestor)) {
+      parent <- dirname(ancestor)
+      if (identical(parent, ancestor)) {
+        break
+      }
+      suffix <- c(basename(ancestor), suffix)
+      ancestor <- parent
+    }
+    if (file.exists(ancestor)) {
+      resolved <- normalizePath(ancestor, winslash = "/", mustWork = TRUE)
+      if (length(suffix) > 0L) {
+        resolved <- do.call(file.path, c(list(resolved), as.list(suffix)))
+      }
+      return(gsub("\\\\", "/", resolved))
+    }
+  }
+
   normalizePath(path, winslash = "/", mustWork = must_work)
 }
 

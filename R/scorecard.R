@@ -37,11 +37,18 @@ S7::method(screen_missing_metadata, PolicySelector) <- function(candidate_models
 
 #' Build a species-block coverage table
 #'
+#' Extracts empirical coverage and interval-width summaries for species-block
+#' benchmark rows. The helper accepts either stored conformal summary lists or a
+#' [PolicySelector] with calibrated uncertainty and returns the policy-level
+#' coverage view used by scorecards and anchor audits.
+#'
 #' @param coverage_summary Pseudo-anchor conformal summary list or a
 #'   [PolicySelector] object.
-#' @param ... Method-specific arguments.
+#' @param ... Additional inputs such as the species-block conformal summary or
+#'   benchmark label when `coverage_summary` is a list.
 #'
-#' @return A tibble.
+#' @return A tibble with policy identifiers, branch filters, empirical
+#'   coverage, and median interval log width.
 #'
 #' @examples
 #' \dontrun{
@@ -95,14 +102,19 @@ S7::method(construct_species_coverage, PolicySelector) <- function(coverage_summ
 
 #' Build the anchor support audit
 #'
-#' Joins selected-policy intervals to global benchmark and conformal coverage
-#' summaries, and optionally appends sensitivity-drift diagnostics.
+#' Combines selected-policy interval rows with policy-level benchmark,
+#' conformal coverage, and optional sensitivity-drift diagnostics. The audit is
+#' an anchor-level support table: it shows which policy was selected, how that
+#' policy performed globally, how well it covered species-block benchmarks, and
+#' whether sensitivity scenarios changed the recommendation.
 #'
 #' @param policy_intervals Selected-policy interval table or a [PolicyPredictions]
 #'   object.
-#' @param ... Method-specific arguments.
+#' @param ... Audit inputs such as selection reference tables, coverage tables,
+#'   sensitivity details, baseline scenario label, or a [PolicySelector] used to
+#'   retrieve stored summaries.
 #'
-#' @return A tibble.
+#' @return A tibble with one row per audited anchor-policy interval.
 #'
 #' @examples
 #' \dontrun{
@@ -272,7 +284,8 @@ S7::method(construct_anchor_audit, PolicyPredictions) <- function(policy_interva
 #'
 #' @param candidate_models Candidate-model table, [Candidates] object, or
 #'   [PolicySelector] object.
-#' @param ... Method-specific arguments.
+#' @param ... Inputs forwarded to the table, [Candidates], or [PolicySelector]
+#'   summarization method.
 #'
 #' @return A list of tibbles.
 #'
@@ -393,7 +406,7 @@ S7::method(summarize_key_missing, PolicySelector) <- function(candidate_models,
 #' Summarize missingness gate outcomes
 #'
 #' @param adm_tbl Admissibility summary table.
-#' @param ... Method-specific arguments.
+#' @param ... Inputs forwarded to the admissibility-table summarization method.
 #'
 #' @return A tibble.
 #'

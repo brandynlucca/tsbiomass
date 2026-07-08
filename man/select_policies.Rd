@@ -2,19 +2,29 @@
 % Please edit documentation in R/generics.R
 \name{select_policies}
 \alias{select_policies}
-\title{Select policies}
+\title{Select benchmark-supported policies}
 \usage{
 select_policies(object, ...)
 }
 \arguments{
-\item{object}{A package object such as a \link{PolicySelector}.}
+\item{object}{A \link{PolicySelector} object.}
 
-\item{...}{Method-specific arguments.}
+\item{...}{Selection controls such as policy-performance overrides,
+tolerance settings, cache path, refresh flag, or progress display.}
 }
 \value{
-The updated object.
+The supplied \link{PolicySelector} updated with selected policies and
+selection diagnostics.
 }
 \description{
-Dispatches to the appropriate policy-selection method for the supplied
-object.
+Chooses the policy or policies retained for each reference anchor after
+benchmarking and uncertainty calibration. For a \link{PolicySelector}, selection
+ranks policies using benchmark error, uncertainty width, donor support, and
+configured equivalence rules, then stores anchor-level selected rows and
+diagnostics for prediction and reporting.
+}
+\details{
+Selection requires benchmark results and calibrated uncertainty. It does not
+rebuild candidates or refit learners; it consumes the selector's current
+benchmark and uncertainty layers.
 }

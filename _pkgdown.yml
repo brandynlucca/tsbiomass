@@ -1,0 +1,182 @@
+url: https://brandynlucca.github.io/tsbiomass/
+
+template:
+  bootstrap: 5
+  bootswatch: flatly
+  bslib:
+    primary: "#2c7a6f"
+    navbar-bg: "#2c7a6f"
+    font-size-base: "0.95rem"
+
+home:
+  title: "tsbiomass"
+  description: >
+    Configuration-driven TS-length model transferability and TS-to-biomass
+    decision support for fisheries acoustics.
+  links:
+    - text: Report an issue
+      href: https://github.com/brandynlucca/tsbiomass/issues
+
+navbar:
+  structure:
+    left:  [intro, guides, reference]
+    right: [search, github]
+  components:
+    guides:
+      text: Guides
+      menu:
+        - text: Configuration Reference
+          href: articles/configuration.html
+        - text: Super Learners
+          href: articles/super-learners.html
+    reference:
+      text: Reference
+      menu:
+        - text: "Configuration"
+          href: reference/build_configurer.html
+        - text: "Candidates"
+          href: reference/build_candidates.html
+        - text: "Alchemist"
+          href: reference/as_alchemist.html
+        - text: "Conjurer"
+          href: reference/as_conjurer.html
+        - text: "Policy Selection"
+          href: reference/as_policyselector.html
+        - text: "Policy Learning"
+          href: reference/as_policylearner.html
+        - text: "Predictions & Scoring"
+          href: reference/predict.PolicySelector.html
+        - text: "Simulation & Validation"
+          href: reference/as_policysimulator.html
+        - text: "Visualization"
+          href: reference/plot.Alchemist.html
+        - text: "Utilities"
+          href: reference/cpp_compute_gower.html
+        - text: "---"
+        - text: "Full function index"
+          href: reference/index.html
+    github:
+      icon: fab fa-github fa-lg
+      href: https://github.com/brandynlucca/tsbiomass
+      aria-label: GitHub
+
+articles:
+  - title: "User Guides"
+    desc: "Workflow guides and method references."
+    navbar: ~
+    contents:
+      - configuration
+      - super-learners
+
+reference:
+  - title: "Configuration"
+    desc: "Build, read, and inspect analysis configurations."
+    contents:
+      - build_configurer
+      - read_configuration
+      - create_configuration_template
+      - Configurer-class
+      - trait_names
+      - trait_definition
+
+  - title: "Candidates"
+    desc: "Ingest and normalize candidate TS-length models."
+    contents:
+      - build_candidates
+      - Candidates-class
+      - candidate_models
+      - set_reference_anchors
+      - fetch_reference_anchors
+      - set_reference_length_pdf
+      - prepare_similarities
+      - construct_gower_distances
+
+  - title: "Alchemist"
+    desc: "Supervised metric learning for pairwise acoustic distances."
+    contents:
+      - as_alchemist
+      - Alchemist-class
+      - forge_distances
+      - distill_traits
+      - run_ordination
+      - screen_admissibility
+
+  - title: "Conjurer"
+    desc: "Trait-missingness sensitivity diagnostics."
+    contents:
+      - as_conjurer
+      - Conjurer-class
+
+  - title: "Policy Selection"
+    desc: "Benchmark, calibrate, and select transfer policies."
+    contents:
+      - as_policyselector
+      - PolicySelector-class
+      - benchmark
+      - benchmark.PolicySelector
+      - calibrate_uncertainty
+      - calibrate_uncertainty.PolicySelector
+      - select_policies
+      - select_policies.PolicySelector
+      - available_policies
+      - list_learners
+      - tune_similarities
+      - construct_species_coverage
+      - construct_species_coverage.default
+      - construct_species_coverage.PolicySelector
+      - construct_anchor_audit
+      - construct_anchor_audit.default
+      - construct_anchor_audit.PolicyPredictions
+
+  - title: "Policy Learning"
+    desc: "Fit context-aware meta-learners for policy recommendation."
+    contents:
+      - as_policylearner
+      - PolicyLearner-class
+      - crossfit
+      - crossfit.PolicyLearner
+      - fit
+      - fit.PolicyLearner
+      - calibrate_uncertainty.PolicyLearner
+
+  - title: "Predictions and Scoring"
+    desc: "Generate predictions and evaluate policy performance."
+    contents:
+      - predict.PolicySelector
+      - predict.PolicyLearner
+      - PolicyPredictions-class
+      - as_referee
+      - Referee-class
+      - referee_rebuild
+      - predict.Referee
+      - recommend_ts_model
+      - Scorecard-class
+
+  - title: "Simulation and Validation"
+    desc: "Sensitivity simulation and outer-loop holdout validation."
+    contents:
+      - as_policysimulator
+      - PolicySimulator-class
+      - create_scenarios
+      - build_sentinel
+      - run_sentinel
+      - Sentinel-class
+      - sentinel_apply_scenario
+      - collect_sensitivity_results
+      - collect_sensitivity_results.default
+      - collect_sensitivity_results.PolicySimulator
+      - construct_sensitivity_table
+      - construct_sensitivity_table.default
+      - construct_sensitivity_table.PolicySimulator
+
+  - title: "Visualization"
+    desc: "Plotting generics for all major classes."
+    contents:
+      - starts_with("plot.")
+      - starts_with("plot_sentinel")
+      - explain
+
+  - title: "Utilities"
+    desc: "Lower-level Rcpp benchmarking utilities."
+    contents:
+      - starts_with("cpp_")

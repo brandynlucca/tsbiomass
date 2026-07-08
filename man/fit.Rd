@@ -2,20 +2,31 @@
 % Please edit documentation in R/generics.R
 \name{fit}
 \alias{fit}
-\title{Fit a model object}
+\title{Fit a final policy learner}
 \usage{
 fit(object, ...)
 }
 \arguments{
-\item{object}{A package object such as a \link{PolicyLearner}.}
+\item{object}{A \link{PolicyLearner} object, usually after \code{\link[=crossfit]{crossfit()}}.}
 
-\item{...}{Method-specific arguments.}
+\item{...}{Fit controls such as training-data override, learner method,
+feature columns, tuning folds, seed, method settings, or progress display.}
 }
 \value{
-The updated object.
+The supplied \link{PolicyLearner} updated with the fitted final
+meta-policy learner and resolved fit settings.
 }
 \description{
-Fits the supplied object using the method associated with its class.
+Fits the final learner used for future policy scoring after cross-fitting
+has established the training recipe and calibration target. For a
+\link{PolicyLearner}, this trains the configured meta-policy model on the full
+benchmark-derived training table rather than on held-out folds.
+}
+\details{
+The fitted model is stored on the returned learner and is consumed by
+\code{\link[stats:predict]{stats::predict()}} when scoring new anchor-policy rows. Fitting does not
+perform uncertainty calibration; run \code{\link[=calibrate_uncertainty]{calibrate_uncertainty()}} after
+\code{\link[=fit]{fit()}} when calibrated intervals are needed.
 }
 \examples{
 \dontrun{

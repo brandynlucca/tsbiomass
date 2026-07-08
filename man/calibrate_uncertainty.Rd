@@ -2,20 +2,34 @@
 % Please edit documentation in R/generics.R
 \name{calibrate_uncertainty}
 \alias{calibrate_uncertainty}
-\title{Calibrate uncertainty}
+\title{Calibrate policy-transfer uncertainty}
 \usage{
 calibrate_uncertainty(object, ...)
 }
 \arguments{
-\item{object}{A package object such as a \link{PolicySelector} or
-\link{PolicyLearner}.}
+\item{object}{A \link{PolicySelector} with benchmark results or a \link{PolicyLearner}
+with cross-fitted prediction results.}
 
-\item{...}{Method-specific arguments.}
+\item{...}{Additional calibration controls such as coverage level,
+calibration table overrides, cache controls, or learner-specific
+support-bin settings.}
 }
 \value{
-The updated object.
+The same class of object supplied in \code{object}, updated with an
+uncertainty calibration bundle.
 }
 \description{
-Dispatches to the appropriate uncertainty-calibration method for the
-supplied object.
+Builds the conformal uncertainty layer used by downstream policy selection,
+prediction, and reporting. The generic dispatches on the supplied object:
+\link{PolicySelector} methods calibrate interval widths from benchmarked
+pseudo-anchor and species-block errors, while \link{PolicyLearner} methods
+calibrate post-selection intervals from stored cross-fitted learner
+predictions.
+}
+\details{
+Calibration does not refit candidate models or rerun the policy benchmark.
+It consumes already-computed benchmark or cross-fit tables, estimates
+residual quantiles at the configured coverage level, and stores the resulting
+lookup tables, conformal thresholds, diagnostics, and selected calibration
+rows on the returned object.
 }

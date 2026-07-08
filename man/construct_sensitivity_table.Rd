@@ -2,21 +2,24 @@
 % Please edit documentation in R/sensitivity.R
 \name{construct_sensitivity_table}
 \alias{construct_sensitivity_table}
-\title{Construct a scenario manifest}
+\title{Construct a sensitivity scenario manifest}
 \usage{
 construct_sensitivity_table(scenario_specifications, ...)
 }
 \arguments{
 \item{scenario_specifications}{Named scenario-specification list.}
 
-\item{...}{Method-specific arguments.}
+\item{...}{Scenario benchmark results and optional configuration overrides,
+or a \link{PolicySimulator} object containing stored scenarios and results.}
 }
 \value{
-A tibble.
+A tibble with one row per sensitivity scenario.
 }
 \description{
-Summarizes the scenario specifications and the corresponding benchmark
-outputs into one scenario-level manifest table.
+Summarizes each sensitivity scenario and its benchmark outcome in one
+scenario-level table. The manifest records the scenario inputs, candidate
+model counts, configured admissibility/similarity settings, the benchmark's
+best policy, and the set of policies equivalent to the best policy.
 }
 \examples{
 \dontrun{

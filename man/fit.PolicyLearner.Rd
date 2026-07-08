@@ -6,11 +6,12 @@
 \arguments{
 \item{object}{A \link{PolicyLearner} object.}
 
-\item{training_data}{Optional prepared learner training table.}
+\item{training_data}{Optional prepared learner training table. When omitted,
+the method uses the training table stored during \code{\link[=crossfit]{crossfit()}}.}
 
-\item{selection_method}{Optional meta-policy learner method.}
+\item{selection_method}{Optional meta-policy learner method override.}
 
-\item{feature_cols}{Optional feature-column override.}
+\item{feature_cols}{Optional feature-column override for the final fit.}
 
 \item{outcome_transform}{Optional outcome transform.}
 
@@ -29,19 +30,25 @@
 \item{selection_method_settings}{Optional selection-learner method-settings
 override.}
 
-\item{method_settings}{Deprecated shared alias for
-\code{selection_method_settings}.}
+\item{method_settings}{Shared method-settings override.}
 
 \item{progress}{Optional logical scalar controlling progress messages.}
 
 \item{config}{Optional config override.}
 }
 \value{
-An updated \link{PolicyLearner} object with a fitted final learner.
-
-Fit the final \code{PolicyLearner} on the selector's full benchmark-derived
-training table and store the fitted learner on the object.
+An updated \link{PolicyLearner} object with the fitted final learner,
+model metadata, and resolved fit settings.
 }
 \description{
-Fit a \code{PolicyLearner}
+Trains the final meta-policy learner on the full benchmark-derived training
+table. Unlike \code{\link[=crossfit]{crossfit()}}, this step does not hold out folds; it uses all
+available training rows to fit the model that will score candidate policies
+for new reference anchors.
+}
+\details{
+The method reuses the feature columns, outcome transformation, learner
+method, and method settings resolved during cross-fitting unless explicit
+overrides are supplied. The returned learner stores the fitted model and
+clears stale prediction state that depends on an earlier fit.
 }

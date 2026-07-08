@@ -597,17 +597,30 @@ canonicalize_equivalent_policy_rows <- function(policy_tbl) {
 
 #' Benchmark a `PolicySelector`
 #'
+#' Runs the empirical benchmark stage for a selector. The method evaluates the
+#' active policy set against pseudo-anchor and species-block holdout schemes,
+#' optionally computes TS-error curves, and stores the resulting policy
+#' performance tables on the selector.
+#'
+#' Benchmarking consumes the selector's [Candidates] object, learned similarity
+#' context, active policy configuration, and reference-anchor identifiers. A new
+#' benchmark invalidates any stored uncertainty calibration and policy
+#' selection, so those downstream layers are cleared on the returned selector.
+#'
 #' @name benchmark.PolicySelector
 #' @usage NULL
 #'
 #' @param object A [PolicySelector] object.
-#' @param policies Optional character vector of policy names.
-#' @param policy_fun Optional policy-evaluation function.
-#' @param curve_fun Optional curve-prediction function.
-#' @param model_scores Optional ordination model-score table.
-#' @param species_lookup Optional ordination species-lookup table.
+#' @param policies Optional character vector of policy names to evaluate.
+#' @param policy_fun Optional policy-evaluation function used to score one
+#'   anchor-policy combination.
+#' @param curve_fun Optional curve-prediction function used for TS-error
+#'   evaluation.
+#' @param model_scores Optional ordination model-score table override.
+#' @param species_lookup Optional ordination species-lookup table override.
 #' @param reference_ids Optional reference-anchor id override.
-#' @param policy_params Optional policy-parameter overrides.
+#' @param policy_params Optional policy-parameter overrides applied during
+#'   policy evaluation.
 #' @param policy_path Optional policy-registry path.
 #' @param config Optional config override.
 #' @param include_ts_error Optional logical scalar controlling time-series error
@@ -615,17 +628,17 @@ canonicalize_equivalent_policy_rows <- function(policy_tbl) {
 #' @param benchmark_schemes Character vector of benchmark scheme names.
 #' @param workers Optional worker count.
 #' @param engine Policy benchmark engine, `"r"` or `"cpp"`.
-#' @param cache_path Optional cache path.
-#' @param refresh Optional logical scalar controlling cache refresh.
+#' @param cache_path Optional cache path for reusable benchmark artifacts.
+#' @param refresh Optional logical scalar controlling whether cached benchmark
+#'   artifacts are ignored and rebuilt.
 #' @param progress Optional logical scalar controlling progress messages.
 #' @param group_block_col Optional blocking column for grouped species holds.
 #' @param group_block_label Label attached to grouped holdout rows.
 #' @param registry_path Optional trait-registry path.
 #'
-#' @return An updated [PolicySelector] object with stored benchmark results.
-#'
-#' Run the `PolicySelector` benchmark stage and store the resulting benchmark
-#' bundle on the selector.
+#' @return An updated [PolicySelector] object with benchmark policy-performance
+#'   tables, species-block summaries, optional TS-error rows, and benchmark
+#'   metadata.
 S7::method(benchmark, PolicySelector) <- function(object,
                                                   policies = NULL,
                                                   policy_fun = evaluate_policies,
@@ -734,28 +747,44 @@ S7::method(benchmark, PolicySelector) <- function(object,
   )
 }
 
-#' Calibrate `PolicySelector` uncertainty
+#' Calibrate benchmark-based uncertainty for a `PolicySelector`
+#'
+#' Uses the selector's stored benchmark tables to estimate policy-transfer
+#' uncertainty before final policy selection. The method combines pseudo-anchor
+#' policy-performance rows, species-block performance rows, and optional
+#' time-series error rows, then builds conformal calibration summaries for
+#' multiplier intervals and TS-error envelopes.
+#'
+#' The returned selector keeps the original candidates and benchmark results and
+#' replaces the uncertainty layer with a fresh calibration bundle. Downstream
+#' calls to [select_policies()], [stats::predict()], and [as_referee()] use this
+#' bundle to attach interval bounds, support diagnostics, and calibration
+#' provenance to selected policies.
 #'
 #' @name calibrate_uncertainty.PolicySelector
 #' @usage NULL
 #'
 #' @param object A [PolicySelector] object.
-#' @param alpha Optional conformal alpha.
-#' @param policy_perf Optional policy-performance table override.
+#' @param alpha Optional conformal alpha. Smaller values produce wider
+#'   intervals; when omitted, the value is read from the selector
+#'   configuration.
+#' @param policy_perf Optional policy-performance table override. By default,
+#'   the method uses the selector's stored benchmark policy-performance table.
 #' @param species_performance_table Optional species-block performance table
-#'   override.
-#' @param ts_error Optional time-series error table override.
-#' @param pseudo_label Pseudo-anchor benchmark label.
-#' @param species_label Species-block benchmark label.
+#'   override used to estimate species-held-out residual behavior.
+#' @param ts_error Optional time-series error table override used for
+#'   functional TS-error envelopes.
+#' @param pseudo_label Label assigned to pseudo-anchor calibration rows.
+#' @param species_label Label assigned to species-block calibration rows.
 #' @param config Optional config override.
-#' @param cache_path Optional cache path.
-#' @param refresh Optional logical scalar controlling cache refresh.
+#' @param cache_path Optional cache path for reusable calibration artifacts.
+#' @param refresh Optional logical scalar controlling whether cached
+#'   calibration artifacts are ignored and rebuilt.
 #' @param progress Optional logical scalar controlling progress messages.
 #'
-#' @return An updated [PolicySelector] object with stored uncertainty results.
-#'
-#' Calibrate `PolicySelector` uncertainty from the stored benchmark tables and
-#' attach the resulting calibration bundle to the selector.
+#' @return An updated [PolicySelector] object whose uncertainty property
+#'   contains conformal thresholds, calibration rows, TS-error summaries, and
+#'   diagnostics derived from the benchmark tables.
 S7::method(calibrate_uncertainty, PolicySelector) <- function(object,
                                                               alpha = NULL,
                                                               policy_perf = NULL,
@@ -810,23 +839,33 @@ S7::method(calibrate_uncertainty, PolicySelector) <- function(object,
   )
 }
 
-#' Select policies from a `PolicySelector`
+#' Select benchmark-supported policies from a `PolicySelector`
+#'
+#' Applies the selector's policy-selection rules to the calibrated benchmark
+#' evidence. The method starts from the species-block performance table, ranks
+#' policies by benchmark error and specificity, applies equivalence and
+#' one-standard-error style tolerance rules, and stores the selected policy set
+#' plus selection diagnostics on the selector.
+#'
+#' This step expects [benchmark()] and [calibrate_uncertainty()] to have already
+#' populated the selector. It does not rerun policy evaluation; it reduces the
+#' existing benchmark and uncertainty layers to the policies considered
+#' acceptable for prediction and scorecard reporting.
 #'
 #' @name select_policies.PolicySelector
 #' @usage NULL
 #'
 #' @param object A [PolicySelector] object.
 #' @param species_performance_table Optional species-block performance table
-#'   override.
+#'   override. When omitted, the selector's stored benchmark table is used.
 #' @param config Optional config override.
-#' @param cache_path Optional cache path.
-#' @param refresh Optional logical scalar controlling cache refresh.
+#' @param cache_path Optional cache path for reusable selection artifacts.
+#' @param refresh Optional logical scalar controlling whether cached selection
+#'   artifacts are ignored and rebuilt.
 #' @param progress Optional logical scalar controlling progress messages.
 #'
-#' @return An updated [PolicySelector] object with stored selection results.
-#'
-#' Select globally acceptable policies from the `PolicySelector` benchmark
-#' table and store the resulting summaries on the selector.
+#' @return An updated [PolicySelector] object with selected policies,
+#'   selection reference tables, and anchor-level selection diagnostics.
 S7::method(select_policies, PolicySelector) <- function(object,
                                                         species_performance_table = NULL,
                                                         config = NULL,

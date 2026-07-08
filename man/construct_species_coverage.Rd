@@ -10,13 +10,18 @@ construct_species_coverage(coverage_summary, ...)
 \item{coverage_summary}{Pseudo-anchor conformal summary list or a
 \link{PolicySelector} object.}
 
-\item{...}{Method-specific arguments.}
+\item{...}{Additional inputs such as the species-block conformal summary or
+benchmark label when \code{coverage_summary} is a list.}
 }
 \value{
-A tibble.
+A tibble with policy identifiers, branch filters, empirical
+coverage, and median interval log width.
 }
 \description{
-Build a species-block coverage table
+Extracts empirical coverage and interval-width summaries for species-block
+benchmark rows. The helper accepts either stored conformal summary lists or a
+\link{PolicySelector} with calibrated uncertainty and returns the policy-level
+coverage view used by scorecards and anchor audits.
 }
 \examples{
 \dontrun{

@@ -8,7 +8,7 @@ Description: Bundles the TS-model transferability analysis pipeline, benchmark l
     and figure-generation pipeline used for TS-to-biomass transfer analyses.
     The package is configuration-driven and can be run from YAML/JSON
     files or from the preserved command-line interface.
-URL: https://github.com/brandynlucca/tsbiomass
+URL: https://brandynlucca.github.io/tsbiomass/, https://github.com/brandynlucca/tsbiomass
 BugReports: https://github.com/brandynlucca/tsbiomass/issues
 License: MIT + file LICENSE
 Encoding: UTF-8
@@ -65,8 +65,12 @@ Suggests:
     vegan,
     wk,
     worrms,
-    xgboost
+    xgboost,
+    knitr,
+    pkgdown,
+    rmarkdown
 Config/testthat/edition: 3
+VignetteBuilder: knitr
 Roxygen: list(markdown = TRUE)
 Collate:
     'RcppExports.R'

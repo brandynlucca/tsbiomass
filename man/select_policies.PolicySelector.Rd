@@ -2,27 +2,36 @@
 % Please edit documentation in R/policyselector.R
 \name{select_policies.PolicySelector}
 \alias{select_policies.PolicySelector}
-\title{Select policies from a \code{PolicySelector}}
+\title{Select benchmark-supported policies from a \code{PolicySelector}}
 \arguments{
 \item{object}{A \link{PolicySelector} object.}
 
 \item{species_performance_table}{Optional species-block performance table
-override.}
+override. When omitted, the selector's stored benchmark table is used.}
 
 \item{config}{Optional config override.}
 
-\item{cache_path}{Optional cache path.}
+\item{cache_path}{Optional cache path for reusable selection artifacts.}
 
-\item{refresh}{Optional logical scalar controlling cache refresh.}
+\item{refresh}{Optional logical scalar controlling whether cached selection
+artifacts are ignored and rebuilt.}
 
 \item{progress}{Optional logical scalar controlling progress messages.}
 }
 \value{
-An updated \link{PolicySelector} object with stored selection results.
-
-Select globally acceptable policies from the \code{PolicySelector} benchmark
-table and store the resulting summaries on the selector.
+An updated \link{PolicySelector} object with selected policies,
+selection reference tables, and anchor-level selection diagnostics.
 }
 \description{
-Select policies from a \code{PolicySelector}
+Applies the selector's policy-selection rules to the calibrated benchmark
+evidence. The method starts from the species-block performance table, ranks
+policies by benchmark error and specificity, applies equivalence and
+one-standard-error style tolerance rules, and stores the selected policy set
+plus selection diagnostics on the selector.
+}
+\details{
+This step expects \code{\link[=benchmark]{benchmark()}} and \code{\link[=calibrate_uncertainty]{calibrate_uncertainty()}} to have already
+populated the selector. It does not rerun policy evaluation; it reduces the
+existing benchmark and uncertainty layers to the policies considered
+acceptable for prediction and scorecard reporting.
 }

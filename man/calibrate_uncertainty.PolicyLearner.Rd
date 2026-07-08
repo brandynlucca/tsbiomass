@@ -2,24 +2,29 @@
 % Please edit documentation in R/policylearner.R
 \name{calibrate_uncertainty.PolicyLearner}
 \alias{calibrate_uncertainty.PolicyLearner}
-\title{Calibrate \code{PolicyLearner} uncertainty}
+\title{Calibrate post-selection uncertainty for a \code{PolicyLearner}}
 \arguments{
 \item{object}{A \link{PolicyLearner} object.}
 
-\item{predictions}{Optional cross-fit prediction table override.}
+\item{predictions}{Optional cross-fit prediction table override. When
+omitted, stored cross-fit predictions are used.}
 
-\item{outcome_col}{Optional outcome-column override.}
+\item{outcome_col}{Optional outcome-column override used to compute
+residuals.}
 
 \item{max_selection_tolerance}{Optional score-tie tolerance used when
 retaining calibration rows.}
 
-\item{alpha}{Optional marginal conformal alpha.}
+\item{alpha}{Optional marginal conformal alpha for the global
+post-selection residual threshold.}
 
-\item{bin_alpha}{Optional support-bin conformal alpha.}
+\item{bin_alpha}{Optional support-bin conformal alpha for local-support
+residual thresholds.}
 
-\item{min_bin_scores}{Optional minimum score count per support bin.}
+\item{min_bin_scores}{Optional minimum score count required before a support
+bin gets its own threshold.}
 
-\item{n_bins}{Optional number of support bins.}
+\item{n_bins}{Optional number of support bins used to stratify selected rows.}
 
 \item{uncertainty_method}{Optional uncertainty-learner method override.}
 
@@ -34,11 +39,21 @@ method-settings override.}
 \item{config}{Optional config override.}
 }
 \value{
-An updated \link{PolicyLearner} object with stored calibration outputs.
-
-Build the post-selection uncertainty calibration stored on a
-\code{PolicyLearner}.
+An updated \link{PolicyLearner} object whose calibration property contains
+selected calibration rows, residual quantiles, support-bin thresholds,
+optional uncertainty learner state, and lookup metadata used by
+\code{\link[stats:predict]{stats::predict()}} on the learner.
 }
 \description{
-Calibrate \code{PolicyLearner} uncertainty
+Converts cross-fitted learner predictions into post-selection conformal
+calibration tables. The method scores the stored out-of-fold predictions,
+keeps the rows that would be selected under the learner's meta-policy score,
+estimates absolute log-residual quantiles, and optionally builds support-bin
+calibration so intervals can widen when an anchor has little local support.
+}
+\details{
+This method expects \code{\link[=crossfit]{crossfit()}} to have populated the learner's cross-fit
+results. It does not refit the meta-policy learner; it uses the cross-fitted
+predictions to quantify how much post-selection error remains after the
+learner chooses policies.
 }

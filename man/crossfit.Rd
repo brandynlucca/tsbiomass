@@ -7,15 +7,29 @@
 crossfit(object, ...)
 }
 \arguments{
-\item{object}{A \link{PolicyLearner} object.}
+\item{object}{A \link{PolicyLearner} object created from a benchmarked
+\link{PolicySelector}.}
 
-\item{...}{Method-specific arguments.}
+\item{...}{Cross-fitting controls such as benchmark table overrides, fold
+count, group column, learner method, feature columns, seed, workers, or
+progress display.}
 }
 \value{
-The updated \link{PolicyLearner} object.
+The supplied \link{PolicyLearner} updated with cross-fit predictions,
+prepared training data, and resolved learner settings.
 }
 \description{
-Estimates out-of-fold policy-performance predictions for a learner object.
+Trains the policy learner in outer folds and stores out-of-fold predictions
+for benchmark rows. Cross-fitting estimates how the meta-policy learner
+behaves on anchors it did not train on, which is the calibration target used
+later by \code{\link[=calibrate_uncertainty]{calibrate_uncertainty()}} for post-selection intervals.
+}
+\details{
+The method prepares the benchmark-derived training frame, resolves feature
+columns and learner controls from the object configuration, fits one learner
+per fold, and stores fold predictions plus the resolved training settings on
+the returned \link{PolicyLearner}. It clears any final fit or calibration state
+because those depend on the cross-fit results.
 }
 \examples{
 \dontrun{

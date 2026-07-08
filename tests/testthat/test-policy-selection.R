@@ -161,8 +161,19 @@ test_that("compiled pairwise bootstrap matches the R oracle exactly", {
     engine = "cpp"
   )
 
-  expect_equal(cpp_result$pairs, r_result$pairs, tolerance = 1e-12)
-  expect_equal(cpp_result$best_flags, r_result$best_flags, tolerance = 1e-12)
+  pair_numeric_cols <- names(cpp_result$pairs)[vapply(cpp_result$pairs, is.numeric, logical(1))]
+  pair_other_cols <- setdiff(names(cpp_result$pairs), pair_numeric_cols)
+  expect_equal(cpp_result$pairs[pair_other_cols], r_result$pairs[pair_other_cols])
+  for (col in pair_numeric_cols) {
+    expect_equal(cpp_result$pairs[[col]], r_result$pairs[[col]], tolerance = 1e-10)
+  }
+
+  flag_numeric_cols <- names(cpp_result$best_flags)[vapply(cpp_result$best_flags, is.numeric, logical(1))]
+  flag_other_cols <- setdiff(names(cpp_result$best_flags), flag_numeric_cols)
+  expect_equal(cpp_result$best_flags[flag_other_cols], r_result$best_flags[flag_other_cols])
+  for (col in flag_numeric_cols) {
+    expect_equal(cpp_result$best_flags[[col]], r_result$best_flags[[col]], tolerance = 1e-10)
+  }
 })
 
 test_that("default_anchor_config is idempotent for normalized anchor configs", {

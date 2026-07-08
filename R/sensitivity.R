@@ -202,15 +202,18 @@ run_sensitivity_tests <- function(sensitivity_specs,
   sens_map
 }
 
-#' Construct a scenario manifest
+#' Construct a sensitivity scenario manifest
 #'
-#' Summarizes the scenario specifications and the corresponding benchmark
-#' outputs into one scenario-level manifest table.
+#' Summarizes each sensitivity scenario and its benchmark outcome in one
+#' scenario-level table. The manifest records the scenario inputs, candidate
+#' model counts, configured admissibility/similarity settings, the benchmark's
+#' best policy, and the set of policies equivalent to the best policy.
 #'
 #' @param scenario_specifications Named scenario-specification list.
-#' @param ... Method-specific arguments.
+#' @param ... Scenario benchmark results and optional configuration overrides,
+#'   or a [PolicySimulator] object containing stored scenarios and results.
 #'
-#' @return A tibble.
+#' @return A tibble with one row per sensitivity scenario.
 #'
 #' @examples
 #' \dontrun{
@@ -312,14 +315,16 @@ S7::method(construct_sensitivity_table, PolicySimulator) <- function(scenario_sp
 
 #' Collect scenario benchmark tables
 #'
-#' Collects selection, pairwise equivalence, equivalence-class, and conformal
-#' tables across all scenario benchmark objects.
+#' Binds the benchmark tables produced by sensitivity scenarios into a common
+#' result bundle. The returned list keeps selection references, selected anchor
+#' rows, pairwise equivalence tests, equivalence classes, and conformal
+#' summaries separated while adding the scenario name to each table.
 #'
 #' @param scenario_results Named scenario benchmark result list or a
 #'   [PolicySimulator] object.
-#' @param ... Method-specific arguments.
+#' @param ... Reserved for method-specific inputs.
 #'
-#' @return A list of bound tibbles.
+#' @return A named list of scenario-indexed tibbles.
 #'
 #' @examples
 #' \dontrun{

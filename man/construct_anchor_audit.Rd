@@ -10,14 +10,19 @@ construct_anchor_audit(policy_intervals, ...)
 \item{policy_intervals}{Selected-policy interval table or a \link{PolicyPredictions}
 object.}
 
-\item{...}{Method-specific arguments.}
+\item{...}{Audit inputs such as selection reference tables, coverage tables,
+sensitivity details, baseline scenario label, or a \link{PolicySelector} used to
+retrieve stored summaries.}
 }
 \value{
-A tibble.
+A tibble with one row per audited anchor-policy interval.
 }
 \description{
-Joins selected-policy intervals to global benchmark and conformal coverage
-summaries, and optionally appends sensitivity-drift diagnostics.
+Combines selected-policy interval rows with policy-level benchmark,
+conformal coverage, and optional sensitivity-drift diagnostics. The audit is
+an anchor-level support table: it shows which policy was selected, how that
+policy performed globally, how well it covered species-block benchmarks, and
+whether sensitivity scenarios changed the recommendation.
 }
 \examples{
 \dontrun{

@@ -6442,9 +6442,8 @@ meta_policy_method_catalog <- function(method_settings = NULL) {
 #' List the Super Learner learners available in tsbiomass
 #'
 #' Prints the learner method names available to the package's Super Learners.
-#' The package analogue of [SuperLearner::listWrappers()].
 #'
-#' @return (Invisibly) a character vector of the available learner names.
+#' @return A character vector of the available learner names.
 #'
 #' @examples
 #' list_learners()

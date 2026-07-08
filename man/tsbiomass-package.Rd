@@ -6,11 +6,14 @@
 \alias{tsbiomass-package}
 \title{Native routines used by tsbiomass}
 \description{
+\if{html}{\figure{logo.png}{options: style='float: right' alt='logo' width='120'}}
+
 Bundles the TS-model transferability analysis pipeline, benchmark logic, admissibility screening, uncertainty benchmarking, sensitivity analyses, and figure-generation pipeline used for TS-to-biomass transfer analyses. The package is configuration-driven and can be run from YAML/JSON files or from the preserved command-line interface.
 }
 \seealso{
 Useful links:
 \itemize{
+  \item \url{https://brandynlucca.github.io/tsbiomass/}
   \item \url{https://github.com/brandynlucca/tsbiomass}
   \item Report bugs at \url{https://github.com/brandynlucca/tsbiomass/issues}
 }

@@ -1,12 +1,20 @@
-#' Benchmark a policy selector
+#' Benchmark candidate policy transfers
 #'
-#' Runs benchmark evaluation for the supplied object using the method
-#' associated with its class.
+#' Evaluates candidate transfer policies against held-out benchmark rows before
+#' uncertainty calibration or final policy selection. For a [PolicySelector],
+#' this computes policy performance tables, species-block summaries, optional
+#' TS-error tables, and cache metadata from the selector's [Candidates] object.
 #'
-#' @param object A package object such as a [PolicySelector].
-#' @param ... Method-specific arguments.
+#' The benchmark layer is the empirical evidence used by
+#' [calibrate_uncertainty()], [select_policies()], and [as_policylearner()].
+#' Running a new benchmark replaces downstream uncertainty and selection state
+#' because those layers depend on the benchmark tables.
 #'
-#' @return The updated object.
+#' @param object A [PolicySelector] object.
+#' @param ... Benchmark controls such as policy overrides, benchmark schemes,
+#'   worker count, cache path, refresh flag, or progress display.
+#'
+#' @return The supplied [PolicySelector] updated with benchmark results.
 #'
 #' @importFrom methods show
 #' @importFrom stats predict simulate
@@ -33,41 +41,76 @@ predict_s7 <- function(object, ...) {
   do.call(predict_generic, c(list(object), list(...)))
 }
 
-#' Calibrate uncertainty
+#' Calibrate policy-transfer uncertainty
 #'
-#' Dispatches to the appropriate uncertainty-calibration method for the
-#' supplied object.
+#' Builds the conformal uncertainty layer used by downstream policy selection,
+#' prediction, and reporting. The generic dispatches on the supplied object:
+#' [PolicySelector] methods calibrate interval widths from benchmarked
+#' pseudo-anchor and species-block errors, while [PolicyLearner] methods
+#' calibrate post-selection intervals from stored cross-fitted learner
+#' predictions.
 #'
-#' @param object A package object such as a [PolicySelector] or
-#'   [PolicyLearner].
-#' @param ... Method-specific arguments.
+#' Calibration does not refit candidate models or rerun the policy benchmark.
+#' It consumes already-computed benchmark or cross-fit tables, estimates
+#' residual quantiles at the configured coverage level, and stores the resulting
+#' lookup tables, conformal thresholds, diagnostics, and selected calibration
+#' rows on the returned object.
 #'
-#' @return The updated object.
+#' @param object A [PolicySelector] with benchmark results or a [PolicyLearner]
+#'   with cross-fitted prediction results.
+#' @param ... Additional calibration controls such as coverage level,
+#'   calibration table overrides, cache controls, or learner-specific
+#'   support-bin settings.
+#'
+#' @return The same class of object supplied in `object`, updated with an
+#'   uncertainty calibration bundle.
 #'
 #' @export
 calibrate_uncertainty <- S7::new_generic("calibrate_uncertainty", "object")
 
-#' Select policies
+#' Select benchmark-supported policies
 #'
-#' Dispatches to the appropriate policy-selection method for the supplied
-#' object.
+#' Chooses the policy or policies retained for each reference anchor after
+#' benchmarking and uncertainty calibration. For a [PolicySelector], selection
+#' ranks policies using benchmark error, uncertainty width, donor support, and
+#' configured equivalence rules, then stores anchor-level selected rows and
+#' diagnostics for prediction and reporting.
 #'
-#' @param object A package object such as a [PolicySelector].
-#' @param ... Method-specific arguments.
+#' Selection requires benchmark results and calibrated uncertainty. It does not
+#' rebuild candidates or refit learners; it consumes the selector's current
+#' benchmark and uncertainty layers.
 #'
-#' @return The updated object.
+#' @param object A [PolicySelector] object.
+#' @param ... Selection controls such as policy-performance overrides,
+#'   tolerance settings, cache path, refresh flag, or progress display.
+#'
+#' @return The supplied [PolicySelector] updated with selected policies and
+#'   selection diagnostics.
 #'
 #' @export
 select_policies <- S7::new_generic("select_policies", "object")
 
 #' Cross-fit a policy learner
 #'
-#' Estimates out-of-fold policy-performance predictions for a learner object.
+#' Trains the policy learner in outer folds and stores out-of-fold predictions
+#' for benchmark rows. Cross-fitting estimates how the meta-policy learner
+#' behaves on anchors it did not train on, which is the calibration target used
+#' later by [calibrate_uncertainty()] for post-selection intervals.
 #'
-#' @param object A [PolicyLearner] object.
-#' @param ... Method-specific arguments.
+#' The method prepares the benchmark-derived training frame, resolves feature
+#' columns and learner controls from the object configuration, fits one learner
+#' per fold, and stores fold predictions plus the resolved training settings on
+#' the returned [PolicyLearner]. It clears any final fit or calibration state
+#' because those depend on the cross-fit results.
 #'
-#' @return The updated [PolicyLearner] object.
+#' @param object A [PolicyLearner] object created from a benchmarked
+#'   [PolicySelector].
+#' @param ... Cross-fitting controls such as benchmark table overrides, fold
+#'   count, group column, learner method, feature columns, seed, workers, or
+#'   progress display.
+#'
+#' @return The supplied [PolicyLearner] updated with cross-fit predictions,
+#'   prepared training data, and resolved learner settings.
 #'
 #' @examples
 #' \dontrun{
@@ -78,14 +121,24 @@ select_policies <- S7::new_generic("select_policies", "object")
 #' @export
 crossfit <- S7::new_generic("crossfit", "object")
 
-#' Fit a model object
+#' Fit a final policy learner
 #'
-#' Fits the supplied object using the method associated with its class.
+#' Fits the final learner used for future policy scoring after cross-fitting
+#' has established the training recipe and calibration target. For a
+#' [PolicyLearner], this trains the configured meta-policy model on the full
+#' benchmark-derived training table rather than on held-out folds.
 #'
-#' @param object A package object such as a [PolicyLearner].
-#' @param ... Method-specific arguments.
+#' The fitted model is stored on the returned learner and is consumed by
+#' [stats::predict()] when scoring new anchor-policy rows. Fitting does not
+#' perform uncertainty calibration; run [calibrate_uncertainty()] after
+#' [fit()] when calibrated intervals are needed.
 #'
-#' @return The updated object.
+#' @param object A [PolicyLearner] object, usually after [crossfit()].
+#' @param ... Fit controls such as training-data override, learner method,
+#'   feature columns, tuning folds, seed, method settings, or progress display.
+#'
+#' @return The supplied [PolicyLearner] updated with the fitted final
+#'   meta-policy learner and resolved fit settings.
 #'
 #' @examples
 #' \dontrun{
@@ -98,14 +151,23 @@ fit <- S7::new_generic("fit", "object")
 
 #' Learn an Alchemist distance matrix
 #'
-#' Fits a Super Learner to pairwise acoustic distances and stores the resulting
-#' model-by-model learned distance matrix on the object.
+#' Trains the Alchemist's distance learner on pairwise acoustic differences and
+#' predicts a model-by-model transfer-distance matrix. The learned matrix is the
+#' empirical similarity surface used by admissibility screening, trait
+#' importance, ordination, and policy scoring.
 #'
-#' @param object An [Alchemist] object.
-#' @param ... Method-specific arguments.
+#' The method builds pairwise training rows from the object's candidate models,
+#' fits the configured Super Learner or single learner, predicts learned
+#' distances for all candidate pairs, and stores the fitted learner plus the
+#' distance bundle on the returned [Alchemist].
 #'
-#' @return An updated [Alchemist] object containing the learned distance
-#'   bundle and fitted learner state.
+#' @param object An [Alchemist] object with candidate models and configured
+#'   similarity traits.
+#' @param ... Distance-learner controls such as method choices, feature
+#'   overrides, seed, cache controls, or progress display.
+#'
+#' @return The supplied [Alchemist] updated with a learned distance matrix,
+#'   learner state, and distance diagnostics.
 #'
 #' @export
 forge_distances <- S7::new_generic("forge_distances", "object")
@@ -118,7 +180,8 @@ forge_distances <- S7::new_generic("forge_distances", "object")
 #' the same objective minimised by the empirical similarity tuning step.
 #'
 #' @param object An [Alchemist] object after [forge_distances()].
-#' @param ... Method-specific arguments.
+#' @param ... Trait-importance controls such as dropout scope, cache controls,
+#'   or progress display.
 #'
 #' @return An updated [Alchemist] object containing trait-importance
 #'   diagnostics.

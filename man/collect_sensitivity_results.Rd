@@ -10,14 +10,16 @@ collect_sensitivity_results(scenario_results, ...)
 \item{scenario_results}{Named scenario benchmark result list or a
 \link{PolicySimulator} object.}
 
-\item{...}{Method-specific arguments.}
+\item{...}{Reserved for method-specific inputs.}
 }
 \value{
-A list of bound tibbles.
+A named list of scenario-indexed tibbles.
 }
 \description{
-Collects selection, pairwise equivalence, equivalence-class, and conformal
-tables across all scenario benchmark objects.
+Binds the benchmark tables produced by sensitivity scenarios into a common
+result bundle. The returned list keeps selection references, selected anchor
+rows, pairwise equivalence tests, equivalence classes, and conformal
+summaries separated while adding the scenario name to each table.
 }
 \examples{
 \dontrun{

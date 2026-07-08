@@ -699,17 +699,34 @@ policy_learner_uncertainty_feature_cols <- function(cfg,
 
 #' Cross-fit a `PolicyLearner`
 #'
+#' Builds the out-of-fold prediction layer for a policy learner. The method
+#' prepares benchmark-derived training rows from the parent selector, resolves
+#' feature columns and learner controls, splits rows by the requested anchor or
+#' group blocking column, and fits the configured meta-policy learner on each
+#' training fold.
+#'
+#' The stored cross-fit bundle contains the fold predictions, the prepared
+#' training data, the selected outcome column, feature columns, fold settings,
+#' and active learner methods. Those outputs are required by
+#' [calibrate_uncertainty()] because post-selection uncertainty is estimated
+#' from predictions made on held-out benchmark rows.
+#'
 #' @name crossfit.PolicyLearner
 #' @usage NULL
 #'
 #' @param object A [PolicyLearner] object.
-#' @param policy_perf Optional species-block performance table override.
-#' @param group_col Optional grouping column used for fold blocking.
+#' @param policy_perf Optional species-block performance table override. When
+#'   omitted, the learner uses the benchmark rows stored on its selector.
+#' @param group_col Optional grouping column used for fold blocking so related
+#'   rows are kept in the same outer fold.
 #' @param n_folds Optional number of outer cross-validation folds.
-#' @param selection_method Optional meta-policy learner method.
+#' @param selection_method Optional meta-policy learner method, including
+#'   `"super_learner"` or one of the registered base learner aliases.
 #' @param seed Optional integer seed.
-#' @param feature_cols Optional feature-column override.
-#' @param outcome_col Optional outcome-column override.
+#' @param feature_cols Optional feature-column override for the meta-policy
+#'   learner design matrix.
+#' @param outcome_col Optional outcome-column override for the target being
+#'   learned.
 #' @param outcome_transform Optional outcome transform.
 #' @param lambda_rule Optional glmnet lambda-selection rule.
 #' @param alpha Optional elastic-net alpha.
@@ -718,16 +735,13 @@ policy_learner_uncertainty_feature_cols <- function(cfg,
 #' @param metalearner_loss Optional super-learner loss name.
 #' @param selection_method_settings Optional selection-learner method-settings
 #'   override.
-#' @param method_settings Deprecated shared alias for
-#'   `selection_method_settings`.
+#' @param method_settings Shared method-settings override.
 #' @param workers Optional worker count.
 #' @param progress Optional logical scalar controlling progress messages.
 #' @param config Optional config override.
 #'
-#' @return An updated [PolicyLearner] object with stored cross-fit results.
-#'
-#' Cross-fit a `PolicyLearner` against the selector benchmark rows and store
-#' the out-of-fold prediction bundle plus the derived training frame.
+#' @return An updated [PolicyLearner] object with stored out-of-fold
+#'   predictions, prepared training data, and resolved cross-fit settings.
 S7::method(crossfit, PolicyLearner) <- function(object,
                                                 policy_perf = NULL,
                                                 group_col = NULL,
@@ -885,13 +899,24 @@ S7::method(crossfit, PolicyLearner) <- function(object,
 
 #' Fit a `PolicyLearner`
 #'
+#' Trains the final meta-policy learner on the full benchmark-derived training
+#' table. Unlike [crossfit()], this step does not hold out folds; it uses all
+#' available training rows to fit the model that will score candidate policies
+#' for new reference anchors.
+#'
+#' The method reuses the feature columns, outcome transformation, learner
+#' method, and method settings resolved during cross-fitting unless explicit
+#' overrides are supplied. The returned learner stores the fitted model and
+#' clears stale prediction state that depends on an earlier fit.
+#'
 #' @name fit.PolicyLearner
 #' @usage NULL
 #'
 #' @param object A [PolicyLearner] object.
-#' @param training_data Optional prepared learner training table.
-#' @param selection_method Optional meta-policy learner method.
-#' @param feature_cols Optional feature-column override.
+#' @param training_data Optional prepared learner training table. When omitted,
+#'   the method uses the training table stored during [crossfit()].
+#' @param selection_method Optional meta-policy learner method override.
+#' @param feature_cols Optional feature-column override for the final fit.
 #' @param outcome_transform Optional outcome transform.
 #' @param alpha Optional elastic-net alpha.
 #' @param lambda_rule Optional glmnet lambda-selection rule.
@@ -901,15 +926,12 @@ S7::method(crossfit, PolicyLearner) <- function(object,
 #' @param metalearner_loss Optional super-learner loss name.
 #' @param selection_method_settings Optional selection-learner method-settings
 #'   override.
-#' @param method_settings Deprecated shared alias for
-#'   `selection_method_settings`.
+#' @param method_settings Shared method-settings override.
 #' @param progress Optional logical scalar controlling progress messages.
 #' @param config Optional config override.
 #'
-#' @return An updated [PolicyLearner] object with a fitted final learner.
-#'
-#' Fit the final `PolicyLearner` on the selector's full benchmark-derived
-#' training table and store the fitted learner on the object.
+#' @return An updated [PolicyLearner] object with the fitted final learner,
+#'   model metadata, and resolved fit settings.
 S7::method(fit, PolicyLearner) <- function(object,
                                            training_data = NULL,
                                            selection_method = NULL,
@@ -1533,20 +1555,36 @@ policy_learner_apply_local_lookup <- function(tbl,
   out
 }
 
-#' Calibrate `PolicyLearner` uncertainty
+#' Calibrate post-selection uncertainty for a `PolicyLearner`
+#'
+#' Converts cross-fitted learner predictions into post-selection conformal
+#' calibration tables. The method scores the stored out-of-fold predictions,
+#' keeps the rows that would be selected under the learner's meta-policy score,
+#' estimates absolute log-residual quantiles, and optionally builds support-bin
+#' calibration so intervals can widen when an anchor has little local support.
+#'
+#' This method expects [crossfit()] to have populated the learner's cross-fit
+#' results. It does not refit the meta-policy learner; it uses the cross-fitted
+#' predictions to quantify how much post-selection error remains after the
+#' learner chooses policies.
 #'
 #' @name calibrate_uncertainty.PolicyLearner
 #' @usage NULL
 #'
 #' @param object A [PolicyLearner] object.
-#' @param predictions Optional cross-fit prediction table override.
-#' @param outcome_col Optional outcome-column override.
+#' @param predictions Optional cross-fit prediction table override. When
+#'   omitted, stored cross-fit predictions are used.
+#' @param outcome_col Optional outcome-column override used to compute
+#'   residuals.
 #' @param max_selection_tolerance Optional score-tie tolerance used when
 #'   retaining calibration rows.
-#' @param alpha Optional marginal conformal alpha.
-#' @param bin_alpha Optional support-bin conformal alpha.
-#' @param min_bin_scores Optional minimum score count per support bin.
-#' @param n_bins Optional number of support bins.
+#' @param alpha Optional marginal conformal alpha for the global
+#'   post-selection residual threshold.
+#' @param bin_alpha Optional support-bin conformal alpha for local-support
+#'   residual thresholds.
+#' @param min_bin_scores Optional minimum score count required before a support
+#'   bin gets its own threshold.
+#' @param n_bins Optional number of support bins used to stratify selected rows.
 #' @param uncertainty_method Optional uncertainty-learner method override.
 #' @param uncertainty_super_methods Optional uncertainty-learner super-learner
 #'   base methods override.
@@ -1555,10 +1593,10 @@ policy_learner_apply_local_lookup <- function(tbl,
 #' @param progress Optional logical scalar controlling progress messages.
 #' @param config Optional config override.
 #'
-#' @return An updated [PolicyLearner] object with stored calibration outputs.
-#'
-#' Build the post-selection uncertainty calibration stored on a
-#' `PolicyLearner`.
+#' @return An updated [PolicyLearner] object whose calibration property contains
+#'   selected calibration rows, residual quantiles, support-bin thresholds,
+#'   optional uncertainty learner state, and lookup metadata used by
+#'   [stats::predict()] on the learner.
 S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
                                                              predictions = NULL,
                                                              outcome_col = NULL,

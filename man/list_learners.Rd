@@ -7,11 +7,10 @@
 list_learners()
 }
 \value{
-(Invisibly) a character vector of the available learner names.
+A character vector of the available learner names.
 }
 \description{
 Prints the learner method names available to the package's Super Learners.
-The package analogue of \code{\link[SuperLearner:listWrappers]{SuperLearner::listWrappers()}}.
 }
 \examples{
 list_learners()

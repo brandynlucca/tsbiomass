@@ -7,15 +7,25 @@
 forge_distances(object, ...)
 }
 \arguments{
-\item{object}{An \link{Alchemist} object.}
+\item{object}{An \link{Alchemist} object with candidate models and configured
+similarity traits.}
 
-\item{...}{Method-specific arguments.}
+\item{...}{Distance-learner controls such as method choices, feature
+overrides, seed, cache controls, or progress display.}
 }
 \value{
-An updated \link{Alchemist} object containing the learned distance
-bundle and fitted learner state.
+The supplied \link{Alchemist} updated with a learned distance matrix,
+learner state, and distance diagnostics.
 }
 \description{
-Fits a Super Learner to pairwise acoustic distances and stores the resulting
-model-by-model learned distance matrix on the object.
+Trains the Alchemist's distance learner on pairwise acoustic differences and
+predicts a model-by-model transfer-distance matrix. The learned matrix is the
+empirical similarity surface used by admissibility screening, trait
+importance, ordination, and policy scoring.
+}
+\details{
+The method builds pairwise training rows from the object's candidate models,
+fits the configured Super Learner or single learner, predicts learned
+distances for all candidate pairs, and stores the fitted learner plus the
+distance bundle on the returned \link{Alchemist}.
 }

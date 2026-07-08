@@ -6,19 +6,24 @@
 \arguments{
 \item{object}{A \link{PolicyLearner} object.}
 
-\item{policy_perf}{Optional species-block performance table override.}
+\item{policy_perf}{Optional species-block performance table override. When
+omitted, the learner uses the benchmark rows stored on its selector.}
 
-\item{group_col}{Optional grouping column used for fold blocking.}
+\item{group_col}{Optional grouping column used for fold blocking so related
+rows are kept in the same outer fold.}
 
 \item{n_folds}{Optional number of outer cross-validation folds.}
 
-\item{selection_method}{Optional meta-policy learner method.}
+\item{selection_method}{Optional meta-policy learner method, including
+\code{"super_learner"} or one of the registered base learner aliases.}
 
 \item{seed}{Optional integer seed.}
 
-\item{feature_cols}{Optional feature-column override.}
+\item{feature_cols}{Optional feature-column override for the meta-policy
+learner design matrix.}
 
-\item{outcome_col}{Optional outcome-column override.}
+\item{outcome_col}{Optional outcome-column override for the target being
+learned.}
 
 \item{outcome_transform}{Optional outcome transform.}
 
@@ -35,8 +40,7 @@
 \item{selection_method_settings}{Optional selection-learner method-settings
 override.}
 
-\item{method_settings}{Deprecated shared alias for
-\code{selection_method_settings}.}
+\item{method_settings}{Shared method-settings override.}
 
 \item{workers}{Optional worker count.}
 
@@ -45,11 +49,20 @@ override.}
 \item{config}{Optional config override.}
 }
 \value{
-An updated \link{PolicyLearner} object with stored cross-fit results.
-
-Cross-fit a \code{PolicyLearner} against the selector benchmark rows and store
-the out-of-fold prediction bundle plus the derived training frame.
+An updated \link{PolicyLearner} object with stored out-of-fold
+predictions, prepared training data, and resolved cross-fit settings.
 }
 \description{
-Cross-fit a \code{PolicyLearner}
+Builds the out-of-fold prediction layer for a policy learner. The method
+prepares benchmark-derived training rows from the parent selector, resolves
+feature columns and learner controls, splits rows by the requested anchor or
+group blocking column, and fits the configured meta-policy learner on each
+training fold.
+}
+\details{
+The stored cross-fit bundle contains the fold predictions, the prepared
+training data, the selected outcome column, feature columns, fold settings,
+and active learner methods. Those outputs are required by
+\code{\link[=calibrate_uncertainty]{calibrate_uncertainty()}} because post-selection uncertainty is estimated
+from predictions made on held-out benchmark rows.
 }

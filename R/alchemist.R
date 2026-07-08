@@ -2035,13 +2035,35 @@ fit_mahalanobis <- function(training_data, feature_cols,
 
 # - forge_distances -
 
-#' Learn the Alchemist distance matrix
+#' Learn the distance matrix for an `Alchemist`
 #'
-#' @name forge_distances
+#' Fits the Alchemist distance learner and writes the learned geometry back to
+#' the object. The method expands candidate models into directed model pairs,
+#' constructs trait and coherence features, trains either the configured
+#' ensemble learner or diagonal Mahalanobis learner, and predicts pairwise
+#' transfer distances for the full candidate set.
+#'
+#' The returned object contains the fitted learner and a distance bundle with
+#' the learned matrix, pairwise training data, feature columns, trait matrices,
+#' out-of-fold performance, and sigma matrices used by later trait-importance
+#' and policy-support diagnostics. Re-running this method clears stale
+#' trait-importance, ordination, and admissibility results because those layers
+#' depend on the learned distance geometry.
+#'
+#' @name forge_distances.Alchemist
 #' @usage NULL
 #'
-#' @keywords internal
-#' @noRd
+#' @param object An [Alchemist] object with candidate models and configured
+#'   species/study traits.
+#' @param progress Optional logical scalar controlling progress messages.
+#' @param feature_type Optional pairwise feature representation. Supported
+#'   values include the configured default, `"gower"`, `"difference"`, and
+#'   `"mahalanobis"`.
+#' @param ... Additional learner-specific controls forwarded to the distance
+#'   fitting stage.
+#'
+#' @return An updated [Alchemist] object with fitted learner state and learned
+#'   distance-matrix outputs.
 S7::method(forge_distances, Alchemist) <- function(object,
                                                    progress = NULL,
                                                    feature_type = NULL,
@@ -2357,13 +2379,29 @@ dropout_trait_group <- function(fcs, trait_name, pair_data, anchor_idx, donor_id
 
 # - distill_traits -
 
-#' Distill trait importance from the fitted Alchemist learner
+#' Distill trait importance for an `Alchemist`
 #'
-#' @name distill_traits
+#' Computes dropout-style trait importance from the fitted Alchemist distance
+#' learner. For each trait group, the method zeros that trait's pairwise feature
+#' columns, re-predicts learned distances, and measures how much
+#' kernel-weighted sigma RMSE changes relative to the full-feature baseline.
+#'
+#' The result identifies which traits materially support the learned transfer
+#' geometry. It requires [forge_distances()] because it uses the fitted learner,
+#' pairwise training data, donor sigma matrix, and target sigma vector stored in
+#' the Alchemist distance bundle.
+#'
+#' @name distill_traits.Alchemist
 #' @usage NULL
 #'
-#' @keywords internal
-#' @noRd
+#' @param object An [Alchemist] object after [forge_distances()].
+#' @param kernel_scale Positive numeric bandwidth used by the kernel-weighted
+#'   sigma RMSE objective.
+#' @param workers Optional worker count for parallel dropout calculations.
+#' @param progress Optional logical scalar controlling progress messages.
+#' @param ... Reserved for additional trait-importance controls.
+#'
+#' @return An updated [Alchemist] object with trait-importance diagnostics.
 S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
                                                   workers = NULL, progress = NULL, ...) {
   if (length(object@learner) == 0L) {
@@ -3468,7 +3506,8 @@ compute_frequency_gap <- function(candidate_freq,
 #' Appends the fraction of missing selected species/study traits for each model.
 #'
 #' @param candidate_models Candidate-model table.
-#' @param ... Method-specific arguments.
+#' @param ... Inputs forwarded to the table, [Candidates], or [PolicySelector]
+#'   missingness-screen method.
 #'
 #' @return A tibble.
 #'

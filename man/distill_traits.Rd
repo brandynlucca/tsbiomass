@@ -9,7 +9,8 @@ distill_traits(object, ...)
 \arguments{
 \item{object}{An \link{Alchemist} object after \code{\link[=forge_distances]{forge_distances()}}.}
 
-\item{...}{Method-specific arguments.}
+\item{...}{Trait-importance controls such as dropout scope, cache controls,
+or progress display.}
 }
 \value{
 An updated \link{Alchemist} object containing trait-importance

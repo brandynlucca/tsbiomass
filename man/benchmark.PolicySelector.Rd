@@ -6,19 +6,22 @@
 \arguments{
 \item{object}{A \link{PolicySelector} object.}
 
-\item{policies}{Optional character vector of policy names.}
+\item{policies}{Optional character vector of policy names to evaluate.}
 
-\item{policy_fun}{Optional policy-evaluation function.}
+\item{policy_fun}{Optional policy-evaluation function used to score one
+anchor-policy combination.}
 
-\item{curve_fun}{Optional curve-prediction function.}
+\item{curve_fun}{Optional curve-prediction function used for TS-error
+evaluation.}
 
-\item{model_scores}{Optional ordination model-score table.}
+\item{model_scores}{Optional ordination model-score table override.}
 
-\item{species_lookup}{Optional ordination species-lookup table.}
+\item{species_lookup}{Optional ordination species-lookup table override.}
 
 \item{reference_ids}{Optional reference-anchor id override.}
 
-\item{policy_params}{Optional policy-parameter overrides.}
+\item{policy_params}{Optional policy-parameter overrides applied during
+policy evaluation.}
 
 \item{policy_path}{Optional policy-registry path.}
 
@@ -33,9 +36,10 @@ evaluation.}
 
 \item{engine}{Policy benchmark engine, \code{"r"} or \code{"cpp"}.}
 
-\item{cache_path}{Optional cache path.}
+\item{cache_path}{Optional cache path for reusable benchmark artifacts.}
 
-\item{refresh}{Optional logical scalar controlling cache refresh.}
+\item{refresh}{Optional logical scalar controlling whether cached benchmark
+artifacts are ignored and rebuilt.}
 
 \item{progress}{Optional logical scalar controlling progress messages.}
 
@@ -46,11 +50,19 @@ evaluation.}
 \item{registry_path}{Optional trait-registry path.}
 }
 \value{
-An updated \link{PolicySelector} object with stored benchmark results.
-
-Run the \code{PolicySelector} benchmark stage and store the resulting benchmark
-bundle on the selector.
+An updated \link{PolicySelector} object with benchmark policy-performance
+tables, species-block summaries, optional TS-error rows, and benchmark
+metadata.
 }
 \description{
-Benchmark a \code{PolicySelector}
+Runs the empirical benchmark stage for a selector. The method evaluates the
+active policy set against pseudo-anchor and species-block holdout schemes,
+optionally computes TS-error curves, and stores the resulting policy
+performance tables on the selector.
+}
+\details{
+Benchmarking consumes the selector's \link{Candidates} object, learned similarity
+context, active policy configuration, and reference-anchor identifiers. A new
+benchmark invalidates any stored uncertainty calibration and policy
+selection, so those downstream layers are cleared on the returned selector.
 }

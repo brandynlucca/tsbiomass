@@ -2,19 +2,28 @@
 % Please edit documentation in R/generics.R
 \name{benchmark}
 \alias{benchmark}
-\title{Benchmark a policy selector}
+\title{Benchmark candidate policy transfers}
 \usage{
 benchmark(object, ...)
 }
 \arguments{
-\item{object}{A package object such as a \link{PolicySelector}.}
+\item{object}{A \link{PolicySelector} object.}
 
-\item{...}{Method-specific arguments.}
+\item{...}{Benchmark controls such as policy overrides, benchmark schemes,
+worker count, cache path, refresh flag, or progress display.}
 }
 \value{
-The updated object.
+The supplied \link{PolicySelector} updated with benchmark results.
 }
 \description{
-Runs benchmark evaluation for the supplied object using the method
-associated with its class.
+Evaluates candidate transfer policies against held-out benchmark rows before
+uncertainty calibration or final policy selection. For a \link{PolicySelector},
+this computes policy performance tables, species-block summaries, optional
+TS-error tables, and cache metadata from the selector's \link{Candidates} object.
+}
+\details{
+The benchmark layer is the empirical evidence used by
+\code{\link[=calibrate_uncertainty]{calibrate_uncertainty()}}, \code{\link[=select_policies]{select_policies()}}, and \code{\link[=as_policylearner]{as_policylearner()}}.
+Running a new benchmark replaces downstream uncertainty and selection state
+because those layers depend on the benchmark tables.
 }

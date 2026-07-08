@@ -2,37 +2,52 @@
 % Please edit documentation in R/policyselector.R
 \name{calibrate_uncertainty.PolicySelector}
 \alias{calibrate_uncertainty.PolicySelector}
-\title{Calibrate \code{PolicySelector} uncertainty}
+\title{Calibrate benchmark-based uncertainty for a \code{PolicySelector}}
 \arguments{
 \item{object}{A \link{PolicySelector} object.}
 
-\item{alpha}{Optional conformal alpha.}
+\item{alpha}{Optional conformal alpha. Smaller values produce wider
+intervals; when omitted, the value is read from the selector
+configuration.}
 
-\item{policy_perf}{Optional policy-performance table override.}
+\item{policy_perf}{Optional policy-performance table override. By default,
+the method uses the selector's stored benchmark policy-performance table.}
 
 \item{species_performance_table}{Optional species-block performance table
-override.}
+override used to estimate species-held-out residual behavior.}
 
-\item{ts_error}{Optional time-series error table override.}
+\item{ts_error}{Optional time-series error table override used for
+functional TS-error envelopes.}
 
-\item{pseudo_label}{Pseudo-anchor benchmark label.}
+\item{pseudo_label}{Label assigned to pseudo-anchor calibration rows.}
 
-\item{species_label}{Species-block benchmark label.}
+\item{species_label}{Label assigned to species-block calibration rows.}
 
 \item{config}{Optional config override.}
 
-\item{cache_path}{Optional cache path.}
+\item{cache_path}{Optional cache path for reusable calibration artifacts.}
 
-\item{refresh}{Optional logical scalar controlling cache refresh.}
+\item{refresh}{Optional logical scalar controlling whether cached
+calibration artifacts are ignored and rebuilt.}
 
 \item{progress}{Optional logical scalar controlling progress messages.}
 }
 \value{
-An updated \link{PolicySelector} object with stored uncertainty results.
-
-Calibrate \code{PolicySelector} uncertainty from the stored benchmark tables and
-attach the resulting calibration bundle to the selector.
+An updated \link{PolicySelector} object whose uncertainty property
+contains conformal thresholds, calibration rows, TS-error summaries, and
+diagnostics derived from the benchmark tables.
 }
 \description{
-Calibrate \code{PolicySelector} uncertainty
+Uses the selector's stored benchmark tables to estimate policy-transfer
+uncertainty before final policy selection. The method combines pseudo-anchor
+policy-performance rows, species-block performance rows, and optional
+time-series error rows, then builds conformal calibration summaries for
+multiplier intervals and TS-error envelopes.
+}
+\details{
+The returned selector keeps the original candidates and benchmark results and
+replaces the uncertainty layer with a fresh calibration bundle. Downstream
+calls to \code{\link[=select_policies]{select_policies()}}, \code{\link[stats:predict]{stats::predict()}}, and \code{\link[=as_referee]{as_referee()}} use this
+bundle to attach interval bounds, support diagnostics, and calibration
+provenance to selected policies.
 }
