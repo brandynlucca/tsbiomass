@@ -41,7 +41,7 @@ devtools::install(".")
   </tr>
   <tr>
     <td width="75" valign="top" style="text-align: center;"><img src="man/figures/classes/alchemist.svg" width="100" alt="Alchemist" /> <code>Alchemist</code> <img src="man/figures/classes/conjurer.svg" width="100" alt="Conjurer" /> <code>Conjurer</code></td>
-    <td><strong>Build similarity context and admissibility filters</strong><br />Quantify donor-target relatedness and remove unsupported transfer paths. This constrains downstream policy decisions to credible support regions.<br /> - <code>Alchemist</code>: uses a Super Learner ensemble to construct similarity and transferability matrices, with optional <i>post hoc</i> ordination to visualize proxy model diversity.<br /> - <code>Conjurer</code>: evaluates trait-based admissibility conditions to gate which donor-target pairs are valid transfer candidates.</td>
+    <td><strong>Build similarity context and admissibility filters</strong><br />Quantify donor-target relatedness and remove unsupported transfer paths. This constrains downstream policy decisions to credible support regions.<br /> - <code>Alchemist</code>: uses a Super Learner ensemble to construct similarity and transferability matrices, with optional <i>post hoc</i> ordination to visualize proxy model diversity.<br /> - <code>Conjurer</code>: evaluates the effect of trait missingness on TS-length proxy model uncertainty.</td>
   </tr>
   <tr>
     <td width="75" valign="top" style="text-align: center;"><img src="man/figures/classes/policyselector.svg" width="100" alt="PolicySelector" /> <code>PolicySelector</code> <img src="man/figures/classes/policylearner.svg" width="100" alt="PolicyLearner" /> <code>PolicyLearner</code></td>
