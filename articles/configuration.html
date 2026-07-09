@@ -17,9 +17,9 @@
 <link href="../deps/font-awesome-6.5.2/css/v4-shims.min.css" rel="stylesheet">
 <script src="../deps/headroom-0.11.0/headroom.min.js"></script><script src="../deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="../deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="../deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="../deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="../deps/search-1.0.0/fuse.min.js"></script><script src="../deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="../pkgdown.js"></script><link href="../extra.css" rel="stylesheet">
 <meta property="og:title" content="Configuration Reference">
-<meta name="description" content="All valid configuration keys, their types, defaults, and what they do.
+<meta name="description" content="Every configuration section and key, grouped by what it controls, with one copy-ready default configuration generated from the package template.
 ">
-<meta property="og:description" content="All valid configuration keys, their types, defaults, and what they do.
+<meta property="og:description" content="Every configuration section and key, grouped by what it controls, with one copy-ready default configuration generated from the package template.
 ">
 <meta property="og:image" content="https://brandynlucca.github.io/tsbiomass/logo.png">
 </head>
@@ -91,10 +91,9 @@
     
     
 <p>The <code>tsbiomass</code> pipeline is entirely configuration-driven.
-A single YAML or list object — validated and normalized into a
-<code>Configurer</code> — establishes the full run contract before any
-modeling begins. This page describes every valid top-level section and
-key.</p>
+A single YAML file or R list, validated and normalized into a
+<code>Configurer</code>, establishes the full run contract before any
+modeling begins. This page documents every valid section and key.</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://brandynlucca.github.io/tsbiomass/">tsbiomass</a></span><span class="op">)</span></span>
 <span></span>
@@ -103,1762 +102,1757 @@ key.</p>
 <span></span>
 <span><span class="co"># From a list (useful for scripted runs)</span></span>
 <span><span class="va">cfg</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/build_configurer.html">build_configurer</a></span><span class="op">(</span><span class="fu"><a href="../reference/create_configuration_template.html">create_configuration_template</a></span><span class="op">(</span><span class="st">"input.xlsx"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
+<div class="note" data-title="How to read this page">
+<p>Configuration keys are grouped by the pipeline stage they control.
+Every key expands to its own dropdown describing its type and behavior.
+The complete set of default values is collected in one place at the
+bottom of this page; see <a href="#default-configuration">Default
+configuration</a>.</p>
+</div>
 <p><br></p>
 <div class="section level2">
-<h2 id="paths">
-<code>paths</code><a class="anchor" aria-label="anchor" href="#paths"></a>
+<h2 id="run-setup">Run setup<a class="anchor" aria-label="anchor" href="#run-setup"></a>
 </h2>
-<p>File and directory locations consumed by the pipeline.</p>
+<p>Infrastructure settings that establish paths, runtime behavior, and
+caching before any modeling begins.</p>
+<div class="section level3">
+<h3 id="file-directory-locations-paths">File &amp; directory locations (<code>paths</code>)<a class="anchor" aria-label="anchor" href="#file-directory-locations-paths"></a>
+</h3>
+<p>Where the pipeline reads inputs and writes outputs. Set these once;
+everything else resolves relative to them.</p>
+<details><summary>
+Parameters
+</summary><details class="cfg-key"><summary><code>input_file</code>: primary study workbook
+</summary><p><em>string · <strong>required</strong></em>: The <code>.xlsx</code>
+workbook holding your study metadata and candidate models. External YAML
+alias: <code>input</code>.</p>
+</details><details class="cfg-key"><summary><code>out_root</code>: root output folder
+</summary><p><em>string · <strong>required</strong></em>: Root directory under
+which all products are written. External YAML alias:
+<code>output_root</code>.</p>
+</details><details class="cfg-key"><summary><code>cache_dir</code>: default cache folder
+</summary><p><em>string · <strong>required</strong></em>: Base folder for cached
+intermediate products. External YAML alias:
+<code>cache_folder</code>.</p>
+</details><details class="cfg-key"><summary><code>supplemental_dir</code>: supplemental trait files
+</summary><p><em>string</em>: Folder containing supplemental trait files
+referenced by <code>data</code> sources. External YAML alias:
+<code>support_folder</code>.</p>
+</details><details class="cfg-key"><summary><code>log_file</code>: log-file path
+</summary><p><em>string</em>: Where progress and error messages are written. Used
+only when <code>execution.write_log = true</code>. External YAML alias:
+<code>log_path</code>.</p>
+</details><details class="cfg-key"><summary><code>fao_polygon_csv</code>: FAO area polygons
+</summary><p><em>string</em>: FAO major-area polygon CSV used for spatial
+admissibility. External YAML alias: <code>area_file</code>.</p>
+</details></details>
+</div>
+<div class="section level3">
+<h3 id="runtime-behavior-execution">Runtime behavior (<code>execution</code>)<a class="anchor" aria-label="anchor" href="#runtime-behavior-execution"></a>
+</h3>
+<p>Global switches that change how the pipeline runs, independent of any
+single modeling stage.</p>
+<details><summary>
+Parameters
+</summary><details class="cfg-key"><summary><code>strict_length_pdf</code>: require finite length support
+</summary><p><em>logical</em>: When <code>true</code>, models with missing
+length-support bounds are excluded from PDF construction rather than
+back-filled. External YAML alias: <code>strict_pdf</code>.</p>
+</details><details class="cfg-key"><summary><code>run_multiplier_model</code>: enable biomass-multiplier branch
+</summary><p><em>logical</em>: Enables the biomass-multiplier workflow branch.
+External YAML alias: <code>run_multiplier</code>.</p>
+</details><details class="cfg-key"><summary><code>write_log</code>: write a run log
+</summary><p><em>logical</em>: Writes progress and error messages to
+<code>paths.log_file</code>.</p>
+</details></details>
+</div>
+<div class="section level3">
+<h3 id="caching-cache">Caching (<code>cache</code>)<a class="anchor" aria-label="anchor" href="#caching-cache"></a>
+</h3>
+<p>Controls where intermediate products are stored and when they are
+recomputed. Each expensive stage caches its result; a global
+<code>refresh</code> (or per-stage override) forces recomputation.</p>
+<details><summary>
+Parameters
+</summary><details class="cfg-key"><summary><code>folder</code>: base cache folder
+</summary><p><em>string</em>: Base folder for all cache files.</p>
+</details><details class="cfg-key"><summary><code>refresh</code>: global recompute switch
+</summary><p><em>logical</em>: When <code>true</code>, every cached product is
+recomputed. Individual sections can override this with their own
+<code>refresh</code>.</p>
+</details><details class="cfg-key"><summary><code>names</code>: per-product filename overrides
+</summary><p><em>named list</em>: Override the filename used for any cached
+product. Valid keys:</p>
 <table class="table">
-<colgroup>
-<col width="14%">
-<col width="17%">
-<col width="29%">
-<col width="38%">
-</colgroup>
 <thead><tr class="header">
 <th>Key</th>
-<th>Type</th>
-<th>Required</th>
-<th>Description</th>
+<th>Product</th>
 </tr></thead>
 <tbody>
 <tr class="odd">
-<td><code>input_file</code></td>
-<td>string</td>
-<td><strong>yes</strong></td>
-<td>Primary study workbook (<code>.xlsx</code>).</td>
+<td><code>worms</code></td>
+<td>WoRMS taxonomy pull</td>
 </tr>
 <tr class="even">
-<td><code>out_root</code></td>
-<td>string</td>
-<td><strong>yes</strong></td>
-<td>Root output folder.</td>
+<td><code>fishbase</code></td>
+<td>FishBase trait pull</td>
 </tr>
 <tr class="odd">
-<td><code>cache_dir</code></td>
-<td>string</td>
-<td><strong>yes</strong></td>
-<td>Default cache folder.</td>
+<td>
+<code>pelagic</code> / <code>azores</code> /
+<code>continental</code>
+</td>
+<td>Regional trait tables</td>
 </tr>
 <tr class="even">
-<td><code>supplemental_dir</code></td>
-<td>string</td>
-<td>no</td>
-<td>Folder containing supplemental trait files.</td>
+<td><code>mstraits</code></td>
+<td>Morphometric/soft-tissue traits</td>
 </tr>
 <tr class="odd">
-<td><code>log_file</code></td>
-<td>string</td>
-<td>no</td>
-<td>Log-file path. Written only when
-<code>execution.write_log = true</code>.</td>
+<td><code>species_enriched</code></td>
+<td>Enriched species table</td>
 </tr>
 <tr class="even">
-<td><code>fao_polygon_csv</code></td>
-<td>string</td>
-<td>no</td>
-<td>FAO major-area polygon CSV for spatial admissibility.</td>
+<td><code>candidate_models</code></td>
+<td>Prepared candidate pool</td>
+</tr>
+<tr class="odd">
+<td><code>similarity_tuning</code></td>
+<td>Similarity-tuning results</td>
+</tr>
+<tr class="even">
+<td><code>anchor_admissibility</code></td>
+<td>Anchor admissibility screen</td>
+</tr>
+<tr class="odd">
+<td><code>policy_benchmark</code></td>
+<td>Policy benchmark</td>
+</tr>
+<tr class="even">
+<td><code>policy_conformal</code></td>
+<td>Conformal calibration</td>
+</tr>
+<tr class="odd">
+<td><code>policy_selection</code></td>
+<td>Selected policies</td>
+</tr>
+<tr class="even">
+<td><code>policy_sensitivity</code></td>
+<td>Sensitivity simulation</td>
 </tr>
 </tbody>
-</table>
-<p>External YAML aliases accepted: <code>input</code> →
-<code>input_file</code>, <code>output_root</code> →
-<code>out_root</code>, <code>cache_folder</code> →
-<code>cache_dir</code>, <code>support_folder</code> →
-<code>supplemental_dir</code>, <code>area_file</code> →
-<code>fao_polygon_csv</code>, <code>log_path</code> →
-<code>log_file</code>.</p>
-<hr>
+</table></details><details class="cfg-key"><summary><code>defaults_path</code>: custom cache-defaults JSON
+</summary><p><em>string</em>: Path to a custom cache-defaults JSON file, replacing
+the packaged defaults.</p>
+</details></details>
+</div>
 </div>
 <div class="section level2">
-<h2 id="execution">
-<code>execution</code><a class="anchor" aria-label="anchor" href="#execution"></a>
+<h2 id="candidate-data">Candidate data<a class="anchor" aria-label="anchor" href="#candidate-data"></a>
 </h2>
-<p>Runtime behavior switches.</p>
-<table class="table">
-<colgroup>
-<col width="15%">
-<col width="18%">
-<col width="27%">
-<col width="39%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>strict_length_pdf</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Requires finite length-support bounds for every model. When
-<code>true</code>, models with missing bounds are excluded from PDF
-construction.</td>
-</tr>
-<tr class="even">
-<td><code>run_multiplier_model</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Enables the biomass-multiplier workflow branch.</td>
-</tr>
-<tr class="odd">
-<td><code>write_log</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Writes progress and error messages to
-<code>paths.log_file</code>.</td>
-</tr>
-</tbody>
-</table>
-<p>External YAML aliases: <code>strict_pdf</code> →
-<code>strict_length_pdf</code>, <code>run_multiplier</code> →
-<code>run_multiplier_model</code>.</p>
-<hr>
-</div>
-<div class="section level2">
-<h2 id="cache">
-<code>cache</code><a class="anchor" aria-label="anchor" href="#cache"></a>
-</h2>
-<p>Cache folder and per-product filename overrides.</p>
-<table class="table">
-<colgroup>
-<col width="15%">
-<col width="18%">
-<col width="27%">
-<col width="39%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>folder</code></td>
-<td>string</td>
-<td><code>"cache"</code></td>
-<td>Base folder for all cache files.</td>
-</tr>
-<tr class="even">
-<td><code>refresh</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Global default: when <code>true</code>, every cached product is
-recomputed. Individual sections can override this.</td>
-</tr>
-<tr class="odd">
-<td><code>names</code></td>
-<td>named list</td>
-<td>(packaged defaults)</td>
-<td>Per-product filename overrides. Keys: <code>worms</code>,
-<code>fishbase</code>, <code>pelagic</code>, <code>azores</code>,
-<code>continental</code>, <code>mstraits</code>,
-<code>species_enriched</code>, <code>candidate_models</code>,
-<code>similarity_tuning</code>, <code>anchor_admissibility</code>,
-<code>policy_benchmark</code>, <code>policy_conformal</code>,
-<code>policy_selection</code>, <code>policy_sensitivity</code>.</td>
-</tr>
-<tr class="even">
-<td><code>defaults_path</code></td>
-<td>string</td>
-<td>(packaged JSON)</td>
-<td>Optional path to a custom cache-defaults JSON file.</td>
-</tr>
-</tbody>
-</table>
-<hr>
-</div>
-<div class="section level2">
-<h2 id="data">
-<code>data</code><a class="anchor" aria-label="anchor" href="#data"></a>
-</h2>
-<p>Trait source declarations. Each entry is one dataset. At minimum you
-need a <code>study_metadata</code> entry pointing at your study
-workbook.</p>
-<table class="table">
-<colgroup>
-<col width="14%">
-<col width="17%">
-<col width="29%">
-<col width="38%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Required</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>id</code></td>
-<td>string</td>
-<td><strong>yes</strong></td>
-<td>Dataset identifier (case-insensitive). Built-in IDs:
-<code>study_metadata</code>, <code>worms</code>, <code>fishbase</code>,
-<code>pelagic</code> / <code>pelagictraits</code>, <code>azores</code> /
+<p>Trait sources and the candidate pool assembled from them.</p>
+<div class="section level3">
+<h3 id="trait-data-sources-data">Trait data sources (<code>data</code>)<a class="anchor" aria-label="anchor" href="#trait-data-sources-data"></a>
+</h3>
+<p>Declares the trait datasets fed into candidate enrichment. Each entry
+is one dataset; at minimum you need a <code>study_metadata</code> entry
+pointing at your study workbook. Built-in IDs are back-filled
+automatically.</p>
+<details><summary>
+Parameters
+</summary><details class="cfg-key"><summary><code>id</code>: dataset identifier
+</summary><p><em>string · <strong>required</strong></em>: Case-insensitive dataset
+identifier. Built-in IDs: <code>study_metadata</code>,
+<code>worms</code>, <code>fishbase</code>, <code>pelagic</code> /
+<code>pelagictraits</code>, <code>azores</code> /
 <code>azorestraits</code>, <code>continental</code> /
-<code>continentaltraits</code>, <code>mstraits</code>.</td>
-</tr>
-<tr class="even">
-<td><code>alias</code></td>
-<td>string</td>
-<td>no</td>
-<td>Alternate slug for use in
-<code>candidates.enrich.precedence</code>.</td>
-</tr>
-<tr class="odd">
-<td><code>type</code></td>
-<td>string</td>
-<td>no</td>
-<td>External type descriptor (e.g. <code>single_file</code>,
-<code>directory</code>). Back-filled for built-in IDs.</td>
-</tr>
-<tr class="even">
-<td><code>engine</code></td>
-<td>string</td>
-<td>no</td>
-<td>Engine descriptor (e.g. <code>r_package</code>, <code>rdata</code>).
-Back-filled for built-in IDs.</td>
-</tr>
-<tr class="odd">
-<td><code>path</code></td>
-<td>string</td>
-<td>conditional</td>
-<td>File or folder path. Required for sources that read from disk.</td>
-</tr>
-<tr class="even">
-<td><code>cache_path</code></td>
-<td>string</td>
-<td>no</td>
-<td>Explicit cache-path override for this source.</td>
-</tr>
-<tr class="odd">
-<td><code>refresh</code></td>
-<td>logical</td>
-<td>no</td>
-<td>Per-source refresh override.</td>
-</tr>
-</tbody>
-</table>
-<hr>
+<code>continentaltraits</code>, <code>mstraits</code>.</p>
+</details><details class="cfg-key"><summary><code>alias</code>: alternate slug
+</summary><p><em>string</em>: Alternate slug usable in
+<code>candidates.enrich.precedence</code>.</p>
+</details><details class="cfg-key"><summary><code>type</code>: source type descriptor
+</summary><p><em>string</em>: External type descriptor
+(e.g. <code>single_file</code>, <code>directory</code>). Back-filled for
+built-in IDs.</p>
+</details><details class="cfg-key"><summary><code>engine</code>: read engine
+</summary><p><em>string</em>: Engine descriptor (e.g. <code>r_package</code>,
+<code>rdata</code>). Back-filled for built-in IDs.</p>
+</details><details class="cfg-key"><summary><code>path</code>: file or folder path
+</summary><p><em>string</em>: File or folder path. Required for sources that read
+from disk.</p>
+</details><details class="cfg-key"><summary><code>cache_path</code>: per-source cache override
+</summary><p><em>string</em>: Explicit cache-path override for this source.</p>
+</details><details class="cfg-key"><summary><code>refresh</code>: per-source refresh
+</summary><p><em>logical</em>: Per-source refresh override.</p>
+</details></details>
 </div>
-<div class="section level2">
-<h2 id="candidates">
-<code>candidates</code><a class="anchor" aria-label="anchor" href="#candidates"></a>
-</h2>
-<p>Candidate-pool orchestration layered on top of <code>data</code>.</p>
 <div class="section level3">
-<h3 id="candidates-enrich">
-<code>candidates.enrich</code><a class="anchor" aria-label="anchor" href="#candidates-enrich"></a>
+<h3 id="candidate-pool-candidates">Candidate pool (<code>candidates</code>)<a class="anchor" aria-label="anchor" href="#candidate-pool-candidates"></a>
 </h3>
+<p>Orchestrates how the candidate pool is enriched, prepared, and
+anchored on top of the declared <code>data</code> sources.</p>
+<details><summary>
+Parameters
+</summary><details class="cfg-key"><summary><code>enrich</code>: trait enrichment
+</summary><p>Merges trait sources into a single enriched species table.</p>
+<details class="cfg-key"><summary><code>precedence</code>
+</summary><p><em>character vector</em>: Source priority order during enrichment.
+May use normalized <code>id</code> or <code>alias</code>. Example:
+<code>[study_metadata, fishbase, worms]</code>.</p>
+</details><details class="cfg-key"><summary><code>missing_tokens</code>
+</summary><p><em>character vector</em>: Values treated as missing. Example:
+<code>["-9999", "unknown"]</code>.</p>
+</details><details class="cfg-key"><summary><code>cache_path</code>
+</summary><p><em>string</em>: Explicit cache override for the enriched species
+table.</p>
+</details></details><details class="cfg-key"><summary><code>prepare</code>: candidate preparation
+</summary><p>Normalizes the enriched table into the prepared candidate pool.</p>
+<details class="cfg-key"><summary><code>missing_tokens</code>
+</summary><p><em>character vector</em>: Missing-value tokens applied during trait
+preparation.</p>
+</details><details class="cfg-key"><summary><code>cache_path</code>
+</summary><p><em>string</em>: Explicit cache override for the prepared candidate
+table.</p>
+</details><details class="cfg-key"><summary><code>refresh</code>
+</summary><p><em>logical</em>: Per-stage refresh override.</p>
+</details></details><details class="cfg-key"><summary><code>anchors</code>: reference-anchor selection
+</summary><p>Settings passed to <code><a href="../reference/set_reference_anchors.html">set_reference_anchors()</a></code>. Choose
+anchors either dynamically with <code>selector</code> or explicitly with
+<code>model_ids</code>.</p>
+<details class="cfg-key"><summary><code>selector</code>
+</summary><p><em>named list</em>: Dynamic filter over candidate columns. Each key
+is a column and each value the required match. Common filter
+columns:</p>
 <table class="table">
-<colgroup>
-<col width="20%">
-<col width="25%">
-<col width="54%">
-</colgroup>
 <thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Description</th>
+<th>Column</th>
+<th>Selects by</th>
 </tr></thead>
 <tbody>
 <tr class="odd">
-<td><code>precedence</code></td>
-<td>character vector</td>
-<td>Source priority order during trait enrichment. May use normalized
-<code>id</code> or <code>alias</code>.</td>
+<td><code>regional_body</code></td>
+<td>Managing body / survey program (e.g. <code>SWFSC</code>)</td>
 </tr>
 <tr class="even">
-<td><code>missing_tokens</code></td>
-<td>character vector</td>
-<td>Values treated as missing (e.g. <code>"-9999"</code>,
-<code>"unknown"</code>).</td>
+<td><code>ocean_basin</code></td>
+<td>Ocean basin</td>
 </tr>
 <tr class="odd">
-<td><code>cache_path</code></td>
-<td>string</td>
-<td>Explicit cache override for the enriched species table.</td>
+<td><code>fao</code></td>
+<td>FAO major area</td>
+</tr>
+<tr class="even">
+<td>
+<code>species</code> / <code>genus</code> / <code>family</code>
+</td>
+<td>Taxonomic level</td>
+</tr>
+<tr class="odd">
+<td><code>season</code></td>
+<td>Survey season</td>
 </tr>
 </tbody>
 </table>
-</div>
-<div class="section level3">
-<h3 id="candidates-prepare">
-<code>candidates.prepare</code><a class="anchor" aria-label="anchor" href="#candidates-prepare"></a>
-</h3>
-<table class="table">
-<colgroup>
-<col width="20%">
-<col width="25%">
-<col width="54%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>missing_tokens</code></td>
-<td>character vector</td>
-<td>Missing-value tokens applied during trait preparation.</td>
-</tr>
-<tr class="even">
-<td><code>cache_path</code></td>
-<td>string</td>
-<td>Explicit cache override for the prepared candidate table.</td>
-</tr>
-<tr class="odd">
-<td><code>refresh</code></td>
-<td>logical</td>
-<td>Per-stage refresh override.</td>
-</tr>
-</tbody>
-</table>
-</div>
-<div class="section level3">
-<h3 id="candidates-anchors">
-<code>candidates.anchors</code><a class="anchor" aria-label="anchor" href="#candidates-anchors"></a>
-</h3>
-<p>Reference-anchor selection settings passed to
-<code><a href="../reference/set_reference_anchors.html">set_reference_anchors()</a></code>.</p>
-<table class="table">
-<colgroup>
-<col width="20%">
-<col width="25%">
-<col width="54%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>selector</code></td>
-<td>named list</td>
-<td>Dynamic filter (e.g. <code>{regional_body: SWFSC}</code>).</td>
-</tr>
-<tr class="even">
-<td><code>model_ids</code></td>
-<td>character vector</td>
-<td>Explicit anchor model IDs (alternative to
-<code>selector</code>).</td>
-</tr>
-<tr class="odd">
-<td><code>model_id_col</code></td>
-<td>string</td>
-<td>Column name for anchor IDs when using <code>model_ids</code>.</td>
-</tr>
-<tr class="even">
-<td><code>require_selection</code></td>
-<td>logical</td>
-<td>Whether zero matches should error (default <code>true</code>).</td>
-</tr>
-</tbody>
-</table>
-<hr>
+<p>Example: <code>{regional_body: SWFSC}</code>.</p>
+</details><details class="cfg-key"><summary><code>model_ids</code>
+</summary><p><em>character vector</em>: Explicit anchor model IDs (alternative to
+<code>selector</code>).</p>
+</details><details class="cfg-key"><summary><code>model_id_col</code>
+</summary><p><em>string</em>: Column name holding anchor IDs when using
+<code>model_ids</code>.</p>
+</details><details class="cfg-key"><summary><code>require_selection</code>
+</summary><p><em>logical</em>: Whether zero matches should raise an error.</p>
+</details></details></details>
 </div>
 </div>
 <div class="section level2">
-<h2 id="alchemist">
-<code>alchemist</code><a class="anchor" aria-label="anchor" href="#alchemist"></a>
+<h2 id="similarity-distances">Similarity distances<a class="anchor" aria-label="anchor" href="#similarity-distances"></a>
 </h2>
-<p>Settings for the <code>Alchemist</code> supervised distance learner.
-Inherits trait names from <code>similarity</code> when not
-specified.</p>
-<table class="table">
-<colgroup>
-<col width="15%">
-<col width="18%">
-<col width="27%">
-<col width="39%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>feature_type</code></td>
-<td>string</td>
-<td><code>"gower"</code></td>
-<td>Pairwise feature representation. Options: <code>"gower"</code>
-(unsigned Gower distances), <code>"difference"</code> (signed
-standardized differences), <code>"mahalanobis"</code> (squared
-standardized differences).</td>
-</tr>
-<tr class="even">
-<td><code>taxonomic_distance</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Replace individual family/genus/species Gower features with a single
-continuous phylogenetic distance (Open Tree of Life, with rank-based
-fallback).</td>
-</tr>
-<tr class="odd">
-<td><code>species_traits</code></td>
-<td>character vector</td>
-<td>(from <code>similarity</code>)</td>
-<td>Species traits used as pair-level features.</td>
-</tr>
-<tr class="even">
-<td><code>study_traits</code></td>
-<td>character vector</td>
-<td>(from <code>similarity</code>)</td>
-<td>Study traits used as pair-level features.</td>
-</tr>
-<tr class="odd">
-<td><code>distill_workers</code></td>
-<td>integer</td>
-<td><code>1</code></td>
-<td>Worker count for sigma-dropout sensitivity in
-<code><a href="../reference/distill_traits.html">distill_traits()</a></code>.</td>
-</tr>
-<tr class="even">
-<td><code>progress</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Enable progress messages.</td>
-</tr>
-</tbody>
-</table>
+<p>How donor-target relatedness is learned, weighted, tuned, and
+visualized. See the <a href="super-learners.html">Super Learners</a>
+documentation for guidance on learner choices.</p>
 <div class="section level3">
-<h3 id="alchemist-learner">
-<code>alchemist.learner</code><a class="anchor" aria-label="anchor" href="#alchemist-learner"></a>
+<h3 id="supervised-distance-learner-alchemist">Supervised distance learner (<code>alchemist</code>)<a class="anchor" aria-label="anchor" href="#supervised-distance-learner-alchemist"></a>
 </h3>
-<p>Controls the Super Learner trained inside
-<code><a href="../reference/forge_distances.html">forge_distances()</a></code>. See the <a href="super-learners.html">Super Learners vignette</a> for guidance on
-method selection.</p>
-<table class="table">
-<colgroup>
-<col width="15%">
-<col width="18%">
-<col width="27%">
-<col width="39%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>methods</code></td>
-<td>character vector</td>
-<td><code>["glm_elastic", "rf", "xgboost"]</code></td>
-<td>Base learner methods. See <code><a href="../reference/list_learners.html">list_learners()</a></code> for valid
-names.</td>
-</tr>
-<tr class="even">
-<td><code>inner_folds</code></td>
-<td>integer</td>
-<td><code>5</code></td>
-<td>Inner cross-validation folds for out-of-fold predictions.</td>
-</tr>
-<tr class="odd">
-<td><code>seed</code></td>
-<td>integer</td>
-<td><code>NULL</code></td>
-<td>Reproducibility seed.</td>
-</tr>
-<tr class="even">
-<td><code>outcome_transform</code></td>
-<td>string</td>
-<td><code>"log1p"</code></td>
-<td>Transform applied to the acoustic-distance outcome before fitting.
-Options: <code>"identity"</code>, <code>"log1p"</code>,
-<code>"sqrt"</code>.</td>
-</tr>
-<tr class="odd">
-<td><code>lambda_rule</code></td>
-<td>string</td>
-<td><code>"lambda.1se"</code></td>
-<td>Penalized-model lambda selection. Options:
-<code>"lambda.min"</code>, <code>"lambda.1se"</code>.</td>
-</tr>
-<tr class="even">
-<td><code>oof_mode</code></td>
-<td>string</td>
-<td><code>"anchor_species"</code></td>
-<td>Out-of-fold split strategy. <code>"anchor_species"</code> groups by
-anchor species; <code>"species_purged"</code> excludes both anchor and
-donor species from training.</td>
-</tr>
-<tr class="odd">
-<td><code>workers</code></td>
-<td>integer</td>
-<td><code>1</code></td>
-<td>Parallel worker count for multi-method fitting.</td>
-</tr>
-<tr class="even">
-<td><code>method_settings</code></td>
-<td>named list</td>
-<td>(defaults)</td>
-<td>Per-family hyper-parameter overrides (see
-<code>uncertainty.method_settings</code> for the shared schema).</td>
-</tr>
-</tbody>
-</table>
-<hr>
+<p>Settings for the <code>Alchemist</code> supervised distance learner,
+which turns per-trait pairwise distances into the acoustic-distance
+matrix. Trait names default to those in <code>similarity</code> when not
+specified here.</p>
+<details><summary>
+Parameters
+</summary><details class="cfg-key"><summary><code>feature_type</code>: pairwise feature representation
+</summary><p><em>string</em>: How a donor-anchor pair is encoded as features.
+Options: <code>"gower"</code> (unsigned Gower distances),
+<code>"difference"</code> (signed standardized differences),
+<code>"mahalanobis"</code> (squared standardized differences).</p>
+</details><details class="cfg-key"><summary><code>taxonomic_distance</code>: collapse taxonomy to one distance
+</summary><p><em>logical</em>: Replace individual family/genus/species Gower
+features with a single continuous phylogenetic distance (Open Tree of
+Life, with rank-based fallback).</p>
+</details><details class="cfg-key"><summary><code>species_traits</code>: species pair-level features
+</summary><p><em>character vector · default from <code>similarity</code></em>:
+Species-level traits used as pair-level features for the distance
+learner.</p>
+</details><details class="cfg-key"><summary><code>study_traits</code>: study pair-level features
+</summary><p><em>character vector · default from <code>similarity</code></em>:
+Study-level traits used as pair-level features for the distance
+learner.</p>
+</details><details class="cfg-key"><summary><code>distill_workers</code>: sensitivity worker count
+</summary><p><em>integer</em>: Worker count for sigma-dropout sensitivity in
+<code><a href="../reference/distill_traits.html">distill_traits()</a></code>.</p>
+</details><details class="cfg-key"><summary><code>progress</code>: progress messages
+</summary><p><em>logical</em>: Enable progress messages.</p>
+</details><details class="cfg-key"><summary><code>learner</code>: Super Learner library
+</summary><p>Controls the stacked ensemble trained inside
+<code><a href="../reference/forge_distances.html">forge_distances()</a></code>. See <code><a href="../reference/list_learners.html">list_learners()</a></code> for
+valid method names.</p>
+<details class="cfg-key"><summary><code>methods</code>
+</summary><p><em>character vector</em>: Base learner methods in the library.</p>
+</details><details class="cfg-key"><summary><code>inner_folds</code>
+</summary><p><em>integer</em>: Inner cross-validation folds for out-of-fold
+predictions.</p>
+</details><details class="cfg-key"><summary><code>seed</code>
+</summary><p><em>integer</em>: Reproducibility seed.</p>
+</details><details class="cfg-key"><summary><code>outcome_transform</code>
+</summary><p><em>string</em>: Transform applied to the acoustic-distance outcome
+before fitting. Options: <code>"identity"</code>, <code>"log1p"</code>,
+<code>"sqrt"</code>.</p>
+</details><details class="cfg-key"><summary><code>lambda_rule</code>
+</summary><p><em>string</em>: Penalized-model lambda selection. Options:
+<code>"min"</code> (<code>lambda.min</code>), <code>"1se"</code>
+(<code>lambda.1se</code>).</p>
+</details><details class="cfg-key"><summary><code>oof_mode</code>
+</summary><p><em>string</em>: Out-of-fold split strategy.
+<code>"anchor_species"</code> groups by anchor species;
+<code>"species_purged"</code> excludes both anchor and donor species
+from training.</p>
+</details><details class="cfg-key"><summary><code>workers</code>
+</summary><p><em>integer</em>: Parallel worker count for multi-method fitting.</p>
+</details><details class="cfg-key"><summary><code>method_settings</code>
+</summary><p><em>named list</em>: Per-method hyper-parameter overrides for the
+base learners in <code>methods</code>. Each top-level key is a public
+learner method name; supply only the fields you want to change.
+Parameter names and defaults are documented per method in the Alchemist
+section of the <a href="super-learners.html#alchemist">Super Learners
+vignette</a>.</p>
+</details></details></details>
 </div>
-</div>
-<div class="section level2">
-<h2 id="similarity">
-<code>similarity</code><a class="anchor" aria-label="anchor" href="#similarity"></a>
-</h2>
+<div class="section level3">
+<h3 id="similarity-matrix-similarity">Similarity matrix (<code>similarity</code>)<a class="anchor" aria-label="anchor" href="#similarity-matrix-similarity"></a>
+</h3>
 <p>Trait selection, coherence, and kernel settings for the similarity
 matrix. This is the primary tuning surface.</p>
-<table class="table">
-<colgroup>
-<col width="15%">
-<col width="18%">
-<col width="27%">
-<col width="39%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>alpha</code></td>
-<td>number</td>
-<td><code>0.8</code></td>
-<td>Species-versus-study blend in the combined distance.
-<code>1.0</code> = species only, <code>0.0</code> = study only.</td>
-</tr>
-<tr class="even">
-<td><code>kernel_scale</code></td>
-<td>number</td>
-<td><code>4</code></td>
-<td>Global kernel scale. Higher values concentrate weight on nearer
-donors.</td>
-</tr>
-<tr class="odd">
-<td><code>species_traits</code></td>
-<td>character vector or named list</td>
-<td>(registry defaults)</td>
-<td>Species traits included in distance computation. Named list form
-sets per-trait starting weights.</td>
-</tr>
-<tr class="even">
-<td><code>study_traits</code></td>
-<td>character vector or named list</td>
-<td>(registry defaults)</td>
-<td>Study traits included in distance computation.</td>
-</tr>
-<tr class="odd">
-<td><code>conformal_alpha</code></td>
-<td>number</td>
-<td><code>0.1</code></td>
-<td>Target miscoverage level for conformal interval calibration.</td>
-</tr>
-<tr class="even">
-<td><code>core_weight_cutoff</code></td>
-<td>number</td>
-<td><code>NULL</code></td>
-<td>Similarity-weight threshold for identifying high-support donor
-subsets.</td>
-</tr>
-<tr class="odd">
-<td><code>alpha_range</code></td>
-<td><code>{from, to}</code></td>
-<td><code>{0.1, 0.9}</code></td>
-<td>Search bounds for alpha during tuning.</td>
-</tr>
-<tr class="even">
-<td><code>kernel_scale_range</code></td>
-<td><code>{from, to}</code></td>
-<td><code>{1, 8}</code></td>
-<td>Search bounds for kernel scale during tuning.</td>
-</tr>
-<tr class="odd">
-<td><code>cache_path</code></td>
-<td>string</td>
-<td>(derived)</td>
-<td>Explicit cache override.</td>
-</tr>
-<tr class="even">
-<td><code>refresh</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Force recompute of the similarity cache.</td>
-</tr>
-<tr class="odd">
-<td><code>progress</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Enable stage messages.</td>
-</tr>
-</tbody>
-</table>
+<details><summary>
+Parameters
+</summary><details class="cfg-key"><summary><code>alpha</code>: species-vs-study blend
+</summary><p><em>number</em>: Blend between species and study distances.
+<code>1.0</code> = species only, <code>0.0</code> = study only.</p>
+</details><details class="cfg-key"><summary><code>kernel_scale</code>: kernel concentration
+</summary><p><em>number</em>: Global kernel scale. Higher values concentrate
+weight on nearer donors.</p>
+</details><details class="cfg-key"><summary><code>species_traits</code>: species traits in the distance
+</summary><p><em>character vector or named list</em>: Species-level traits
+included in distance computation. The named-list form sets per-trait
+starting weights, e.g. <code>{length: 1.0, depth: 0.5}</code>.</p>
+</details><details class="cfg-key"><summary><code>study_traits</code>: study traits in the distance
+</summary><p><em>character vector or named list</em>: Study-level traits included
+in distance computation. The named-list form sets per-trait starting
+weights.</p>
+</details><details class="cfg-key"><summary><code>conformal_alpha</code>: interval miscoverage target
+</summary><p><em>number</em>: Target miscoverage level for conformal interval
+calibration.</p>
+</details><details class="cfg-key"><summary><code>core_weight_cutoff</code>: high-support donor threshold
+</summary><p><em>number</em>: Similarity-weight threshold for identifying
+high-support donor subsets.</p>
+</details><details class="cfg-key"><summary><code>alpha_range</code>: alpha search bounds
+</summary><p><em><code>{from, to}</code></em>: Search bounds for
+<code>alpha</code> during similarity tuning.</p>
+</details><details class="cfg-key"><summary><code>kernel_scale_range</code>: kernel-scale search bounds
+</summary><p><em><code>{from, to}</code></em>: Search bounds for
+<code>kernel_scale</code> during similarity tuning.</p>
+</details><details class="cfg-key"><summary><code>cache_path</code>: cache override
+</summary><p><em>string</em>: Explicit cache-path override for the similarity
+matrix.</p>
+</details><details class="cfg-key"><summary><code>refresh</code>: force recompute
+</summary><p><em>logical</em>: Force recompute of the similarity cache.</p>
+</details><details class="cfg-key"><summary><code>progress</code>: stage messages
+</summary><p><em>logical</em>: Enable similarity-stage messages.</p>
+</details><details class="cfg-key"><summary><code>coherence</code>: measurement-overlap features
+</summary><p>Measurement-overlap features supplementing trait distances.</p>
+<details class="cfg-key"><summary><code>length</code>
+</summary><p>Length-overlap coherence feature.</p>
+<ul>
+<li>
+<code>mode</code> <em>(string)</em>: <code>overlap</code>,
+<code>literal</code>, or <code>none</code>.</li>
+<li>
+<code>weight</code> <em>(number)</em>: Feature weight.</li>
+<li>
+<code>range</code> <em>(<code>{from, to}</code>)</em>: Weight search
+bounds during tuning.</li>
+</ul></details><details class="cfg-key"><summary><code>depth</code>
+</summary><p>Depth-overlap coherence feature.</p>
+<ul>
+<li>
+<code>mode</code> <em>(string)</em>: <code>overlap</code>,
+<code>literal</code>, or <code>none</code>.</li>
+<li>
+<code>weight</code> <em>(number)</em>: Feature weight.</li>
+<li>
+<code>range</code> <em>(<code>{from, to}</code>)</em>: Weight search
+bounds during tuning.</li>
+</ul></details><details class="cfg-key"><summary><code>frequency</code>
+</summary><p>Acoustic-frequency-overlap coherence feature.</p>
+<ul>
+<li>
+<code>mode</code> <em>(string)</em>: <code>overlap</code>,
+<code>literal</code>, or <code>none</code>.</li>
+<li>
+<code>weight</code> <em>(number)</em>: Feature weight.</li>
+<li>
+<code>range</code> <em>(<code>{from, to}</code>)</em>: Weight search
+bounds during tuning.</li>
+<li>
+<code>gap</code> <em>(number)</em>: Maximum frequency gap (kHz)
+treated as overlapping under <code>mode: overlap</code>.</li>
+</ul></details></details></details>
+</div>
 <div class="section level3">
-<h3 id="similarity-coherence">
-<code>similarity.coherence</code><a class="anchor" aria-label="anchor" href="#similarity-coherence"></a>
+<h3 id="similarity-tuning-tuning">Similarity tuning (<code>tuning</code>)<a class="anchor" aria-label="anchor" href="#similarity-tuning-tuning"></a>
 </h3>
-<p>Measurement-overlap features that supplement trait distances. Each
-sub-section (<code>length</code>, <code>depth</code>,
-<code>frequency</code>) accepts <code>mode</code> and
-<code>weight</code>, plus <code>gap</code> for
-<code>frequency</code>.</p>
-<table class="table">
-<colgroup>
-<col width="15%">
-<col width="18%">
-<col width="27%">
-<col width="39%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Options</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>length.mode</code></td>
-<td>string</td>
-<td>
-<code>overlap</code>, <code>literal</code>, <code>none</code>
-</td>
-<td>How length ranges are compared for the coherence feature.</td>
-</tr>
-<tr class="even">
-<td><code>length.weight</code></td>
-<td>number</td>
-<td>—</td>
-<td>Feature weight for length coherence.</td>
-</tr>
-<tr class="odd">
-<td><code>length.source</code></td>
-<td>string</td>
-<td>
-<code>best</code>, <code>study</code>, <code>species</code>,
-<code>both</code>
-</td>
-<td>Which length columns back this feature. <code>"best"</code> prefers
-study-level bounds with species-level fallback; <code>"both"</code>
-produces separate <code>_study</code> and <code>_species</code>
-features.</td>
-</tr>
-<tr class="even">
-<td><code>depth.mode</code></td>
-<td>string</td>
-<td>
-<code>overlap</code>, <code>literal</code>, <code>none</code>
-</td>
-<td>How depth ranges are compared.</td>
-</tr>
-<tr class="odd">
-<td><code>depth.weight</code></td>
-<td>number</td>
-<td>—</td>
-<td>Feature weight for depth coherence.</td>
-</tr>
-<tr class="even">
-<td><code>depth.source</code></td>
-<td>string</td>
-<td>
-<code>best</code>, <code>study</code>, <code>species</code>,
-<code>both</code>
-</td>
-<td>Which depth columns to use.</td>
-</tr>
-<tr class="odd">
-<td><code>frequency.mode</code></td>
-<td>string</td>
-<td>
-<code>overlap</code>, <code>literal</code>, <code>none</code>
-</td>
-<td>How acoustic frequencies are compared.</td>
-</tr>
-<tr class="even">
-<td><code>frequency.weight</code></td>
-<td>number</td>
-<td>—</td>
-<td>Feature weight for frequency coherence.</td>
-</tr>
-<tr class="odd">
-<td><code>frequency.gap</code></td>
-<td>number</td>
-<td><code>60</code></td>
-<td>Maximum frequency gap (kHz) treated as overlapping under
-<code>mode: overlap</code>.</td>
-</tr>
-</tbody>
-</table>
-<hr>
+<p>Hyper-parameters for the empirical similarity-tuning search over
+trait weights, <code>alpha</code>, and <code>kernel_scale</code>.</p>
+<details><summary>
+Parameters
+</summary><details class="cfg-key"><summary><code>max_models_per_species</code>: models per species in subsets
+</summary><p><em>integer</em>: Maximum retained models per species in tuning
+subsets. External YAML alias: <code>species_model_limit</code>.</p>
+</details><details class="cfg-key"><summary><code>n_resamples</code>: empirical resamples
+</summary><p><em>integer</em>: Number of empirical tuning resamples. External YAML
+alias: <code>resamples</code>.</p>
+</details><details class="cfg-key"><summary><code>n_cores</code>: worker count
+</summary><p><em>integer</em>: Worker count for tuning runs.</p>
+</details><details class="cfg-key"><summary><code>seed</code>: reproducibility seed
+</summary><p><em>integer</em>: Reproducibility seed.</p>
+</details><details class="cfg-key"><summary><code>grid_refinement_levels</code>: local refinement passes
+</summary><p><em>integer</em>: Local search-refinement passes after the coarse
+grid.</p>
+</details><details class="cfg-key"><summary><code>response_surface_top_n</code>: retained candidate points
+</summary><p><em>integer</em>: Candidate points kept during response-surface
+refinement.</p>
+</details><details class="cfg-key"><summary><code>rmse_tolerance</code>: convergence tolerance
+</summary><p><em>number</em>: RMSE improvement below which refinement is
+considered converged.</p>
+</details><details class="cfg-key"><summary><code>support_strata_bins</code>: support strata
+</summary><p><em>integer</em>: Number of support strata used when balancing tuning
+resamples.</p>
+</details><details class="cfg-key"><summary><code>regularization</code>: search regularization
+</summary><p><em>named list</em>: Regularization strengths that keep the tuned
+parameters near their priors. Fields: <code>alpha</code>,
+<code>kernel_scale</code>, <code>coherence_scale</code>,
+<code>stability</code>.</p>
+</details><details class="cfg-key"><summary><code>equal_start_weights</code>: equal initial trait weights
+</summary><p><em>logical</em>: Initialize all trait weights equally rather than
+using configured magnitudes as priors.</p>
+</details><details class="cfg-key"><summary><code>progress</code>: tuning messages
+</summary><p><em>logical</em>: Enable tuning messages.</p>
+</details></details>
 </div>
-</div>
-<div class="section level2">
-<h2 id="ordination">
-<code>ordination</code><a class="anchor" aria-label="anchor" href="#ordination"></a>
-</h2>
+<div class="section level3">
+<h3 id="ordination-ordination">Ordination (<code>ordination</code>)<a class="anchor" aria-label="anchor" href="#ordination-ordination"></a>
+</h3>
 <p>NMDS ordination settings, applied after
-<code><a href="../reference/forge_distances.html">forge_distances()</a></code>.</p>
-<table class="table">
-<colgroup>
-<col width="15%">
-<col width="18%">
-<col width="27%">
-<col width="39%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>include_loadings</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Include envfit vector loadings in the ordination output.</td>
-</tr>
-<tr class="even">
-<td><code>include_centroids</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Include factor-level centroids.</td>
-</tr>
-<tr class="odd">
-<td><code>progress</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Enable ordination messages.</td>
-</tr>
-<tr class="even">
-<td><code>nmds_args</code></td>
-<td>named list</td>
-<td>—</td>
-<td>Arguments forwarded to <code><a href="https://vegandevs.github.io/vegan/reference/metaMDS.html" class="external-link">vegan::metaMDS()</a></code>.</td>
-</tr>
-<tr class="odd">
-<td><code>envfit_args</code></td>
-<td>named list</td>
-<td>—</td>
-<td>Arguments forwarded to <code><a href="https://vegandevs.github.io/vegan/reference/envfit.html" class="external-link">vegan::envfit()</a></code>.</td>
-</tr>
-</tbody>
-</table>
-<hr>
+<code><a href="../reference/forge_distances.html">forge_distances()</a></code> to visualize proxy model diversity.</p>
+<details><summary>
+Parameters
+</summary><details class="cfg-key"><summary><code>include_loadings</code>: envfit vector loadings
+</summary><p><em>logical</em>: Include envfit vector loadings in the ordination
+output.</p>
+</details><details class="cfg-key"><summary><code>include_centroids</code>: factor-level centroids
+</summary><p><em>logical</em>: Include factor-level centroids.</p>
+</details><details class="cfg-key"><summary><code>progress</code>: ordination messages
+</summary><p><em>logical</em>: Enable ordination messages.</p>
+</details><details class="cfg-key"><summary><code>nmds_args</code>: metaMDS arguments
+</summary><p><em>named list</em>: Arguments forwarded to
+<code><a href="https://vegandevs.github.io/vegan/reference/metaMDS.html" class="external-link">vegan::metaMDS()</a></code>.</p>
+</details><details class="cfg-key"><summary><code>envfit_args</code>: envfit arguments
+</summary><p><em>named list</em>: Arguments forwarded to
+<code><a href="https://vegandevs.github.io/vegan/reference/envfit.html" class="external-link">vegan::envfit()</a></code>.</p>
+</details></details>
+</div>
 </div>
 <div class="section level2">
-<h2 id="admissibility">
-<code>admissibility</code><a class="anchor" aria-label="anchor" href="#admissibility"></a>
+<h2 id="policies-admissibility">Policies &amp; admissibility<a class="anchor" aria-label="anchor" href="#policies-admissibility"></a>
 </h2>
+<p>Which transfer paths are admissible, which policies are declared, and
+how they are benchmarked.</p>
+<div class="section level3">
+<h3 id="admissibility-gates-admissibility">Admissibility gates (<code>admissibility</code>)<a class="anchor" aria-label="anchor" href="#admissibility-gates-admissibility"></a>
+</h3>
 <p>Hard binary gates that exclude transfer paths before any policy is
-applied. Donors that fail an admissibility check are removed from the
-candidate pool for the affected target.</p>
-<table class="table">
-<colgroup>
-<col width="20%">
-<col width="25%">
-<col width="54%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>species_traits</code></td>
-<td>character vector</td>
-<td>Categorical or binary species traits that must match exactly between
-donor and target.</td>
-</tr>
-<tr class="even">
-<td><code>study_traits</code></td>
-<td>character vector</td>
-<td>Study-level traits used as exact-match gates.</td>
-</tr>
-<tr class="odd">
-<td><code>key_metadata_max</code></td>
-<td>number</td>
-<td>Maximum tolerated missing fraction across key study-level metadata
-fields.</td>
-</tr>
-<tr class="even">
-<td><code>cache_path</code></td>
-<td>string</td>
-<td>Explicit cache override.</td>
-</tr>
-<tr class="odd">
-<td><code>refresh</code></td>
-<td>logical</td>
-<td>Force recompute.</td>
-</tr>
-<tr class="even">
-<td><code>progress</code></td>
-<td>logical</td>
-<td>Enable messages.</td>
-</tr>
-</tbody>
-</table>
+applied. Donors that fail a check are removed from the candidate pool
+for the affected target.</p>
+<details><summary>
+Parameters
+</summary><details class="cfg-key"><summary><code>species_traits</code>: species exact-match gates
+</summary><p><em>character vector</em>: Categorical or binary species traits that
+must match exactly between donor and target.</p>
+</details><details class="cfg-key"><summary><code>study_traits</code>: study exact-match gates
+</summary><p><em>character vector</em>: Study-level traits used as exact-match
+gates.</p>
+</details><details class="cfg-key"><summary><code>key_metadata_max</code>: missingness tolerance
+</summary><p><em>number</em>: Maximum tolerated missing fraction across key
+study-level metadata fields.</p>
+</details><details class="cfg-key"><summary><code>cache_path</code>: cache override
+</summary><p><em>string</em>: Explicit cache-path override for the admissibility
+screen.</p>
+</details><details class="cfg-key"><summary><code>refresh</code>: force recompute
+</summary><p><em>logical</em>: Force recompute of the admissibility cache.</p>
+</details><details class="cfg-key"><summary><code>progress</code>: stage messages
+</summary><p><em>logical</em>: Enable admissibility-stage messages.</p>
+</details><details class="cfg-key"><summary><code>coherence</code>: measurement-overlap gates
+</summary><p>Minimum measurement-overlap requirements applied as gates.</p>
+<details class="cfg-key"><summary><code>length</code>
+</summary><p>Length-overlap gate.</p>
+<ul>
+<li>
+<code>mode</code> <em>(string)</em>: <code>overlap</code>,
+<code>literal</code>, or <code>none</code>.</li>
+<li>
+<code>min</code> <em>(number)</em>: Minimum required fractional
+length overlap.</li>
+</ul></details><details class="cfg-key"><summary><code>depth</code>
+</summary><p>Depth-overlap gate.</p>
+<ul>
+<li>
+<code>mode</code> <em>(string)</em>: <code>overlap</code>,
+<code>literal</code>, or <code>none</code>.</li>
+<li>
+<code>min</code> <em>(number)</em>: Minimum required fractional
+depth overlap.</li>
+</ul></details><details class="cfg-key"><summary><code>frequency</code>
+</summary><p>Frequency-overlap gate.</p>
+<ul>
+<li>
+<code>mode</code> <em>(string)</em>: <code>none</code>,
+<code>literal</code>, or <code>overlap</code>.</li>
+<li>
+<code>gap</code> <em>(number)</em>: Gap threshold (kHz) under
+<code>mode: overlap</code>.</li>
+</ul></details></details></details>
+</div>
 <div class="section level3">
-<h3 id="admissibility-coherence">
-<code>admissibility.coherence</code><a class="anchor" aria-label="anchor" href="#admissibility-coherence"></a>
+<h3 id="transfer-policies-policies">Transfer policies (<code>policies</code>)<a class="anchor" aria-label="anchor" href="#transfer-policies-policies"></a>
 </h3>
-<table class="table">
-<colgroup>
-<col width="20%">
-<col width="25%">
-<col width="54%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>length.mode</code></td>
-<td>string</td>
-<td>
-<code>overlap</code>, <code>literal</code>, or
-<code>none</code>.</td>
-</tr>
-<tr class="even">
-<td><code>length.min</code></td>
-<td>number</td>
-<td>Minimum required fractional length overlap.</td>
-</tr>
-<tr class="odd">
-<td><code>depth.mode</code></td>
-<td>string</td>
-<td>
-<code>overlap</code>, <code>literal</code>, or
-<code>none</code>.</td>
-</tr>
-<tr class="even">
-<td><code>depth.min</code></td>
-<td>number</td>
-<td>Minimum required fractional depth overlap.</td>
-</tr>
-<tr class="odd">
-<td><code>frequency.mode</code></td>
-<td>string</td>
-<td>
-<code>none</code>, <code>literal</code>, or
-<code>overlap</code>.</td>
-</tr>
-<tr class="even">
-<td><code>frequency.gap</code></td>
-<td>number</td>
-<td>Gap threshold (kHz) under <code>mode: overlap</code>.</td>
-</tr>
-</tbody>
-</table>
-<hr>
+<p>Declares the transfer policies to benchmark. Use the
+<strong>constructor form</strong> (<code>metric</code> +
+<code>branch</code> + <code>group</code>) to generate named policy sets
+from the registry, or the <strong>explicit form</strong>
+(<code>active</code>) to list policy names directly.</p>
+<details><summary>
+Parameters
+</summary><details class="cfg-key"><summary><code>metric</code>: donor-aggregation metric filter
+</summary><p><em>character vector</em>: Global metric filter. Supported:
+<code>closest</code>, <code>weighted_mean</code>,
+<code>unweighted_mean</code>, <code>survey_distance</code>,
+<code>taxon_distance</code>, <code>species_distance</code>,
+<code>random</code>.</p>
+</details><details class="cfg-key"><summary><code>branch</code>: equation-branch filter
+</summary><p><em>character vector</em>: Equation branch filters. Supported:
+<code>all</code>, <code>fixed_slope</code>, <code>free_slope</code>. (In
+the explicit form the key is <code>equation_branch_filters</code>.)</p>
+</details><details class="cfg-key"><summary><code>group</code>: per-grouping overrides
+</summary><p><em>named list</em>: One entry per donor-pool grouping
+(e.g. <code>species</code>, <code>genus</code>, <code>family</code>).
+Each value configures per-group overrides:</p>
+<details class="cfg-key"><summary><code>group.&lt;name&gt;.include_base</code>
+</summary><p><em>logical</em>: When <code>joint</code> variants are listed, keep
+the plain root group as well.</p>
+</details><details class="cfg-key"><summary><code>group.&lt;name&gt;.metric</code>
+</summary><p><em>character vector</em>: Per-group metric override.</p>
+</details><details class="cfg-key"><summary><code>group.&lt;name&gt;.joint</code>
+</summary><p><em>list</em>: One or more trait names to conjoin with the root group
+key. Each entry becomes a separate
+<code>&lt;group&gt;_&lt;trait&gt;</code> policy variant.</p>
+</details></details><details class="cfg-key"><summary><code>active</code>: explicit policy list
+</summary><p><em>character vector</em>: Explicit policy name strings (explicit
+form). Example:
+<code>[species_closest_all, genus_weighted_mean_all]</code>.</p>
+</details></details>
+</div>
+<div class="section level3">
+<h3 id="policy-benchmarking-benchmark">Policy benchmarking (<code>benchmark</code>)<a class="anchor" aria-label="anchor" href="#policy-benchmarking-benchmark"></a>
+</h3>
+<p>Settings for the policy-benchmarking stage, which scores each policy
+against the reference anchors.</p>
+<details><summary>
+Parameters
+</summary><details class="cfg-key"><summary><code>workers</code>: parallel anchor evaluation
+</summary><p><em>integer</em>: Worker count for parallel anchor evaluation.</p>
+</details><details class="cfg-key"><summary><code>engine</code>: evaluation backend
+</summary><p><em>string</em>: <code>"cpp"</code> uses the compiled C++ backend;
+<code>"r"</code> uses the pure-R path.</p>
+</details><details class="cfg-key"><summary><code>include_ts_error</code>: TS reconstruction error
+</summary><p><em>logical</em>: Include TS-curve reconstruction error in benchmark
+outputs.</p>
+</details><details class="cfg-key"><summary><code>cache_path</code>: cache override
+</summary><p><em>string</em>: Explicit cache-path override for the benchmark.</p>
+</details><details class="cfg-key"><summary><code>refresh</code>: force recompute
+</summary><p><em>logical</em>: Force recompute of the benchmark cache.</p>
+</details><details class="cfg-key"><summary><code>progress</code>: stage messages
+</summary><p><em>logical</em>: Enable benchmark-stage messages.</p>
+</details></details>
 </div>
 </div>
 <div class="section level2">
-<h2 id="policies">
-<code>policies</code><a class="anchor" aria-label="anchor" href="#policies"></a>
+<h2 id="uncertainty-policy-selection">Uncertainty &amp; policy selection<a class="anchor" aria-label="anchor" href="#uncertainty-policy-selection"></a>
 </h2>
-<p>Constructor-style policy declarations. Use the <code>group</code> +
-<code>metric</code> + <code>branch</code> form to generate named policy
-sets from the registry, or supply <code>active</code> as an explicit
-list of policy name strings.</p>
+<p>The two post-benchmark Super Learners: one calibrates
+prediction-interval widths, the other selects policies and powers the
+meta-learner. See the <a href="super-learners.html">Super Learners
+vignette</a>.</p>
 <div class="section level3">
-<h3 id="constructor-form">Constructor form<a class="anchor" aria-label="anchor" href="#constructor-form"></a>
+<h3 id="conditional-uncertainty-uncertainty">Conditional uncertainty (<code>uncertainty</code>)<a class="anchor" aria-label="anchor" href="#conditional-uncertainty-uncertainty"></a>
 </h3>
-<div class="sourceCode" id="cb2"><pre class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="fu">policies</span><span class="kw">:</span></span>
-<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a><span class="at">  </span><span class="fu">metric</span><span class="kw">:</span><span class="at"> </span><span class="kw">[</span><span class="at">closest</span><span class="kw">,</span><span class="at"> weighted_mean</span><span class="kw">,</span><span class="at"> unweighted_mean</span><span class="kw">]</span></span>
-<span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a><span class="at">  </span><span class="fu">branch</span><span class="kw">:</span><span class="at"> </span><span class="kw">[</span><span class="at">all</span><span class="kw">,</span><span class="at"> fixed_slope</span><span class="kw">]</span></span>
-<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a><span class="at">  </span><span class="fu">group</span><span class="kw">:</span></span>
-<span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a><span class="at">    </span><span class="fu">species</span><span class="kw">:</span></span>
-<span id="cb2-6"><a href="#cb2-6" tabindex="-1"></a><span class="at">      </span><span class="fu">include_base</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
-<span id="cb2-7"><a href="#cb2-7" tabindex="-1"></a><span class="at">      </span><span class="fu">metric</span><span class="kw">:</span><span class="at"> </span><span class="kw">[</span><span class="at">closest</span><span class="kw">,</span><span class="at"> weighted_mean</span><span class="kw">]</span></span>
-<span id="cb2-8"><a href="#cb2-8" tabindex="-1"></a><span class="at">      </span><span class="fu">joint</span><span class="kw">:</span></span>
-<span id="cb2-9"><a href="#cb2-9" tabindex="-1"></a><span class="at">        </span><span class="kw">-</span><span class="at"> fao</span></span>
-<span id="cb2-10"><a href="#cb2-10" tabindex="-1"></a><span class="at">        </span><span class="kw">-</span><span class="at"> </span><span class="kw">[</span><span class="at">ocean_basin</span><span class="kw">,</span><span class="at"> season</span><span class="kw">]</span></span>
-<span id="cb2-11"><a href="#cb2-11" tabindex="-1"></a><span class="at">    </span><span class="fu">genus</span><span class="kw">:</span></span>
-<span id="cb2-12"><a href="#cb2-12" tabindex="-1"></a><span class="at">      </span><span class="fu">include_base</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
-<span id="cb2-13"><a href="#cb2-13" tabindex="-1"></a><span class="at">    </span><span class="fu">family</span><span class="kw">:</span></span></code></pre></div>
-<table class="table">
-<colgroup>
-<col width="20%">
-<col width="25%">
-<col width="54%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>metric</code></td>
-<td>character vector</td>
-<td>Global metric filter. Supported: <code>closest</code>,
-<code>weighted_mean</code>, <code>unweighted_mean</code>,
-<code>survey_distance</code>, <code>taxon_distance</code>,
-<code>species_distance</code>, <code>random</code>.</td>
-</tr>
-<tr class="even">
-<td><code>branch</code></td>
-<td>character vector</td>
-<td>Equation branch filters. Supported: <code>all</code>,
-<code>fixed_slope</code>, <code>free_slope</code>.</td>
-</tr>
-<tr class="odd">
-<td><code>group</code></td>
-<td>named list</td>
-<td>One entry per donor-pool grouping. Keys are group names; values
-configure per-group metric/branch overrides and optional
-<code>joint</code> conjunctions.</td>
-</tr>
-<tr class="even">
-<td><code>group.&lt;name&gt;.include_base</code></td>
-<td>logical</td>
-<td>When <code>joint</code> variants are listed, keep the plain root
-group as well (default <code>true</code>).</td>
-</tr>
-<tr class="odd">
-<td><code>group.&lt;name&gt;.metric</code></td>
-<td>character vector</td>
-<td>Per-group metric override.</td>
-</tr>
-<tr class="even">
-<td><code>group.&lt;name&gt;.joint</code></td>
-<td>list</td>
-<td>One or more trait names to conjoin with the root group key. Each
-entry becomes a separate <code>&lt;group&gt;_&lt;trait&gt;</code> policy
-variant.</td>
-</tr>
-</tbody>
-</table>
-</div>
-<div class="section level3">
-<h3 id="explicit-form">Explicit form<a class="anchor" aria-label="anchor" href="#explicit-form"></a>
-</h3>
-<div class="sourceCode" id="cb3"><pre class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a><span class="fu">policies</span><span class="kw">:</span></span>
-<span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a><span class="at">  </span><span class="fu">active</span><span class="kw">:</span><span class="at"> </span><span class="kw">[</span><span class="at">species_closest_all</span><span class="kw">,</span><span class="at"> genus_weighted_mean_all</span><span class="kw">]</span></span>
-<span id="cb3-3"><a href="#cb3-3" tabindex="-1"></a><span class="at">  </span><span class="fu">equation_branch_filters</span><span class="kw">:</span><span class="at"> </span><span class="kw">[</span><span class="at">all</span><span class="kw">]</span></span></code></pre></div>
-<hr>
-</div>
-</div>
-<div class="section level2">
-<h2 id="benchmark">
-<code>benchmark</code><a class="anchor" aria-label="anchor" href="#benchmark"></a>
-</h2>
-<p>Settings for the policy-benchmarking stage.</p>
-<table class="table">
-<colgroup>
-<col width="15%">
-<col width="18%">
-<col width="27%">
-<col width="39%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>workers</code></td>
-<td>integer</td>
-<td><code>1</code></td>
-<td>Worker count for parallel anchor evaluation.</td>
-</tr>
-<tr class="even">
-<td><code>engine</code></td>
-<td>string</td>
-<td><code>"cpp"</code></td>
-<td>Evaluation engine. <code>"cpp"</code> uses the compiled C++ backend;
-<code>"r"</code> uses the pure-R path.</td>
-</tr>
-<tr class="odd">
-<td><code>include_ts_error</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Include TS-curve reconstruction error in benchmark outputs.</td>
-</tr>
-<tr class="even">
-<td><code>cache_path</code></td>
-<td>string</td>
-<td>(derived)</td>
-<td>Explicit cache override.</td>
-</tr>
-<tr class="odd">
-<td><code>refresh</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Force recompute.</td>
-</tr>
-<tr class="even">
-<td><code>progress</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Enable messages.</td>
-</tr>
-</tbody>
-</table>
-<hr>
-</div>
-<div class="section level2">
-<h2 id="uncertainty">
-<code>uncertainty</code><a class="anchor" aria-label="anchor" href="#uncertainty"></a>
-</h2>
-<p>The conditional-uncertainty Super Learner. Trains a cross-fitted
-model to predict expected absolute log-error, which is used to calibrate
-prediction interval widths. See the <a href="super-learners.html">Super
+<p>Trains a cross-fitted model to predict expected absolute log-error,
+used to calibrate prediction-interval widths.</p>
+<details><summary>
+Parameters
+</summary><details class="cfg-key"><summary><code>method</code>: learner method
+</summary><p><em>string</em>: <code>"glm"</code> for a single generalized linear
+model, or <code>"super_learner"</code> to enable stacked-ensemble
+mode.</p>
+</details><details class="cfg-key"><summary><code>super_methods</code>: ensemble library
+</summary><p><em>character vector</em>: Base learner library used when
+<code>method = "super_learner"</code>.</p>
+</details><details class="cfg-key"><summary><code>n_folds</code>: outer folds
+</summary><p><em>integer</em>: Outer cross-fitting folds.</p>
+</details><details class="cfg-key"><summary><code>inner_folds</code>: inner folds
+</summary><p><em>integer</em>: Inner folds for penalized learners.</p>
+</details><details class="cfg-key"><summary><code>workers</code>: cross-fitting workers
+</summary><p><em>integer</em>: Worker count for cross-fitting.</p>
+</details><details class="cfg-key"><summary><code>outcome_col</code>: regression target
+</summary><p><em>string</em>: Benchmark column used as the regression target.</p>
+</details><details class="cfg-key"><summary><code>outcome_clip_quantile</code>: extreme-outcome clipping
+</summary><p><em>number</em>: Upper quantile used to clip extreme training
+outcomes.</p>
+</details><details class="cfg-key"><summary><code>outcome_transform</code>: outcome transform
+</summary><p><em>string</em>: Transform applied to the outcome before fitting.</p>
+</details><details class="cfg-key"><summary><code>lambda_rule</code>: lambda selection rule
+</summary><p><em>string</em>: Lambda selection rule for penalized learners.</p>
+</details><details class="cfg-key"><summary><code>loss</code>: combiner loss
+</summary><p><em>string</em>: Super-learner combiner loss. Must be
+<code>"squared_error"</code> with NNLS.</p>
+</details><details class="cfg-key"><summary><code>method_settings</code>: per-method overrides
+</summary><p><em>named list</em>: Per-method hyper-parameter overrides for the
+base learners in <code>super_methods</code>. Each top-level key is a
+public learner method name; supply only the fields you want to change.
+Parameter names and defaults are documented per method in the
+Uncertainty section of the <a href="super-learners.html#learner-2-uncertainty-uncertainty">Super
 Learners vignette</a>.</p>
-<table class="table">
-<colgroup>
-<col width="15%">
-<col width="18%">
-<col width="27%">
-<col width="39%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>method</code></td>
-<td>string</td>
-<td><code>"glm"</code></td>
-<td>Learner method. Use <code>"super_learner"</code> to enable ensemble
-mode.</td>
-</tr>
-<tr class="even">
-<td><code>super_methods</code></td>
-<td>character vector</td>
-<td><code>NULL</code></td>
-<td>Base learner library when
-<code>method = "super_learner"</code>.</td>
-</tr>
-<tr class="odd">
-<td><code>n_folds</code></td>
-<td>integer</td>
-<td><code>5</code></td>
-<td>Outer cross-fitting folds.</td>
-</tr>
-<tr class="even">
-<td><code>inner_folds</code></td>
-<td>integer</td>
-<td><code>3</code></td>
-<td>Inner folds for penalized learners.</td>
-</tr>
-<tr class="odd">
-<td><code>workers</code></td>
-<td>integer</td>
-<td><code>1</code></td>
-<td>Worker count for cross-fitting.</td>
-</tr>
-<tr class="even">
-<td><code>outcome_col</code></td>
-<td>string</td>
-<td><code>"error_abs_log"</code></td>
-<td>Benchmark column used as the regression target.</td>
-</tr>
-<tr class="odd">
-<td><code>outcome_clip_quantile</code></td>
-<td>number</td>
-<td><code>0.99</code></td>
-<td>Upper quantile used to clip extreme training outcomes.</td>
-</tr>
-<tr class="even">
-<td><code>outcome_transform</code></td>
-<td>string</td>
-<td><code>"log1p"</code></td>
-<td>Transform applied to the outcome before fitting.</td>
-</tr>
-<tr class="odd">
-<td><code>lambda_rule</code></td>
-<td>string</td>
-<td><code>"lambda.1se"</code></td>
-<td>Lambda selection rule for penalized learners.</td>
-</tr>
-<tr class="even">
-<td><code>loss</code></td>
-<td>string</td>
-<td><code>"squared_error"</code></td>
-<td>Super-learner combiner loss. Must be <code>"squared_error"</code>
-with NNLS.</td>
-</tr>
-<tr class="odd">
-<td><code>method_settings</code></td>
-<td>named list</td>
-<td>(defaults)</td>
-<td>Per-family hyper-parameter overrides (see schema below).</td>
-</tr>
-<tr class="even">
-<td><code>cache_path</code></td>
-<td>string</td>
-<td>(derived)</td>
-<td>Explicit cache override.</td>
-</tr>
-<tr class="odd">
-<td><code>refresh</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Force recompute.</td>
-</tr>
-<tr class="even">
-<td><code>progress</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Enable messages.</td>
-</tr>
-</tbody>
-</table>
-<hr>
+</details><details class="cfg-key"><summary><code>cache_path</code>: cache override
+</summary><p><em>string</em>: Explicit cache-path override for the uncertainty
+learner.</p>
+</details><details class="cfg-key"><summary><code>refresh</code>: force recompute
+</summary><p><em>logical</em>: Force recompute of the uncertainty cache.</p>
+</details><details class="cfg-key"><summary><code>progress</code>: stage messages
+</summary><p><em>logical</em>: Enable uncertainty-stage messages.</p>
+</details></details>
 </div>
-<div class="section level2">
-<h2 id="selection">
-<code>selection</code><a class="anchor" aria-label="anchor" href="#selection"></a>
-</h2>
+<div class="section level3">
+<h3 id="policy-selection-meta-learner-selection">Policy selection &amp; meta-learner (<code>selection</code>)<a class="anchor" aria-label="anchor" href="#policy-selection-meta-learner-selection"></a>
+</h3>
 <p>Post-benchmarking policy selection, plus the optional meta-learner
-used by <code>PolicyLearner</code>. See the <a href="super-learners.html">Super Learners vignette</a>.</p>
-<table class="table">
-<colgroup>
-<col width="15%">
-<col width="18%">
-<col width="27%">
-<col width="39%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>one_se_multiplier</code></td>
-<td>number</td>
-<td><code>1</code></td>
-<td>Multiplier on the best policy’s standard error for the one-SE
-screen.</td>
-</tr>
-<tr class="even">
-<td><code>equivalence_tolerance</code></td>
-<td>number</td>
-<td><code>0.05</code></td>
-<td>Practical tolerance for pairwise equivalence summaries.</td>
-</tr>
-<tr class="odd">
-<td><code>n_boot</code></td>
-<td>integer</td>
-<td><code>500</code></td>
-<td>Bootstrap replicates for uncertainty in selection.</td>
-</tr>
-<tr class="even">
-<td><code>seed</code></td>
-<td>integer</td>
-<td><code>NULL</code></td>
-<td>Selection seed.</td>
-</tr>
-<tr class="odd">
-<td><code>uncertainty_rule</code></td>
-<td>string</td>
-<td><code>"tolerance"</code></td>
-<td>Final width filter. <code>"min"</code> keeps only the narrowest
+used by <code>PolicyLearner</code>. The policy-selection keys are listed
+first; the meta-learner keys mirror <code>uncertainty</code>.</p>
+<details><summary>
+Parameters
+</summary><details class="cfg-key"><summary><code>one_se_multiplier</code>: one-SE screen width
+</summary><p><em>number</em>: Multiplier on the best policy’s standard error for
+the one-SE screen.</p>
+</details><details class="cfg-key"><summary><code>equivalence_tolerance</code>: practical-equivalence band
+</summary><p><em>number</em>: Practical tolerance for pairwise equivalence
+summaries.</p>
+</details><details class="cfg-key"><summary><code>n_boot</code>: bootstrap replicates
+</summary><p><em>integer</em>: Bootstrap replicates for selection uncertainty.</p>
+</details><details class="cfg-key"><summary><code>seed</code>: selection seed
+</summary><p><em>integer</em>: Reproducibility seed for selection.</p>
+</details><details class="cfg-key"><summary><code>uncertainty_rule</code>: final width filter
+</summary><p><em>string</em>: <code>"min"</code> keeps only the narrowest
 interval; <code>"tolerance"</code> keeps widths within the configured
-absolute/relative band.</td>
-</tr>
-<tr class="even">
-<td><code>u_tol_rel</code></td>
-<td>number</td>
-<td><code>0.25</code></td>
-<td>Relative width tolerance (fraction of minimum width) under
-<code>uncertainty_rule = tolerance</code>.</td>
-</tr>
-<tr class="odd">
-<td><code>u_tol_abs</code></td>
-<td>number</td>
-<td><code>0.05</code></td>
-<td>Absolute log-width tolerance under
-<code>uncertainty_rule = tolerance</code>.</td>
-</tr>
-<tr class="even">
-<td><code>conformal_alpha</code></td>
-<td>number</td>
-<td><code>0.10</code></td>
-<td>Miscoverage level for post-selection conformal calibration.</td>
-</tr>
-<tr class="odd">
-<td><code>method</code></td>
-<td>string</td>
-<td><code>"glm"</code></td>
-<td>Meta-learner method used by <code>PolicyLearner</code>. Use
-<code>"super_learner"</code> for ensemble mode.</td>
-</tr>
-<tr class="even">
-<td><code>super_methods</code></td>
-<td>character vector</td>
-<td><code>NULL</code></td>
-<td>Base learner library when
-<code>method = "super_learner"</code>.</td>
-</tr>
-<tr class="odd">
-<td><code>n_folds</code></td>
-<td>integer</td>
-<td><code>5</code></td>
-<td>Outer cross-fitting folds.</td>
-</tr>
-<tr class="even">
-<td><code>inner_folds</code></td>
-<td>integer</td>
-<td><code>5</code></td>
-<td>Inner folds for penalized learners.</td>
-</tr>
-<tr class="odd">
-<td><code>workers</code></td>
-<td>integer</td>
-<td><code>1</code></td>
-<td>Cross-fitting worker count.</td>
-</tr>
-<tr class="even">
-<td><code>outcome_col</code></td>
-<td>string</td>
-<td><code>"error_abs_log"</code></td>
-<td>Benchmark column used as the learner target.</td>
-</tr>
-<tr class="odd">
-<td><code>outcome_transform</code></td>
-<td>string</td>
-<td><code>"log1p"</code></td>
-<td>Outcome transform.</td>
-</tr>
-<tr class="even">
-<td><code>lambda_rule</code></td>
-<td>string</td>
-<td><code>"lambda.1se"</code></td>
-<td>Lambda rule.</td>
-</tr>
-<tr class="odd">
-<td><code>loss</code></td>
-<td>string</td>
-<td><code>"squared_error"</code></td>
-<td>Combiner loss. Must be <code>"squared_error"</code> with NNLS.</td>
-</tr>
-<tr class="even">
-<td><code>method_settings</code></td>
-<td>named list</td>
-<td>(defaults)</td>
-<td>Per-family hyper-parameter overrides.</td>
-</tr>
-<tr class="odd">
-<td><code>cache_path</code></td>
-<td>string</td>
-<td>(derived)</td>
-<td>Explicit cache override.</td>
-</tr>
-<tr class="even">
-<td><code>refresh</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Force recompute.</td>
-</tr>
-<tr class="odd">
-<td><code>progress</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Enable messages.</td>
-</tr>
-</tbody>
-</table>
-<hr>
+absolute/relative band; <code>"one_se"</code> uses the one-SE
+screen.</p>
+</details><details class="cfg-key"><summary><code>u_tol_rel</code>: relative width tolerance
+</summary><p><em>number</em>: Relative width tolerance (fraction of minimum width)
+under <code>uncertainty_rule = tolerance</code>.</p>
+</details><details class="cfg-key"><summary><code>u_tol_abs</code>: absolute width tolerance
+</summary><p><em>number</em>: Absolute log-width tolerance under
+<code>uncertainty_rule = tolerance</code>.</p>
+</details><details class="cfg-key"><summary><code>conformal_alpha</code>: post-selection miscoverage
+</summary><p><em>number</em>: Miscoverage level for post-selection conformal
+calibration.</p>
+</details><details class="cfg-key"><summary><code>method</code>: meta-learner method
+</summary><p><em>string</em>: Meta-learner method used by
+<code>PolicyLearner</code>. <code>"glm"</code> or
+<code>"super_learner"</code> for ensemble mode.</p>
+</details><details class="cfg-key"><summary><code>super_methods</code>: meta-learner library
+</summary><p><em>character vector</em>: Base learner library when
+<code>method = "super_learner"</code>.</p>
+</details><details class="cfg-key"><summary><code>n_folds</code>: outer folds
+</summary><p><em>integer</em>: Outer cross-fitting folds for the meta-learner.</p>
+</details><details class="cfg-key"><summary><code>inner_folds</code>: inner folds
+</summary><p><em>integer</em>: Inner folds for penalized meta-learners.</p>
+</details><details class="cfg-key"><summary><code>workers</code>: cross-fitting workers
+</summary><p><em>integer</em>: Cross-fitting worker count for the
+meta-learner.</p>
+</details><details class="cfg-key"><summary><code>outcome_col</code>: learner target
+</summary><p><em>string</em>: Benchmark column used as the meta-learner
+target.</p>
+</details><details class="cfg-key"><summary><code>outcome_transform</code>: outcome transform
+</summary><p><em>string</em>: Transform applied to the meta-learner outcome before
+fitting.</p>
+</details><details class="cfg-key"><summary><code>lambda_rule</code>: lambda selection rule
+</summary><p><em>string</em>: Lambda selection rule for penalized
+meta-learners.</p>
+</details><details class="cfg-key"><summary><code>loss</code>: combiner loss
+</summary><p><em>string</em>: Meta-learner combiner loss. Must be
+<code>"squared_error"</code> with NNLS.</p>
+</details><details class="cfg-key"><summary><code>method_settings</code>: per-method overrides
+</summary><p><em>named list</em>: Per-method hyper-parameter overrides for the
+meta-learner base learners. Each top-level key is a public learner
+method name; supply only the fields you want to change. Parameter names
+and defaults are documented per method in the Selection section of the
+<a href="super-learners.html#learner-3-selection-policylearner-selection">Super
+Learners vignette</a>.</p>
+</details><details class="cfg-key"><summary><code>cache_path</code>: cache override
+</summary><p><em>string</em>: Explicit cache-path override for selection.</p>
+</details><details class="cfg-key"><summary><code>refresh</code>: force recompute
+</summary><p><em>logical</em>: Force recompute of the selection cache.</p>
+</details><details class="cfg-key"><summary><code>progress</code>: stage messages
+</summary><p><em>logical</em>: Enable selection-stage messages.</p>
+</details></details>
+</div>
 </div>
 <div class="section level2">
-<h2 id="method_settings-schema">
-<code>method_settings</code> schema<a class="anchor" aria-label="anchor" href="#method_settings-schema"></a>
+<h2 id="validation-sensitivity">Validation &amp; sensitivity<a class="anchor" aria-label="anchor" href="#validation-sensitivity"></a>
 </h2>
-<p>Both <code>uncertainty</code> and <code>selection</code> (and
-<code>alchemist.learner</code>) accept a <code>method_settings</code>
-block. Each top-level key is a method family.</p>
-<p><strong><code>glm_penalized</code></strong></p>
-<table class="table">
-<colgroup>
-<col width="18%">
-<col width="33%">
-<col width="48%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>standardize</code></td>
-<td><code>true</code></td>
-<td>Standardize features before fitting.</td>
-</tr>
-<tr class="even">
-<td><code>type_measure</code></td>
-<td><code>"mse"</code></td>
-<td>Cross-validation loss for lambda selection.</td>
-</tr>
-</tbody>
-</table>
-<p><strong><code>gam</code></strong></p>
-<table class="table">
-<colgroup>
-<col width="18%">
-<col width="33%">
-<col width="48%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>fit_method</code></td>
-<td><code>"GCV.Cp"</code></td>
-<td>GAM smoothing method.</td>
-</tr>
-<tr class="even">
-<td><code>select_terms</code></td>
-<td><code>false</code></td>
-<td>Use <code>select = TRUE</code> in <code><a href="https://rdrr.io/pkg/mgcv/man/gam.html" class="external-link">mgcv::gam()</a></code> for
-additional shrinkage.</td>
-</tr>
-</tbody>
-</table>
-<p><strong><code>rpart</code></strong></p>
-<table class="table">
-<colgroup>
-<col width="18%">
-<col width="33%">
-<col width="48%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>cp</code></td>
-<td><code>0.01</code></td>
-<td>Complexity parameter.</td>
-</tr>
-<tr class="even">
-<td><code>minsplit</code></td>
-<td><code>10</code></td>
-<td>Minimum observations to attempt a split.</td>
-</tr>
-<tr class="odd">
-<td><code>minbucket</code></td>
-<td><code>5</code></td>
-<td>Minimum observations in a leaf.</td>
-</tr>
-<tr class="even">
-<td><code>maxdepth</code></td>
-<td><code>10</code></td>
-<td>Maximum tree depth.</td>
-</tr>
-<tr class="odd">
-<td><code>variants</code></td>
-<td><code><a href="https://rdrr.io/r/base/Paren.html" class="external-link">{}</a></code></td>
-<td>Named variant overrides (e.g. <code>shallow</code>,
-<code>deep</code>). Each variant becomes a distinct learner named
-<code>rpart_&lt;variant&gt;</code>.</td>
-</tr>
-</tbody>
-</table>
-<p><strong><code>rf</code></strong></p>
-<table class="table">
-<colgroup>
-<col width="18%">
-<col width="33%">
-<col width="48%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>num_trees</code></td>
-<td><code>500</code></td>
-<td>Number of trees.</td>
-</tr>
-<tr class="even">
-<td><code>mtry</code></td>
-<td><code>NULL</code></td>
-<td>Features sampled per split (auto if <code>NULL</code>).</td>
-</tr>
-<tr class="odd">
-<td><code>min_node_size</code></td>
-<td><code>5</code></td>
-<td>Minimum node size.</td>
-</tr>
-<tr class="even">
-<td><code>sample_fraction</code></td>
-<td><code>0.8</code></td>
-<td>Row-sampling fraction.</td>
-</tr>
-<tr class="odd">
-<td><code>replace</code></td>
-<td><code>false</code></td>
-<td>Sample with replacement.</td>
-</tr>
-<tr class="even">
-<td><code>max_depth</code></td>
-<td><code>NULL</code></td>
-<td>Maximum tree depth (<code>NULL</code> = unlimited).</td>
-</tr>
-<tr class="odd">
-<td><code>variants</code></td>
-<td><code><a href="https://rdrr.io/r/base/Paren.html" class="external-link">{}</a></code></td>
-<td>Named variant overrides (e.g. <code>shallow</code>,
-<code>deep</code>).</td>
-</tr>
-</tbody>
-</table>
-<p><strong><code>xgboost</code></strong></p>
-<table class="table">
-<colgroup>
-<col width="18%">
-<col width="33%">
-<col width="48%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>nrounds</code></td>
-<td><code>500</code></td>
-<td>Boosting rounds.</td>
-</tr>
-<tr class="even">
-<td><code>eta</code></td>
-<td><code>0.05</code></td>
-<td>Learning rate.</td>
-</tr>
-<tr class="odd">
-<td><code>max_depth</code></td>
-<td><code>6</code></td>
-<td>Maximum tree depth.</td>
-</tr>
-<tr class="even">
-<td><code>min_child_weight</code></td>
-<td><code>5</code></td>
-<td>Minimum child weight.</td>
-</tr>
-<tr class="odd">
-<td><code>subsample</code></td>
-<td><code>0.8</code></td>
-<td>Row-sampling fraction.</td>
-</tr>
-<tr class="even">
-<td><code>colsample_bytree</code></td>
-<td><code>0.8</code></td>
-<td>Column-sampling fraction per tree.</td>
-</tr>
-<tr class="odd">
-<td><code>lambda</code></td>
-<td><code>1.0</code></td>
-<td>L2 regularization.</td>
-</tr>
-<tr class="even">
-<td><code>alpha</code></td>
-<td><code>0.0</code></td>
-<td>L1 regularization.</td>
-</tr>
-<tr class="odd">
-<td><code>variants</code></td>
-<td><code><a href="https://rdrr.io/r/base/Paren.html" class="external-link">{}</a></code></td>
-<td>Named variant overrides (e.g. <code>conservative</code>,
-<code>flexible</code>).</td>
-</tr>
-</tbody>
-</table>
-<p><strong><code>qreg</code></strong> <em>(quantile regression)</em></p>
-<table class="table">
-<colgroup>
-<col width="27%">
-<col width="72%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Description</th>
-</tr></thead>
-<tbody><tr class="odd">
-<td><code>variants</code></td>
-<td>Named variant overrides with a <code>tau</code> field
-(e.g. <code>{q75: {tau: 0.75}}</code>). Each variant becomes
-<code>qreg_&lt;name&gt;</code>.</td>
-</tr></tbody>
-</table>
-<p><strong><code>qrf</code></strong> <em>(quantile regression
-forest)</em></p>
-<table class="table">
-<thead><tr class="header">
-<th>Key</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>num_trees</code></td>
-<td><code>500</code></td>
-<td>Number of trees.</td>
-</tr>
-<tr class="even">
-<td><code>min_node_size</code></td>
-<td><code>5</code></td>
-<td>Minimum node size.</td>
-</tr>
-<tr class="odd">
-<td><code>sample_fraction</code></td>
-<td><code>0.8</code></td>
-<td>Row-sampling fraction.</td>
-</tr>
-<tr class="even">
-<td><code>quantile</code></td>
-<td><code>0.9</code></td>
-<td>Prediction quantile.</td>
-</tr>
-</tbody>
-</table>
-<p><strong><code>gpr</code></strong> <em>(Gaussian process
-regression)</em></p>
-<table class="table">
-<thead><tr class="header">
-<th>Key</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody><tr class="odd">
-<td><code>var</code></td>
-<td><code>0.001</code></td>
-<td>Nugget variance for numerical stability.</td>
-</tr></tbody>
-</table>
-<hr>
-</div>
-<div class="section level2">
-<h2 id="sentinel">
-<code>sentinel</code><a class="anchor" aria-label="anchor" href="#sentinel"></a>
-</h2>
-<p>Outer-loop validation and ablation settings for
+<p>Outer-loop holdout validation and scenario-based sensitivity
+analysis.</p>
+<div class="section level3">
+<h3 id="outer-loop-validation-sentinel">Outer-loop validation (<code>sentinel</code>)<a class="anchor" aria-label="anchor" href="#outer-loop-validation-sentinel"></a>
+</h3>
+<p>Outer-loop holdout validation and ablation settings for
 <code><a href="../reference/build_sentinel.html">build_sentinel()</a></code> / <code><a href="../reference/run_sentinel.html">run_sentinel()</a></code>.</p>
-<table class="table">
-<colgroup>
-<col width="15%">
-<col width="18%">
-<col width="27%">
-<col width="39%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>baseline_species_folds</code></td>
-<td>integer</td>
-<td><code>10</code></td>
-<td>Number of species-disjoint outer folds for the headline validation
-run. Set to the total species count for full LOSO.</td>
-</tr>
-<tr class="even">
-<td><code>ablation_species_folds</code></td>
-<td>integer</td>
-<td><code>5</code></td>
-<td>Folds used per ablation scenario.</td>
-</tr>
-<tr class="odd">
-<td><code>workers</code></td>
-<td>integer</td>
-<td><code>1</code></td>
-<td>Outer workflow worker count.</td>
-</tr>
-<tr class="even">
-<td><code>batch_size</code></td>
-<td>integer</td>
-<td><code>1</code></td>
-<td>Workflows checkpointed per batch.</td>
-</tr>
-<tr class="odd">
-<td><code>include_ts_error</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Include TS-curve error in fold-local benchmarks.</td>
-</tr>
-<tr class="even">
-<td><code>throttle_inner_workers</code></td>
-<td>logical</td>
-<td><code>true</code></td>
-<td>Prevent inner workers from oversubscribing cores allocated to outer
-workers.</td>
-</tr>
-<tr class="odd">
-<td><code>fast_validation</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Reduce NMDS schedule when <code>true</code>.</td>
-</tr>
-<tr class="even">
-<td><code>progress</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Enable fold-level console output.</td>
-</tr>
-<tr class="odd">
-<td><code>logging</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Enable fold-level file logging.</td>
-</tr>
-<tr class="even">
-<td><code>save_case_artifacts</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Persist fold-level RDS artifacts for debugging.</td>
-</tr>
-</tbody>
-</table>
-<hr>
+<details><summary>
+Parameters
+</summary><details class="cfg-key"><summary><code>baseline_species_folds</code>: headline validation folds
+</summary><p><em>integer</em>: Species-disjoint outer folds for the headline
+validation run. Set to the total species count for full
+leave-one-species-out.</p>
+</details><details class="cfg-key"><summary><code>ablation_species_folds</code>: folds per ablation
+</summary><p><em>integer</em>: Folds used per ablation scenario.</p>
+</details><details class="cfg-key"><summary><code>workers</code>: outer worker count
+</summary><p><em>integer</em>: Outer workflow worker count.</p>
+</details><details class="cfg-key"><summary><code>batch_size</code>: checkpoint batch size
+</summary><p><em>integer</em>: Workflows checkpointed per batch.</p>
+</details><details class="cfg-key"><summary><code>include_ts_error</code>: TS error in fold benchmarks
+</summary><p><em>logical</em>: Include TS-curve error in fold-local
+benchmarks.</p>
+</details><details class="cfg-key"><summary><code>throttle_inner_workers</code>: prevent oversubscription
+</summary><p><em>logical</em>: Prevent inner workers from oversubscribing cores
+allocated to outer workers.</p>
+</details><details class="cfg-key"><summary><code>fast_validation</code>: reduced NMDS schedule
+</summary><p><em>logical</em>: Reduce the NMDS schedule for faster runs.</p>
+</details><details class="cfg-key"><summary><code>progress</code>: console output
+</summary><p><em>logical</em>: Enable fold-level console output.</p>
+</details><details class="cfg-key"><summary><code>logging</code>: file logging
+</summary><p><em>logical</em>: Enable fold-level file logging.</p>
+</details><details class="cfg-key"><summary><code>save_case_artifacts</code>: persist fold artifacts
+</summary><p><em>logical</em>: Persist fold-level RDS artifacts for debugging.</p>
+</details></details>
+</div>
+<div class="section level3">
+<h3 id="sensitivity-simulation-simulation">Sensitivity simulation (<code>simulation</code>)<a class="anchor" aria-label="anchor" href="#sensitivity-simulation-simulation"></a>
+</h3>
+<p>Settings for <code>PolicySimulator</code> sensitivity runs, which
+rerun benchmarking across perturbed scenarios.</p>
+<details><summary>
+Parameters
+</summary><details class="cfg-key"><summary><code>workers</code>: worker count
+</summary><p><em>integer</em>: Worker count for scenario reruns.</p>
+</details><details class="cfg-key"><summary><code>cache_path</code>: cache override
+</summary><p><em>string</em>: Explicit cache-path override for the sensitivity
+simulation.</p>
+</details><details class="cfg-key"><summary><code>refresh</code>: force recompute
+</summary><p><em>logical</em>: Force recompute of the sensitivity cache.</p>
+</details><details class="cfg-key"><summary><code>progress</code>: stage messages
+</summary><p><em>logical</em>: Enable simulation-stage messages.</p>
+</details></details>
+</div>
 </div>
 <div class="section level2">
-<h2 id="simulation">
-<code>simulation</code><a class="anchor" aria-label="anchor" href="#simulation"></a>
+<h2 id="default-configuration">Default configuration<a class="anchor" aria-label="anchor" href="#default-configuration"></a>
 </h2>
-<p>Settings for <code>PolicySimulator</code> sensitivity runs.</p>
-<table class="table">
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>workers</code></td>
-<td>integer</td>
-<td><code>1</code></td>
-<td>Worker count.</td>
-</tr>
-<tr class="even">
-<td><code>cache_path</code></td>
-<td>string</td>
-<td>(derived)</td>
-<td>Explicit cache override.</td>
-</tr>
-<tr class="odd">
-<td><code>refresh</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Force recompute.</td>
-</tr>
-<tr class="even">
-<td><code>progress</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Enable messages.</td>
-</tr>
-</tbody>
-</table>
-<hr>
+<p>The complete default configuration produced by
+<code><a href="../reference/create_configuration_template.html">create_configuration_template()</a></code>, shown in YAML and R-list
+form. Every value below is the packaged default; override only the keys
+you need.</p>
+<details class="code-drop"><summary>
+💻 Default configuration
+</summary><div class="config-tabs">
+<input class="config-tab-yaml" type="radio" name="cfg-default" id="cfg-default-yaml" checked><input class="config-tab-r" type="radio" name="cfg-default" id="cfg-default-r"><div class="config-tab-labels">
+<p><label class="config-label-yaml" for="cfg-default-yaml">YAML</label>
+<label class="config-label-r" for="cfg-default-r">R list</label></p>
 </div>
-<div class="section level2">
-<h2 id="tuning">
-<code>tuning</code><a class="anchor" aria-label="anchor" href="#tuning"></a>
-</h2>
-<p>Similarity-tuning hyper-parameters.</p>
-<table class="table">
-<colgroup>
-<col width="15%">
-<col width="18%">
-<col width="27%">
-<col width="39%">
-</colgroup>
-<thead><tr class="header">
-<th>Key</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr></thead>
-<tbody>
-<tr class="odd">
-<td><code>max_models_per_species</code></td>
-<td>integer</td>
-<td><code>2</code></td>
-<td>Maximum retained models per species in tuning subsets.</td>
-</tr>
-<tr class="even">
-<td><code>n_resamples</code></td>
-<td>integer</td>
-<td><code>8</code></td>
-<td>Number of empirical tuning resamples.</td>
-</tr>
-<tr class="odd">
-<td><code>n_cores</code></td>
-<td>integer</td>
-<td><code>1</code></td>
-<td>Worker count for tuning runs.</td>
-</tr>
-<tr class="even">
-<td><code>seed</code></td>
-<td>integer</td>
-<td><code>NULL</code></td>
-<td>Reproducibility seed.</td>
-</tr>
-<tr class="odd">
-<td><code>grid_refinement_levels</code></td>
-<td>integer</td>
-<td><code>1</code></td>
-<td>Local search-refinement passes after the coarse grid.</td>
-</tr>
-<tr class="even">
-<td><code>response_surface_top_n</code></td>
-<td>integer</td>
-<td><code>20</code></td>
-<td>Candidate points kept during response-surface refinement.</td>
-</tr>
-<tr class="odd">
-<td><code>equal_start_weights</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Initialize all trait weights equally rather than using configured
-magnitudes as priors.</td>
-</tr>
-<tr class="even">
-<td><code>progress</code></td>
-<td>logical</td>
-<td><code>false</code></td>
-<td>Enable tuning messages.</td>
-</tr>
-</tbody>
-</table>
-<p>External YAML aliases: <code>species_model_limit</code> →
-<code>max_models_per_species</code>, <code>resamples</code> →
-<code>n_resamples</code>, <code>n_cores</code> →
-<code>n_cores</code>.</p>
+<div class="config-tab-panels">
+<div class="config-panel config-panel-yaml">
+<pre><code class="language-yaml">paths:
+  input_file: input.xlsx
+  out_root: outputs
+  cache_dir: cache
+  supplemental_dir: supplemental
+  log_file: outputs/tsbiomass_run.log
+execution:
+  strict_length_pdf: false
+  run_multiplier_model: false
+  write_log: false
+tuning:
+  max_models_per_species: 2
+  n_resamples: 8
+  n_cores: 1
+  seed: ~
+  grid_refinement_levels: 1
+  response_surface_top_n: 20
+  rmse_tolerance: 0.01
+  support_strata_bins: 4
+  regularization:
+    alpha: 0.05
+    kernel_scale: 0.05
+    coherence_scale: 0.05
+    stability: 0.02
+  equal_start_weights: false
+  progress: false
+similarity:
+  alpha: 0.8
+  kernel_scale: 4.0
+  species_traits:
+    class: 1.0
+  study_traits:
+    fao_area: 1.0
+  coherence:
+    length:
+      mode: overlap
+      weight: 2.0
+      range:
+        from: 0.5
+        to: 6.0
+    depth:
+      mode: overlap
+      weight: 3.0
+      range:
+        from: 0.5
+        to: 6.0
+    frequency:
+      mode: overlap
+      weight: 2.0
+      range:
+        from: 0.5
+        to: 6.0
+      gap: 60.0
+  conformal_alpha: 0.1
+  alpha_range:
+    from: 0.1
+    to: 0.9
+  kernel_scale_range:
+    from: 1.0
+    to: 8.0
+  progress: false
+ordination:
+  include_loadings: false
+  include_centroids: false
+  progress: false
+policies:
+  group:
+  - species
+  metric:
+  - closest
+  equation_branch_filters:
+  - all
+cache:
+  folder: cache
+  refresh: false
+  names:
+    worms: worms_species_traits.rds
+    fishbase: fishbase_species_traits.rds
+    pelagic: pelagic_species_traits.rds
+    azores: azores_species_traits.rds
+    continental: continental_species_traits.rds
+    mstraits: mstraits_species_traits.rds
+    species_enriched: species_traits_enriched.rds
+    candidate_models: candidate_models_prepared.rds
+    similarity_tuning: similarity_tuning.rds
+    anchor_admissibility: anchor_admissibility.rds
+    policy_benchmark: policy_benchmark.rds
+    policy_conformal: policy_conformal.rds
+    policy_selection: policy_selection.rds
+    policy_sensitivity: policy_sensitivity.rds
+benchmark:
+  workers: 1
+  engine: cpp
+  include_ts_error: false
+  progress: false
+admissibility:
+  species_traits: []
+  study_traits: []
+  coherence:
+    length:
+      mode: overlap
+      min: 0.25
+    depth:
+      mode: overlap
+      min: 0.25
+    frequency:
+      mode: none
+      gap: 60.0
+  key_metadata_max: 0.25
+  progress: false
+uncertainty:
+  progress: false
+  method: glm
+  super_methods: ~
+  method_settings:
+    glm: []
+    glm_ridge:
+      standardize: true
+      type_measure: mae
+      alpha: 0
+    glm_lasso:
+      standardize: true
+      type_measure: mae
+      alpha: 1
+    glm_elastic:
+      standardize: true
+      type_measure: mae
+      alpha: 0.25
+    qreg:
+      tau: 0.5
+      fit_method: fn
+    gam:
+      fit_method: REML
+      select_terms: true
+    lmm:
+      fit_method: REML
+      random_intercept: .split_group
+    rpart:
+      cp: 0.01
+      minsplit: 20
+      minbucket: 7
+      maxdepth: 30
+    rf:
+      num_trees: 500
+      mtry: ~
+      min_node_size: 5
+      max_depth: ~
+      sample_fraction: 1
+      replace: true
+      respect_unordered_factors: order
+    xgboost:
+      nrounds: 100
+      eta: 0.3
+      max_depth: 6
+      min_child_weight: 1
+      subsample: 1
+      colsample_bytree: 1
+      lambda: 1
+      alpha: 0
+      nthread: 1
+    mars:
+      degree: 2
+      penalty: 3
+      nprune: ~
+      pmethod: backward
+    bart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 0
+      num_burnin: 100
+      num_mcmc: 200
+      variance_forest: false
+      random_effects: false
+    xbart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 40
+      num_burnin: 0
+      num_mcmc: 0
+      variance_forest: false
+      random_effects: false
+    wsbart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 20
+      num_burnin: 0
+      num_mcmc: 200
+      variance_forest: false
+      random_effects: false
+    vfbart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 0
+      num_burnin: 100
+      num_mcmc: 200
+      variance_forest: true
+      random_effects: false
+    rebart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 0
+      num_burnin: 100
+      num_mcmc: 200
+      variance_forest: false
+      random_effects: true
+    knn:
+      k: 10
+    cubist:
+      committees: 1
+      neighbors: 0
+    svr:
+      C: 1
+      epsilon: 0.1
+    qrf:
+      num_trees: 500
+      mtry: ~
+      min_node_size: 10
+      max_depth: ~
+      sample_fraction: 1
+      replace: true
+      quantile: 0.9
+    gpr:
+      var: 0.001
+    mean: []
+  n_folds: 5
+  inner_folds: 5
+  workers: 1
+  outcome_col: error_abs_log
+  outcome_clip_quantile: 0.99
+  outcome_transform: log1p
+  lambda_rule: lambda.1se
+  loss: squared_error
+selection:
+  one_se_multiplier: 1.0
+  equivalence_tolerance: 0.05
+  n_boot: 500
+  seed: ~
+  uncertainty_rule: tolerance
+  u_tol_rel: 0.25
+  u_tol_abs: 0.05
+  uncertainty_relative_tolerance: 0.25
+  uncertainty_absolute_tolerance: 0.05
+  local_distance_tolerance: 1.0e-12
+  conformal_alpha: 0.1
+  bin_alpha: 0.1
+  min_bin_scores: 10
+  n_bins: 3
+  use_support_bin_intervals: false
+  support_bin_labels:
+  - Lower support
+  - Moderate support
+  - Higher support
+  method: glm
+  super_methods: ~
+  method_settings:
+    glm: []
+    glm_ridge:
+      standardize: true
+      type_measure: mae
+      alpha: 0
+    glm_lasso:
+      standardize: true
+      type_measure: mae
+      alpha: 1
+    glm_elastic:
+      standardize: true
+      type_measure: mae
+      alpha: 0.25
+    qreg:
+      tau: 0.5
+      fit_method: fn
+    gam:
+      fit_method: REML
+      select_terms: true
+    lmm:
+      fit_method: REML
+      random_intercept: .split_group
+    rpart:
+      cp: 0.01
+      minsplit: 20
+      minbucket: 7
+      maxdepth: 30
+    rf:
+      num_trees: 500
+      mtry: ~
+      min_node_size: 5
+      max_depth: ~
+      sample_fraction: 1
+      replace: true
+      respect_unordered_factors: order
+    xgboost:
+      nrounds: 100
+      eta: 0.3
+      max_depth: 6
+      min_child_weight: 1
+      subsample: 1
+      colsample_bytree: 1
+      lambda: 1
+      alpha: 0
+      nthread: 1
+    mars:
+      degree: 2
+      penalty: 3
+      nprune: ~
+      pmethod: backward
+    bart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 0
+      num_burnin: 100
+      num_mcmc: 200
+      variance_forest: false
+      random_effects: false
+    xbart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 40
+      num_burnin: 0
+      num_mcmc: 0
+      variance_forest: false
+      random_effects: false
+    wsbart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 20
+      num_burnin: 0
+      num_mcmc: 200
+      variance_forest: false
+      random_effects: false
+    vfbart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 0
+      num_burnin: 100
+      num_mcmc: 200
+      variance_forest: true
+      random_effects: false
+    rebart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 0
+      num_burnin: 100
+      num_mcmc: 200
+      variance_forest: false
+      random_effects: true
+    knn:
+      k: 10
+    cubist:
+      committees: 1
+      neighbors: 0
+    svr:
+      C: 1
+      epsilon: 0.1
+    qrf:
+      num_trees: 500
+      mtry: ~
+      min_node_size: 10
+      max_depth: ~
+      sample_fraction: 1
+      replace: true
+      quantile: 0.9
+    gpr:
+      var: 0.001
+    mean: []
+  n_folds: 5
+  inner_folds: 5
+  workers: 1
+  outcome_col: error_abs_log
+  outcome_clip_quantile: 0.99
+  outcome_transform: log1p
+  lambda_rule: lambda.1se
+  loss: squared_error
+  max_selection_tolerance: 1.0e-12
+  progress: false
+simulation:
+  workers: 1
+  progress: false</code></pre>
+</div>
+<div class="config-panel config-panel-r">
+<pre><code class="language-r"><span><span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>  paths <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    input_file <span class="op">=</span> <span class="st">"input.xlsx"</span>,</span>
+<span>    out_root <span class="op">=</span> <span class="st">"outputs"</span>,</span>
+<span>    cache_dir <span class="op">=</span> <span class="st">"cache"</span>,</span>
+<span>    supplemental_dir <span class="op">=</span> <span class="st">"supplemental"</span>,</span>
+<span>    log_file <span class="op">=</span> <span class="st">"outputs/tsbiomass_run.log"</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  execution <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    strict_length_pdf <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>    run_multiplier_model <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>    write_log <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  tuning <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    max_models_per_species <span class="op">=</span> <span class="fl">2</span>,</span>
+<span>    n_resamples <span class="op">=</span> <span class="fl">8</span>,</span>
+<span>    n_cores <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>    seed <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>    grid_refinement_levels <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>    response_surface_top_n <span class="op">=</span> <span class="fl">20</span>,</span>
+<span>    rmse_tolerance <span class="op">=</span> <span class="fl">0.01</span>,</span>
+<span>    support_strata_bins <span class="op">=</span> <span class="fl">4</span>,</span>
+<span>    regularization <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>      alpha <span class="op">=</span> <span class="fl">0.05</span>,</span>
+<span>      kernel_scale <span class="op">=</span> <span class="fl">0.05</span>,</span>
+<span>      coherence_scale <span class="op">=</span> <span class="fl">0.05</span>,</span>
+<span>      stability <span class="op">=</span> <span class="fl">0.02</span></span>
+<span>    <span class="op">)</span>,</span>
+<span>    equal_start_weights <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>    progress <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  similarity <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    alpha <span class="op">=</span> <span class="fl">0.8</span>,</span>
+<span>    kernel_scale <span class="op">=</span> <span class="fl">4</span>,</span>
+<span>    species_traits <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>      class <span class="op">=</span> <span class="fl">1</span></span>
+<span>    <span class="op">)</span>,</span>
+<span>    study_traits <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>      fao_area <span class="op">=</span> <span class="fl">1</span></span>
+<span>    <span class="op">)</span>,</span>
+<span>    coherence <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>      length <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        mode <span class="op">=</span> <span class="st">"overlap"</span>,</span>
+<span>        weight <span class="op">=</span> <span class="fl">2</span>,</span>
+<span>        range <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>          from <span class="op">=</span> <span class="fl">0.5</span>,</span>
+<span>          to <span class="op">=</span> <span class="fl">6</span></span>
+<span>        <span class="op">)</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      depth <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        mode <span class="op">=</span> <span class="st">"overlap"</span>,</span>
+<span>        weight <span class="op">=</span> <span class="fl">3</span>,</span>
+<span>        range <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>          from <span class="op">=</span> <span class="fl">0.5</span>,</span>
+<span>          to <span class="op">=</span> <span class="fl">6</span></span>
+<span>        <span class="op">)</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      frequency <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        mode <span class="op">=</span> <span class="st">"overlap"</span>,</span>
+<span>        weight <span class="op">=</span> <span class="fl">2</span>,</span>
+<span>        range <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>          from <span class="op">=</span> <span class="fl">0.5</span>,</span>
+<span>          to <span class="op">=</span> <span class="fl">6</span></span>
+<span>        <span class="op">)</span>,</span>
+<span>        gap <span class="op">=</span> <span class="fl">60</span></span>
+<span>      <span class="op">)</span></span>
+<span>    <span class="op">)</span>,</span>
+<span>    conformal_alpha <span class="op">=</span> <span class="fl">0.1</span>,</span>
+<span>    alpha_range <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>      from <span class="op">=</span> <span class="fl">0.1</span>,</span>
+<span>      to <span class="op">=</span> <span class="fl">0.9</span></span>
+<span>    <span class="op">)</span>,</span>
+<span>    kernel_scale_range <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>      from <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>      to <span class="op">=</span> <span class="fl">8</span></span>
+<span>    <span class="op">)</span>,</span>
+<span>    progress <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  ordination <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    include_loadings <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>    include_centroids <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>    progress <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  policies <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    group <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="st">"species"</span><span class="op">)</span>,</span>
+<span>    metric <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="st">"closest"</span><span class="op">)</span>,</span>
+<span>    equation_branch_filters <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="st">"all"</span><span class="op">)</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  cache <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    folder <span class="op">=</span> <span class="st">"cache"</span>,</span>
+<span>    refresh <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>    names <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>      worms <span class="op">=</span> <span class="st">"worms_species_traits.rds"</span>,</span>
+<span>      fishbase <span class="op">=</span> <span class="st">"fishbase_species_traits.rds"</span>,</span>
+<span>      pelagic <span class="op">=</span> <span class="st">"pelagic_species_traits.rds"</span>,</span>
+<span>      azores <span class="op">=</span> <span class="st">"azores_species_traits.rds"</span>,</span>
+<span>      continental <span class="op">=</span> <span class="st">"continental_species_traits.rds"</span>,</span>
+<span>      mstraits <span class="op">=</span> <span class="st">"mstraits_species_traits.rds"</span>,</span>
+<span>      species_enriched <span class="op">=</span> <span class="st">"species_traits_enriched.rds"</span>,</span>
+<span>      candidate_models <span class="op">=</span> <span class="st">"candidate_models_prepared.rds"</span>,</span>
+<span>      similarity_tuning <span class="op">=</span> <span class="st">"similarity_tuning.rds"</span>,</span>
+<span>      anchor_admissibility <span class="op">=</span> <span class="st">"anchor_admissibility.rds"</span>,</span>
+<span>      policy_benchmark <span class="op">=</span> <span class="st">"policy_benchmark.rds"</span>,</span>
+<span>      policy_conformal <span class="op">=</span> <span class="st">"policy_conformal.rds"</span>,</span>
+<span>      policy_selection <span class="op">=</span> <span class="st">"policy_selection.rds"</span>,</span>
+<span>      policy_sensitivity <span class="op">=</span> <span class="st">"policy_sensitivity.rds"</span></span>
+<span>    <span class="op">)</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  benchmark <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    workers <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>    engine <span class="op">=</span> <span class="st">"cpp"</span>,</span>
+<span>    include_ts_error <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>    progress <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  admissibility <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    species_traits <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">character</a></span><span class="op">(</span><span class="fl">0</span><span class="op">)</span>,</span>
+<span>    study_traits <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">character</a></span><span class="op">(</span><span class="fl">0</span><span class="op">)</span>,</span>
+<span>    coherence <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>      length <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        mode <span class="op">=</span> <span class="st">"overlap"</span>,</span>
+<span>        min <span class="op">=</span> <span class="fl">0.25</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      depth <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        mode <span class="op">=</span> <span class="st">"overlap"</span>,</span>
+<span>        min <span class="op">=</span> <span class="fl">0.25</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      frequency <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        mode <span class="op">=</span> <span class="st">"none"</span>,</span>
+<span>        gap <span class="op">=</span> <span class="fl">60</span></span>
+<span>      <span class="op">)</span></span>
+<span>    <span class="op">)</span>,</span>
+<span>    key_metadata_max <span class="op">=</span> <span class="fl">0.25</span>,</span>
+<span>    progress <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  uncertainty <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    progress <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>    method <span class="op">=</span> <span class="st">"glm"</span>,</span>
+<span>    super_methods <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>    method_settings <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>      glm <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span>,</span>
+<span>      glm_ridge <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        standardize <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        type_measure <span class="op">=</span> <span class="st">"mae"</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">0</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      glm_lasso <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        standardize <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        type_measure <span class="op">=</span> <span class="st">"mae"</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">1</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      glm_elastic <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        standardize <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        type_measure <span class="op">=</span> <span class="st">"mae"</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">0.25</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      qreg <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        tau <span class="op">=</span> <span class="fl">0.5</span>,</span>
+<span>        fit_method <span class="op">=</span> <span class="st">"fn"</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      gam <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        fit_method <span class="op">=</span> <span class="st">"REML"</span>,</span>
+<span>        select_terms <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      lmm <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        fit_method <span class="op">=</span> <span class="st">"REML"</span>,</span>
+<span>        random_intercept <span class="op">=</span> <span class="st">".split_group"</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      rpart <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        cp <span class="op">=</span> <span class="fl">0.01</span>,</span>
+<span>        minsplit <span class="op">=</span> <span class="fl">20</span>,</span>
+<span>        minbucket <span class="op">=</span> <span class="fl">7</span>,</span>
+<span>        maxdepth <span class="op">=</span> <span class="fl">30</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      rf <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        num_trees <span class="op">=</span> <span class="fl">500</span>,</span>
+<span>        mtry <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>        min_node_size <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>        max_depth <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>        sample_fraction <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>        replace <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        respect_unordered_factors <span class="op">=</span> <span class="st">"order"</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      xgboost <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        nrounds <span class="op">=</span> <span class="fl">100</span>,</span>
+<span>        eta <span class="op">=</span> <span class="fl">0.3</span>,</span>
+<span>        max_depth <span class="op">=</span> <span class="fl">6</span>,</span>
+<span>        min_child_weight <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>        subsample <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>        colsample_bytree <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>        lambda <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>        nthread <span class="op">=</span> <span class="fl">1</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      mars <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        degree <span class="op">=</span> <span class="fl">2</span>,</span>
+<span>        penalty <span class="op">=</span> <span class="fl">3</span>,</span>
+<span>        nprune <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>        pmethod <span class="op">=</span> <span class="st">"backward"</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      bart <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        num_trees <span class="op">=</span> <span class="fl">75</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">0.95</span>,</span>
+<span>        beta <span class="op">=</span> <span class="fl">2</span>,</span>
+<span>        min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>        max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
+<span>        keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        variance_forest_num_trees <span class="op">=</span> <span class="fl">50</span>,</span>
+<span>        random_effects_group <span class="op">=</span> <span class="st">".split_group"</span>,</span>
+<span>        num_gfr <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>        num_burnin <span class="op">=</span> <span class="fl">100</span>,</span>
+<span>        num_mcmc <span class="op">=</span> <span class="fl">200</span>,</span>
+<span>        variance_forest <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>        random_effects <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      xbart <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        num_trees <span class="op">=</span> <span class="fl">75</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">0.95</span>,</span>
+<span>        beta <span class="op">=</span> <span class="fl">2</span>,</span>
+<span>        min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>        max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
+<span>        keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        variance_forest_num_trees <span class="op">=</span> <span class="fl">50</span>,</span>
+<span>        random_effects_group <span class="op">=</span> <span class="st">".split_group"</span>,</span>
+<span>        num_gfr <span class="op">=</span> <span class="fl">40</span>,</span>
+<span>        num_burnin <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>        num_mcmc <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>        variance_forest <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>        random_effects <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      wsbart <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        num_trees <span class="op">=</span> <span class="fl">75</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">0.95</span>,</span>
+<span>        beta <span class="op">=</span> <span class="fl">2</span>,</span>
+<span>        min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>        max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
+<span>        keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        variance_forest_num_trees <span class="op">=</span> <span class="fl">50</span>,</span>
+<span>        random_effects_group <span class="op">=</span> <span class="st">".split_group"</span>,</span>
+<span>        num_gfr <span class="op">=</span> <span class="fl">20</span>,</span>
+<span>        num_burnin <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>        num_mcmc <span class="op">=</span> <span class="fl">200</span>,</span>
+<span>        variance_forest <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>        random_effects <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      vfbart <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        num_trees <span class="op">=</span> <span class="fl">75</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">0.95</span>,</span>
+<span>        beta <span class="op">=</span> <span class="fl">2</span>,</span>
+<span>        min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>        max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
+<span>        keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        variance_forest_num_trees <span class="op">=</span> <span class="fl">50</span>,</span>
+<span>        random_effects_group <span class="op">=</span> <span class="st">".split_group"</span>,</span>
+<span>        num_gfr <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>        num_burnin <span class="op">=</span> <span class="fl">100</span>,</span>
+<span>        num_mcmc <span class="op">=</span> <span class="fl">200</span>,</span>
+<span>        variance_forest <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        random_effects <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      rebart <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        num_trees <span class="op">=</span> <span class="fl">75</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">0.95</span>,</span>
+<span>        beta <span class="op">=</span> <span class="fl">2</span>,</span>
+<span>        min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>        max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
+<span>        keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        variance_forest_num_trees <span class="op">=</span> <span class="fl">50</span>,</span>
+<span>        random_effects_group <span class="op">=</span> <span class="st">".split_group"</span>,</span>
+<span>        num_gfr <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>        num_burnin <span class="op">=</span> <span class="fl">100</span>,</span>
+<span>        num_mcmc <span class="op">=</span> <span class="fl">200</span>,</span>
+<span>        variance_forest <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>        random_effects <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      knn <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        k <span class="op">=</span> <span class="fl">10</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      cubist <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        committees <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>        neighbors <span class="op">=</span> <span class="fl">0</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      svr <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        C <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>        epsilon <span class="op">=</span> <span class="fl">0.1</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      qrf <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        num_trees <span class="op">=</span> <span class="fl">500</span>,</span>
+<span>        mtry <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>        min_node_size <span class="op">=</span> <span class="fl">10</span>,</span>
+<span>        max_depth <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>        sample_fraction <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>        replace <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        quantile <span class="op">=</span> <span class="fl">0.9</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      gpr <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        var <span class="op">=</span> <span class="fl">0.001</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      mean <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span></span>
+<span>    <span class="op">)</span>,</span>
+<span>    n_folds <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>    inner_folds <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>    workers <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>    outcome_col <span class="op">=</span> <span class="st">"error_abs_log"</span>,</span>
+<span>    outcome_clip_quantile <span class="op">=</span> <span class="fl">0.99</span>,</span>
+<span>    outcome_transform <span class="op">=</span> <span class="st">"log1p"</span>,</span>
+<span>    lambda_rule <span class="op">=</span> <span class="st">"lambda.1se"</span>,</span>
+<span>    loss <span class="op">=</span> <span class="st">"squared_error"</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  selection <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    one_se_multiplier <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>    equivalence_tolerance <span class="op">=</span> <span class="fl">0.05</span>,</span>
+<span>    n_boot <span class="op">=</span> <span class="fl">500</span>,</span>
+<span>    seed <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>    uncertainty_rule <span class="op">=</span> <span class="st">"tolerance"</span>,</span>
+<span>    u_tol_rel <span class="op">=</span> <span class="fl">0.25</span>,</span>
+<span>    u_tol_abs <span class="op">=</span> <span class="fl">0.05</span>,</span>
+<span>    uncertainty_relative_tolerance <span class="op">=</span> <span class="fl">0.25</span>,</span>
+<span>    uncertainty_absolute_tolerance <span class="op">=</span> <span class="fl">0.05</span>,</span>
+<span>    local_distance_tolerance <span class="op">=</span> <span class="fl">1e-12</span>,</span>
+<span>    conformal_alpha <span class="op">=</span> <span class="fl">0.1</span>,</span>
+<span>    bin_alpha <span class="op">=</span> <span class="fl">0.1</span>,</span>
+<span>    min_bin_scores <span class="op">=</span> <span class="fl">10</span>,</span>
+<span>    n_bins <span class="op">=</span> <span class="fl">3</span>,</span>
+<span>    use_support_bin_intervals <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>    support_bin_labels <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"Lower support"</span>, <span class="st">"Moderate support"</span>, <span class="st">"Higher support"</span><span class="op">)</span>,</span>
+<span>    method <span class="op">=</span> <span class="st">"glm"</span>,</span>
+<span>    super_methods <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>    method_settings <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>      glm <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span>,</span>
+<span>      glm_ridge <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        standardize <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        type_measure <span class="op">=</span> <span class="st">"mae"</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">0</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      glm_lasso <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        standardize <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        type_measure <span class="op">=</span> <span class="st">"mae"</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">1</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      glm_elastic <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        standardize <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        type_measure <span class="op">=</span> <span class="st">"mae"</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">0.25</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      qreg <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        tau <span class="op">=</span> <span class="fl">0.5</span>,</span>
+<span>        fit_method <span class="op">=</span> <span class="st">"fn"</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      gam <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        fit_method <span class="op">=</span> <span class="st">"REML"</span>,</span>
+<span>        select_terms <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      lmm <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        fit_method <span class="op">=</span> <span class="st">"REML"</span>,</span>
+<span>        random_intercept <span class="op">=</span> <span class="st">".split_group"</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      rpart <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        cp <span class="op">=</span> <span class="fl">0.01</span>,</span>
+<span>        minsplit <span class="op">=</span> <span class="fl">20</span>,</span>
+<span>        minbucket <span class="op">=</span> <span class="fl">7</span>,</span>
+<span>        maxdepth <span class="op">=</span> <span class="fl">30</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      rf <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        num_trees <span class="op">=</span> <span class="fl">500</span>,</span>
+<span>        mtry <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>        min_node_size <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>        max_depth <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>        sample_fraction <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>        replace <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        respect_unordered_factors <span class="op">=</span> <span class="st">"order"</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      xgboost <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        nrounds <span class="op">=</span> <span class="fl">100</span>,</span>
+<span>        eta <span class="op">=</span> <span class="fl">0.3</span>,</span>
+<span>        max_depth <span class="op">=</span> <span class="fl">6</span>,</span>
+<span>        min_child_weight <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>        subsample <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>        colsample_bytree <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>        lambda <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>        nthread <span class="op">=</span> <span class="fl">1</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      mars <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        degree <span class="op">=</span> <span class="fl">2</span>,</span>
+<span>        penalty <span class="op">=</span> <span class="fl">3</span>,</span>
+<span>        nprune <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>        pmethod <span class="op">=</span> <span class="st">"backward"</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      bart <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        num_trees <span class="op">=</span> <span class="fl">75</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">0.95</span>,</span>
+<span>        beta <span class="op">=</span> <span class="fl">2</span>,</span>
+<span>        min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>        max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
+<span>        keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        variance_forest_num_trees <span class="op">=</span> <span class="fl">50</span>,</span>
+<span>        random_effects_group <span class="op">=</span> <span class="st">".split_group"</span>,</span>
+<span>        num_gfr <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>        num_burnin <span class="op">=</span> <span class="fl">100</span>,</span>
+<span>        num_mcmc <span class="op">=</span> <span class="fl">200</span>,</span>
+<span>        variance_forest <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>        random_effects <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      xbart <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        num_trees <span class="op">=</span> <span class="fl">75</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">0.95</span>,</span>
+<span>        beta <span class="op">=</span> <span class="fl">2</span>,</span>
+<span>        min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>        max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
+<span>        keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        variance_forest_num_trees <span class="op">=</span> <span class="fl">50</span>,</span>
+<span>        random_effects_group <span class="op">=</span> <span class="st">".split_group"</span>,</span>
+<span>        num_gfr <span class="op">=</span> <span class="fl">40</span>,</span>
+<span>        num_burnin <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>        num_mcmc <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>        variance_forest <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>        random_effects <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      wsbart <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        num_trees <span class="op">=</span> <span class="fl">75</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">0.95</span>,</span>
+<span>        beta <span class="op">=</span> <span class="fl">2</span>,</span>
+<span>        min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>        max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
+<span>        keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        variance_forest_num_trees <span class="op">=</span> <span class="fl">50</span>,</span>
+<span>        random_effects_group <span class="op">=</span> <span class="st">".split_group"</span>,</span>
+<span>        num_gfr <span class="op">=</span> <span class="fl">20</span>,</span>
+<span>        num_burnin <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>        num_mcmc <span class="op">=</span> <span class="fl">200</span>,</span>
+<span>        variance_forest <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>        random_effects <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      vfbart <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        num_trees <span class="op">=</span> <span class="fl">75</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">0.95</span>,</span>
+<span>        beta <span class="op">=</span> <span class="fl">2</span>,</span>
+<span>        min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>        max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
+<span>        keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        variance_forest_num_trees <span class="op">=</span> <span class="fl">50</span>,</span>
+<span>        random_effects_group <span class="op">=</span> <span class="st">".split_group"</span>,</span>
+<span>        num_gfr <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>        num_burnin <span class="op">=</span> <span class="fl">100</span>,</span>
+<span>        num_mcmc <span class="op">=</span> <span class="fl">200</span>,</span>
+<span>        variance_forest <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        random_effects <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      rebart <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        num_trees <span class="op">=</span> <span class="fl">75</span>,</span>
+<span>        alpha <span class="op">=</span> <span class="fl">0.95</span>,</span>
+<span>        beta <span class="op">=</span> <span class="fl">2</span>,</span>
+<span>        min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>        max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
+<span>        keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        variance_forest_num_trees <span class="op">=</span> <span class="fl">50</span>,</span>
+<span>        random_effects_group <span class="op">=</span> <span class="st">".split_group"</span>,</span>
+<span>        num_gfr <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>        num_burnin <span class="op">=</span> <span class="fl">100</span>,</span>
+<span>        num_mcmc <span class="op">=</span> <span class="fl">200</span>,</span>
+<span>        variance_forest <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>        random_effects <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      knn <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        k <span class="op">=</span> <span class="fl">10</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      cubist <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        committees <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>        neighbors <span class="op">=</span> <span class="fl">0</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      svr <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        C <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>        epsilon <span class="op">=</span> <span class="fl">0.1</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      qrf <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        num_trees <span class="op">=</span> <span class="fl">500</span>,</span>
+<span>        mtry <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>        min_node_size <span class="op">=</span> <span class="fl">10</span>,</span>
+<span>        max_depth <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>        sample_fraction <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>        replace <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>        quantile <span class="op">=</span> <span class="fl">0.9</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      gpr <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>        var <span class="op">=</span> <span class="fl">0.001</span></span>
+<span>      <span class="op">)</span>,</span>
+<span>      mean <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span></span>
+<span>    <span class="op">)</span>,</span>
+<span>    n_folds <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>    inner_folds <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>    workers <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>    outcome_col <span class="op">=</span> <span class="st">"error_abs_log"</span>,</span>
+<span>    outcome_clip_quantile <span class="op">=</span> <span class="fl">0.99</span>,</span>
+<span>    outcome_transform <span class="op">=</span> <span class="st">"log1p"</span>,</span>
+<span>    lambda_rule <span class="op">=</span> <span class="st">"lambda.1se"</span>,</span>
+<span>    loss <span class="op">=</span> <span class="st">"squared_error"</span>,</span>
+<span>    max_selection_tolerance <span class="op">=</span> <span class="fl">1e-12</span>,</span>
+<span>    progress <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  simulation <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    workers <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>    progress <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">)</span></span></code></pre>
+</div>
+</div>
+</div>
+</details>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>

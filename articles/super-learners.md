@@ -22,14 +22,18 @@ Selection learners accept the full catalog.
 
 ## The Super Learners
 
-![](figures/super-learner-contexts.png)
+![Schematic comparing Alchemist, Uncertainty, and Selection learner
+contexts.](figures/super-learner-contexts.png)
+
+Schematic comparing Alchemist, Uncertainty, and Selection learner
+contexts.
 
 ------------------------------------------------------------------------
 
-## Alchemist
+## Similarity distances
 
 **What it learns.** Given a table of per-trait pairwise distances (one
-per donor–anchor pair), it predicts the absolute log-ratio of the
+per donor-anchor pair), it predicts the absolute log-ratio of the
 donor’s expected $`\sigma_\mathrm{bs}`$ to the anchor’s
 $`\sigma_\mathrm{bs}`$, integrated over the anchor’s length
 distribution. The resulting $`N\ \times N`$ distance matrix is the
@@ -44,8 +48,8 @@ admissibility scoring.
 |----|----|----|----|
 | Generalized linear model | `glm` | The linear component of trait distance predicting differences in $`\sigma_\mathrm{bs}`$ is real. Plain OLS almost always receives meaningful NNLS weight. Coefficients show which trait dimensions matter most and are therefore interpretable. Fast. | Cannot capture nonlinear or interaction effects. If the difference in $`\sigma_\mathrm{bs}`$ is driven by threshold crossings rather than distance magnitude, GLM will be consistently biased toward the mean. |
 | L2 regularization | `glm_ridge` | Handles multicollinearity between traits (e.g., genus and family). Trait distances move together by construction, and ridge shrinks them proportionally rather than picking one arbitrarily. Stable when feature count approaches pair count. | Does not zero out irrelevant features. No advantage over Elastic-net when sparsity is desired. Rarely competitive as the sole penalized choice. |
-| L1 regularization | `glm_lasso` | Produces a sparse model identifying a few trait dimensions that actually drive $`\sigma_\mathrm{bs}`$ diveragence. Useful for diagnosing whether a small subset of traits dominates the trait distances. | Unstable when features are highly correlated, resulting in LASSO to arbitrarily pick among correlated traits. |
-| Elastic-net | `glm_elastic` | Combines the collinearity hadling from ridge regressions with LASSO’s feature selection. The recommended default penalized choice for this context. Stable coefficient paths. Robust to overfitting on pairwise training data. | The $`\alpha`$ hyperparameter must be chosen before fitting. At the default $`\alpha = 0.25`$ (ridge-dominant) it may not select aggressively enough when many features are genuinely irrelevant. |
+| L1 regularization | `glm_lasso` | Produces a sparse model identifying a few trait dimensions that actually drive $`\sigma_\mathrm{bs}`$ divergence. Useful for diagnosing whether a small subset of traits dominates the trait distances. | Unstable when features are highly correlated because LASSO can arbitrarily choose among correlated traits. |
+| Elastic-net | `glm_elastic` | Combines the collinearity handling from ridge regressions with LASSO’s feature selection. The recommended default penalized choice for this context. Stable coefficient paths. Robust to overfitting on pairwise training data. | The $`\alpha`$ hyperparameter must be chosen before fitting. Ridge-leaning values stabilize correlated traits, while larger values select more aggressively when many features are genuinely irrelevant. |
 
 Smooth and piecewise
 
@@ -62,13 +66,23 @@ Tree-based
 | eXtreme Gradient Boosting | `xgboost` | Highest capcity for capturing higher-order interactions between trait features. Each tree corrects residuals of the previous, allowing precise modeling of complex interactions. Best when many traits interact non-additively. | Needs sufficient pair counts to regularize effectively. In small candidate pools the pair count is too low and overfitting is severe. More hyperparameters to tune than `rf`. |
 | Recursive partitioning and regression trees | `rpart` | Produces an explicitly interpretable decision tree that is computationally fast. When NNLS assigns `rpart` a substantial weight, this serves as a diagnostic that indicates the trait distances have hard thresholds that all continuous models are smoothing over. | Almost always dominated by `rf` or `mars` in an ensemble. Single tree has high variance across folds. Not competitive as a standalone predictor. |
 
+Before tuning the learner library, check `feature_type`. The default
+`feature_type = "gower"` is unsigned, which means nonlinear methods like
+`rf` and `xgboost` must discover asymmetries themselves. Switching to
+`feature_type = "difference"` encodes direction explicitly and often
+improves RF and XGBoost generalization without any other change.
+
 Conditional quantile
 
 | Method | Arg. | Strengths | Weaknesses |
 |----|----|----|----|
-| Quantile regression | `qreg` | Models a conditional quantile of distance rather than the mean. At $`\tau > 0.5`$ it targets the tail-ends (pessimistic) of the distance distribution. Useful when some trait combinations produce high-variance $`\sigma_\mathrm{bs}`$ outcomes and one wants the ensemble to account for the tail. | Linear quantile regression shares GLM’s inability to capture nonlinear effects. Numerically unstable with veyr few pairs. The $`\tau`$ parameter must be chosen deliberately. The default $`\tau = 0.5`$ collapses to median regression with no tail benefit. |
+| Quantile regression | `qreg` | Models a conditional quantile of distance rather than the mean. At $`\tau > 0.5`$ it targets the tail-ends (pessimistic) of the distance distribution. Useful when some trait combinations produce high-variance $`\sigma_\mathrm{bs}`$ outcomes and one wants the ensemble to account for the tail. | Linear quantile regression shares GLM’s inability to capture nonlinear effects. Numerically unstable with very few pairs. The $`\tau`$ parameter must be chosen deliberately: median targets central distance, while upper quantiles target pessimistic distance. |
 
 **Recommended default**
+
+💻 Default Alchemist learner configuration
+
+YAML R list
 
 ``` yaml
 alchemist:
@@ -79,16 +93,23 @@ alchemist:
     lambda_rule: lambda.1se
 ```
 
+``` r
+list(
+  alchemist = list(
+    learner = list(
+      methods = c("glm_elastic", "rf", "xgboost"),
+      inner_folds = 5,
+      outcome_transform = "log1p",
+      lambda_rule = "lambda.1se"
+    )
+  )
+)
+```
+
 The default three-method ensemble balances regularized linearity
 (`glm_elastic`), nonlinear main effects (`rf`), and interaction capture
 (`xgboost`). The NNLS combiner then determines how much weight each
 method gets per fold.
-
-Before tuning the learner library, check `feature_type`. The default
-`feature_type = “gower”` is unsigned, which means nonlinear methods like
-`rf` and `xgboost` must discover asymmetries themselves. Switching to
-`feature_type = “difference”` encodes direction explicitly and often
-improves RF and XGBoost generalization without any other change.
 
 If your candidate pool has good phylogenetic coverage, setting
 `taxonomic_distance = TRUE` replaces the separate species, genus,
@@ -115,30 +136,193 @@ since few models means few pairs and the richer learners overfit.
 Unpenalized OLS. No hyperparameters. The fast linear reference member of
 the library.
 
+This entry is intentionally kept as a low-variance baseline so the NNLS
+combiner always has a stable linear option when nonlinear learners
+become noisy on small pair tables. If `glm` receives non-trivial weight,
+the data are telling you that most transferable signal is linear in
+trait distance and additional nonlinear capacity is incremental rather
+than foundational.
+
+💻 Default configuration for glm
+
+YAML R list
+
+``` yaml
+method: glm
+method_settings:
+  glm: {}
+```
+
+``` r
+list(
+  method = "glm",
+  method_settings = list(
+    glm = list()
+  )
+)
+```
+
 `glm_ridge`
 
 `glmnet` with `alpha = 0` (pure L2). `lambda` is chosen by inner
 cross-validation (`lambda_rule`). Features are standardized and the CV
 loss is MAE.
 
+Ridge is here to stabilize coefficients under collinear trait distances.
+`alpha = 0` avoids brittle feature dropping and instead shrinks
+correlated predictors together. `lambda_rule` controls conservatism
+(`lambda.1se` for stability, `lambda.min` for fit), while
+standardization ensures penalty comparability across mixed feature
+scales.
+
+💻 Default configuration for glm_ridge
+
+YAML R list
+
+``` yaml
+method: glm_ridge
+method_settings:
+  glm_ridge:
+    standardize: true
+    type_measure: mae
+    alpha: 0
+```
+
+``` r
+list(
+  method = "glm_ridge",
+  method_settings = list(
+    glm_ridge = list(
+      standardize = TRUE,
+      type_measure = "mae",
+      alpha = 0
+    )
+  )
+)
+```
+
 `glm_lasso`
 
 `glmnet` with `alpha = 1` (pure L1). `lambda` by inner CV.
 
-**Watch out:** Picks arbitrarily among correlated trait columns. In the
-Alchemist, where trait distances are correlated by construction, prefer
-`glm_elastic`.
+This is primarily a sparsity diagnostic in Alchemist: it can reveal
+which trait-distance axes dominate, but fold-to-fold stability is weaker
+when predictors are correlated. `lambda` tuning is therefore more about
+controlling instability than maximizing fit, and production libraries
+usually prefer elastic-net unless hard sparsity is explicitly needed.
+
+💻 Default configuration for glm_lasso
+
+YAML R list
+
+``` yaml
+method: glm_lasso
+method_settings:
+  glm_lasso:
+    standardize: true
+    type_measure: mae
+    alpha: 1
+```
+
+``` r
+list(
+  method = "glm_lasso",
+  method_settings = list(
+    glm_lasso = list(
+      standardize = TRUE,
+      type_measure = "mae",
+      alpha = 1
+    )
+  )
+)
+```
+
+`glm_lasso` can select one trait distance from a correlated group and
+drop the others even when the whole group carries the signal. In an
+`Alchemist` object, trait distances are correlated by construction, so
+`glm_lasso` is most useful as a sparsity diagnostic. Prefer
+`glm_elastic` for production fits because it keeps the stabilizing
+shrinkage from ridge while still allowing weak feature selection.
 
 `glm_elastic`
 
-`glmnet` with configurable `alpha` (default `0.25`, ridge-leaning).
-Increase toward `1.0` for sparser feature selection. `lambda` by
-`lambda_rule`.
+[`glmnet`](https://CRAN.R-project.org/package=glmnet) elastic-net
+regression contributes a shrinkage-stabilized linear member. `alpha`
+controls the ridge-to-lasso mix: lower values keep correlated trait
+distances together, while higher values make the fit sparser.
+`lambda_rule` controls how conservative the inner cross-validation
+penalty is.
 
-**Watch out:** In very high-dimensional feature spaces (many trait
-expansions, `feature_type = "difference"` with set-type traits),
-`lambda_rule = "lambda.min"` may overfit the training pairs, so prefer
-`lambda.1se` here.
+This is the default penalized linear choice because Alchemist tables are
+usually both noisy and collinear. A ridge-leaning `alpha` preserves
+grouped information from related distances, and `lambda_rule` provides
+the final bias-variance dial for pair-table size and feature breadth.
+
+💻 Default configuration for glm_elastic
+
+YAML R list
+
+``` yaml
+method: glm_elastic
+method_settings:
+  glm_elastic:
+    standardize: true
+    type_measure: mae
+    alpha: 0.25
+```
+
+``` r
+list(
+  method = "glm_elastic",
+  method_settings = list(
+    glm_elastic = list(
+      standardize = TRUE,
+      type_measure = "mae",
+      alpha = 0.25
+    )
+  )
+)
+```
+
+In very high-dimensional feature spaces (many trait expansions,
+`feature_type = "difference"` with set-type traits),
+`lambda_rule = "lambda.min"` may overfit the training pairs. Prefer
+`lambda.1se` for this learner unless you have a large candidate pool and
+Sentinel validates the more aggressive fit.
+
+💻 Elastic-net emphasis
+
+YAML R list
+
+``` yaml
+alchemist:
+  learner:
+    methods: [glm_elastic]
+    lambda_rule: lambda.1se
+    method_settings:
+      glm_elastic:
+        alpha: 0.25
+        standardize: true
+        type_measure: mae
+```
+
+``` r
+list(
+  alchemist = list(
+    learner = list(
+      methods = "glm_elastic",
+      lambda_rule = "lambda.1se",
+      method_settings = list(
+        glm_elastic = list(
+          alpha = 0.25,
+          standardize = TRUE,
+          type_measure = "mae"
+        )
+      )
+    )
+  )
+)
+```
 
 `gam`
 
@@ -147,51 +331,336 @@ and `select_terms = TRUE`, so the extra penalty can shrink an
 uninformative smooth to zero. Benefits from `taxonomic_distance = TRUE`,
 which cuts feature collinearity.
 
+The default GAM settings are chosen to capture smooth nonlinear main
+effects without opening a large interaction search space.
+`fit_method = "REML"` gives more stable smoothness selection on moderate
+data, and `select_terms = TRUE` prevents weak smooth terms from
+lingering as noise absorbers.
+
+💻 Default configuration for gam
+
+YAML R list
+
+``` yaml
+method: gam
+method_settings:
+  gam:
+    fit_method: REML
+    select_terms: true
+```
+
+``` r
+list(
+  method = "gam",
+  method_settings = list(
+    gam = list(
+      fit_method = "REML",
+      select_terms = TRUE
+    )
+  )
+)
+```
+
 `mars`
 
-Requires the `earth` package. Defaults: `degree = 2` (pairwise hinge
-interactions, appropriate for the Alchemist), `penalty = 3`,
-`pmethod = "backward"`, `nprune = NULL` (GCV chooses the retained term
-count).
+[`earth`](https://CRAN.R-project.org/package=earth) MARS contributes
+piecewise-linear hinge functions. `degree` controls whether hinges are
+additive or include interactions, `penalty` controls the GCV complexity
+cost, `pmethod` chooses the pruning strategy, and `nprune` can cap the
+retained terms when the automatic pruning path is too permissive.
+
+MARS is the threshold-sensitive member in this library. `degree` is the
+primary complexity lever, `penalty` and `pmethod` shape how aggressively
+candidate hinges are removed, and `nprune` is a practical safeguard when
+pair counts are too small to justify long hinge paths.
+
+💻 Default configuration for mars
+
+YAML R list
+
+``` yaml
+method: mars
+method_settings:
+  mars:
+    degree: 2
+    penalty: 3
+    nprune: null
+    pmethod: backward
+```
+
+``` r
+list(
+  method = "mars",
+  method_settings = list(
+    mars = list(
+      degree = 2,
+      penalty = 3,
+      nprune = NULL,
+      pmethod = "backward"
+    )
+  )
+)
+```
 
 `rpart`
 
-Single tree. Defaults `cp = 0.01`, `minsplit = 20`, `minbucket = 7`,
-`maxdepth = 30`. Mostly a diagnostic member. Substantial NNLS weight
-flags hard thresholds in the distance surface. Benefits from
-`taxonomic_distance = TRUE`.
+[`rpart`](https://CRAN.R-project.org/package=rpart) contributes a single
+interpretable tree. `cp` controls cost-complexity pruning, `minsplit`
+and `minbucket` control how much data must support a split or terminal
+node, and `maxdepth` caps tree depth. Substantial NNLS weight flags hard
+thresholds in the distance surface.
+
+Treat this as an interpretability and structure-detection member, not a
+pure accuracy engine. If `rpart` receives real ensemble weight, it
+usually indicates a genuine rule boundary in trait-distance space that
+smoother models are averaging away.
+
+💻 Default configuration for rpart
+
+YAML R list
+
+``` yaml
+method: rpart
+method_settings:
+  rpart:
+    cp: 0.01
+    minsplit: 20
+    minbucket: 7
+    maxdepth: 30
+```
+
+``` r
+list(
+  method = "rpart",
+  method_settings = list(
+    rpart = list(
+      cp = 0.01,
+      minsplit = 20,
+      minbucket = 7,
+      maxdepth = 30
+    )
+  )
+)
+```
 
 `rf`
 
-`ranger`. Defaults `num_trees = 500`, `min_node_size = 5`, `mtry = NULL`
-(auto), `sample_fraction = 1`, `replace = TRUE`.
+[`ranger`](https://CRAN.R-project.org/package=ranger) contributes
+nonlinear interactions without specifying them up front. `num_trees`
+controls ensemble size, `mtry` controls feature subsampling at each
+split, `min_node_size` and `max_depth` control tree complexity, and
+`sample_fraction`/`replace` control row sampling.
 
-**Watch out:** Memory-intensive with many pairs. If memory is tight,
-reduce `num_trees` to 200–300 before reducing `sample_fraction`.
+💻 Default configuration for rf
+
+YAML R list
+
+``` yaml
+method: rf
+method_settings:
+  rf:
+    num_trees: 500
+    mtry: null
+    min_node_size: 5
+    max_depth: null
+    sample_fraction: 1
+    replace: true
+    respect_unordered_factors: order
+```
+
+``` r
+list(
+  method = "rf",
+  method_settings = list(
+    rf = list(
+      num_trees = 500,
+      mtry = NULL,
+      min_node_size = 5,
+      max_depth = NULL,
+      sample_fraction = 1,
+      replace = TRUE,
+      respect_unordered_factors = "order"
+    )
+  )
+)
+```
+
+Random forests are memory-intensive when the donor-anchor pair table is
+large. If memory is tight, reduce `num_trees` to 200-300 before reducing
+`sample_fraction`; fewer trees usually cost less accuracy than starving
+every tree of rows.
+
+💻 Random forest, memory-constrained
+
+YAML R list
+
+``` yaml
+alchemist:
+  learner:
+    method_settings:
+      rf:
+        num_trees: 300
+        min_node_size: 10
+        sample_fraction: 0.6
+        replace: false
+```
+
+``` r
+list(
+  alchemist = list(
+    learner = list(
+      method_settings = list(
+        rf = list(
+          num_trees = 300,
+          min_node_size = 10,
+          sample_fraction = 0.6,
+          replace = FALSE
+        )
+      )
+    )
+  )
+)
+```
 
 `xgboost`
 
-Defaults `nrounds = 100`, `eta = 0.30`, `max_depth = 6`,
-`min_child_weight = 1`, `lambda = 1`, `alpha = 0`. For small pair tables
-use the `conservative` variant (`eta = 0.05`, `max_depth = 3`,
-`min_child_weight = 5`, `lambda = 2`).
+[`xgboost`](https://CRAN.R-project.org/package=xgboost) contributes
+boosted interaction structure. `nrounds` and `eta` control the boosting
+path, `max_depth` and `min_child_weight` control tree complexity, and
+`lambda`/`alpha` add regularization. Small pair tables need conservative
+values because boosting can memorize sparse donor-anchor patterns.
 
-**Watch out:** In small candidate pools (N \< 50 models) the pair count
-may be too low to regularize, so drop `xgboost` and rely on
-`glm_elastic` and `rf` alone.
+💻 Default configuration for xgboost
+
+YAML R list
+
+``` yaml
+method: xgboost
+method_settings:
+  xgboost:
+    nrounds: 100
+    eta: 0.3
+    max_depth: 6
+    min_child_weight: 1
+    subsample: 1
+    colsample_bytree: 1
+    lambda: 1
+    alpha: 0
+    nthread: 1
+```
+
+``` r
+list(
+  method = "xgboost",
+  method_settings = list(
+    xgboost = list(
+      nrounds = 100,
+      eta = 0.3,
+      max_depth = 6,
+      min_child_weight = 1,
+      subsample = 1,
+      colsample_bytree = 1,
+      lambda = 1,
+      alpha = 0,
+      nthread = 1
+    )
+  )
+)
+```
+
+In small candidate pools (N \< 50 models), boosted trees can memorize
+sparse donor-anchor patterns. Keep `xgboost` shallow and slow-learning
+unless Sentinel shows that a higher-capacity fit improves holdout error.
+
+💻 XGBoost for a small candidate pool
+
+YAML R list
+
+``` yaml
+alchemist:
+  learner:
+    methods: [xgboost]
+    method_settings:
+      xgboost:
+        nrounds: 200
+        eta: 0.05
+        max_depth: 3
+        min_child_weight: 5
+        subsample: 0.8
+        colsample_bytree: 0.8
+        lambda: 2
+        alpha: 0.5
+```
+
+``` r
+list(
+  alchemist = list(
+    learner = list(
+      methods = "xgboost",
+      method_settings = list(
+        xgboost = list(
+          nrounds = 200,
+          eta = 0.05,
+          max_depth = 3,
+          min_child_weight = 5,
+          subsample = 0.8,
+          colsample_bytree = 0.8,
+          lambda = 2,
+          alpha = 0.5
+        )
+      )
+    )
+  )
+)
+```
 
 `qreg`
 
-`quantreg`, `fit_method = "fn"`. The default `tau = 0.50` is median
-regression (no tail benefit). Use the `q75`/`q90` variants
-(`tau = 0.75`/`0.90`) to target the pessimistic tail of the distance
-distribution.
+[`quantreg`](https://CRAN.R-project.org/package=quantreg) contributes a
+linear conditional quantile rather than a conditional mean. `tau`
+chooses which quantile is fitted: values above 0.5 make the learner
+target pessimistic upper-tail distances, while 0.5 is median regression.
+`fit_method` selects the quantile-regression solver.
 
-**Watch out:** Numerically unstable with very few pairs.
+Use this when you need explicit tail sensitivity in distance prediction.
+`tau` is the risk dial: higher values emphasize worst-case transfer
+regions, while lower values track central behavior. Solver choice is
+worth documenting in reproducible workflows because near-singular pair
+tables can be method-sensitive.
+
+💻 Default configuration for qreg
+
+YAML R list
+
+``` yaml
+method: qreg
+method_settings:
+  qreg:
+    tau: 0.5
+    fit_method: fn
+```
+
+``` r
+list(
+  method = "qreg",
+  method_settings = list(
+    qreg = list(
+      tau = 0.5,
+      fit_method = "fn"
+    )
+  )
+)
+```
+
+Quantile regression is numerically unstable with very few pairs. Use
+`qreg` only when the pair table is large enough to support a tail fit
+and you actually need a pessimistic distance learner. If the pair table
+is small, this is not a tuning problem; remove `qreg` from the Alchemist
+library.
 
 ------------------------------------------------------------------------
 
-## Learner 2: Uncertainty (`uncertainty`)
+## Uncertainty and conformal prediction
 
 **What it learns.** Cross-fitted regression that predicts the expected
 absolute log-transfer-error for each anchor policy combination. The
@@ -208,7 +677,7 @@ widened there and tightened elsewhere.
 | Generalized linear model | `glm` | Linear baseline for error prediction. Often earns real NNLS weight because error scales with features like support size or nearest-anchor distance. Anchors the ensemble and is interpretable. | Cannot capture nonlinear or threshold effects. If error spikes sharply beyond a similarity threshold, GLM underestimates the high-error region and produces under-wide intervals there. |
 | Ridge (L2) regression | `glm_ridge` | Handles correlated benchmark statistics. Policy score and interval width move together, and ridge shrinks them proportionally rather than picking one. Stable when the benchmark feature table has many columns. | Does not zero out uninformative features. Marginal benefit over `glm_elastic` in most settings. Not recommended as the sole penalized member. |
 | LASSO (L1) regression | `glm_lasso` | Selects the few benchmark features most predictive of error magnitude. Useful for trimming a large benchmark feature table and for seeing which covariates actually drive error. | Unstable when features are correlated. LASSO picks arbitrarily among correlated columns. In practice `glm_elastic` is almost always preferred. |
-| Elastic-net | `glm_elastic` | Balances selection and shrinkage when benchmark features are numerous and correlated. Works well with `lambda.min` here because the downstream conformal calibration adds regularization. | Requires `alpha` and `lambda` tuning. At the default `alpha = 0.25` (ridge-dominant) it may not select aggressively enough in high-dimensional benchmark tables. |
+| Elastic-net | `glm_elastic` | Balances selection and shrinkage when benchmark features are numerous and correlated. Works well with `lambda.min` here because the downstream conformal calibration adds regularization. | Requires `alpha` and `lambda` tuning. Ridge-leaning values stabilize correlated benchmark features, while larger values select more aggressively in high-dimensional tables. |
 
 Smooth and piecewise
 
@@ -233,14 +702,14 @@ Bayesian additive trees
 | Accelerated BART | `xbart` | Grow-from-root only (`num_mcmc = 0`). Fastest BART variant with no MCMC burn-in. Produces a point estimate of the error surface. Good when training speed is the bottleneck and other posterior-aware members are present. | No posterior uncertainty, effectively a deterministic approximation. May underestimate tail behavior relative to full BART. Always pair with `qreg` or `qrf`. |
 | Warm-start BART | `wsbart` | A short grow-from-root initialization followed by full MCMC. Reaches posterior convergence faster than pure `bart` for the same draw budget. A middle ground between `xbart` speed and `bart` posterior quality. | Still requires MCMC. Slower than `xbart`. Both the grow-from-root budget and MCMC draw count must be configured. Improvement over plain `bart` is often marginal. |
 | Variance-forest BART | `vfbart` | Heteroskedastic BART with a separate variance forest that adapts the error scale to each region of the covariate space, making it the most natural BART variant where error magnitude is explicitly non-constant. Produces a mean and a conditional variance. | Most complex and expensive BART variant. Requires `variance_forest_num_trees` tuning. Can overfit the variance surface with small benchmark training sets. |
-| Random-effects BART | `rebart` | BART with an additive group random effect (lmm-style): absorbs systematic per-species error shifts rather than forcing the tree ensemble to explain them. Set the group via `method_settings.bart.random_effects_group`. | Requires `random_effects_group` to be set. Random intercept and tree ensemble are estimated jointly, slower than standalone `bart`. May not converge with very few anchor species per group. |
+| Random-effects BART | `rebart` | BART with an additive group random effect (lmm-style): absorbs systematic per-species error shifts rather than forcing the tree ensemble to explain them. Set the group via `method_settings.rebart.random_effects_group`. | Requires `random_effects_group` to be set. Random intercept and tree ensemble are estimated jointly, slower than standalone `bart`. May not converge with very few anchor species per group. |
 
 Conditional quantile
 
 | Method | Arg. | Strengths | Weaknesses |
 |----|----|----|----|
 | Quantile regression | `qreg` | Directly targets the upper quantile of the error distribution. At $`\tau = 0.75`$ or $`0.90`$ it models exactly the tail that determines where intervals must be wide. Typically earns substantial NNLS weight and reduces coverage error. | Linear quantile regression cannot capture nonlinear or interaction effects. Numerically unstable with fewer than ~100 anchor-policy pairs. The $`\tau`$ value must be chosen deliberately. |
-| Quantile regression forest | `qrf` | Combines the nonlinear flexibility of `rf` with direct quantile targeting. Captures tail-error behavior driven by feature interactions that the linear `qreg` misses. Natural complement to `qreg`. | Slower than standard `rf`. The quantile target must be set in `method_settings.qrf` (default 0.9). Provides no mean prediction, so NNLS needs mean-regression members alongside it. |
+| Quantile regression forest | `qrf` | Combines the nonlinear flexibility of `rf` with direct quantile targeting. Captures tail-error behavior driven by feature interactions that the linear `qreg` misses. Natural complement to `qreg`. | Slower than standard `rf`. The quantile target must be set in `method_settings.qrf`. Provides no mean prediction, so NNLS needs mean-regression members alongside it. |
 
 Kernel and instance-based
 
@@ -271,6 +740,10 @@ Baseline and ensemble
 
 **Recommended default**
 
+💻 Default uncertainty learner configuration
+
+YAML R list
+
 ``` yaml
 uncertainty:
   method: super_learner
@@ -282,15 +755,24 @@ uncertainty:
   lambda_rule: lambda.min
 ```
 
-The full library is appropriate here because the outcome (absolute
-log-error) is well-behaved (non-negative, roughly log-normal) and
-quantile-targeting methods add diversity that helps the NNLS combiner.
+``` r
+list(
+  uncertainty = list(
+    method = "super_learner",
+    super_methods = c("glm", "glm_elastic", "rf", "xgboost", "qreg", "qrf", "gpr"),
+    n_folds = 5,
+    inner_folds = 3,
+    outcome_col = "error_abs_log",
+    outcome_transform = "log1p",
+    lambda_rule = "lambda.min"
+  )
+)
+```
 
-Adding `qreg` and `qrf` alongside mean-regression methods gives the NNLS
-combiner access to upper-tail predictions. Because prediction intervals
-are set at the upper tail of the error distribution, these quantile
-learners often receive substantial weight and meaningfully reduce
-coverage error.
+This starter library combines linear, nonlinear mean-regression, and
+upper-tail learners for the interval-width problem. It is not the full
+learner catalog; it is the recommended default set for the uncertainty
+stage.
 
 For the uncertainty learner, prefer `lambda.min` over `lambda.1se`. The
 uncertainty stage is already regularized by the conformal calibration
@@ -315,56 +797,402 @@ combiner has both.
 
 Unpenalized OLS. No hyperparameters. The linear reference member.
 
+This provides a low-variance anchor for stacked uncertainty learning and
+often remains useful when complex learners overfit sparse anchor-policy
+folds. Non-trivial NNLS weight on `glm` indicates that a meaningful
+share of error heterogeneity is still linear in the benchmark
+covariates.
+
+💻 Default configuration for glm
+
+YAML R list
+
+``` yaml
+method: glm
+method_settings:
+  glm: {}
+```
+
+``` r
+list(
+  method = "glm",
+  method_settings = list(
+    glm = list()
+  )
+)
+```
+
 `glm_ridge`
 
 `glmnet` with `alpha = 0` (pure L2). `lambda` by inner CV
 (`lambda_rule`). Features standardized, CV loss MAE.
+
+Ridge is used to stabilize uncertainty models under heavy predictor
+correlation and noisy outcomes. `alpha = 0` keeps correlated features
+active as a group, `lambda_rule` sets conservatism, and MAE-oriented
+tuning guards against a few extreme transfer errors dominating
+regularization.
+
+💻 Default configuration for glm_ridge
+
+YAML R list
+
+``` yaml
+method: glm_ridge
+method_settings:
+  glm_ridge:
+    standardize: true
+    type_measure: mae
+    alpha: 0
+```
+
+``` r
+list(
+  method = "glm_ridge",
+  method_settings = list(
+    glm_ridge = list(
+      standardize = TRUE,
+      type_measure = "mae",
+      alpha = 0
+    )
+  )
+)
+```
 
 `glm_lasso`
 
 `glmnet` with `alpha = 1` (pure L1). `lambda` by inner CV. Picks
 arbitrarily among correlated benchmark columns, so prefer `glm_elastic`.
 
+This method is most useful when explicit sparsity is a requirement. It
+can clarify which uncertainty features matter most, but in correlated
+settings those selections are often unstable across folds, which is why
+elastic-net is usually preferred for production interval calibration.
+
+💻 Default configuration for glm_lasso
+
+YAML R list
+
+``` yaml
+method: glm_lasso
+method_settings:
+  glm_lasso:
+    standardize: true
+    type_measure: mae
+    alpha: 1
+```
+
+``` r
+list(
+  method = "glm_lasso",
+  method_settings = list(
+    glm_lasso = list(
+      standardize = TRUE,
+      type_measure = "mae",
+      alpha = 1
+    )
+  )
+)
+```
+
 `glm_elastic`
 
-`glmnet` with configurable `alpha` (default `0.25`). `lambda` by
-`lambda_rule`. Prefer `lambda.min` here, since the downstream conformal
-step adds its own regularization.
+[`glmnet`](https://CRAN.R-project.org/package=glmnet) elastic-net
+regression contributes a regularized linear error model. `alpha`
+controls whether shrinkage behaves more like ridge or lasso, while
+`lambda_rule` controls the penalty chosen by inner cross-validation.
+
+Elastic-net is typically the strongest linear member for uncertainty
+because it balances stability and selective shrinkage. Lower `alpha`
+values protect against coefficient churn in correlated feature blocks,
+while higher values can sharpen signal when benchmark tables are wide
+and noisy.
+
+💻 Default configuration for glm_elastic
+
+YAML R list
+
+``` yaml
+method: glm_elastic
+method_settings:
+  glm_elastic:
+    standardize: true
+    type_measure: mae
+    alpha: 0.25
+```
+
+``` r
+list(
+  method = "glm_elastic",
+  method_settings = list(
+    glm_elastic = list(
+      standardize = TRUE,
+      type_measure = "mae",
+      alpha = 0.25
+    )
+  )
+)
+```
 
 `gam`
 
 `mgcv`, one smooth per benchmark feature, with `fit_method = "REML"`,
 `select_terms = TRUE` (an uninformative smooth can be shrunk to zero).
 
+GAM is the smooth nonlinear correction option for error surfaces that
+are not well captured by linear trend terms. REML is selected for stable
+smoothness estimation, and term-selection shrinkage keeps weak smooths
+from inflating variance in stacked settings.
+
+💻 Default configuration for gam
+
+YAML R list
+
+``` yaml
+method: gam
+method_settings:
+  gam:
+    fit_method: REML
+    select_terms: true
+```
+
+``` r
+list(
+  method = "gam",
+  method_settings = list(
+    gam = list(
+      fit_method = "REML",
+      select_terms = TRUE
+    )
+  )
+)
+```
+
 `mars`
 
-Requires the `earth` package. Defaults `degree = 2`, `penalty = 3`,
-`pmethod = "backward"`.
+[`earth`](https://CRAN.R-project.org/package=earth) MARS contributes
+hinge-based nonlinearities. `degree` controls additive versus
+interaction hinges, `penalty` controls GCV complexity, `pmethod` chooses
+the pruning strategy, and `nprune` can cap retained terms.
 
-**Watch out:** With many benchmark features, `degree = 2` can overfit a
-small benchmark table, so drop to `degree = 1` if the backward pass
-retains spurious terms.
+💻 Default configuration for mars
+
+YAML R list
+
+``` yaml
+method: mars
+method_settings:
+  mars:
+    degree: 2
+    penalty: 3
+    nprune: null
+    pmethod: backward
+```
+
+``` r
+list(
+  method = "mars",
+  method_settings = list(
+    mars = list(
+      degree = 2,
+      penalty = 3,
+      nprune = NULL,
+      pmethod = "backward"
+    )
+  )
+)
+```
+
+With many benchmark features, `degree = 2` can overfit a small benchmark
+table. Drop to `degree = 1` if the backward pass retains spurious hinge
+terms or Sentinel shows unstable interval calibration.
+
+💻 MARS (additive)
+
+YAML R list
+
+``` yaml
+uncertainty:
+  method_settings:
+    mars:
+      degree: 1
+      penalty: 3
+      pmethod: backward
+```
+
+``` r
+list(
+  uncertainty = list(
+    method_settings = list(
+      mars = list(degree = 1, penalty = 3, pmethod = "backward")
+    )
+  )
+)
+```
 
 `rpart`
 
-Single tree. Defaults `cp = 0.01`, `minsplit = 20`, `minbucket = 7`,
-`maxdepth = 30`. A diagnostic stratifier. Substantial weight signals
-error concentrated in specific strata.
+[`rpart`](https://CRAN.R-project.org/package=rpart) contributes a single
+diagnostic tree. `cp`, `minsplit`, `minbucket`, and `maxdepth` determine
+how aggressively the tree splits the benchmark feature space.
+
+This tree is included for interpretable stratification of error regimes.
+The complexity parameters are intentionally explicit so you can control
+whether the model acts as a coarse rule extractor or a deeper
+partitioner.
+
+💻 Default configuration for rpart
+
+YAML R list
+
+``` yaml
+method: rpart
+method_settings:
+  rpart:
+    cp: 0.01
+    minsplit: 20
+    minbucket: 7
+    maxdepth: 30
+```
+
+``` r
+list(
+  method = "rpart",
+  method_settings = list(
+    rpart = list(
+      cp = 0.01,
+      minsplit = 20,
+      minbucket = 7,
+      maxdepth = 30
+    )
+  )
+)
+```
 
 `rf`
 
-`ranger` with defaults `num_trees = 500`, `min_node_size = 5`,
-`sample_fraction = 1`.
+[`ranger`](https://CRAN.R-project.org/package=ranger) contributes
+nonlinear mean-regression structure. `num_trees` controls ensemble size,
+`min_node_size` controls terminal-node smoothness, and
+`sample_fraction`/`replace` control row sampling.
 
-**Watch out:** Mean-regression forest. It targets the expected error,
-not the tail. Always pair it with `qreg` or `qrf`.
+💻 Default configuration for rf
+
+YAML R list
+
+``` yaml
+method: rf
+method_settings:
+  rf:
+    num_trees: 500
+    mtry: null
+    min_node_size: 5
+    max_depth: null
+    sample_fraction: 1
+    replace: true
+    respect_unordered_factors: order
+```
+
+``` r
+list(
+  method = "rf",
+  method_settings = list(
+    rf = list(
+      num_trees = 500,
+      mtry = NULL,
+      min_node_size = 5,
+      max_depth = NULL,
+      sample_fraction = 1,
+      replace = TRUE,
+      respect_unordered_factors = "order"
+    )
+  )
+)
+```
+
+`rf` is a mean-regression forest. It targets expected error, not the
+upper tail that determines interval width. In a stacked uncertainty
+learner, pair it with `qreg` or `qrf` so the library contains both
+central and tail behavior.
+
+💻 Tail-focused ensemble
+
+YAML R list
+
+``` yaml
+uncertainty:
+  method: super_learner
+  super_methods: [glm, rf, qreg, qrf]
+  method_settings:
+    qreg:
+      tau: 0.90
+    qrf:
+      quantile: 0.90
+```
+
+``` r
+list(
+  uncertainty = list(
+    method = "super_learner",
+    super_methods = c("glm", "rf", "qreg", "qrf"),
+    method_settings = list(
+      qreg = list(tau = 0.90),
+      qrf = list(quantile = 0.90)
+    )
+  )
+)
+```
 
 `xgboost`
 
-Defaults `nrounds = 100`, `eta = 0.30`, `max_depth = 6`,
-`min_child_weight = 1`, `lambda = 1`. Use the `conservative` variant
-(`eta = 0.05`, `max_depth = 3`, `min_child_weight = 5`, `lambda = 2`)
-because the anchor-policy table is small.
+[`xgboost`](https://CRAN.R-project.org/package=xgboost) contributes
+boosted interactions to the error model. `nrounds` and `eta` control the
+boosting path, `max_depth` and `min_child_weight` control tree
+complexity, and `lambda`/`alpha` add regularization.
+
+The defaults are conservative on purpose because uncertainty training
+sets are often smaller than they look after splitting. Use this when
+interaction signal is real and data support is sufficient; otherwise
+reduce learning rate and increase child-weight before deciding to remove
+the method.
+
+💻 Default configuration for xgboost
+
+YAML R list
+
+``` yaml
+method: xgboost
+method_settings:
+  xgboost:
+    nrounds: 100
+    eta: 0.3
+    max_depth: 6
+    min_child_weight: 1
+    subsample: 1
+    colsample_bytree: 1
+    lambda: 1
+    alpha: 0
+    nthread: 1
+```
+
+``` r
+list(
+  method = "xgboost",
+  method_settings = list(
+    xgboost = list(
+      nrounds = 100,
+      eta = 0.3,
+      max_depth = 6,
+      min_child_weight = 1,
+      subsample = 1,
+      colsample_bytree = 1,
+      lambda = 1,
+      alpha = 0,
+      nthread = 1
+    )
+  )
+)
+```
 
 `bart`
 
@@ -372,16 +1200,156 @@ because the anchor-policy table is small.
 `min_samples_leaf = 5`, `max_depth = 10`. Sampler `num_gfr = 0`,
 `num_burnin = 100`, `num_mcmc = 200`. Requires the `stochtree` package.
 
+This full BART setup is the posterior-focused nonlinear member. Prior
+controls regularize tree growth, while burn-in and MCMC draws provide
+stable posterior summaries useful for uncertainty-aware calibration
+rather than just point prediction.
+
+💻 Default configuration for bart
+
+YAML R list
+
+``` yaml
+method: bart
+method_settings:
+  bart:
+    num_trees: 75
+    alpha: 0.95
+    beta: 2
+    min_samples_leaf: 5
+    max_depth: 10
+    keep_gfr: true
+    num_gfr: 0
+    num_burnin: 100
+    num_mcmc: 200
+    variance_forest: false
+    random_effects: false
+```
+
+``` r
+list(
+  method = "bart",
+  method_settings = list(
+    bart = list(
+      num_trees = 75,
+      alpha = 0.95,
+      beta = 2,
+      min_samples_leaf = 5,
+      max_depth = 10,
+      keep_gfr = TRUE,
+      num_gfr = 0,
+      num_burnin = 100,
+      num_mcmc = 200,
+      variance_forest = FALSE,
+      random_effects = FALSE
+    )
+  )
+)
+```
+
 `xbart`
 
 Accelerated BART: sampler `num_gfr = 40`, `num_mcmc = 0` (grow-from-root
 only, `keep_gfr = TRUE`). Point estimate only, so pair with `qreg`/`qrf`
 for the tail.
 
+This is the speed-first BART variant. Grow-from-root proposals discover
+structure quickly, but skipping MCMC means no posterior uncertainty
+propagation; keep quantile learners in the stack to retain tail coverage
+behavior.
+
+💻 Default configuration for xbart
+
+YAML R list
+
+``` yaml
+method: xbart
+method_settings:
+  xbart:
+    num_trees: 75
+    alpha: 0.95
+    beta: 2
+    min_samples_leaf: 5
+    max_depth: 10
+    keep_gfr: true
+    num_gfr: 40
+    num_burnin: 0
+    num_mcmc: 0
+    variance_forest: false
+    random_effects: false
+```
+
+``` r
+list(
+  method = "xbart",
+  method_settings = list(
+    xbart = list(
+      num_trees = 75,
+      alpha = 0.95,
+      beta = 2,
+      min_samples_leaf = 5,
+      max_depth = 10,
+      keep_gfr = TRUE,
+      num_gfr = 40,
+      num_burnin = 0,
+      num_mcmc = 0,
+      variance_forest = FALSE,
+      random_effects = FALSE
+    )
+  )
+)
+```
+
 `wsbart`
 
 Warm-start BART: sampler `num_gfr = 20`, `num_mcmc = 200`. Shares the
 BART priors above.
+
+Warm-start BART balances runtime and posterior quality by using fast
+initialization before full sampling. It is often a pragmatic choice when
+full `bart` is too slow but deterministic `xbart` is too narrow.
+
+💻 Default configuration for wsbart
+
+YAML R list
+
+``` yaml
+method: wsbart
+method_settings:
+  wsbart:
+    num_trees: 75
+    alpha: 0.95
+    beta: 2
+    min_samples_leaf: 5
+    max_depth: 10
+    keep_gfr: true
+    num_gfr: 20
+    num_burnin: 0
+    num_mcmc: 200
+    variance_forest: false
+    random_effects: false
+```
+
+``` r
+list(
+  method = "wsbart",
+  method_settings = list(
+    wsbart = list(
+      num_trees = 75,
+      alpha = 0.95,
+      beta = 2,
+      min_samples_leaf = 5,
+      max_depth = 10,
+      keep_gfr = TRUE,
+      num_gfr = 20,
+      num_burnin = 0,
+      num_mcmc = 200,
+      variance_forest = FALSE,
+      random_effects = FALSE
+    )
+  )
+)
+```
 
 `vfbart`
 
@@ -390,27 +1358,239 @@ Heteroskedastic BART: `variance_forest = TRUE`,
 `num_mcmc = 200`. The most natural BART variant here, since error
 magnitude is explicitly non-constant.
 
+This parameterization explicitly learns both mean and variance
+structure, which aligns with interval-width modeling. The
+variance-forest size should be kept moderate unless you have large
+anchor-policy tables, since over-parameterized variance forests can
+become unstable.
+
+💻 Default configuration for vfbart
+
+YAML R list
+
+``` yaml
+method: vfbart
+method_settings:
+  vfbart:
+    num_trees: 75
+    alpha: 0.95
+    beta: 2
+    min_samples_leaf: 5
+    max_depth: 10
+    keep_gfr: true
+    num_gfr: 0
+    num_burnin: 100
+    num_mcmc: 200
+    variance_forest: true
+    variance_forest_num_trees: 50
+    random_effects: false
+```
+
+``` r
+list(
+  method = "vfbart",
+  method_settings = list(
+    vfbart = list(
+      num_trees = 75,
+      alpha = 0.95,
+      beta = 2,
+      min_samples_leaf = 5,
+      max_depth = 10,
+      keep_gfr = TRUE,
+      num_gfr = 0,
+      num_burnin = 100,
+      num_mcmc = 200,
+      variance_forest = TRUE,
+      variance_forest_num_trees = 50,
+      random_effects = FALSE
+    )
+  )
+)
+```
+
 `rebart`
 
-BART with a group random effect: `random_effects = TRUE`, group set via
-`method_settings.bart.random_effects_group` (default `.split_group`).
-Absorbs systematic per-species error.
+[`stochtree`](https://CRAN.R-project.org/package=stochtree) BART with a
+group random effect absorbs systematic per-species error.
+`random_effects_group` names the grouping column used for the additive
+random effect.
+
+Use `rebart` when group-level offsets remain after fixed-feature
+modeling. The grouping field determines how partial pooling happens, so
+this parameter should reflect biologically meaningful hierarchy with
+enough observations per level.
+
+If species-level groups are too sparse, move to a coarser grouping
+variable and keep split-safe random effects explicit.
+
+💻 ReBART with coarser grouping
+
+YAML R list
+
+``` yaml
+uncertainty:
+  method: rebart
+  group_col: genus
+  method_settings:
+    rebart:
+      random_effects_group: .split_group
+      num_burnin: 100
+      num_mcmc: 200
+```
+
+``` r
+list(
+  uncertainty = list(
+    method = "rebart",
+    group_col = "genus",
+    method_settings = list(
+      rebart = list(
+        random_effects_group = ".split_group",
+        num_burnin = 100,
+        num_mcmc = 200
+      )
+    )
+  )
+)
+```
+
+💻 Default configuration for rebart
+
+YAML R list
+
+``` yaml
+method: rebart
+method_settings:
+  rebart:
+    num_trees: 75
+    alpha: 0.95
+    beta: 2
+    min_samples_leaf: 5
+    max_depth: 10
+    keep_gfr: true
+    num_gfr: 0
+    num_burnin: 100
+    num_mcmc: 200
+    variance_forest: false
+    random_effects: true
+    random_effects_group: .split_group
+```
+
+``` r
+list(
+  method = "rebart",
+  method_settings = list(
+    rebart = list(
+      num_trees = 75,
+      alpha = 0.95,
+      beta = 2,
+      min_samples_leaf = 5,
+      max_depth = 10,
+      keep_gfr = TRUE,
+      num_gfr = 0,
+      num_burnin = 100,
+      num_mcmc = 200,
+      variance_forest = FALSE,
+      random_effects = TRUE,
+      random_effects_group = ".split_group"
+    )
+  )
+)
+```
 
 `qreg`
 
-`quantreg`, `fit_method = "fn"`. The default `tau = 0.50` is median
-regression. Use the `q75`/`q90` variants (`tau = 0.75`/`0.90`) to model
-the upper tail that sets interval width.
+[`quantreg`](https://CRAN.R-project.org/package=quantreg) contributes a
+linear conditional quantile to interval-width learning. `tau` chooses
+the target quantile: values above 0.5 target upper-tail error, which is
+useful when conformal intervals are under-wide in high-error regions.
+`fit_method` selects the solver.
 
-**Watch out:** Numerically unstable with very few rows. With fewer than
-~100 anchor-policy pairs, drop `qreg` and rely on `rf` and
-`glm_elastic`.
+💻 Default configuration for qreg
+
+YAML R list
+
+``` yaml
+method: qreg
+method_settings:
+  qreg:
+    tau: 0.5
+    fit_method: fn
+```
+
+``` r
+list(
+  method = "qreg",
+  method_settings = list(
+    qreg = list(
+      tau = 0.5,
+      fit_method = "fn"
+    )
+  )
+)
+```
+
+Quantile regression is numerically unstable with very few rows. With
+fewer than about 100 anchor-policy pairs, this is not a parameter-tuning
+problem; remove `qreg` from the uncertainty learner library.
+
+Adding `qreg` and `qrf` alongside mean-regression methods gives the NNLS
+combiner access to upper-tail predictions. Because prediction intervals
+are set at the upper tail of the error distribution, these quantile
+learners often receive substantial weight and meaningfully reduce
+coverage error.
 
 `qrf`
 
-`ranger` with `quantreg = TRUE` with defaults `num_trees = 500`,
-`min_node_size = 10`, `quantile = 0.9`. Adjust `quantile` if your target
-coverage differs from 90%.
+[`ranger`](https://CRAN.R-project.org/package=ranger) quantile
+regression forest contributes a nonlinear conditional quantile.
+`quantile` sets the tail target, while the forest controls have the same
+role as in `rf`.
+
+This is the nonlinear tail learner for uncertainty. Set `quantile` to
+the operational risk level you care about and keep at least one
+mean-regression learner in the stack so the combiner can balance center
+and tail behavior.
+
+💻 Default configuration for qrf
+
+YAML R list
+
+``` yaml
+method: qrf
+method_settings:
+  qrf:
+    num_trees: 500
+    mtry: null
+    min_node_size: 10
+    max_depth: null
+    sample_fraction: 1
+    replace: true
+    quantile: 0.9
+```
+
+``` r
+list(
+  method = "qrf",
+  method_settings = list(
+    qrf = list(
+      num_trees = 500,
+      mtry = NULL,
+      min_node_size = 10,
+      max_depth = NULL,
+      sample_fraction = 1,
+      replace = TRUE,
+      quantile = 0.9
+    )
+  )
+)
+```
+
+Adding `qreg` and `qrf` alongside mean-regression methods gives the NNLS
+combiner access to upper-tail predictions. Because prediction intervals
+are set at the upper tail of the error distribution, these quantile
+learners often receive substantial weight and meaningfully reduce
+coverage error.
 
 `gpr`
 
@@ -418,36 +1598,253 @@ coverage differs from 90%.
 (RBF). Kernel width estimated automatically, `var = 0.001` noise nugget.
 Computationally $`O(N^3)`$. Avoid in very large training sets.
 
-**Watch out:** Can fail or degenerate when features are nearly
-collinear. Raise `method_settings.gpr.var` if you see fitting warnings.
+💻 Default configuration for gpr
+
+YAML R list
+
+``` yaml
+method: gpr
+method_settings:
+  gpr:
+    var: 0.001
+```
+
+``` r
+list(
+  method = "gpr",
+  method_settings = list(
+    gpr = list(
+      var = 0.001
+    )
+  )
+)
+```
+
+Gaussian-process fits can fail or degenerate when features are nearly
+collinear. Raise the GPR nugget if `kernlab` emits fitting warnings or
+the learner produces nearly constant predictions.
+
+💻 Gaussian process nugget
+
+YAML R list
+
+``` yaml
+uncertainty:
+  method_settings:
+    gpr:
+      var: 0.01
+```
+
+``` r
+list(
+  uncertainty = list(
+    method_settings = list(
+      gpr = list(var = 0.01)
+    )
+  )
+)
+```
 
 `svr`
 
-[`kernlab::ksvm`](https://rdrr.io/pkg/kernlab/man/ksvm.html) (eps-SVR,
-RBF) with defaults `C = 1`, `epsilon = 0.1`, kernel width auto. Provides
-no probabilistic prediction.
+[`kernlab::ksvm`](https://CRAN.R-project.org/package=kernlab)
+contributes global RBF-kernel regression. `C` controls the penalty for
+errors outside the tube, `epsilon` controls tube width, and the kernel
+width is estimated automatically.
+
+SVR adds a smooth kernel alternative with a different bias profile than
+trees. `C` controls fit aggressiveness, `epsilon` controls tolerance to
+small residual noise, and the automatic kernel width is usually a stable
+starting point unless diagnostics show systematic underfit.
+
+💻 Default configuration for svr
+
+YAML R list
+
+``` yaml
+method: svr
+method_settings:
+  svr:
+    C: 1
+    epsilon: 0.1
+```
+
+``` r
+list(
+  method = "svr",
+  method_settings = list(
+    svr = list(
+      C = 1,
+      epsilon = 0.1
+    )
+  )
+)
+```
 
 `knn`
 
-[`FNN::knn.reg`](https://rdrr.io/pkg/FNN/man/knn.reg.html) on the
-standardized feature matrix with default `k = 10`. Purely local. Does
-not extrapolate beyond observed cases.
+[`FNN::knn.reg`](https://CRAN.R-project.org/package=FNN) contributes a
+local nonparametric smoother. `k` controls how many neighboring training
+cases define each prediction; it cannot extrapolate beyond observed
+cases.
+
+KNN is valuable when uncertainty structure is local and patchy. `k` is
+the full regularization dial: smaller values fit local pockets, larger
+values smooth toward global behavior. Because it does not extrapolate,
+keep global members in the same ensemble.
+
+💻 Default configuration for knn
+
+YAML R list
+
+``` yaml
+method: knn
+method_settings:
+  knn:
+    k: 10
+```
+
+``` r
+list(
+  method = "knn",
+  method_settings = list(
+    knn = list(
+      k = 10
+    )
+  )
+)
+```
 
 `cubist`
 
-Requires the `Cubist` package with defaults `committees = 1`,
-`neighbors = 0` (`neighbors` up to 9 adds an instance-based correction
-at prediction time).
+[`Cubist`](https://CRAN.R-project.org/package=Cubist) contributes
+rule-based piecewise-linear regression. `committees` controls
+boosting-style iterations, and `neighbors` adds an instance-based
+correction at prediction time.
+
+Cubist is a high-interpretability nonlinear option: rules partition the
+benchmark space and local linear fits explain within-rule trends.
+`committees` increases ensemble strength; `neighbors` improves local
+correction around rule boundaries.
+
+💻 Default configuration for cubist
+
+YAML R list
+
+``` yaml
+method: cubist
+method_settings:
+  cubist:
+    committees: 1
+    neighbors: 0
+```
+
+``` r
+list(
+  method = "cubist",
+  method_settings = list(
+    cubist = list(
+      committees = 1,
+      neighbors = 0
+    )
+  )
+)
+```
 
 `lmm`
 
 `lme4`, `fit_method = "REML"`, `random_intercept = ".split_group"`.
 Requires the `lme4` package and a populated `group_col`.
 
+This LMM parameterization captures group-level baseline error shifts
+while preserving split safety during cross-fitting. `.split_group`
+references the preprocessed grouping column derived from `group_col`,
+and REML is used by default for stable variance-component estimation.
+
+If random-effect variance collapses or singular-fit warnings appear,
+coarsen `group_col` and compare `ML` against `REML`.
+
+💻 LMM with coarser grouping
+
+YAML R list
+
+``` yaml
+uncertainty:
+  method: lmm
+  group_col: genus
+  method_settings:
+    lmm:
+      fit_method: ML
+      random_intercept: .split_group
+```
+
+``` r
+list(
+  uncertainty = list(
+    method = "lmm",
+    group_col = "genus",
+    method_settings = list(
+      lmm = list(
+        fit_method = "ML",
+        random_intercept = ".split_group"
+      )
+    )
+  )
+)
+```
+
+💻 Default configuration for lmm
+
+YAML R list
+
+``` yaml
+method: lmm
+method_settings:
+  lmm:
+    fit_method: REML
+    random_intercept: .split_group
+```
+
+``` r
+list(
+  method = "lmm",
+  method_settings = list(
+    lmm = list(
+      fit_method = "REML",
+      random_intercept = ".split_group"
+    )
+  )
+)
+```
+
 `mean`
 
 Grand-mean baseline. No hyperparameters. Meaningful NNLS weight is a
 warning that the benchmark features are uninformative.
+
+Treat this as a diagnostic floor. If `mean` takes weight in the stack,
+feature-conditional uncertainty signal is weak for the current benchmark
+table and calibration is being driven by marginal spread rather than
+covariate structure.
+
+💻 Default configuration for mean
+
+YAML R list
+
+``` yaml
+method: mean
+method_settings:
+  mean: {}
+```
+
+``` r
+list(
+  method = "mean",
+  method_settings = list(
+    mean = list()
+  )
+)
+```
 
 `super_learner`
 
@@ -455,9 +1852,34 @@ Nested stacking: set the base library in `super_methods` and the
 nested-fit count in `inner_folds`. The NNLS combiner weights the base
 learners from their inner out-of-fold predictions.
 
+This controls how uncertainty-stage ensembles are blended.
+`super_methods` should be intentionally diverse (linear, nonlinear, and
+tail-aware members), and `inner_folds` sets the stability/compute
+tradeoff for the blending targets.
+
+💻 Default configuration for super_learner
+
+YAML R list
+
+``` yaml
+method: super_learner
+super_methods: null
+inner_folds: 5
+metalearner_loss: squared_error
+```
+
+``` r
+list(
+  method = "super_learner",
+  super_methods = NULL,
+  inner_folds = 5,
+  metalearner_loss = "squared_error"
+)
+```
+
 ------------------------------------------------------------------------
 
-## Learner 3: Selection / PolicyLearner (`selection`)
+## Policy scoring and selection
 
 **What it learns.** A cross-fitted meta-learner that predicts
 transfer-error rank for each policy, given the context of the target
@@ -499,7 +1921,7 @@ Bayesian additive trees
 | Accelerated BART | `xbart` | Grow-from-root only (`num_mcmc = 0`). Fastest BART variant with no MCMC burn-in. Produces a deterministic point estimate of policy scores. Good when training speed is the bottleneck and posterior uncertainty is not needed here. | No posterior uncertainty quantification. May underperform full `bart` in distinguishing closely ranked policies. Best used alongside members that provide richer uncertainty information. |
 | Warm-start BART | `wsbart` | Grow-from-root initialization followed by full MCMC. Reaches posterior convergence faster than pure `bart` for the same draw budget. A practical middle ground between `xbart` speed and `bart` full posterior quality. | Still requires MCMC. Slower than `xbart`. Both the grow-from-root and MCMC draw budgets must be configured. Improvement over plain `bart` can be marginal. |
 | Variance-forest BART | `vfbart` | Heteroskedastic BART with a separate variance forest. Models non-constant variance in policy scores across the covariate space, adding a conditional variance prediction. Useful when score dispersion varies systematically with context (e.g. high variance only for sparsely supported species). | Most complex and expensive BART variant. Requires `variance_forest_num_trees` tuning. Can overfit the variance surface with few anchor species. |
-| Random-effects BART | `rebart` | BART with an additive species-level random effect (lmm-style): absorbs baseline per-species variation in policy performance, combined with BART’s nonlinear mean model. Set the group via `method_settings.bart.random_effects_group`. | Requires `random_effects_group` to be set. Joint estimation of random effects and tree ensemble is slower than standalone `bart`. Unreliable with very few anchor species per group. |
+| Random-effects BART | `rebart` | BART with an additive species-level random effect (lmm-style): absorbs baseline per-species variation in policy performance, combined with BART’s nonlinear mean model. Set the group via `method_settings.rebart.random_effects_group`. | Requires `random_effects_group` to be set. Joint estimation of random effects and tree ensemble is slower than standalone `bart`. Unreliable with very few anchor species per group. |
 
 Conditional quantile
 
@@ -537,6 +1959,10 @@ Baseline and ensemble
 
 **Recommended default for most analyses**
 
+💻 Default selection learner configuration
+
+YAML R list
+
 ``` yaml
 selection:
   method: glm
@@ -544,6 +1970,18 @@ selection:
   inner_folds: 5
   outcome_transform: log1p
   lambda_rule: lambda.1se
+```
+
+``` r
+list(
+  selection = list(
+    method = "glm",
+    n_folds = 5,
+    inner_folds = 5,
+    outcome_transform = "log1p",
+    lambda_rule = "lambda.1se"
+  )
+)
 ```
 
 A regularized GLM is the right starting point. The policy meta-learner
@@ -555,13 +1993,17 @@ substantial gains in holdout performance.
 
 Switch to `method: super_learner` when:
 
-- You have many anchors (≥ 30–40 species across diverse ecological
+- You have many anchors (≥ 30-40 species across diverse ecological
   contexts).
 - Your benchmark shows evidence that policy performance varies
   nonlinearly with target covariates (inspect `plot(learner)` for
   feature-importance diagnostics).
 - Outer-fold holdout validation (Sentinel) shows that the GLM is
   consistently selecting the wrong policy family.
+
+💻 Super Learner ensemble
+
+YAML R list
 
 ``` yaml
 selection:
@@ -571,11 +2013,22 @@ selection:
   inner_folds: 5
 ```
 
-For the selection learner, a 3-4 method library
-(e.g. `[glm, glm_elastic, rf, mars]`) usually out-performs a large
-library. Adding many similar methods (multiple XGBoost variants,
-multiple RF variants) without diversity rarely improves the NNLS
-combiner and inflates cross-fitting time.
+``` r
+list(
+  selection = list(
+    method = "super_learner",
+    super_methods = c("glm", "glm_elastic", "rf", "mars"),
+    n_folds = 5,
+    inner_folds = 5
+  )
+)
+```
+
+For the selection learner, a 3-4 method library (e.g.,
+`[glm, glm_elastic, rf, mars]`) usually out-performs a large library.
+Adding many similar methods from the same function class without
+diversity rarely improves the NNLS combiner and inflates cross-fitting
+time.
 
 Set `outcome_clip_quantile` to 0.95-0.99 (default 0.99). A handful of
 extreme benchmark errors can dominate the learner target and prevent the
@@ -590,41 +2043,277 @@ Unpenalized OLS. No hyperparameters. The recommended starting point. If
 learner residuals show a clear pattern against outcome quantiles, move
 to a richer family.
 
+For policy selection this is the most stable reference model in small
+benchmark tables. It gives an interpretable baseline ranking surface and
+prevents the ensemble from relying only on high-variance nonlinear
+members.
+
+💻 Default configuration for glm
+
+YAML R list
+
+``` yaml
+method: glm
+method_settings:
+  glm: {}
+```
+
+``` r
+list(
+  method = "glm",
+  method_settings = list(
+    glm = list()
+  )
+)
+```
+
 `glm_ridge`
 
 `glmnet` with `alpha = 0` (pure L2). `lambda` by inner CV
 (`lambda_rule`). Features standardized, CV loss MAE.
+
+Ridge is appropriate when context features are correlated and
+policy-score labels are noisy. It reduces variance without hard
+exclusion, which usually improves fold-to-fold ranking stability in the
+selection stage.
+
+💻 Default configuration for glm_ridge
+
+YAML R list
+
+``` yaml
+method: glm_ridge
+method_settings:
+  glm_ridge:
+    standardize: true
+    type_measure: mae
+    alpha: 0
+```
+
+``` r
+list(
+  method = "glm_ridge",
+  method_settings = list(
+    glm_ridge = list(
+      standardize = TRUE,
+      type_measure = "mae",
+      alpha = 0
+    )
+  )
+)
+```
 
 `glm_lasso`
 
 `glmnet` with `alpha = 1` (pure L1). `lambda` by inner CV. Picks
 arbitrarily among correlated context features, so prefer `glm_elastic`.
 
+Use this when sparse ranking rules are a priority. It is informative for
+feature triage, but the hard selection behavior can be unstable when
+context covariates are correlated.
+
+💻 Default configuration for glm_lasso
+
+YAML R list
+
+``` yaml
+method: glm_lasso
+method_settings:
+  glm_lasso:
+    standardize: true
+    type_measure: mae
+    alpha: 1
+```
+
+``` r
+list(
+  method = "glm_lasso",
+  method_settings = list(
+    glm_lasso = list(
+      standardize = TRUE,
+      type_measure = "mae",
+      alpha = 1
+    )
+  )
+)
+```
+
 `glm_elastic`
 
-`glmnet` with configurable `alpha` (default `0.25`). `lambda` by
-`lambda_rule` (default `lambda.1se` for selection). Shrinks irrelevant
-policy-context features toward zero.
+[`glmnet`](https://CRAN.R-project.org/package=glmnet) elastic-net
+regression contributes a stable linear policy-score model. `alpha`
+controls the ridge-to-lasso mix, and `lambda_rule` controls how
+conservative the cross-validated penalty is.
+
+This is typically the best linear selection learner because it
+stabilizes correlated feature blocks while preserving selective
+shrinkage. Tune `alpha` upward if the model is too diffuse, and adjust
+`lambda_rule` based on whether stability or aggressiveness is the
+current bottleneck.
+
+💻 Default configuration for glm_elastic
+
+YAML R list
+
+``` yaml
+method: glm_elastic
+method_settings:
+  glm_elastic:
+    standardize: true
+    type_measure: mae
+    alpha: 0.25
+```
+
+``` r
+list(
+  method = "glm_elastic",
+  method_settings = list(
+    glm_elastic = list(
+      standardize = TRUE,
+      type_measure = "mae",
+      alpha = 0.25
+    )
+  )
+)
+```
 
 `gam`
 
 `mgcv`, one smooth per context feature, with `fit_method = "REML"`,
 `select_terms = TRUE`.
 
+GAM captures smooth nonlinear policy-performance trends while remaining
+interpretable by feature. REML stabilizes smoothness estimation, and
+term-selection shrinkage keeps weak smooth terms from inflating variance
+in moderate-size benchmark tables.
+
+💻 Default configuration for gam
+
+YAML R list
+
+``` yaml
+method: gam
+method_settings:
+  gam:
+    fit_method: REML
+    select_terms: true
+```
+
+``` r
+list(
+  method = "gam",
+  method_settings = list(
+    gam = list(
+      fit_method = "REML",
+      select_terms = TRUE
+    )
+  )
+)
+```
+
 `mars`
 
-Requires the `earth` package. Defaults `degree = 2`, `penalty = 3`,
-`pmethod = "backward"`.
+[`earth`](https://CRAN.R-project.org/package=earth) MARS contributes
+hinge-based nonlinearities. `degree` controls additive versus
+interaction hinges, `penalty` controls GCV complexity, `pmethod` chooses
+the pruning strategy, and `nprune` can cap retained terms.
 
-**Watch out:** In the selection learner keep `degree = 1` (additive
-hinges only) unless you have many anchors. `degree = 2` is highly
-unstable with fewer than ~20 species.
+💻 Default configuration for mars
+
+YAML R list
+
+``` yaml
+method: mars
+method_settings:
+  mars:
+    degree: 2
+    penalty: 3
+    nprune: null
+    pmethod: backward
+```
+
+``` r
+list(
+  method = "mars",
+  method_settings = list(
+    mars = list(
+      degree = 2,
+      penalty = 3,
+      nprune = NULL,
+      pmethod = "backward"
+    )
+  )
+)
+```
+
+In the selection learner, keep `degree = 1` (additive hinges only)
+unless you have many anchors. `degree = 2` is highly unstable with fewer
+than about 20 species.
+
+💻 Adding MARS to the ensemble
+
+YAML R list
+
+``` yaml
+selection:
+  method: super_learner
+  super_methods: [glm, glm_elastic, mars]
+  method_settings:
+    mars:
+      degree: 1
+      penalty: 3
+      pmethod: backward
+```
+
+``` r
+list(
+  selection = list(
+    method = "super_learner",
+    super_methods = c("glm", "glm_elastic", "mars"),
+    method_settings = list(
+      mars = list(degree = 1, penalty = 3, pmethod = "backward")
+    )
+  )
+)
+```
 
 `rpart`
 
-Single tree. Defaults `cp = 0.01`, `minsplit = 20`, `minbucket = 7`,
-`maxdepth = 30`. Yields an interpretable selection rule, mostly
-diagnostic.
+[`rpart`](https://CRAN.R-project.org/package=rpart) contributes a single
+interpretable policy-selection tree. `cp`, `minsplit`, `minbucket`, and
+`maxdepth` determine how aggressively it partitions target contexts.
+
+This method is mainly a rule extractor for selection boundaries. Strong
+weight on `rpart` suggests policy ranking is driven by discrete
+thresholds rather than smooth gradients.
+
+💻 Default configuration for rpart
+
+YAML R list
+
+``` yaml
+method: rpart
+method_settings:
+  rpart:
+    cp: 0.01
+    minsplit: 20
+    minbucket: 7
+    maxdepth: 30
+```
+
+``` r
+list(
+  method = "rpart",
+  method_settings = list(
+    rpart = list(
+      cp = 0.01,
+      minsplit = 20,
+      minbucket = 7,
+      maxdepth = 30
+    )
+  )
+)
+```
 
 `rf`
 
@@ -632,16 +2321,99 @@ diagnostic.
 Appropriate at ≥ 30 anchor species; with fewer it overfits and ranks
 policies inconsistently.
 
-**Watch out:** If Sentinel outer folds show high variance in which
-policy is selected, `rf` is unstable. Switch to `glm_elastic` or `mars`
-before tuning hyperparameters.
+The defaults target stable interaction capture when anchor diversity is
+adequate. Below the recommended data support, fold instability in
+selected policies is usually a sample-size issue more than a tuning
+issue.
+
+💻 Default configuration for rf
+
+YAML R list
+
+``` yaml
+method: rf
+method_settings:
+  rf:
+    num_trees: 500
+    mtry: null
+    min_node_size: 5
+    max_depth: null
+    sample_fraction: 1
+    replace: true
+    respect_unordered_factors: order
+```
+
+``` r
+list(
+  method = "rf",
+  method_settings = list(
+    rf = list(
+      num_trees = 500,
+      mtry = NULL,
+      min_node_size = 5,
+      max_depth = NULL,
+      sample_fraction = 1,
+      replace = TRUE,
+      respect_unordered_factors = "order"
+    )
+  )
+)
+```
+
+If Sentinel outer folds show high variance in which policy is selected,
+`rf` is not solving the selection problem for this candidate set. This
+is not a forest hyperparameter issue; remove `rf` from the selection
+library and use a simpler member such as `glm_elastic` or `mars`.
 
 `xgboost`
 
-Defaults `nrounds = 100`, `eta = 0.30`, `max_depth = 6`,
-`min_child_weight = 1`, `lambda = 1`. Reserve for large anchor sets and
-use the `conservative` variant (`eta = 0.05`, `max_depth = 3`,
-`min_child_weight = 5`, `lambda = 2`). The selection table is small.
+[`xgboost`](https://CRAN.R-project.org/package=xgboost) contributes
+boosted policy-context interactions. `nrounds` and `eta` control the
+boosting path, `max_depth` and `min_child_weight` control tree
+complexity, and `lambda`/`alpha` add regularization.
+
+Selection-stage XGBoost should usually start conservative. `eta` and
+`nrounds` are coupled, depth and child-weight govern local partition
+complexity, and regularization terms keep fold-level policy flips from
+becoming unstable noise.
+
+💻 Default configuration for xgboost
+
+YAML R list
+
+``` yaml
+method: xgboost
+method_settings:
+  xgboost:
+    nrounds: 100
+    eta: 0.3
+    max_depth: 6
+    min_child_weight: 1
+    subsample: 1
+    colsample_bytree: 1
+    lambda: 1
+    alpha: 0
+    nthread: 1
+```
+
+``` r
+list(
+  method = "xgboost",
+  method_settings = list(
+    xgboost = list(
+      nrounds = 100,
+      eta = 0.3,
+      max_depth = 6,
+      min_child_weight = 1,
+      subsample = 1,
+      colsample_bytree = 1,
+      lambda = 1,
+      alpha = 0,
+      nthread = 1
+    )
+  )
+)
+```
 
 `bart`
 
@@ -649,15 +2421,154 @@ use the `conservative` variant (`eta = 0.05`, `max_depth = 3`,
 `min_samples_leaf = 5`, `max_depth = 10`. Sampler `num_gfr = 0`,
 `num_burnin = 100`, `num_mcmc = 200`. Requires the `stochtree` package.
 
+Full BART provides posterior-aware nonlinear ranking. Prior settings
+regularize tree growth while MCMC draws quantify uncertainty in
+policy-score differences, which can matter when candidate policies are
+close.
+
+💻 Default configuration for bart
+
+YAML R list
+
+``` yaml
+method: bart
+method_settings:
+  bart:
+    num_trees: 75
+    alpha: 0.95
+    beta: 2
+    min_samples_leaf: 5
+    max_depth: 10
+    keep_gfr: true
+    num_gfr: 0
+    num_burnin: 100
+    num_mcmc: 200
+    variance_forest: false
+    random_effects: false
+```
+
+``` r
+list(
+  method = "bart",
+  method_settings = list(
+    bart = list(
+      num_trees = 75,
+      alpha = 0.95,
+      beta = 2,
+      min_samples_leaf = 5,
+      max_depth = 10,
+      keep_gfr = TRUE,
+      num_gfr = 0,
+      num_burnin = 100,
+      num_mcmc = 200,
+      variance_forest = FALSE,
+      random_effects = FALSE
+    )
+  )
+)
+```
+
 `xbart`
 
 Accelerated BART: sampler `num_gfr = 40`, `num_mcmc = 0` (grow-from-root
 only). Deterministic point estimate of policy scores.
 
+This is the throughput-oriented BART option: fast structure search with
+no posterior sampling. It is useful when runtime dominates and you keep
+other members for robustness.
+
+💻 Default configuration for xbart
+
+YAML R list
+
+``` yaml
+method: xbart
+method_settings:
+  xbart:
+    num_trees: 75
+    alpha: 0.95
+    beta: 2
+    min_samples_leaf: 5
+    max_depth: 10
+    keep_gfr: true
+    num_gfr: 40
+    num_burnin: 0
+    num_mcmc: 0
+    variance_forest: false
+    random_effects: false
+```
+
+``` r
+list(
+  method = "xbart",
+  method_settings = list(
+    xbart = list(
+      num_trees = 75,
+      alpha = 0.95,
+      beta = 2,
+      min_samples_leaf = 5,
+      max_depth = 10,
+      keep_gfr = TRUE,
+      num_gfr = 40,
+      num_burnin = 0,
+      num_mcmc = 0,
+      variance_forest = FALSE,
+      random_effects = FALSE
+    )
+  )
+)
+```
+
 `wsbart`
 
 Warm-start BART: sampler `num_gfr = 20`, `num_mcmc = 200`. Shares the
 BART priors above.
+
+Warm-start BART keeps posterior inference while reducing startup cost
+through grow-from-root initialization. It is often a practical
+compromise between `bart` and `xbart`.
+
+💻 Default configuration for wsbart
+
+YAML R list
+
+``` yaml
+method: wsbart
+method_settings:
+  wsbart:
+    num_trees: 75
+    alpha: 0.95
+    beta: 2
+    min_samples_leaf: 5
+    max_depth: 10
+    keep_gfr: true
+    num_gfr: 20
+    num_burnin: 0
+    num_mcmc: 200
+    variance_forest: false
+    random_effects: false
+```
+
+``` r
+list(
+  method = "wsbart",
+  method_settings = list(
+    wsbart = list(
+      num_trees = 75,
+      alpha = 0.95,
+      beta = 2,
+      min_samples_leaf = 5,
+      max_depth = 10,
+      keep_gfr = TRUE,
+      num_gfr = 20,
+      num_burnin = 0,
+      num_mcmc = 200,
+      variance_forest = FALSE,
+      random_effects = FALSE
+    )
+  )
+)
+```
 
 `vfbart`
 
@@ -666,23 +2577,190 @@ Heteroskedastic BART: `variance_forest = TRUE`,
 `num_mcmc = 200`. Use only when policy-score dispersion clearly varies
 with context.
 
+Use this only when heteroskedasticity is real and data are sufficient;
+you are fitting both mean and variance structure. Keep variance-forest
+complexity moderate unless anchor coverage is large.
+
+💻 Default configuration for vfbart
+
+YAML R list
+
+``` yaml
+method: vfbart
+method_settings:
+  vfbart:
+    num_trees: 75
+    alpha: 0.95
+    beta: 2
+    min_samples_leaf: 5
+    max_depth: 10
+    keep_gfr: true
+    num_gfr: 0
+    num_burnin: 100
+    num_mcmc: 200
+    variance_forest: true
+    variance_forest_num_trees: 50
+    random_effects: false
+```
+
+``` r
+list(
+  method = "vfbart",
+  method_settings = list(
+    vfbart = list(
+      num_trees = 75,
+      alpha = 0.95,
+      beta = 2,
+      min_samples_leaf = 5,
+      max_depth = 10,
+      keep_gfr = TRUE,
+      num_gfr = 0,
+      num_burnin = 100,
+      num_mcmc = 200,
+      variance_forest = TRUE,
+      variance_forest_num_trees = 50,
+      random_effects = FALSE
+    )
+  )
+)
+```
+
 `rebart`
 
-BART with a group random effect: `random_effects = TRUE`, group set via
-`method_settings.bart.random_effects_group` (default `.split_group`).
-Absorbs baseline per-species variation in policy performance.
+[`stochtree`](https://CRAN.R-project.org/package=stochtree) BART with a
+group random effect absorbs baseline per-species variation in policy
+performance. `random_effects_group` names the grouping column used for
+the additive random effect.
+
+This combines nonlinear covariate effects with pooled group offsets,
+which is useful when group identity carries persistent policy signal.
+The group definition should match a biologically meaningful level with
+enough observations per level.
+
+💻 Default configuration for rebart
+
+YAML R list
+
+``` yaml
+method: rebart
+method_settings:
+  rebart:
+    num_trees: 75
+    alpha: 0.95
+    beta: 2
+    min_samples_leaf: 5
+    max_depth: 10
+    keep_gfr: true
+    num_gfr: 0
+    num_burnin: 100
+    num_mcmc: 200
+    variance_forest: false
+    random_effects: true
+    random_effects_group: .split_group
+```
+
+``` r
+list(
+  method = "rebart",
+  method_settings = list(
+    rebart = list(
+      num_trees = 75,
+      alpha = 0.95,
+      beta = 2,
+      min_samples_leaf = 5,
+      max_depth = 10,
+      keep_gfr = TRUE,
+      num_gfr = 0,
+      num_burnin = 100,
+      num_mcmc = 200,
+      variance_forest = FALSE,
+      random_effects = TRUE,
+      random_effects_group = ".split_group"
+    )
+  )
+)
+```
 
 `qreg`
 
-`quantreg`, `fit_method = "fn"`. Default `tau = 0.50`. Use the
-`q75`/`q90` variants for conservative selection targeting the upper tail
-of expected error.
+[`quantreg`](https://CRAN.R-project.org/package=quantreg) contributes a
+linear conditional quantile to policy scoring. `tau` controls the target
+quantile, so values above 0.5 make the fit more pessimistic about
+high-error policy contexts. `fit_method` selects the solver.
+
+Use `qreg` when selection should explicitly account for high-error risk
+rather than average behavior. `tau` is the core risk knob and should be
+set deliberately to match operational tolerance for conservative policy
+picks.
+
+💻 Default configuration for qreg
+
+YAML R list
+
+``` yaml
+method: qreg
+method_settings:
+  qreg:
+    tau: 0.5
+    fit_method: fn
+```
+
+``` r
+list(
+  method = "qreg",
+  method_settings = list(
+    qreg = list(
+      tau = 0.5,
+      fit_method = "fn"
+    )
+  )
+)
+```
 
 `qrf`
 
-`ranger` with `quantreg = TRUE` with defaults `num_trees = 500`,
-`min_node_size = 10`, `quantile = 0.9`. Same ~30-species threshold as
-`rf`.
+[`ranger`](https://CRAN.R-project.org/package=ranger) quantile
+regression forest contributes a nonlinear conditional quantile to policy
+scoring. `quantile` sets the tail target, while the forest controls have
+the same role as in `rf`.
+
+This is the nonlinear risk-sensitive counterpart to linear `qreg`. It is
+most valuable when upper-tail policy risk depends on feature
+interactions rather than additive trends.
+
+💻 Default configuration for qrf
+
+YAML R list
+
+``` yaml
+method: qrf
+method_settings:
+  qrf:
+    num_trees: 500
+    mtry: null
+    min_node_size: 10
+    max_depth: null
+    sample_fraction: 1
+    replace: true
+    quantile: 0.9
+```
+
+``` r
+list(
+  method = "qrf",
+  method_settings = list(
+    qrf = list(
+      num_trees = 500,
+      mtry = NULL,
+      min_node_size = 10,
+      max_depth = NULL,
+      sample_fraction = 1,
+      replace = TRUE,
+      quantile = 0.9
+    )
+  )
+)
+```
 
 `gpr`
 
@@ -691,31 +2769,231 @@ of expected error.
 Well-calibrated in small anchor sets where trees overfit, rarely
 competitive above ~100 species.
 
+GPR is the smooth small-data alternative for selection. The nugget
+controls numerical stability and implicit regularization; increasing it
+is the first response to kernel-conditioning warnings.
+
+💻 Default configuration for gpr
+
+YAML R list
+
+``` yaml
+method: gpr
+method_settings:
+  gpr:
+    var: 0.001
+```
+
+``` r
+list(
+  method = "gpr",
+  method_settings = list(
+    gpr = list(
+      var = 0.001
+    )
+  )
+)
+```
+
 `svr`
 
-[`kernlab::ksvm`](https://rdrr.io/pkg/kernlab/man/ksvm.html) (eps-SVR,
-RBF) with defaults `C = 1`, `epsilon = 0.1`, kernel width auto. No
-probabilistic prediction.
+[`kernlab::ksvm`](https://CRAN.R-project.org/package=kernlab)
+contributes global RBF-kernel regression. `C` controls the penalty for
+errors outside the tube, `epsilon` controls tube width, and the kernel
+width is estimated automatically.
+
+SVR offers a margin-regularized nonlinear ranking function. Tune `C` and
+`epsilon` only when diagnostics indicate clear underfit or overfit,
+since aggressive tuning can destabilize small selection tables.
+
+💻 Default configuration for svr
+
+YAML R list
+
+``` yaml
+method: svr
+method_settings:
+  svr:
+    C: 1
+    epsilon: 0.1
+```
+
+``` r
+list(
+  method = "svr",
+  method_settings = list(
+    svr = list(
+      C = 1,
+      epsilon = 0.1
+    )
+  )
+)
+```
 
 `knn`
 
-[`FNN::knn.reg`](https://rdrr.io/pkg/FNN/man/knn.reg.html) on the
-standardized feature matrix with default `k = 10`. Local similarity to
-past anchor contexts. Does not extrapolate.
+[`FNN::knn.reg`](https://CRAN.R-project.org/package=FNN) contributes a
+local smoother over anchor contexts. `k` controls how many neighboring
+training cases define each prediction; it does not extrapolate.
+
+KNN is useful for patchy policy landscapes where local analogs are
+informative. Because it cannot extrapolate, it is usually best kept as a
+complementary member with at least one global learner.
+
+💻 Default configuration for knn
+
+YAML R list
+
+``` yaml
+method: knn
+method_settings:
+  knn:
+    k: 10
+```
+
+``` r
+list(
+  method = "knn",
+  method_settings = list(
+    knn = list(
+      k = 10
+    )
+  )
+)
+```
 
 `cubist`
 
-Requires the `Cubist` package with defaults `committees = 1`,
-`neighbors = 0` (`neighbors` up to 9 adds an instance-based correction
-at prediction time).
+[`Cubist`](https://CRAN.R-project.org/package=Cubist) contributes
+rule-based piecewise-linear regression. `committees` controls
+boosting-style iterations, and `neighbors` adds an instance-based
+correction at prediction time.
+
+Cubist provides interpretable rule strata with local linear corrections,
+which can be a strong complement to both GLM-family and tree-family
+members in policy selection.
+
+💻 Default configuration for cubist
+
+YAML R list
+
+``` yaml
+method: cubist
+method_settings:
+  cubist:
+    committees: 1
+    neighbors: 0
+```
+
+``` r
+list(
+  method = "cubist",
+  method_settings = list(
+    cubist = list(
+      committees = 1,
+      neighbors = 0
+    )
+  )
+)
+```
 
 `lmm`
 
 `lme4`, `fit_method = "REML"`, `random_intercept = ".split_group"`.
 
-**Watch out:** Requires the `lme4` package and a populated group column.
-Make sure `group_col` in the selection config resolves to a valid
-species identifier in the benchmark table.
+This setup models persistent group-level policy offsets while preserving
+split-safe grouping. `.split_group` is meaningful only when `group_col`
+is explicitly set, and REML is the default for stable variance-component
+estimation.
+
+💻 Default configuration for lmm
+
+YAML R list
+
+``` yaml
+method: lmm
+method_settings:
+  lmm:
+    fit_method: REML
+    random_intercept: .split_group
+```
+
+``` r
+list(
+  method = "lmm",
+  method_settings = list(
+    lmm = list(
+      fit_method = "REML",
+      random_intercept = ".split_group"
+    )
+  )
+)
+```
+
+`lmm` requires the `lme4` package and a populated group column. Make
+sure `group_col` in the selection config resolves to a valid species
+identifier in the benchmark table.
+
+💻 Linear mixed model
+
+YAML R list
+
+``` yaml
+selection:
+  method: lmm
+  group_col: species
+  method_settings:
+    lmm:
+      fit_method: REML
+      random_intercept: .split_group
+```
+
+``` r
+list(
+  selection = list(
+    method = "lmm",
+    group_col = "species",
+    method_settings = list(
+      lmm = list(
+        fit_method = "REML",
+        random_intercept = ".split_group"
+      )
+    )
+  )
+)
+```
+
+If species-level groups are sparse, coarsen the grouping level and
+compare ML vs REML fit behavior.
+
+💻 Coarser-group LMM alternative
+
+YAML R list
+
+``` yaml
+selection:
+  method: lmm
+  group_col: genus
+  method_settings:
+    lmm:
+      fit_method: ML
+      random_intercept: .split_group
+```
+
+``` r
+list(
+  selection = list(
+    method = "lmm",
+    group_col = "genus",
+    method_settings = list(
+      lmm = list(
+        fit_method = "ML",
+        random_intercept = ".split_group"
+      )
+    )
+  )
+)
+```
 
 `mean`
 
@@ -723,27 +3001,103 @@ Grand-mean baseline. No hyperparameters. Meaningful NNLS weight means no
 policy is distinguishable from any other, so revisit the feature set or
 benchmark.
 
+Interpret this as a warning signal rather than a target model. If it
+receives substantial weight, conditional policy signal is weak and model
+complexity will usually not solve selection quality without better
+benchmarking or features.
+
+💻 Default configuration for mean
+
+YAML R list
+
+``` yaml
+method: mean
+method_settings:
+  mean: {}
+```
+
+``` r
+list(
+  method = "mean",
+  method_settings = list(
+    mean = list()
+  )
+)
+```
+
 `super_learner`
 
 Nested stacking: set the base library in `super_methods` and the
 nested-fit count in `inner_folds`. See *When to use `super_learner`*
 above for when to switch the selection learner into this mode.
 
+Use this as a deliberate blend of diverse learners, not a maximal method
+list. `inner_folds` should be tuned against available benchmark size so
+base learners remain identifiable while blend weights are still stable.
+
+💻 Default configuration for super_learner
+
+YAML R list
+
+``` yaml
+method: super_learner
+super_methods: null
+inner_folds: 5
+metalearner_loss: squared_error
+```
+
+``` r
+list(
+  method = "super_learner",
+  super_methods = NULL,
+  inner_folds = 5,
+  metalearner_loss = "squared_error"
+)
+```
+
 ------------------------------------------------------------------------
 
-## Shared settings across all three contexts
+## Additional learner configuration
 
-All three Super Learner slots share the same cross-fitting machinery.
+This article only documents the learner methods and their
+method-specific defaults. The learner sections also include
+cross-fitting, transformation, cache, worker, and progress controls;
+those defined in the
+[Configuration](https://brandynlucca.github.io/tsbiomass/articles/configuration.md)
+documentation.
 
-| Setting | What it controls |
-|----|----|
-| `n_folds` | Number of outer folds. Larger = more stable OOF predictions, more compute. |
-| `inner_folds` | Inner folds for lambda selection in penalized methods. 3–5 is usually enough. |
-| `outcome_transform` | Applied before fitting. `"log1p"` is the default and right for error outcomes. |
-| `lambda_rule` | `"lambda.1se"` is more conservative, while `"lambda.min"` fits more aggressively. |
-| `seed` | Set for reproducibility. Especially important for Sentinel outer folds. |
-| `workers` | Parallel processes. One worker per base learner per fold is the ceiling. |
+### Custom method-default registry
 
-The NNLS metalearner loss must always be `"squared_error"`. Do not
-change this. It is required for non-negativity constraints to be
-meaningful.
+The defaults shown inside each method dropdown come from
+`inst/learner_method_defaults.json`. Advanced users can point a learner
+section at another JSON file with the same top-level `families` and
+`methods` structure. The registry defaults are loaded first; explicit
+`method_settings` in the YAML or R list still override them for that
+run.
+
+💻 Use a custom method-default registry
+
+YAML R list
+
+``` yaml
+selection:
+  method_defaults_path: path/to/learner_method_defaults.json
+  method: super_learner
+  super_methods: [glm_elastic, rf, xgboost]
+  method_settings:
+    rf:
+      num_trees: 750
+```
+
+``` r
+list(
+  selection = list(
+    method_defaults_path = "path/to/learner_method_defaults.json",
+    method = "super_learner",
+    super_methods = c("glm_elastic", "rf", "xgboost"),
+    method_settings = list(
+      rf = list(num_trees = 750)
+    )
+  )
+)
+```

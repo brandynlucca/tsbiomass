@@ -276,3 +276,173 @@ main div.experiment[data-title]::before,
 main section.experiment[data-title]::before {
   content: "🧪 " attr(data-title);
 }
+
+.config-tabs {
+  margin: 1rem 15px;
+  border: 1px solid #d1d5da;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+main div.tip > .config-tabs,
+main section.tip > .config-tabs,
+main div.caution > .config-tabs,
+main section.caution > .config-tabs,
+main div.danger > .config-tabs,
+main section.danger > .config-tabs,
+main div.note > .config-tabs,
+main section.note > .config-tabs,
+main div.seealso > .config-tabs,
+main section.seealso > .config-tabs,
+main div.attention > .config-tabs,
+main section.attention > .config-tabs,
+main div.bug > .config-tabs,
+main section.bug > .config-tabs,
+main div.todo > .config-tabs,
+main section.todo > .config-tabs,
+main div.example > .config-tabs,
+main section.example > .config-tabs,
+main div.help > .config-tabs,
+main section.help > .config-tabs,
+main div.experiment > .config-tabs,
+main section.experiment > .config-tabs {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.config-tabs > input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.config-tab-labels {
+  display: flex;
+  gap: 0;
+  margin: 0;
+  border-bottom: 1px solid #d1d5da;
+  background: #f6f8fa;
+}
+
+.config-tab-labels label {
+  margin: 0;
+  padding: 0.55rem 0.85rem;
+  border-right: 1px solid #d1d5da;
+  color: #57606a;
+  font-weight: 700;
+  font-size: 0.86rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.config-tabs > .config-tab-yaml:checked ~ .config-tab-labels .config-label-yaml,
+.config-tabs > .config-tab-r:checked ~ .config-tab-labels .config-label-r {
+  background: #ffffff;
+  color: #24292f;
+  box-shadow: inset 0 3px 0 #0969da;
+}
+
+.config-tab-panels {
+  margin: 0;
+}
+
+.config-panel {
+  display: none;
+  margin: 0;
+}
+
+.config-tabs > .config-tab-yaml:checked ~ .config-tab-panels .config-panel-yaml,
+.config-tabs > .config-tab-r:checked ~ .config-tab-panels .config-panel-r {
+  display: block;
+}
+
+.config-panel pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0.9rem 1rem;
+  background: #f6f8fa;
+}
+
+.config-panel code {
+  font-size: 0.86rem;
+}
+
+/* --- COLLAPSIBLE DEFAULT-CONFIG CODE BLOCK (code-drop) --- */
+main details.code-drop {
+  border: 1px solid #d1d5da;
+  border-left: 6px solid #24292e;
+  border-radius: 6px;
+  margin: 1.5em 0;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+main details.code-drop > summary {
+  padding: 10px 15px;
+  background: #24292e;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  line-height: 1.2;
+  cursor: pointer;
+  list-style: none;
+}
+
+main details.code-drop > summary::-webkit-details-marker {
+  display: none;
+}
+
+main details.code-drop > summary::after {
+  content: "\25B8"; /* right-pointing triangle */
+  float: right;
+  transition: transform 0.15s ease;
+}
+
+main details.code-drop[open] > summary::after {
+  transform: rotate(90deg);
+}
+
+/* Config tab widget sits flush inside a code-drop */
+main details.code-drop > .config-tabs {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+/* --- NESTED CONFIG-KEY DROPDOWNS (cfg-key) --- */
+main details.cfg-key {
+  border: 1px solid #eaeef2;
+  border-left: 3px solid #b0bccb;
+  border-radius: 4px;
+  margin: 0.5em 0;
+  padding: 0 0.9rem;
+  background: #fbfcfd;
+}
+
+main details.cfg-key > summary {
+  cursor: pointer;
+  padding: 0.45rem 0.5rem;
+  margin: 0 -0.9rem;
+  padding-left: 0.9rem;
+  font-weight: 600;
+  color: #24292f;
+}
+
+main details.cfg-key[open] > summary {
+  border-bottom: 1px solid #eaeef2;
+  margin-bottom: 0.6rem;
+}
+
+main details.cfg-key summary code {
+  font-size: 0.9rem;
+  background: transparent;
+  padding-left: 0;
+}
+
+/* Deeper nesting gets a distinct accent so hierarchy reads at a glance */
+main details.cfg-key details.cfg-key {
+  border-left-color: #7c8da0;
+  background: #ffffff;
+}

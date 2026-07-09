@@ -1,9 +1,9 @@
 # Configuration Reference
 
 The `tsbiomass` pipeline is entirely configuration-driven. A single YAML
-or list object — validated and normalized into a `Configurer` —
+file or R list, validated and normalized into a `Configurer`,
 establishes the full run contract before any modeling begins. This page
-describes every valid top-level section and key.
+documents every valid section and key.
 
 ``` r
 
@@ -16,467 +16,1870 @@ cfg <- build_configurer("path/to/config.yaml")
 cfg <- build_configurer(create_configuration_template("input.xlsx"))
 ```
 
+Configuration keys are grouped by the pipeline stage they control. Every
+key expands to its own dropdown describing its type and behavior. The
+complete set of default values is collected in one place at the bottom
+of this page; see [Default configuration](#default-configuration).
+
   
 
-## `paths`
+## Run setup
 
-File and directory locations consumed by the pipeline.
+Infrastructure settings that establish paths, runtime behavior, and
+caching before any modeling begins.
 
-| Key | Type | Required | Description |
-|----|----|----|----|
-| `input_file` | string | **yes** | Primary study workbook (`.xlsx`). |
-| `out_root` | string | **yes** | Root output folder. |
-| `cache_dir` | string | **yes** | Default cache folder. |
-| `supplemental_dir` | string | no | Folder containing supplemental trait files. |
-| `log_file` | string | no | Log-file path. Written only when `execution.write_log = true`. |
-| `fao_polygon_csv` | string | no | FAO major-area polygon CSV for spatial admissibility. |
+### File & directory locations (`paths`)
 
-External YAML aliases accepted: `input` → `input_file`, `output_root` →
-`out_root`, `cache_folder` → `cache_dir`, `support_folder` →
-`supplemental_dir`, `area_file` → `fao_polygon_csv`, `log_path` →
-`log_file`.
+Where the pipeline reads inputs and writes outputs. Set these once;
+everything else resolves relative to them.
 
-------------------------------------------------------------------------
+Parameters
 
-## `execution`
+`input_file`: primary study workbook
 
-Runtime behavior switches.
+*string · **required***: The `.xlsx` workbook holding your study
+metadata and candidate models. External YAML alias: `input`.
 
-| Key | Type | Default | Description |
-|----|----|----|----|
-| `strict_length_pdf` | logical | `false` | Requires finite length-support bounds for every model. When `true`, models with missing bounds are excluded from PDF construction. |
-| `run_multiplier_model` | logical | `false` | Enables the biomass-multiplier workflow branch. |
-| `write_log` | logical | `false` | Writes progress and error messages to `paths.log_file`. |
+`out_root`: root output folder
 
-External YAML aliases: `strict_pdf` → `strict_length_pdf`,
-`run_multiplier` → `run_multiplier_model`.
+*string · **required***: Root directory under which all products are
+written. External YAML alias: `output_root`.
 
-------------------------------------------------------------------------
+`cache_dir`: default cache folder
 
-## `cache`
+*string · **required***: Base folder for cached intermediate products.
+External YAML alias: `cache_folder`.
 
-Cache folder and per-product filename overrides.
+`supplemental_dir`: supplemental trait files
 
-| Key | Type | Default | Description |
-|----|----|----|----|
-| `folder` | string | `"cache"` | Base folder for all cache files. |
-| `refresh` | logical | `false` | Global default: when `true`, every cached product is recomputed. Individual sections can override this. |
-| `names` | named list | (packaged defaults) | Per-product filename overrides. Keys: `worms`, `fishbase`, `pelagic`, `azores`, `continental`, `mstraits`, `species_enriched`, `candidate_models`, `similarity_tuning`, `anchor_admissibility`, `policy_benchmark`, `policy_conformal`, `policy_selection`, `policy_sensitivity`. |
-| `defaults_path` | string | (packaged JSON) | Optional path to a custom cache-defaults JSON file. |
+*string*: Folder containing supplemental trait files referenced by
+`data` sources. External YAML alias: `support_folder`.
 
-------------------------------------------------------------------------
+`log_file`: log-file path
 
-## `data`
+*string*: Where progress and error messages are written. Used only when
+`execution.write_log = true`. External YAML alias: `log_path`.
 
-Trait source declarations. Each entry is one dataset. At minimum you
-need a `study_metadata` entry pointing at your study workbook.
+`fao_polygon_csv`: FAO area polygons
 
-| Key | Type | Required | Description |
-|----|----|----|----|
-| `id` | string | **yes** | Dataset identifier (case-insensitive). Built-in IDs: `study_metadata`, `worms`, `fishbase`, `pelagic` / `pelagictraits`, `azores` / `azorestraits`, `continental` / `continentaltraits`, `mstraits`. |
-| `alias` | string | no | Alternate slug for use in `candidates.enrich.precedence`. |
-| `type` | string | no | External type descriptor (e.g. `single_file`, `directory`). Back-filled for built-in IDs. |
-| `engine` | string | no | Engine descriptor (e.g. `r_package`, `rdata`). Back-filled for built-in IDs. |
-| `path` | string | conditional | File or folder path. Required for sources that read from disk. |
-| `cache_path` | string | no | Explicit cache-path override for this source. |
-| `refresh` | logical | no | Per-source refresh override. |
+*string*: FAO major-area polygon CSV used for spatial admissibility.
+External YAML alias: `area_file`.
 
-------------------------------------------------------------------------
+### Runtime behavior (`execution`)
 
-## `candidates`
+Global switches that change how the pipeline runs, independent of any
+single modeling stage.
 
-Candidate-pool orchestration layered on top of `data`.
+Parameters
 
-### `candidates.enrich`
+`strict_length_pdf`: require finite length support
 
-| Key | Type | Description |
-|----|----|----|
-| `precedence` | character vector | Source priority order during trait enrichment. May use normalized `id` or `alias`. |
-| `missing_tokens` | character vector | Values treated as missing (e.g. `"-9999"`, `"unknown"`). |
-| `cache_path` | string | Explicit cache override for the enriched species table. |
+*logical*: When `true`, models with missing length-support bounds are
+excluded from PDF construction rather than back-filled. External YAML
+alias: `strict_pdf`.
 
-### `candidates.prepare`
+`run_multiplier_model`: enable biomass-multiplier branch
 
-| Key | Type | Description |
-|----|----|----|
-| `missing_tokens` | character vector | Missing-value tokens applied during trait preparation. |
-| `cache_path` | string | Explicit cache override for the prepared candidate table. |
-| `refresh` | logical | Per-stage refresh override. |
+*logical*: Enables the biomass-multiplier workflow branch. External YAML
+alias: `run_multiplier`.
 
-### `candidates.anchors`
+`write_log`: write a run log
 
-Reference-anchor selection settings passed to
+*logical*: Writes progress and error messages to `paths.log_file`.
+
+### Caching (`cache`)
+
+Controls where intermediate products are stored and when they are
+recomputed. Each expensive stage caches its result; a global `refresh`
+(or per-stage override) forces recomputation.
+
+Parameters
+
+`folder`: base cache folder
+
+*string*: Base folder for all cache files.
+
+`refresh`: global recompute switch
+
+*logical*: When `true`, every cached product is recomputed. Individual
+sections can override this with their own `refresh`.
+
+`names`: per-product filename overrides
+
+*named list*: Override the filename used for any cached product. Valid
+keys:
+
+| Key                                  | Product                         |
+|--------------------------------------|---------------------------------|
+| `worms`                              | WoRMS taxonomy pull             |
+| `fishbase`                           | FishBase trait pull             |
+| `pelagic` / `azores` / `continental` | Regional trait tables           |
+| `mstraits`                           | Morphometric/soft-tissue traits |
+| `species_enriched`                   | Enriched species table          |
+| `candidate_models`                   | Prepared candidate pool         |
+| `similarity_tuning`                  | Similarity-tuning results       |
+| `anchor_admissibility`               | Anchor admissibility screen     |
+| `policy_benchmark`                   | Policy benchmark                |
+| `policy_conformal`                   | Conformal calibration           |
+| `policy_selection`                   | Selected policies               |
+| `policy_sensitivity`                 | Sensitivity simulation          |
+
+`defaults_path`: custom cache-defaults JSON
+
+*string*: Path to a custom cache-defaults JSON file, replacing the
+packaged defaults.
+
+## Candidate data
+
+Trait sources and the candidate pool assembled from them.
+
+### Trait data sources (`data`)
+
+Declares the trait datasets fed into candidate enrichment. Each entry is
+one dataset; at minimum you need a `study_metadata` entry pointing at
+your study workbook. Built-in IDs are back-filled automatically.
+
+Parameters
+
+`id`: dataset identifier
+
+*string · **required***: Case-insensitive dataset identifier. Built-in
+IDs: `study_metadata`, `worms`, `fishbase`, `pelagic` / `pelagictraits`,
+`azores` / `azorestraits`, `continental` / `continentaltraits`,
+`mstraits`.
+
+`alias`: alternate slug
+
+*string*: Alternate slug usable in `candidates.enrich.precedence`.
+
+`type`: source type descriptor
+
+*string*: External type descriptor (e.g. `single_file`, `directory`).
+Back-filled for built-in IDs.
+
+`engine`: read engine
+
+*string*: Engine descriptor (e.g. `r_package`, `rdata`). Back-filled for
+built-in IDs.
+
+`path`: file or folder path
+
+*string*: File or folder path. Required for sources that read from disk.
+
+`cache_path`: per-source cache override
+
+*string*: Explicit cache-path override for this source.
+
+`refresh`: per-source refresh
+
+*logical*: Per-source refresh override.
+
+### Candidate pool (`candidates`)
+
+Orchestrates how the candidate pool is enriched, prepared, and anchored
+on top of the declared `data` sources.
+
+Parameters
+
+`enrich`: trait enrichment
+
+Merges trait sources into a single enriched species table.
+
+`precedence`
+
+*character vector*: Source priority order during enrichment. May use
+normalized `id` or `alias`. Example:
+`[study_metadata, fishbase, worms]`.
+
+`missing_tokens`
+
+*character vector*: Values treated as missing. Example:
+`["-9999", "unknown"]`.
+
+`cache_path`
+
+*string*: Explicit cache override for the enriched species table.
+
+`prepare`: candidate preparation
+
+Normalizes the enriched table into the prepared candidate pool.
+
+`missing_tokens`
+
+*character vector*: Missing-value tokens applied during trait
+preparation.
+
+`cache_path`
+
+*string*: Explicit cache override for the prepared candidate table.
+
+`refresh`
+
+*logical*: Per-stage refresh override.
+
+`anchors`: reference-anchor selection
+
+Settings passed to
 [`set_reference_anchors()`](https://brandynlucca.github.io/tsbiomass/reference/set_reference_anchors.md).
+Choose anchors either dynamically with `selector` or explicitly with
+`model_ids`.
 
-| Key | Type | Description |
-|----|----|----|
-| `selector` | named list | Dynamic filter (e.g. `{regional_body: SWFSC}`). |
-| `model_ids` | character vector | Explicit anchor model IDs (alternative to `selector`). |
-| `model_id_col` | string | Column name for anchor IDs when using `model_ids`. |
-| `require_selection` | logical | Whether zero matches should error (default `true`). |
+`selector`
 
-------------------------------------------------------------------------
+*named list*: Dynamic filter over candidate columns. Each key is a
+column and each value the required match. Common filter columns:
 
-## `alchemist`
+| Column | Selects by |
+|----|----|
+| `regional_body` | Managing body / survey program (e.g. `SWFSC`) |
+| `ocean_basin` | Ocean basin |
+| `fao` | FAO major area |
+| `species` / `genus` / `family` | Taxonomic level |
+| `season` | Survey season |
 
-Settings for the `Alchemist` supervised distance learner. Inherits trait
-names from `similarity` when not specified.
+Example: `{regional_body: SWFSC}`.
 
-| Key | Type | Default | Description |
-|----|----|----|----|
-| `feature_type` | string | `"gower"` | Pairwise feature representation. Options: `"gower"` (unsigned Gower distances), `"difference"` (signed standardized differences), `"mahalanobis"` (squared standardized differences). |
-| `taxonomic_distance` | logical | `false` | Replace individual family/genus/species Gower features with a single continuous phylogenetic distance (Open Tree of Life, with rank-based fallback). |
-| `species_traits` | character vector | (from `similarity`) | Species traits used as pair-level features. |
-| `study_traits` | character vector | (from `similarity`) | Study traits used as pair-level features. |
-| `distill_workers` | integer | `1` | Worker count for sigma-dropout sensitivity in [`distill_traits()`](https://brandynlucca.github.io/tsbiomass/reference/distill_traits.md). |
-| `progress` | logical | `false` | Enable progress messages. |
+`model_ids`
 
-### `alchemist.learner`
+*character vector*: Explicit anchor model IDs (alternative to
+`selector`).
 
-Controls the Super Learner trained inside
+`model_id_col`
+
+*string*: Column name holding anchor IDs when using `model_ids`.
+
+`require_selection`
+
+*logical*: Whether zero matches should raise an error.
+
+## Similarity distances
+
+How donor-target relatedness is learned, weighted, tuned, and
+visualized. See the [Super
+Learners](https://brandynlucca.github.io/tsbiomass/articles/super-learners.md)
+documentation for guidance on learner choices.
+
+### Supervised distance learner (`alchemist`)
+
+Settings for the `Alchemist` supervised distance learner, which turns
+per-trait pairwise distances into the acoustic-distance matrix. Trait
+names default to those in `similarity` when not specified here.
+
+Parameters
+
+`feature_type`: pairwise feature representation
+
+*string*: How a donor-anchor pair is encoded as features. Options:
+`"gower"` (unsigned Gower distances), `"difference"` (signed
+standardized differences), `"mahalanobis"` (squared standardized
+differences).
+
+`taxonomic_distance`: collapse taxonomy to one distance
+
+*logical*: Replace individual family/genus/species Gower features with a
+single continuous phylogenetic distance (Open Tree of Life, with
+rank-based fallback).
+
+`species_traits`: species pair-level features
+
+*character vector · default from `similarity`*: Species-level traits
+used as pair-level features for the distance learner.
+
+`study_traits`: study pair-level features
+
+*character vector · default from `similarity`*: Study-level traits used
+as pair-level features for the distance learner.
+
+`distill_workers`: sensitivity worker count
+
+*integer*: Worker count for sigma-dropout sensitivity in
+[`distill_traits()`](https://brandynlucca.github.io/tsbiomass/reference/distill_traits.md).
+
+`progress`: progress messages
+
+*logical*: Enable progress messages.
+
+`learner`: Super Learner library
+
+Controls the stacked ensemble trained inside
 [`forge_distances()`](https://brandynlucca.github.io/tsbiomass/reference/forge_distances.md).
-See the [Super Learners
-vignette](https://brandynlucca.github.io/tsbiomass/articles/super-learners.md)
-for guidance on method selection.
+See
+[`list_learners()`](https://brandynlucca.github.io/tsbiomass/reference/list_learners.md)
+for valid method names.
 
-| Key | Type | Default | Description |
-|----|----|----|----|
-| `methods` | character vector | `["glm_elastic", "rf", "xgboost"]` | Base learner methods. See [`list_learners()`](https://brandynlucca.github.io/tsbiomass/reference/list_learners.md) for valid names. |
-| `inner_folds` | integer | `5` | Inner cross-validation folds for out-of-fold predictions. |
-| `seed` | integer | `NULL` | Reproducibility seed. |
-| `outcome_transform` | string | `"log1p"` | Transform applied to the acoustic-distance outcome before fitting. Options: `"identity"`, `"log1p"`, `"sqrt"`. |
-| `lambda_rule` | string | `"lambda.1se"` | Penalized-model lambda selection. Options: `"lambda.min"`, `"lambda.1se"`. |
-| `oof_mode` | string | `"anchor_species"` | Out-of-fold split strategy. `"anchor_species"` groups by anchor species; `"species_purged"` excludes both anchor and donor species from training. |
-| `workers` | integer | `1` | Parallel worker count for multi-method fitting. |
-| `method_settings` | named list | (defaults) | Per-family hyper-parameter overrides (see `uncertainty.method_settings` for the shared schema). |
+`methods`
 
-------------------------------------------------------------------------
+*character vector*: Base learner methods in the library.
 
-## `similarity`
+`inner_folds`
+
+*integer*: Inner cross-validation folds for out-of-fold predictions.
+
+`seed`
+
+*integer*: Reproducibility seed.
+
+`outcome_transform`
+
+*string*: Transform applied to the acoustic-distance outcome before
+fitting. Options: `"identity"`, `"log1p"`, `"sqrt"`.
+
+`lambda_rule`
+
+*string*: Penalized-model lambda selection. Options: `"min"`
+(`lambda.min`), `"1se"` (`lambda.1se`).
+
+`oof_mode`
+
+*string*: Out-of-fold split strategy. `"anchor_species"` groups by
+anchor species; `"species_purged"` excludes both anchor and donor
+species from training.
+
+`workers`
+
+*integer*: Parallel worker count for multi-method fitting.
+
+`method_settings`
+
+*named list*: Per-method hyper-parameter overrides for the base learners
+in `methods`. Each top-level key is a public learner method name; supply
+only the fields you want to change. Parameter names and defaults are
+documented per method in the Alchemist section of the [Super Learners
+vignette](https://brandynlucca.github.io/tsbiomass/articles/super-learners.html#alchemist).
+
+### Similarity matrix (`similarity`)
 
 Trait selection, coherence, and kernel settings for the similarity
 matrix. This is the primary tuning surface.
 
-| Key | Type | Default | Description |
-|----|----|----|----|
-| `alpha` | number | `0.8` | Species-versus-study blend in the combined distance. `1.0` = species only, `0.0` = study only. |
-| `kernel_scale` | number | `4` | Global kernel scale. Higher values concentrate weight on nearer donors. |
-| `species_traits` | character vector or named list | (registry defaults) | Species traits included in distance computation. Named list form sets per-trait starting weights. |
-| `study_traits` | character vector or named list | (registry defaults) | Study traits included in distance computation. |
-| `conformal_alpha` | number | `0.1` | Target miscoverage level for conformal interval calibration. |
-| `core_weight_cutoff` | number | `NULL` | Similarity-weight threshold for identifying high-support donor subsets. |
-| `alpha_range` | `{from, to}` | `{0.1, 0.9}` | Search bounds for alpha during tuning. |
-| `kernel_scale_range` | `{from, to}` | `{1, 8}` | Search bounds for kernel scale during tuning. |
-| `cache_path` | string | (derived) | Explicit cache override. |
-| `refresh` | logical | `false` | Force recompute of the similarity cache. |
-| `progress` | logical | `false` | Enable stage messages. |
+Parameters
 
-### `similarity.coherence`
+`alpha`: species-vs-study blend
 
-Measurement-overlap features that supplement trait distances. Each
-sub-section (`length`, `depth`, `frequency`) accepts `mode` and
-`weight`, plus `gap` for `frequency`.
+*number*: Blend between species and study distances. `1.0` = species
+only, `0.0` = study only.
 
-| Key | Type | Options | Description |
-|----|----|----|----|
-| `length.mode` | string | `overlap`, `literal`, `none` | How length ranges are compared for the coherence feature. |
-| `length.weight` | number | — | Feature weight for length coherence. |
-| `length.source` | string | `best`, `study`, `species`, `both` | Which length columns back this feature. `"best"` prefers study-level bounds with species-level fallback; `"both"` produces separate `_study` and `_species` features. |
-| `depth.mode` | string | `overlap`, `literal`, `none` | How depth ranges are compared. |
-| `depth.weight` | number | — | Feature weight for depth coherence. |
-| `depth.source` | string | `best`, `study`, `species`, `both` | Which depth columns to use. |
-| `frequency.mode` | string | `overlap`, `literal`, `none` | How acoustic frequencies are compared. |
-| `frequency.weight` | number | — | Feature weight for frequency coherence. |
-| `frequency.gap` | number | `60` | Maximum frequency gap (kHz) treated as overlapping under `mode: overlap`. |
+`kernel_scale`: kernel concentration
 
-------------------------------------------------------------------------
+*number*: Global kernel scale. Higher values concentrate weight on
+nearer donors.
 
-## `ordination`
+`species_traits`: species traits in the distance
+
+*character vector or named list*: Species-level traits included in
+distance computation. The named-list form sets per-trait starting
+weights, e.g. `{length: 1.0, depth: 0.5}`.
+
+`study_traits`: study traits in the distance
+
+*character vector or named list*: Study-level traits included in
+distance computation. The named-list form sets per-trait starting
+weights.
+
+`conformal_alpha`: interval miscoverage target
+
+*number*: Target miscoverage level for conformal interval calibration.
+
+`core_weight_cutoff`: high-support donor threshold
+
+*number*: Similarity-weight threshold for identifying high-support donor
+subsets.
+
+`alpha_range`: alpha search bounds
+
+*`{from, to}`*: Search bounds for `alpha` during similarity tuning.
+
+`kernel_scale_range`: kernel-scale search bounds
+
+*`{from, to}`*: Search bounds for `kernel_scale` during similarity
+tuning.
+
+`cache_path`: cache override
+
+*string*: Explicit cache-path override for the similarity matrix.
+
+`refresh`: force recompute
+
+*logical*: Force recompute of the similarity cache.
+
+`progress`: stage messages
+
+*logical*: Enable similarity-stage messages.
+
+`coherence`: measurement-overlap features
+
+Measurement-overlap features supplementing trait distances.
+
+`length`
+
+Length-overlap coherence feature.
+
+- `mode` *(string)*: `overlap`, `literal`, or `none`.
+- `weight` *(number)*: Feature weight.
+- `range` *(`{from, to}`)*: Weight search bounds during tuning.
+
+`depth`
+
+Depth-overlap coherence feature.
+
+- `mode` *(string)*: `overlap`, `literal`, or `none`.
+- `weight` *(number)*: Feature weight.
+- `range` *(`{from, to}`)*: Weight search bounds during tuning.
+
+`frequency`
+
+Acoustic-frequency-overlap coherence feature.
+
+- `mode` *(string)*: `overlap`, `literal`, or `none`.
+- `weight` *(number)*: Feature weight.
+- `range` *(`{from, to}`)*: Weight search bounds during tuning.
+- `gap` *(number)*: Maximum frequency gap (kHz) treated as overlapping
+  under `mode: overlap`.
+
+### Similarity tuning (`tuning`)
+
+Hyper-parameters for the empirical similarity-tuning search over trait
+weights, `alpha`, and `kernel_scale`.
+
+Parameters
+
+`max_models_per_species`: models per species in subsets
+
+*integer*: Maximum retained models per species in tuning subsets.
+External YAML alias: `species_model_limit`.
+
+`n_resamples`: empirical resamples
+
+*integer*: Number of empirical tuning resamples. External YAML alias:
+`resamples`.
+
+`n_cores`: worker count
+
+*integer*: Worker count for tuning runs.
+
+`seed`: reproducibility seed
+
+*integer*: Reproducibility seed.
+
+`grid_refinement_levels`: local refinement passes
+
+*integer*: Local search-refinement passes after the coarse grid.
+
+`response_surface_top_n`: retained candidate points
+
+*integer*: Candidate points kept during response-surface refinement.
+
+`rmse_tolerance`: convergence tolerance
+
+*number*: RMSE improvement below which refinement is considered
+converged.
+
+`support_strata_bins`: support strata
+
+*integer*: Number of support strata used when balancing tuning
+resamples.
+
+`regularization`: search regularization
+
+*named list*: Regularization strengths that keep the tuned parameters
+near their priors. Fields: `alpha`, `kernel_scale`, `coherence_scale`,
+`stability`.
+
+`equal_start_weights`: equal initial trait weights
+
+*logical*: Initialize all trait weights equally rather than using
+configured magnitudes as priors.
+
+`progress`: tuning messages
+
+*logical*: Enable tuning messages.
+
+### Ordination (`ordination`)
 
 NMDS ordination settings, applied after
-[`forge_distances()`](https://brandynlucca.github.io/tsbiomass/reference/forge_distances.md).
+[`forge_distances()`](https://brandynlucca.github.io/tsbiomass/reference/forge_distances.md)
+to visualize proxy model diversity.
 
-| Key | Type | Default | Description |
-|----|----|----|----|
-| `include_loadings` | logical | `false` | Include envfit vector loadings in the ordination output. |
-| `include_centroids` | logical | `false` | Include factor-level centroids. |
-| `progress` | logical | `false` | Enable ordination messages. |
-| `nmds_args` | named list | — | Arguments forwarded to [`vegan::metaMDS()`](https://vegandevs.github.io/vegan/reference/metaMDS.html). |
-| `envfit_args` | named list | — | Arguments forwarded to [`vegan::envfit()`](https://vegandevs.github.io/vegan/reference/envfit.html). |
+Parameters
 
-------------------------------------------------------------------------
+`include_loadings`: envfit vector loadings
 
-## `admissibility`
+*logical*: Include envfit vector loadings in the ordination output.
+
+`include_centroids`: factor-level centroids
+
+*logical*: Include factor-level centroids.
+
+`progress`: ordination messages
+
+*logical*: Enable ordination messages.
+
+`nmds_args`: metaMDS arguments
+
+*named list*: Arguments forwarded to
+[`vegan::metaMDS()`](https://vegandevs.github.io/vegan/reference/metaMDS.html).
+
+`envfit_args`: envfit arguments
+
+*named list*: Arguments forwarded to
+[`vegan::envfit()`](https://vegandevs.github.io/vegan/reference/envfit.html).
+
+## Policies & admissibility
+
+Which transfer paths are admissible, which policies are declared, and
+how they are benchmarked.
+
+### Admissibility gates (`admissibility`)
 
 Hard binary gates that exclude transfer paths before any policy is
-applied. Donors that fail an admissibility check are removed from the
-candidate pool for the affected target.
+applied. Donors that fail a check are removed from the candidate pool
+for the affected target.
 
-| Key | Type | Description |
-|----|----|----|
-| `species_traits` | character vector | Categorical or binary species traits that must match exactly between donor and target. |
-| `study_traits` | character vector | Study-level traits used as exact-match gates. |
-| `key_metadata_max` | number | Maximum tolerated missing fraction across key study-level metadata fields. |
-| `cache_path` | string | Explicit cache override. |
-| `refresh` | logical | Force recompute. |
-| `progress` | logical | Enable messages. |
+Parameters
 
-### `admissibility.coherence`
+`species_traits`: species exact-match gates
 
-| Key              | Type   | Description                                 |
-|------------------|--------|---------------------------------------------|
-| `length.mode`    | string | `overlap`, `literal`, or `none`.            |
-| `length.min`     | number | Minimum required fractional length overlap. |
-| `depth.mode`     | string | `overlap`, `literal`, or `none`.            |
-| `depth.min`      | number | Minimum required fractional depth overlap.  |
-| `frequency.mode` | string | `none`, `literal`, or `overlap`.            |
-| `frequency.gap`  | number | Gap threshold (kHz) under `mode: overlap`.  |
+*character vector*: Categorical or binary species traits that must match
+exactly between donor and target.
 
-------------------------------------------------------------------------
+`study_traits`: study exact-match gates
 
-## `policies`
+*character vector*: Study-level traits used as exact-match gates.
 
-Constructor-style policy declarations. Use the `group` + `metric` +
-`branch` form to generate named policy sets from the registry, or supply
-`active` as an explicit list of policy name strings.
+`key_metadata_max`: missingness tolerance
 
-### Constructor form
+*number*: Maximum tolerated missing fraction across key study-level
+metadata fields.
 
-``` yaml
-policies:
-  metric: [closest, weighted_mean, unweighted_mean]
-  branch: [all, fixed_slope]
-  group:
-    species:
-      include_base: true
-      metric: [closest, weighted_mean]
-      joint:
-        - fao
-        - [ocean_basin, season]
-    genus:
-      include_base: true
-    family:
-```
+`cache_path`: cache override
 
-| Key | Type | Description |
-|----|----|----|
-| `metric` | character vector | Global metric filter. Supported: `closest`, `weighted_mean`, `unweighted_mean`, `survey_distance`, `taxon_distance`, `species_distance`, `random`. |
-| `branch` | character vector | Equation branch filters. Supported: `all`, `fixed_slope`, `free_slope`. |
-| `group` | named list | One entry per donor-pool grouping. Keys are group names; values configure per-group metric/branch overrides and optional `joint` conjunctions. |
-| `group.<name>.include_base` | logical | When `joint` variants are listed, keep the plain root group as well (default `true`). |
-| `group.<name>.metric` | character vector | Per-group metric override. |
-| `group.<name>.joint` | list | One or more trait names to conjoin with the root group key. Each entry becomes a separate `<group>_<trait>` policy variant. |
+*string*: Explicit cache-path override for the admissibility screen.
 
-### Explicit form
+`refresh`: force recompute
 
-``` yaml
-policies:
-  active: [species_closest_all, genus_weighted_mean_all]
-  equation_branch_filters: [all]
-```
+*logical*: Force recompute of the admissibility cache.
 
-------------------------------------------------------------------------
+`progress`: stage messages
 
-## `benchmark`
+*logical*: Enable admissibility-stage messages.
 
-Settings for the policy-benchmarking stage.
+`coherence`: measurement-overlap gates
 
-| Key | Type | Default | Description |
-|----|----|----|----|
-| `workers` | integer | `1` | Worker count for parallel anchor evaluation. |
-| `engine` | string | `"cpp"` | Evaluation engine. `"cpp"` uses the compiled C++ backend; `"r"` uses the pure-R path. |
-| `include_ts_error` | logical | `false` | Include TS-curve reconstruction error in benchmark outputs. |
-| `cache_path` | string | (derived) | Explicit cache override. |
-| `refresh` | logical | `false` | Force recompute. |
-| `progress` | logical | `false` | Enable messages. |
+Minimum measurement-overlap requirements applied as gates.
 
-------------------------------------------------------------------------
+`length`
 
-## `uncertainty`
+Length-overlap gate.
 
-The conditional-uncertainty Super Learner. Trains a cross-fitted model
-to predict expected absolute log-error, which is used to calibrate
-prediction interval widths. See the [Super Learners
+- `mode` *(string)*: `overlap`, `literal`, or `none`.
+- `min` *(number)*: Minimum required fractional length overlap.
+
+`depth`
+
+Depth-overlap gate.
+
+- `mode` *(string)*: `overlap`, `literal`, or `none`.
+- `min` *(number)*: Minimum required fractional depth overlap.
+
+`frequency`
+
+Frequency-overlap gate.
+
+- `mode` *(string)*: `none`, `literal`, or `overlap`.
+- `gap` *(number)*: Gap threshold (kHz) under `mode: overlap`.
+
+### Transfer policies (`policies`)
+
+Declares the transfer policies to benchmark. Use the **constructor
+form** (`metric` + `branch` + `group`) to generate named policy sets
+from the registry, or the **explicit form** (`active`) to list policy
+names directly.
+
+Parameters
+
+`metric`: donor-aggregation metric filter
+
+*character vector*: Global metric filter. Supported: `closest`,
+`weighted_mean`, `unweighted_mean`, `survey_distance`, `taxon_distance`,
+`species_distance`, `random`.
+
+`branch`: equation-branch filter
+
+*character vector*: Equation branch filters. Supported: `all`,
+`fixed_slope`, `free_slope`. (In the explicit form the key is
+`equation_branch_filters`.)
+
+`group`: per-grouping overrides
+
+*named list*: One entry per donor-pool grouping (e.g. `species`,
+`genus`, `family`). Each value configures per-group overrides:
+
+`group.<name>.include_base`
+
+*logical*: When `joint` variants are listed, keep the plain root group
+as well.
+
+`group.<name>.metric`
+
+*character vector*: Per-group metric override.
+
+`group.<name>.joint`
+
+*list*: One or more trait names to conjoin with the root group key. Each
+entry becomes a separate `<group>_<trait>` policy variant.
+
+`active`: explicit policy list
+
+*character vector*: Explicit policy name strings (explicit form).
+Example: `[species_closest_all, genus_weighted_mean_all]`.
+
+### Policy benchmarking (`benchmark`)
+
+Settings for the policy-benchmarking stage, which scores each policy
+against the reference anchors.
+
+Parameters
+
+`workers`: parallel anchor evaluation
+
+*integer*: Worker count for parallel anchor evaluation.
+
+`engine`: evaluation backend
+
+*string*: `"cpp"` uses the compiled C++ backend; `"r"` uses the pure-R
+path.
+
+`include_ts_error`: TS reconstruction error
+
+*logical*: Include TS-curve reconstruction error in benchmark outputs.
+
+`cache_path`: cache override
+
+*string*: Explicit cache-path override for the benchmark.
+
+`refresh`: force recompute
+
+*logical*: Force recompute of the benchmark cache.
+
+`progress`: stage messages
+
+*logical*: Enable benchmark-stage messages.
+
+## Uncertainty & policy selection
+
+The two post-benchmark Super Learners: one calibrates
+prediction-interval widths, the other selects policies and powers the
+meta-learner. See the [Super Learners
 vignette](https://brandynlucca.github.io/tsbiomass/articles/super-learners.md).
 
-| Key | Type | Default | Description |
-|----|----|----|----|
-| `method` | string | `"glm"` | Learner method. Use `"super_learner"` to enable ensemble mode. |
-| `super_methods` | character vector | `NULL` | Base learner library when `method = "super_learner"`. |
-| `n_folds` | integer | `5` | Outer cross-fitting folds. |
-| `inner_folds` | integer | `3` | Inner folds for penalized learners. |
-| `workers` | integer | `1` | Worker count for cross-fitting. |
-| `outcome_col` | string | `"error_abs_log"` | Benchmark column used as the regression target. |
-| `outcome_clip_quantile` | number | `0.99` | Upper quantile used to clip extreme training outcomes. |
-| `outcome_transform` | string | `"log1p"` | Transform applied to the outcome before fitting. |
-| `lambda_rule` | string | `"lambda.1se"` | Lambda selection rule for penalized learners. |
-| `loss` | string | `"squared_error"` | Super-learner combiner loss. Must be `"squared_error"` with NNLS. |
-| `method_settings` | named list | (defaults) | Per-family hyper-parameter overrides (see schema below). |
-| `cache_path` | string | (derived) | Explicit cache override. |
-| `refresh` | logical | `false` | Force recompute. |
-| `progress` | logical | `false` | Enable messages. |
+### Conditional uncertainty (`uncertainty`)
 
-------------------------------------------------------------------------
+Trains a cross-fitted model to predict expected absolute log-error, used
+to calibrate prediction-interval widths.
 
-## `selection`
+Parameters
+
+`method`: learner method
+
+*string*: `"glm"` for a single generalized linear model, or
+`"super_learner"` to enable stacked-ensemble mode.
+
+`super_methods`: ensemble library
+
+*character vector*: Base learner library used when
+`method = "super_learner"`.
+
+`n_folds`: outer folds
+
+*integer*: Outer cross-fitting folds.
+
+`inner_folds`: inner folds
+
+*integer*: Inner folds for penalized learners.
+
+`workers`: cross-fitting workers
+
+*integer*: Worker count for cross-fitting.
+
+`outcome_col`: regression target
+
+*string*: Benchmark column used as the regression target.
+
+`outcome_clip_quantile`: extreme-outcome clipping
+
+*number*: Upper quantile used to clip extreme training outcomes.
+
+`outcome_transform`: outcome transform
+
+*string*: Transform applied to the outcome before fitting.
+
+`lambda_rule`: lambda selection rule
+
+*string*: Lambda selection rule for penalized learners.
+
+`loss`: combiner loss
+
+*string*: Super-learner combiner loss. Must be `"squared_error"` with
+NNLS.
+
+`method_settings`: per-method overrides
+
+*named list*: Per-method hyper-parameter overrides for the base learners
+in `super_methods`. Each top-level key is a public learner method name;
+supply only the fields you want to change. Parameter names and defaults
+are documented per method in the Uncertainty section of the [Super
+Learners
+vignette](https://brandynlucca.github.io/tsbiomass/articles/super-learners.html#learner-2-uncertainty-uncertainty).
+
+`cache_path`: cache override
+
+*string*: Explicit cache-path override for the uncertainty learner.
+
+`refresh`: force recompute
+
+*logical*: Force recompute of the uncertainty cache.
+
+`progress`: stage messages
+
+*logical*: Enable uncertainty-stage messages.
+
+### Policy selection & meta-learner (`selection`)
 
 Post-benchmarking policy selection, plus the optional meta-learner used
-by `PolicyLearner`. See the [Super Learners
-vignette](https://brandynlucca.github.io/tsbiomass/articles/super-learners.md).
+by `PolicyLearner`. The policy-selection keys are listed first; the
+meta-learner keys mirror `uncertainty`.
 
-| Key | Type | Default | Description |
-|----|----|----|----|
-| `one_se_multiplier` | number | `1` | Multiplier on the best policy’s standard error for the one-SE screen. |
-| `equivalence_tolerance` | number | `0.05` | Practical tolerance for pairwise equivalence summaries. |
-| `n_boot` | integer | `500` | Bootstrap replicates for uncertainty in selection. |
-| `seed` | integer | `NULL` | Selection seed. |
-| `uncertainty_rule` | string | `"tolerance"` | Final width filter. `"min"` keeps only the narrowest interval; `"tolerance"` keeps widths within the configured absolute/relative band. |
-| `u_tol_rel` | number | `0.25` | Relative width tolerance (fraction of minimum width) under `uncertainty_rule = tolerance`. |
-| `u_tol_abs` | number | `0.05` | Absolute log-width tolerance under `uncertainty_rule = tolerance`. |
-| `conformal_alpha` | number | `0.10` | Miscoverage level for post-selection conformal calibration. |
-| `method` | string | `"glm"` | Meta-learner method used by `PolicyLearner`. Use `"super_learner"` for ensemble mode. |
-| `super_methods` | character vector | `NULL` | Base learner library when `method = "super_learner"`. |
-| `n_folds` | integer | `5` | Outer cross-fitting folds. |
-| `inner_folds` | integer | `5` | Inner folds for penalized learners. |
-| `workers` | integer | `1` | Cross-fitting worker count. |
-| `outcome_col` | string | `"error_abs_log"` | Benchmark column used as the learner target. |
-| `outcome_transform` | string | `"log1p"` | Outcome transform. |
-| `lambda_rule` | string | `"lambda.1se"` | Lambda rule. |
-| `loss` | string | `"squared_error"` | Combiner loss. Must be `"squared_error"` with NNLS. |
-| `method_settings` | named list | (defaults) | Per-family hyper-parameter overrides. |
-| `cache_path` | string | (derived) | Explicit cache override. |
-| `refresh` | logical | `false` | Force recompute. |
-| `progress` | logical | `false` | Enable messages. |
+Parameters
 
-------------------------------------------------------------------------
+`one_se_multiplier`: one-SE screen width
 
-## `method_settings` schema
+*number*: Multiplier on the best policy’s standard error for the one-SE
+screen.
 
-Both `uncertainty` and `selection` (and `alchemist.learner`) accept a
-`method_settings` block. Each top-level key is a method family.
+`equivalence_tolerance`: practical-equivalence band
 
-**`glm_penalized`**
+*number*: Practical tolerance for pairwise equivalence summaries.
 
-| Key            | Default | Description                                 |
-|----------------|---------|---------------------------------------------|
-| `standardize`  | `true`  | Standardize features before fitting.        |
-| `type_measure` | `"mse"` | Cross-validation loss for lambda selection. |
+`n_boot`: bootstrap replicates
 
-**`gam`**
+*integer*: Bootstrap replicates for selection uncertainty.
 
-| Key | Default | Description |
-|----|----|----|
-| `fit_method` | `"GCV.Cp"` | GAM smoothing method. |
-| `select_terms` | `false` | Use `select = TRUE` in [`mgcv::gam()`](https://rdrr.io/pkg/mgcv/man/gam.html) for additional shrinkage. |
+`seed`: selection seed
 
-**`rpart`**
+*integer*: Reproducibility seed for selection.
 
-| Key | Default | Description |
-|----|----|----|
-| `cp` | `0.01` | Complexity parameter. |
-| `minsplit` | `10` | Minimum observations to attempt a split. |
-| `minbucket` | `5` | Minimum observations in a leaf. |
-| `maxdepth` | `10` | Maximum tree depth. |
-| `variants` | [`{}`](https://rdrr.io/r/base/Paren.html) | Named variant overrides (e.g. `shallow`, `deep`). Each variant becomes a distinct learner named `rpart_<variant>`. |
+`uncertainty_rule`: final width filter
 
-**`rf`**
+*string*: `"min"` keeps only the narrowest interval; `"tolerance"` keeps
+widths within the configured absolute/relative band; `"one_se"` uses the
+one-SE screen.
 
-| Key | Default | Description |
-|----|----|----|
-| `num_trees` | `500` | Number of trees. |
-| `mtry` | `NULL` | Features sampled per split (auto if `NULL`). |
-| `min_node_size` | `5` | Minimum node size. |
-| `sample_fraction` | `0.8` | Row-sampling fraction. |
-| `replace` | `false` | Sample with replacement. |
-| `max_depth` | `NULL` | Maximum tree depth (`NULL` = unlimited). |
-| `variants` | [`{}`](https://rdrr.io/r/base/Paren.html) | Named variant overrides (e.g. `shallow`, `deep`). |
+`u_tol_rel`: relative width tolerance
 
-**`xgboost`**
+*number*: Relative width tolerance (fraction of minimum width) under
+`uncertainty_rule = tolerance`.
 
-| Key | Default | Description |
-|----|----|----|
-| `nrounds` | `500` | Boosting rounds. |
-| `eta` | `0.05` | Learning rate. |
-| `max_depth` | `6` | Maximum tree depth. |
-| `min_child_weight` | `5` | Minimum child weight. |
-| `subsample` | `0.8` | Row-sampling fraction. |
-| `colsample_bytree` | `0.8` | Column-sampling fraction per tree. |
-| `lambda` | `1.0` | L2 regularization. |
-| `alpha` | `0.0` | L1 regularization. |
-| `variants` | [`{}`](https://rdrr.io/r/base/Paren.html) | Named variant overrides (e.g. `conservative`, `flexible`). |
+`u_tol_abs`: absolute width tolerance
 
-**`qreg`** *(quantile regression)*
+*number*: Absolute log-width tolerance under
+`uncertainty_rule = tolerance`.
 
-| Key | Description |
-|----|----|
-| `variants` | Named variant overrides with a `tau` field (e.g. `{q75: {tau: 0.75}}`). Each variant becomes `qreg_<name>`. |
+`conformal_alpha`: post-selection miscoverage
 
-**`qrf`** *(quantile regression forest)*
+*number*: Miscoverage level for post-selection conformal calibration.
 
-| Key               | Default | Description            |
-|-------------------|---------|------------------------|
-| `num_trees`       | `500`   | Number of trees.       |
-| `min_node_size`   | `5`     | Minimum node size.     |
-| `sample_fraction` | `0.8`   | Row-sampling fraction. |
-| `quantile`        | `0.9`   | Prediction quantile.   |
+`method`: meta-learner method
 
-**`gpr`** *(Gaussian process regression)*
+*string*: Meta-learner method used by `PolicyLearner`. `"glm"` or
+`"super_learner"` for ensemble mode.
 
-| Key   | Default | Description                              |
-|-------|---------|------------------------------------------|
-| `var` | `0.001` | Nugget variance for numerical stability. |
+`super_methods`: meta-learner library
 
-------------------------------------------------------------------------
+*character vector*: Base learner library when
+`method = "super_learner"`.
 
-## `sentinel`
+`n_folds`: outer folds
 
-Outer-loop validation and ablation settings for
+*integer*: Outer cross-fitting folds for the meta-learner.
+
+`inner_folds`: inner folds
+
+*integer*: Inner folds for penalized meta-learners.
+
+`workers`: cross-fitting workers
+
+*integer*: Cross-fitting worker count for the meta-learner.
+
+`outcome_col`: learner target
+
+*string*: Benchmark column used as the meta-learner target.
+
+`outcome_transform`: outcome transform
+
+*string*: Transform applied to the meta-learner outcome before fitting.
+
+`lambda_rule`: lambda selection rule
+
+*string*: Lambda selection rule for penalized meta-learners.
+
+`loss`: combiner loss
+
+*string*: Meta-learner combiner loss. Must be `"squared_error"` with
+NNLS.
+
+`method_settings`: per-method overrides
+
+*named list*: Per-method hyper-parameter overrides for the meta-learner
+base learners. Each top-level key is a public learner method name;
+supply only the fields you want to change. Parameter names and defaults
+are documented per method in the Selection section of the [Super
+Learners
+vignette](https://brandynlucca.github.io/tsbiomass/articles/super-learners.html#learner-3-selection-policylearner-selection).
+
+`cache_path`: cache override
+
+*string*: Explicit cache-path override for selection.
+
+`refresh`: force recompute
+
+*logical*: Force recompute of the selection cache.
+
+`progress`: stage messages
+
+*logical*: Enable selection-stage messages.
+
+## Validation & sensitivity
+
+Outer-loop holdout validation and scenario-based sensitivity analysis.
+
+### Outer-loop validation (`sentinel`)
+
+Outer-loop holdout validation and ablation settings for
 [`build_sentinel()`](https://brandynlucca.github.io/tsbiomass/reference/build_sentinel.md)
 /
 [`run_sentinel()`](https://brandynlucca.github.io/tsbiomass/reference/run_sentinel.md).
 
-| Key | Type | Default | Description |
-|----|----|----|----|
-| `baseline_species_folds` | integer | `10` | Number of species-disjoint outer folds for the headline validation run. Set to the total species count for full LOSO. |
-| `ablation_species_folds` | integer | `5` | Folds used per ablation scenario. |
-| `workers` | integer | `1` | Outer workflow worker count. |
-| `batch_size` | integer | `1` | Workflows checkpointed per batch. |
-| `include_ts_error` | logical | `false` | Include TS-curve error in fold-local benchmarks. |
-| `throttle_inner_workers` | logical | `true` | Prevent inner workers from oversubscribing cores allocated to outer workers. |
-| `fast_validation` | logical | `false` | Reduce NMDS schedule when `true`. |
-| `progress` | logical | `false` | Enable fold-level console output. |
-| `logging` | logical | `false` | Enable fold-level file logging. |
-| `save_case_artifacts` | logical | `false` | Persist fold-level RDS artifacts for debugging. |
+Parameters
 
-------------------------------------------------------------------------
+`baseline_species_folds`: headline validation folds
 
-## `simulation`
+*integer*: Species-disjoint outer folds for the headline validation run.
+Set to the total species count for full leave-one-species-out.
 
-Settings for `PolicySimulator` sensitivity runs.
+`ablation_species_folds`: folds per ablation
 
-| Key          | Type    | Default   | Description              |
-|--------------|---------|-----------|--------------------------|
-| `workers`    | integer | `1`       | Worker count.            |
-| `cache_path` | string  | (derived) | Explicit cache override. |
-| `refresh`    | logical | `false`   | Force recompute.         |
-| `progress`   | logical | `false`   | Enable messages.         |
+*integer*: Folds used per ablation scenario.
 
-------------------------------------------------------------------------
+`workers`: outer worker count
 
-## `tuning`
+*integer*: Outer workflow worker count.
 
-Similarity-tuning hyper-parameters.
+`batch_size`: checkpoint batch size
 
-| Key | Type | Default | Description |
-|----|----|----|----|
-| `max_models_per_species` | integer | `2` | Maximum retained models per species in tuning subsets. |
-| `n_resamples` | integer | `8` | Number of empirical tuning resamples. |
-| `n_cores` | integer | `1` | Worker count for tuning runs. |
-| `seed` | integer | `NULL` | Reproducibility seed. |
-| `grid_refinement_levels` | integer | `1` | Local search-refinement passes after the coarse grid. |
-| `response_surface_top_n` | integer | `20` | Candidate points kept during response-surface refinement. |
-| `equal_start_weights` | logical | `false` | Initialize all trait weights equally rather than using configured magnitudes as priors. |
-| `progress` | logical | `false` | Enable tuning messages. |
+*integer*: Workflows checkpointed per batch.
 
-External YAML aliases: `species_model_limit` → `max_models_per_species`,
-`resamples` → `n_resamples`, `n_cores` → `n_cores`.
+`include_ts_error`: TS error in fold benchmarks
+
+*logical*: Include TS-curve error in fold-local benchmarks.
+
+`throttle_inner_workers`: prevent oversubscription
+
+*logical*: Prevent inner workers from oversubscribing cores allocated to
+outer workers.
+
+`fast_validation`: reduced NMDS schedule
+
+*logical*: Reduce the NMDS schedule for faster runs.
+
+`progress`: console output
+
+*logical*: Enable fold-level console output.
+
+`logging`: file logging
+
+*logical*: Enable fold-level file logging.
+
+`save_case_artifacts`: persist fold artifacts
+
+*logical*: Persist fold-level RDS artifacts for debugging.
+
+### Sensitivity simulation (`simulation`)
+
+Settings for `PolicySimulator` sensitivity runs, which rerun
+benchmarking across perturbed scenarios.
+
+Parameters
+
+`workers`: worker count
+
+*integer*: Worker count for scenario reruns.
+
+`cache_path`: cache override
+
+*string*: Explicit cache-path override for the sensitivity simulation.
+
+`refresh`: force recompute
+
+*logical*: Force recompute of the sensitivity cache.
+
+`progress`: stage messages
+
+*logical*: Enable simulation-stage messages.
+
+## Default configuration
+
+The complete default configuration produced by
+[`create_configuration_template()`](https://brandynlucca.github.io/tsbiomass/reference/create_configuration_template.md),
+shown in YAML and R-list form. Every value below is the packaged
+default; override only the keys you need.
+
+💻 Default configuration
+
+YAML R list
+
+``` yaml
+paths:
+  input_file: input.xlsx
+  out_root: outputs
+  cache_dir: cache
+  supplemental_dir: supplemental
+  log_file: outputs/tsbiomass_run.log
+execution:
+  strict_length_pdf: false
+  run_multiplier_model: false
+  write_log: false
+tuning:
+  max_models_per_species: 2
+  n_resamples: 8
+  n_cores: 1
+  seed: ~
+  grid_refinement_levels: 1
+  response_surface_top_n: 20
+  rmse_tolerance: 0.01
+  support_strata_bins: 4
+  regularization:
+    alpha: 0.05
+    kernel_scale: 0.05
+    coherence_scale: 0.05
+    stability: 0.02
+  equal_start_weights: false
+  progress: false
+similarity:
+  alpha: 0.8
+  kernel_scale: 4.0
+  species_traits:
+    class: 1.0
+  study_traits:
+    fao_area: 1.0
+  coherence:
+    length:
+      mode: overlap
+      weight: 2.0
+      range:
+        from: 0.5
+        to: 6.0
+    depth:
+      mode: overlap
+      weight: 3.0
+      range:
+        from: 0.5
+        to: 6.0
+    frequency:
+      mode: overlap
+      weight: 2.0
+      range:
+        from: 0.5
+        to: 6.0
+      gap: 60.0
+  conformal_alpha: 0.1
+  alpha_range:
+    from: 0.1
+    to: 0.9
+  kernel_scale_range:
+    from: 1.0
+    to: 8.0
+  progress: false
+ordination:
+  include_loadings: false
+  include_centroids: false
+  progress: false
+policies:
+  group:
+  - species
+  metric:
+  - closest
+  equation_branch_filters:
+  - all
+cache:
+  folder: cache
+  refresh: false
+  names:
+    worms: worms_species_traits.rds
+    fishbase: fishbase_species_traits.rds
+    pelagic: pelagic_species_traits.rds
+    azores: azores_species_traits.rds
+    continental: continental_species_traits.rds
+    mstraits: mstraits_species_traits.rds
+    species_enriched: species_traits_enriched.rds
+    candidate_models: candidate_models_prepared.rds
+    similarity_tuning: similarity_tuning.rds
+    anchor_admissibility: anchor_admissibility.rds
+    policy_benchmark: policy_benchmark.rds
+    policy_conformal: policy_conformal.rds
+    policy_selection: policy_selection.rds
+    policy_sensitivity: policy_sensitivity.rds
+benchmark:
+  workers: 1
+  engine: cpp
+  include_ts_error: false
+  progress: false
+admissibility:
+  species_traits: []
+  study_traits: []
+  coherence:
+    length:
+      mode: overlap
+      min: 0.25
+    depth:
+      mode: overlap
+      min: 0.25
+    frequency:
+      mode: none
+      gap: 60.0
+  key_metadata_max: 0.25
+  progress: false
+uncertainty:
+  progress: false
+  method: glm
+  super_methods: ~
+  method_settings:
+    glm: []
+    glm_ridge:
+      standardize: true
+      type_measure: mae
+      alpha: 0
+    glm_lasso:
+      standardize: true
+      type_measure: mae
+      alpha: 1
+    glm_elastic:
+      standardize: true
+      type_measure: mae
+      alpha: 0.25
+    qreg:
+      tau: 0.5
+      fit_method: fn
+    gam:
+      fit_method: REML
+      select_terms: true
+    lmm:
+      fit_method: REML
+      random_intercept: .split_group
+    rpart:
+      cp: 0.01
+      minsplit: 20
+      minbucket: 7
+      maxdepth: 30
+    rf:
+      num_trees: 500
+      mtry: ~
+      min_node_size: 5
+      max_depth: ~
+      sample_fraction: 1
+      replace: true
+      respect_unordered_factors: order
+    xgboost:
+      nrounds: 100
+      eta: 0.3
+      max_depth: 6
+      min_child_weight: 1
+      subsample: 1
+      colsample_bytree: 1
+      lambda: 1
+      alpha: 0
+      nthread: 1
+    mars:
+      degree: 2
+      penalty: 3
+      nprune: ~
+      pmethod: backward
+    bart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 0
+      num_burnin: 100
+      num_mcmc: 200
+      variance_forest: false
+      random_effects: false
+    xbart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 40
+      num_burnin: 0
+      num_mcmc: 0
+      variance_forest: false
+      random_effects: false
+    wsbart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 20
+      num_burnin: 0
+      num_mcmc: 200
+      variance_forest: false
+      random_effects: false
+    vfbart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 0
+      num_burnin: 100
+      num_mcmc: 200
+      variance_forest: true
+      random_effects: false
+    rebart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 0
+      num_burnin: 100
+      num_mcmc: 200
+      variance_forest: false
+      random_effects: true
+    knn:
+      k: 10
+    cubist:
+      committees: 1
+      neighbors: 0
+    svr:
+      C: 1
+      epsilon: 0.1
+    qrf:
+      num_trees: 500
+      mtry: ~
+      min_node_size: 10
+      max_depth: ~
+      sample_fraction: 1
+      replace: true
+      quantile: 0.9
+    gpr:
+      var: 0.001
+    mean: []
+  n_folds: 5
+  inner_folds: 5
+  workers: 1
+  outcome_col: error_abs_log
+  outcome_clip_quantile: 0.99
+  outcome_transform: log1p
+  lambda_rule: lambda.1se
+  loss: squared_error
+selection:
+  one_se_multiplier: 1.0
+  equivalence_tolerance: 0.05
+  n_boot: 500
+  seed: ~
+  uncertainty_rule: tolerance
+  u_tol_rel: 0.25
+  u_tol_abs: 0.05
+  uncertainty_relative_tolerance: 0.25
+  uncertainty_absolute_tolerance: 0.05
+  local_distance_tolerance: 1.0e-12
+  conformal_alpha: 0.1
+  bin_alpha: 0.1
+  min_bin_scores: 10
+  n_bins: 3
+  use_support_bin_intervals: false
+  support_bin_labels:
+  - Lower support
+  - Moderate support
+  - Higher support
+  method: glm
+  super_methods: ~
+  method_settings:
+    glm: []
+    glm_ridge:
+      standardize: true
+      type_measure: mae
+      alpha: 0
+    glm_lasso:
+      standardize: true
+      type_measure: mae
+      alpha: 1
+    glm_elastic:
+      standardize: true
+      type_measure: mae
+      alpha: 0.25
+    qreg:
+      tau: 0.5
+      fit_method: fn
+    gam:
+      fit_method: REML
+      select_terms: true
+    lmm:
+      fit_method: REML
+      random_intercept: .split_group
+    rpart:
+      cp: 0.01
+      minsplit: 20
+      minbucket: 7
+      maxdepth: 30
+    rf:
+      num_trees: 500
+      mtry: ~
+      min_node_size: 5
+      max_depth: ~
+      sample_fraction: 1
+      replace: true
+      respect_unordered_factors: order
+    xgboost:
+      nrounds: 100
+      eta: 0.3
+      max_depth: 6
+      min_child_weight: 1
+      subsample: 1
+      colsample_bytree: 1
+      lambda: 1
+      alpha: 0
+      nthread: 1
+    mars:
+      degree: 2
+      penalty: 3
+      nprune: ~
+      pmethod: backward
+    bart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 0
+      num_burnin: 100
+      num_mcmc: 200
+      variance_forest: false
+      random_effects: false
+    xbart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 40
+      num_burnin: 0
+      num_mcmc: 0
+      variance_forest: false
+      random_effects: false
+    wsbart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 20
+      num_burnin: 0
+      num_mcmc: 200
+      variance_forest: false
+      random_effects: false
+    vfbart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 0
+      num_burnin: 100
+      num_mcmc: 200
+      variance_forest: true
+      random_effects: false
+    rebart:
+      num_trees: 75
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest_num_trees: 50
+      random_effects_group: .split_group
+      num_gfr: 0
+      num_burnin: 100
+      num_mcmc: 200
+      variance_forest: false
+      random_effects: true
+    knn:
+      k: 10
+    cubist:
+      committees: 1
+      neighbors: 0
+    svr:
+      C: 1
+      epsilon: 0.1
+    qrf:
+      num_trees: 500
+      mtry: ~
+      min_node_size: 10
+      max_depth: ~
+      sample_fraction: 1
+      replace: true
+      quantile: 0.9
+    gpr:
+      var: 0.001
+    mean: []
+  n_folds: 5
+  inner_folds: 5
+  workers: 1
+  outcome_col: error_abs_log
+  outcome_clip_quantile: 0.99
+  outcome_transform: log1p
+  lambda_rule: lambda.1se
+  loss: squared_error
+  max_selection_tolerance: 1.0e-12
+  progress: false
+simulation:
+  workers: 1
+  progress: false
+```
+
+``` r
+list(
+  paths = list(
+    input_file = "input.xlsx",
+    out_root = "outputs",
+    cache_dir = "cache",
+    supplemental_dir = "supplemental",
+    log_file = "outputs/tsbiomass_run.log"
+  ),
+  execution = list(
+    strict_length_pdf = FALSE,
+    run_multiplier_model = FALSE,
+    write_log = FALSE
+  ),
+  tuning = list(
+    max_models_per_species = 2,
+    n_resamples = 8,
+    n_cores = 1,
+    seed = NULL,
+    grid_refinement_levels = 1,
+    response_surface_top_n = 20,
+    rmse_tolerance = 0.01,
+    support_strata_bins = 4,
+    regularization = list(
+      alpha = 0.05,
+      kernel_scale = 0.05,
+      coherence_scale = 0.05,
+      stability = 0.02
+    ),
+    equal_start_weights = FALSE,
+    progress = FALSE
+  ),
+  similarity = list(
+    alpha = 0.8,
+    kernel_scale = 4,
+    species_traits = list(
+      class = 1
+    ),
+    study_traits = list(
+      fao_area = 1
+    ),
+    coherence = list(
+      length = list(
+        mode = "overlap",
+        weight = 2,
+        range = list(
+          from = 0.5,
+          to = 6
+        )
+      ),
+      depth = list(
+        mode = "overlap",
+        weight = 3,
+        range = list(
+          from = 0.5,
+          to = 6
+        )
+      ),
+      frequency = list(
+        mode = "overlap",
+        weight = 2,
+        range = list(
+          from = 0.5,
+          to = 6
+        ),
+        gap = 60
+      )
+    ),
+    conformal_alpha = 0.1,
+    alpha_range = list(
+      from = 0.1,
+      to = 0.9
+    ),
+    kernel_scale_range = list(
+      from = 1,
+      to = 8
+    ),
+    progress = FALSE
+  ),
+  ordination = list(
+    include_loadings = FALSE,
+    include_centroids = FALSE,
+    progress = FALSE
+  ),
+  policies = list(
+    group = list("species"),
+    metric = list("closest"),
+    equation_branch_filters = list("all")
+  ),
+  cache = list(
+    folder = "cache",
+    refresh = FALSE,
+    names = list(
+      worms = "worms_species_traits.rds",
+      fishbase = "fishbase_species_traits.rds",
+      pelagic = "pelagic_species_traits.rds",
+      azores = "azores_species_traits.rds",
+      continental = "continental_species_traits.rds",
+      mstraits = "mstraits_species_traits.rds",
+      species_enriched = "species_traits_enriched.rds",
+      candidate_models = "candidate_models_prepared.rds",
+      similarity_tuning = "similarity_tuning.rds",
+      anchor_admissibility = "anchor_admissibility.rds",
+      policy_benchmark = "policy_benchmark.rds",
+      policy_conformal = "policy_conformal.rds",
+      policy_selection = "policy_selection.rds",
+      policy_sensitivity = "policy_sensitivity.rds"
+    )
+  ),
+  benchmark = list(
+    workers = 1,
+    engine = "cpp",
+    include_ts_error = FALSE,
+    progress = FALSE
+  ),
+  admissibility = list(
+    species_traits = character(0),
+    study_traits = character(0),
+    coherence = list(
+      length = list(
+        mode = "overlap",
+        min = 0.25
+      ),
+      depth = list(
+        mode = "overlap",
+        min = 0.25
+      ),
+      frequency = list(
+        mode = "none",
+        gap = 60
+      )
+    ),
+    key_metadata_max = 0.25,
+    progress = FALSE
+  ),
+  uncertainty = list(
+    progress = FALSE,
+    method = "glm",
+    super_methods = NULL,
+    method_settings = list(
+      glm = list(),
+      glm_ridge = list(
+        standardize = TRUE,
+        type_measure = "mae",
+        alpha = 0
+      ),
+      glm_lasso = list(
+        standardize = TRUE,
+        type_measure = "mae",
+        alpha = 1
+      ),
+      glm_elastic = list(
+        standardize = TRUE,
+        type_measure = "mae",
+        alpha = 0.25
+      ),
+      qreg = list(
+        tau = 0.5,
+        fit_method = "fn"
+      ),
+      gam = list(
+        fit_method = "REML",
+        select_terms = TRUE
+      ),
+      lmm = list(
+        fit_method = "REML",
+        random_intercept = ".split_group"
+      ),
+      rpart = list(
+        cp = 0.01,
+        minsplit = 20,
+        minbucket = 7,
+        maxdepth = 30
+      ),
+      rf = list(
+        num_trees = 500,
+        mtry = NULL,
+        min_node_size = 5,
+        max_depth = NULL,
+        sample_fraction = 1,
+        replace = TRUE,
+        respect_unordered_factors = "order"
+      ),
+      xgboost = list(
+        nrounds = 100,
+        eta = 0.3,
+        max_depth = 6,
+        min_child_weight = 1,
+        subsample = 1,
+        colsample_bytree = 1,
+        lambda = 1,
+        alpha = 0,
+        nthread = 1
+      ),
+      mars = list(
+        degree = 2,
+        penalty = 3,
+        nprune = NULL,
+        pmethod = "backward"
+      ),
+      bart = list(
+        num_trees = 75,
+        alpha = 0.95,
+        beta = 2,
+        min_samples_leaf = 5,
+        max_depth = 10,
+        keep_gfr = TRUE,
+        variance_forest_num_trees = 50,
+        random_effects_group = ".split_group",
+        num_gfr = 0,
+        num_burnin = 100,
+        num_mcmc = 200,
+        variance_forest = FALSE,
+        random_effects = FALSE
+      ),
+      xbart = list(
+        num_trees = 75,
+        alpha = 0.95,
+        beta = 2,
+        min_samples_leaf = 5,
+        max_depth = 10,
+        keep_gfr = TRUE,
+        variance_forest_num_trees = 50,
+        random_effects_group = ".split_group",
+        num_gfr = 40,
+        num_burnin = 0,
+        num_mcmc = 0,
+        variance_forest = FALSE,
+        random_effects = FALSE
+      ),
+      wsbart = list(
+        num_trees = 75,
+        alpha = 0.95,
+        beta = 2,
+        min_samples_leaf = 5,
+        max_depth = 10,
+        keep_gfr = TRUE,
+        variance_forest_num_trees = 50,
+        random_effects_group = ".split_group",
+        num_gfr = 20,
+        num_burnin = 0,
+        num_mcmc = 200,
+        variance_forest = FALSE,
+        random_effects = FALSE
+      ),
+      vfbart = list(
+        num_trees = 75,
+        alpha = 0.95,
+        beta = 2,
+        min_samples_leaf = 5,
+        max_depth = 10,
+        keep_gfr = TRUE,
+        variance_forest_num_trees = 50,
+        random_effects_group = ".split_group",
+        num_gfr = 0,
+        num_burnin = 100,
+        num_mcmc = 200,
+        variance_forest = TRUE,
+        random_effects = FALSE
+      ),
+      rebart = list(
+        num_trees = 75,
+        alpha = 0.95,
+        beta = 2,
+        min_samples_leaf = 5,
+        max_depth = 10,
+        keep_gfr = TRUE,
+        variance_forest_num_trees = 50,
+        random_effects_group = ".split_group",
+        num_gfr = 0,
+        num_burnin = 100,
+        num_mcmc = 200,
+        variance_forest = FALSE,
+        random_effects = TRUE
+      ),
+      knn = list(
+        k = 10
+      ),
+      cubist = list(
+        committees = 1,
+        neighbors = 0
+      ),
+      svr = list(
+        C = 1,
+        epsilon = 0.1
+      ),
+      qrf = list(
+        num_trees = 500,
+        mtry = NULL,
+        min_node_size = 10,
+        max_depth = NULL,
+        sample_fraction = 1,
+        replace = TRUE,
+        quantile = 0.9
+      ),
+      gpr = list(
+        var = 0.001
+      ),
+      mean = list()
+    ),
+    n_folds = 5,
+    inner_folds = 5,
+    workers = 1,
+    outcome_col = "error_abs_log",
+    outcome_clip_quantile = 0.99,
+    outcome_transform = "log1p",
+    lambda_rule = "lambda.1se",
+    loss = "squared_error"
+  ),
+  selection = list(
+    one_se_multiplier = 1,
+    equivalence_tolerance = 0.05,
+    n_boot = 500,
+    seed = NULL,
+    uncertainty_rule = "tolerance",
+    u_tol_rel = 0.25,
+    u_tol_abs = 0.05,
+    uncertainty_relative_tolerance = 0.25,
+    uncertainty_absolute_tolerance = 0.05,
+    local_distance_tolerance = 1e-12,
+    conformal_alpha = 0.1,
+    bin_alpha = 0.1,
+    min_bin_scores = 10,
+    n_bins = 3,
+    use_support_bin_intervals = FALSE,
+    support_bin_labels = c("Lower support", "Moderate support", "Higher support"),
+    method = "glm",
+    super_methods = NULL,
+    method_settings = list(
+      glm = list(),
+      glm_ridge = list(
+        standardize = TRUE,
+        type_measure = "mae",
+        alpha = 0
+      ),
+      glm_lasso = list(
+        standardize = TRUE,
+        type_measure = "mae",
+        alpha = 1
+      ),
+      glm_elastic = list(
+        standardize = TRUE,
+        type_measure = "mae",
+        alpha = 0.25
+      ),
+      qreg = list(
+        tau = 0.5,
+        fit_method = "fn"
+      ),
+      gam = list(
+        fit_method = "REML",
+        select_terms = TRUE
+      ),
+      lmm = list(
+        fit_method = "REML",
+        random_intercept = ".split_group"
+      ),
+      rpart = list(
+        cp = 0.01,
+        minsplit = 20,
+        minbucket = 7,
+        maxdepth = 30
+      ),
+      rf = list(
+        num_trees = 500,
+        mtry = NULL,
+        min_node_size = 5,
+        max_depth = NULL,
+        sample_fraction = 1,
+        replace = TRUE,
+        respect_unordered_factors = "order"
+      ),
+      xgboost = list(
+        nrounds = 100,
+        eta = 0.3,
+        max_depth = 6,
+        min_child_weight = 1,
+        subsample = 1,
+        colsample_bytree = 1,
+        lambda = 1,
+        alpha = 0,
+        nthread = 1
+      ),
+      mars = list(
+        degree = 2,
+        penalty = 3,
+        nprune = NULL,
+        pmethod = "backward"
+      ),
+      bart = list(
+        num_trees = 75,
+        alpha = 0.95,
+        beta = 2,
+        min_samples_leaf = 5,
+        max_depth = 10,
+        keep_gfr = TRUE,
+        variance_forest_num_trees = 50,
+        random_effects_group = ".split_group",
+        num_gfr = 0,
+        num_burnin = 100,
+        num_mcmc = 200,
+        variance_forest = FALSE,
+        random_effects = FALSE
+      ),
+      xbart = list(
+        num_trees = 75,
+        alpha = 0.95,
+        beta = 2,
+        min_samples_leaf = 5,
+        max_depth = 10,
+        keep_gfr = TRUE,
+        variance_forest_num_trees = 50,
+        random_effects_group = ".split_group",
+        num_gfr = 40,
+        num_burnin = 0,
+        num_mcmc = 0,
+        variance_forest = FALSE,
+        random_effects = FALSE
+      ),
+      wsbart = list(
+        num_trees = 75,
+        alpha = 0.95,
+        beta = 2,
+        min_samples_leaf = 5,
+        max_depth = 10,
+        keep_gfr = TRUE,
+        variance_forest_num_trees = 50,
+        random_effects_group = ".split_group",
+        num_gfr = 20,
+        num_burnin = 0,
+        num_mcmc = 200,
+        variance_forest = FALSE,
+        random_effects = FALSE
+      ),
+      vfbart = list(
+        num_trees = 75,
+        alpha = 0.95,
+        beta = 2,
+        min_samples_leaf = 5,
+        max_depth = 10,
+        keep_gfr = TRUE,
+        variance_forest_num_trees = 50,
+        random_effects_group = ".split_group",
+        num_gfr = 0,
+        num_burnin = 100,
+        num_mcmc = 200,
+        variance_forest = TRUE,
+        random_effects = FALSE
+      ),
+      rebart = list(
+        num_trees = 75,
+        alpha = 0.95,
+        beta = 2,
+        min_samples_leaf = 5,
+        max_depth = 10,
+        keep_gfr = TRUE,
+        variance_forest_num_trees = 50,
+        random_effects_group = ".split_group",
+        num_gfr = 0,
+        num_burnin = 100,
+        num_mcmc = 200,
+        variance_forest = FALSE,
+        random_effects = TRUE
+      ),
+      knn = list(
+        k = 10
+      ),
+      cubist = list(
+        committees = 1,
+        neighbors = 0
+      ),
+      svr = list(
+        C = 1,
+        epsilon = 0.1
+      ),
+      qrf = list(
+        num_trees = 500,
+        mtry = NULL,
+        min_node_size = 10,
+        max_depth = NULL,
+        sample_fraction = 1,
+        replace = TRUE,
+        quantile = 0.9
+      ),
+      gpr = list(
+        var = 0.001
+      ),
+      mean = list()
+    ),
+    n_folds = 5,
+    inner_folds = 5,
+    workers = 1,
+    outcome_col = "error_abs_log",
+    outcome_clip_quantile = 0.99,
+    outcome_transform = "log1p",
+    lambda_rule = "lambda.1se",
+    loss = "squared_error",
+    max_selection_tolerance = 1e-12,
+    progress = FALSE
+  ),
+  simulation = list(
+    workers = 1,
+    progress = FALSE
+  )
+)
+```
