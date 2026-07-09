@@ -99,12 +99,12 @@ main section.tip {
 main div.tip::before,
 main section.tip::before {
   background-color: #002f17;
-  content: "Tip";
+  content: "💡 Tip";
 }
 
 main div.tip[data-title]::before,
 main section.tip[data-title]::before {
-  content: attr(data-title);
+  content: "💡 " attr(data-title);
 }
 
 main div.caution,
@@ -116,12 +116,12 @@ main section.caution {
 main div.caution::before,
 main section.caution::before {
   background-color: #4d3d00;
-  content: "Caution";
+  content: "⚠️ Caution";
 }
 
 main div.caution[data-title]::before,
 main section.caution[data-title]::before {
-  content: attr(data-title);
+  content: "⚠️ " attr(data-title);
 }
 
 main div.danger,
@@ -133,12 +133,12 @@ main section.danger {
 main div.danger::before,
 main section.danger::before {
   background-color: #4d1400;
-  content: "Danger";
+  content: "🚫 Danger";
 }
 
 main div.danger[data-title]::before,
 main section.danger[data-title]::before {
-  content: attr(data-title);
+  content: "🚫 " attr(data-title);
 }
 
 main div.note,
@@ -150,12 +150,12 @@ main section.note {
 main div.note::before,
 main section.note::before {
   background-color: #001d2f;
-  content: "Note";
+  content: "📝 Note";
 }
 
 main div.note[data-title]::before,
 main section.note[data-title]::before {
-  content: attr(data-title);
+  content: "📝 " attr(data-title);
 }
 
 main div.seealso,
@@ -167,12 +167,12 @@ main section.seealso {
 main div.seealso::before,
 main section.seealso::before {
   background-color: #234e52;
-  content: "See Also";
+  content: "🔗 See Also";
 }
 
 main div.seealso[data-title]::before,
 main section.seealso[data-title]::before {
-  content: attr(data-title);
+  content: "🔗 " attr(data-title);
 }
 
 main div.attention,
@@ -184,12 +184,12 @@ main section.attention {
 main div.attention::before,
 main section.attention::before {
   background-color: #7b341e;
-  content: "Attention";
+  content: "🔔 Attention";
 }
 
 main div.attention[data-title]::before,
 main section.attention[data-title]::before {
-  content: attr(data-title);
+  content: "🔔 " attr(data-title);
 }
 
 main div.bug,
@@ -201,12 +201,12 @@ main section.bug {
 main div.bug::before,
 main section.bug::before {
   background-color: #700c23;
-  content: "Bug";
+  content: "🐛 Bug";
 }
 
 main div.bug[data-title]::before,
 main section.bug[data-title]::before {
-  content: attr(data-title);
+  content: "🐛 " attr(data-title);
 }
 
 main div.todo,
@@ -218,12 +218,12 @@ main section.todo {
 main div.todo::before,
 main section.todo::before {
   background-color: #1e293b;
-  content: "Todo";
+  content: "✅ Todo";
 }
 
 main div.todo[data-title]::before,
 main section.todo[data-title]::before {
-  content: attr(data-title);
+  content: "✅ " attr(data-title);
 }
 
 main div.example,
@@ -235,12 +235,12 @@ main section.example {
 main div.example::before,
 main section.example::before {
   background-color: #2d3748;
-  content: "Example";
+  content: "📋 Example";
 }
 
 main div.example[data-title]::before,
 main section.example[data-title]::before {
-  content: attr(data-title);
+  content: "📋 " attr(data-title);
 }
 
 main div.help,
@@ -252,12 +252,12 @@ main section.help {
 main div.help::before,
 main section.help::before {
   background-color: #086070;
-  content: "Help";
+  content: "❓ Help";
 }
 
 main div.help[data-title]::before,
 main section.help[data-title]::before {
-  content: attr(data-title);
+  content: "❓ " attr(data-title);
 }
 
 main div.experiment,
@@ -269,10 +269,10 @@ main section.experiment {
 main div.experiment::before,
 main section.experiment::before {
   background-color: #44337a;
-  content: "Experiment";
+  content: "🧪 Experiment";
 }
 
 main div.experiment[data-title]::before,
 main section.experiment[data-title]::before {
-  content: attr(data-title);
+  content: "🧪 " attr(data-title);
 }

@@ -4,7 +4,7 @@
 \alias{plot.PolicySimulator}
 \title{Plot a \code{PolicySimulator}}
 \usage{
-plot(
+\method{plot}{PolicySimulator}(
   x,
   y = NULL,
   type = c("sensitivity_overview", "policy_stability", "multiplier_drift"),

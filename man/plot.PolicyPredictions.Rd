@@ -4,7 +4,7 @@
 \alias{plot.PolicyPredictions}
 \title{Plot a \code{PolicyPredictions}}
 \usage{
-plot(
+\method{plot}{PolicyPredictions}(
   x,
   y = NULL,
   type = c("selected_intervals", "strategy_competition"),
