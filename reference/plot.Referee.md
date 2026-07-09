@@ -8,8 +8,7 @@ when both selector context and scorecard tables are needed.
 ## Usage
 
 ``` r
-# S3 method for class 'Referee'
-plot(
+graphics::plot(
   x,
   y = NULL,
   type = "biomass_change",

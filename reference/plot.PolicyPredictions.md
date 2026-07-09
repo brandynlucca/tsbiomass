@@ -8,8 +8,7 @@ by hand.
 ## Usage
 
 ``` r
-# S3 method for class 'PolicyPredictions'
-plot(
+graphics::plot(
   x,
   y = NULL,
   type = c("selected_intervals", "strategy_competition"),

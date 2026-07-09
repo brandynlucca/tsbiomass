@@ -8,8 +8,7 @@ simulator object.
 ## Usage
 
 ``` r
-# S3 method for class 'PolicySimulator'
-plot(
+graphics::plot(
   x,
   y = NULL,
   type = c("sensitivity_overview", "policy_stability", "multiplier_drift"),

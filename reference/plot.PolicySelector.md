@@ -7,8 +7,7 @@ summaries can be drawn directly from the package object.
 ## Usage
 
 ``` r
-# S3 method for class 'PolicySelector'
-plot(
+graphics::plot(
   x,
   y = NULL,
   type = c(

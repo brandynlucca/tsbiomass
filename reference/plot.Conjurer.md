@@ -5,8 +5,7 @@ Plot `Conjurer` missingness uncertainty summaries
 ## Usage
 
 ``` r
-# S3 method for class 'Conjurer'
-plot(
+graphics::plot(
   x,
   y = NULL,
   metric = "mean_abs_db_shift",
