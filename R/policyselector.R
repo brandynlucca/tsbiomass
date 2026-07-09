@@ -48,6 +48,7 @@ NULL
 #' @aliases PolicyPredictions
 NULL
 
+#' @export
 PolicyPredictions <- S7::new_class(
   "PolicyPredictions",
   properties = list(
@@ -76,6 +77,7 @@ PolicyPredictions <- S7::new_class(
 
 S7::S4_register(PolicyPredictions)
 
+#' @export
 PolicySelector <- S7::new_class(
   "PolicySelector",
   properties = list(
@@ -1747,6 +1749,20 @@ as_tibble_policy_predictions <- function(x, ...) {
 #' plot(selector, type = "policy_benchmark")
 #' plot(selector, type = "strategy_error_heatmap")
 #' }
+#' @usage
+#' plot(
+#'   x,
+#'   y = NULL,
+#'   type = c(
+#'     "strategy_error_heatmap",
+#'     "conformal_scores",
+#'     "policy_benchmark",
+#'     "species_policy_ranked"
+#'   ),
+#'   ...
+#' )
+NULL
+
 .plot_policy_selector <- function(x,
                                   y = NULL,
                                   type = c(
@@ -1816,6 +1832,17 @@ S7::method(plot_generic, PolicySelector) <- .plot_policy_selector
 #' plot(predictions, type = "selected_intervals")
 #' plot(predictions, type = "strategy_competition")
 #' }
+#' @usage
+#' plot(
+#'   x,
+#'   y = NULL,
+#'   type = c("selected_intervals", "strategy_competition"),
+#'   anchor_species = NULL,
+#'   reference_name = NULL,
+#'   ...
+#' )
+NULL
+
 .plot_policy_predictions <- function(x,
                                      y = NULL,
                                      type = c("selected_intervals", "strategy_competition"),

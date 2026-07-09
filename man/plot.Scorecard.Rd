@@ -2,17 +2,31 @@
 % Please edit documentation in R/referee.R
 \name{plot.Scorecard}
 \alias{plot.Scorecard}
-\alias{.plot_scorecard}
 \title{Plot a \code{Scorecard}}
 \usage{
-.plot_scorecard(
+plot(
   x,
   y = NULL,
-  type = c("ts_length", "ts_length_conformal", "ts_length_multiplier", "ts_length_bands",
-    "coefficient_uncertainty", "selected_intervals", "selected_multiplier_summary",
-    "selected_policy_counts", "strategy_competition", "field_missingness", "ablation",
-    "validation", "coverage", "ablation_decomposition", "sentinel_ablation",
-    "sentinel_ablation_decomposition", "sentinel_validation", "sentinel_coverage"),
+  type = c(
+    "ts_length",
+    "ts_length_conformal",
+    "ts_length_multiplier",
+    "ts_length_bands",
+    "coefficient_uncertainty",
+    "selected_intervals",
+    "selected_multiplier_summary",
+    "selected_policy_counts",
+    "strategy_competition",
+    "field_missingness",
+    "ablation",
+    "validation",
+    "coverage",
+    "ablation_decomposition",
+    "sentinel_ablation",
+    "sentinel_ablation_decomposition",
+    "sentinel_validation",
+    "sentinel_coverage"
+  ),
   scale = c("ts", "multiplier"),
   view = NULL,
   anchor_model_id = NULL,

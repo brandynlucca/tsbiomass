@@ -35,6 +35,7 @@
 #' @aliases PolicySimulator
 NULL
 
+#' @export
 PolicySimulator <- S7::new_class(
   "PolicySimulator",
   properties = list(
@@ -446,6 +447,16 @@ S7::method(show_generic, PolicySimulator) <- function(object) {
 #' plot(simulator)
 #' plot(simulator, type = "multiplier_drift")
 #' }
+#' @usage
+#' plot(
+#'   x,
+#'   y = NULL,
+#'   type = c("sensitivity_overview", "policy_stability", "multiplier_drift"),
+#'   baseline_label = "baseline",
+#'   ...
+#' )
+NULL
+
 .plot_policy_simulator <- function(x,
                                    y = NULL,
                                    type = c(

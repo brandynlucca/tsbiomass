@@ -48,10 +48,8 @@ navbar:
           href: reference/predict.PolicySelector.html
         - text: "Simulation & Validation"
           href: reference/as_policysimulator.html
-        - text: "Visualization"
-          href: reference/plot.Alchemist.html
         - text: "Utilities"
-          href: reference/cpp_compute_gower.html
+          href: reference/explain.html
         - text: "---"
         - text: "Full function index"
           href: reference/index.html
@@ -172,13 +170,23 @@ reference:
       - construct_sensitivity_table.PolicySimulator
 
   - title: "Visualization"
-    desc: "Plotting generics for all major classes."
+    desc: "S3 plot methods dispatched via plot(object, ...) for all major classes."
     contents:
-      - starts_with("plot.")
-      - starts_with("plot_sentinel")
-      - explain
+      - plot.Alchemist
+      - plot.Candidates
+      - plot.Conjurer
+      - plot.PolicyLearner
+      - plot.PolicyPredictions
+      - plot.PolicySelector
+      - plot.PolicySimulator
+      - plot.Referee
+      - plot.Scorecard
+      - plot_sentinel_ablation_decomposition_scorecard
+      - plot_sentinel_ablation_scorecard
+      - plot_sentinel_coverage_scorecard
 
   - title: "Utilities"
-    desc: "Lower-level Rcpp benchmarking utilities."
+    desc: "Diagnostics, explainability, and lower-level utilities."
     contents:
+      - explain
       - starts_with("cpp_")

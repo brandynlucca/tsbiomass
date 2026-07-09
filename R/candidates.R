@@ -1940,6 +1940,36 @@ S7::method(show_generic, Candidates) <- function(object) {
 #' plot(candidates, type = "admissibility", view = "overlap_profile")
 #' plot(candidates, type = "candidate_review", view = "similarity_map")
 #' }
+#' @usage
+#' plot(
+#'   x,
+#'   y = NULL,
+#'   type = c(
+#'     "area_distribution",
+#'     "ordination",
+#'     "admissibility",
+#'     "candidate_review",
+#'     "uncertainty_importance",
+#'     "similarity_tuning",
+#'     "most_similar",
+#'     "candidate_biomass_response",
+#'     "model_weights",
+#'     "similarity_map",
+#'     "component_importance",
+#'     "tuning_variation",
+#'     "slope_support",
+#'     "slope_group"
+#'   ),
+#'   count_type = c("studies", "models"),
+#'   dissimilarity = c("combined", "species", "study"),
+#'   view = NULL,
+#'   anchor_model_id = NULL,
+#'   anchor_species = NULL,
+#'   include_hulls = TRUE,
+#'   ...
+#' )
+NULL
+
 .plot_candidates <- function(x,
                              y = NULL,
                              type = c(

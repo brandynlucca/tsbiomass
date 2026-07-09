@@ -2,14 +2,17 @@
 % Please edit documentation in R/policyselector.R
 \name{plot.PolicySelector}
 \alias{plot.PolicySelector}
-\alias{.plot_policy_selector}
 \title{Plot a \code{PolicySelector}}
 \usage{
-.plot_policy_selector(
+plot(
   x,
   y = NULL,
-  type = c("strategy_error_heatmap", "conformal_scores", "policy_benchmark",
-    "species_policy_ranked"),
+  type = c(
+    "strategy_error_heatmap",
+    "conformal_scores",
+    "policy_benchmark",
+    "species_policy_ranked"
+  ),
   ...
 )
 }

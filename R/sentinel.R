@@ -14,6 +14,7 @@
 #' @aliases Sentinel
 NULL
 
+#' @export
 Sentinel <- S7::new_class(
   "Sentinel",
   properties = list(

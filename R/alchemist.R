@@ -2860,6 +2860,17 @@ S7::method(show_generic, Alchemist) <- function(object) {
 #' alchemist <- distill_traits(alchemist)
 #' plot(alchemist, type = "trait_importance")
 #' }
+#' @usage
+#' plot(
+#'   x,
+#'   y = NULL,
+#'   type = c("ordination", "trait_importance", "admissibility"),
+#'   view = NULL,
+#'   include_hulls = TRUE,
+#'   ...
+#' )
+NULL
+
 .plot_alchemist <- function(x,
                             y = NULL,
                             type = c("ordination", "trait_importance", "admissibility"),

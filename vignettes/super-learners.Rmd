@@ -112,13 +112,23 @@ The default three-method ensemble balances regularized linearity (`glm_elastic`)
 nonlinear main effects (`rf`), and interaction capture (`xgboost`). The NNLS
 combiner then determines how much weight each method gets per fold.
 
-!!! tip
-    **Feature type matters**
-    Before tuning the learner library, check `feature_type`. The default `feature_type="gower"` is unsigned, which means nonlinear methods like `rf` and `xgboost` must discover assymetries themselves. Switching to `feature_type="difference"` encodes direction explicitly and often improves RF and XGBoost generalization without any other change.
+<div class="tip" data-title="Feature type matters">
+<p>Before tuning the learner library, check <code>feature_type</code>. The
+default <code>feature_type = "gower"</code> is
+unsigned, which means nonlinear methods like <code>rf</code> and
+<code>xgboost</code> must discover asymmetries themselves. Switching to
+<code>feature_type = "difference"</code> encodes direction explicitly and often
+improves RF and XGBoost generalization without any other change.</p>
+</div>
 
-!!! tip
-    **Taxonomic distances**
-    If your candidate pool has good phylogenetic coverage, setting `taxonomic_distance = TRUE` replaces the separate species, genus, family, etc., traits with a single continuous distance from the Open Tree of Life. This reduces feature collinearity and tends to improve out-of-fold accuracy for methods with limited regularization (e.g., `gam`, `rpart`).
+<div class="tip" data-title="Taxonomic distances">
+<p>If your candidate pool has good phylogenetic coverage, setting
+<code>taxonomic_distance = TRUE</code> replaces
+the separate species, genus, family, etc., traits with a single continuous
+distance from the Open Tree of Life. This reduces feature collinearity and tends
+to improve out-of-fold accuracy for methods with limited regularization
+(e.g., <code>gam</code>, <code>rpart</code>).</p>
+</div>
 
 **Growing or shrinking the library**
 
@@ -378,20 +388,20 @@ The full library is appropriate here because the outcome (absolute log-error) is
 well-behaved (non-negative, roughly log-normal) and quantile-targeting methods
 add diversity that helps the NNLS combiner.
 
-<div class="alert alert-success" role="alert">
-<strong>Pro tip - quantile diversity:</strong> Adding <code>qreg</code>
+<div class="tip" data-title="Pro tip - quantile diversity">
+<p>Adding <code>qreg</code>
 and <code>qrf</code> alongside mean-regression methods gives the NNLS combiner
 access to upper-tail predictions. Because prediction intervals are set at the
 upper tail of the error distribution, these quantile learners often receive
-substantial weight and meaningfully reduce coverage error.
+substantial weight and meaningfully reduce coverage error.</p>
 </div>
 
-<div class="alert alert-success" role="alert">
-<strong>Pro tip - lambda rule:</strong> For the uncertainty learner, prefer
+<div class="tip" data-title="Pro tip - lambda rule">
+<p>For the uncertainty learner, prefer
 <code>lambda.min</code> over <code>lambda.1se</code>. The uncertainty stage is
 already regularized by the conformal calibration step that follows. Aggressive
 penalization in the learner can leave systematic variance unexplained and produce
-poorly calibrated intervals.
+poorly calibrated intervals.</p>
 </div>
 
 **When to use `super_learner`**
@@ -782,20 +792,19 @@ selection:
   inner_folds: 5
 ```
 
-<div class="alert alert-success" role="alert">
-<strong>Pro tip - keep the library small:</strong> For the selection learner,
-a 3–4 method library (e.g. <code>[glm, glm_elastic, rf, mars]</code>) usually
-out-performs a large library. Adding many similar methods (multiple XGBoost
-variants, multiple RF variants) without diversity rarely improves the NNLS
-combiner and inflates cross-fitting time.
+<div class="tip" data-title="Pro tip - keep the library small">
+<p>For the selection learner, a 3-4 method library
+(e.g. <code>[glm, glm_elastic, rf, mars]</code>) usually out-performs a large
+library. Adding many similar methods (multiple XGBoost variants, multiple RF
+variants) without diversity rarely improves the NNLS combiner and inflates
+cross-fitting time.</p>
 </div>
 
-<div class="alert alert-success" role="alert">
-<strong>Pro tip - outcome clipping:</strong> Set
-<code>outcome_clip_quantile</code> to 0.95–0.99 (default 0.99). A handful of
-extreme benchmark errors can dominate the learner target and prevent the model
-from distinguishing between policies in the moderate-performance range where
-most selection decisions happen.
+<div class="tip" data-title="Pro tip - outcome clipping">
+<p>Set <code>outcome_clip_quantile</code> to 0.95-0.99 (default 0.99). A
+handful of extreme benchmark errors can dominate the learner target and prevent
+the model from distinguishing between policies in the moderate-performance range
+where most selection decisions happen.</p>
 </div>
 
 <details>

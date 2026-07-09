@@ -2,10 +2,9 @@
 % Please edit documentation in R/policyselector.R
 \name{plot.PolicyPredictions}
 \alias{plot.PolicyPredictions}
-\alias{.plot_policy_predictions}
 \title{Plot a \code{PolicyPredictions}}
 \usage{
-.plot_policy_predictions(
+plot(
   x,
   y = NULL,
   type = c("selected_intervals", "strategy_competition"),

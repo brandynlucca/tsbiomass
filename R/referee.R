@@ -58,6 +58,7 @@ NULL
 #' @aliases Scorecard
 NULL
 
+#' @export
 Scorecard <- S7::new_class(
   "Scorecard",
   properties = list(
@@ -146,6 +147,7 @@ empty_scorecard <- function() {
   )
 }
 
+#' @export
 Referee <- S7::new_class(
   "Referee",
   properties = list(
@@ -1870,6 +1872,40 @@ S7::method(show_generic, Referee) <- function(object) {
 #' plot(scorecard, type = "coefficient_uncertainty")
 #' plot(scorecard, type = "field_missingness")
 #' }
+#' @usage
+#' plot(
+#'   x,
+#'   y = NULL,
+#'   type = c(
+#'     "ts_length",
+#'     "ts_length_conformal",
+#'     "ts_length_multiplier",
+#'     "ts_length_bands",
+#'     "coefficient_uncertainty",
+#'     "selected_intervals",
+#'     "selected_multiplier_summary",
+#'     "selected_policy_counts",
+#'     "strategy_competition",
+#'     "field_missingness",
+#'     "ablation",
+#'     "validation",
+#'     "coverage",
+#'     "ablation_decomposition",
+#'     "sentinel_ablation",
+#'     "sentinel_ablation_decomposition",
+#'     "sentinel_validation",
+#'     "sentinel_coverage"
+#'   ),
+#'   scale = c("ts", "multiplier"),
+#'   view = NULL,
+#'   anchor_model_id = NULL,
+#'   anchor_species = NULL,
+#'   show_top_candidate = FALSE,
+#'   reference_label = "Reference",
+#'   ...
+#' )
+NULL
+
 .plot_scorecard <- function(x,
                             y = NULL,
                             type = c(
@@ -2205,6 +2241,19 @@ S7::method(plot_generic, Scorecard) <- .plot_scorecard
 #' plot(referee, type = "biomass_change")
 #' plot(referee, type = "length_density", anchor_species = "Sardinops sagax")
 #' }
+#' @usage
+#' plot(
+#'   x,
+#'   y = NULL,
+#'   type = "biomass_change",
+#'   view = NULL,
+#'   anchor_model_id = NULL,
+#'   anchor_species = NULL,
+#'   reference_name = NULL,
+#'   ...
+#' )
+NULL
+
 .plot_referee <- function(x,
                           y = NULL,
                           type = "biomass_change",

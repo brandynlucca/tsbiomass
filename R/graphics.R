@@ -2181,6 +2181,24 @@ conjurer_heatmap_plot <- function(x,
 #' plot(conjurer, metric = "q95_abs_db_shift")
 #' plot(conjurer, metric = "switch_rate_vs_baseline")
 #' }
+#' @usage
+#' plot(
+#'   x,
+#'   y = NULL,
+#'   metric = "mean_abs_db_shift",
+#'   trait_labs = NULL,
+#'   anchor_order = NULL,
+#'   trait_order = NULL,
+#'   title = NULL,
+#'   subtitle = NULL,
+#'   fill_lab = NULL,
+#'   show_values = TRUE,
+#'   na_value = "grey90",
+#'   tile_colour = "white",
+#'   ...
+#' )
+NULL
+
 .plot_conjurer <- function(x,
                            y = NULL,
                            metric = "mean_abs_db_shift",

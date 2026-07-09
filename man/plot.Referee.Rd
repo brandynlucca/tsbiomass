@@ -2,10 +2,9 @@
 % Please edit documentation in R/referee.R
 \name{plot.Referee}
 \alias{plot.Referee}
-\alias{.plot_referee}
 \title{Plot a \code{Referee}}
 \usage{
-.plot_referee(
+plot(
   x,
   y = NULL,
   type = "biomass_change",

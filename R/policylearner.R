@@ -24,6 +24,7 @@
 #' @aliases PolicyLearner
 NULL
 
+#' @export
 PolicyLearner <- S7::new_class(
   "PolicyLearner",
   properties = list(
@@ -2809,6 +2810,27 @@ S7::method(predict_generic, PolicyLearner) <- .predict_policy_learner
 #' plot(learner, type = "calibration_curve", outcome = "raw")
 #' plot(learner, type = "residuals", view = "by_policy", outcome = "raw")
 #' }
+#' @usage
+#' plot(
+#'   x,
+#'   y = NULL,
+#'   type = c(
+#'     "predicted_vs_observed",
+#'     "calibration_curve",
+#'     "residuals",
+#'     "score_by_policy",
+#'     "support_bin_error",
+#'     "selected_policy_counts",
+#'     "recommendation_stability"
+#'   ),
+#'   view = NULL,
+#'   outcome = c("modeled", "raw"),
+#'   rows = c("all", "selected"),
+#'   n_bins = 10L,
+#'   ...
+#' )
+NULL
+
 .plot_policy_learner <- function(x,
                                  y = NULL,
                                  type = c(

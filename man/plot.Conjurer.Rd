@@ -2,10 +2,9 @@
 % Please edit documentation in R/graphics.R
 \name{plot.Conjurer}
 \alias{plot.Conjurer}
-\alias{.plot_conjurer}
 \title{Plot \code{Conjurer} missingness uncertainty summaries}
 \usage{
-.plot_conjurer(
+plot(
   x,
   y = NULL,
   metric = "mean_abs_db_shift",

@@ -2,10 +2,9 @@
 % Please edit documentation in R/alchemist.R
 \name{plot.Alchemist}
 \alias{plot.Alchemist}
-\alias{.plot_alchemist}
 \title{Plot an \code{Alchemist}}
 \usage{
-.plot_alchemist(
+plot(
   x,
   y = NULL,
   type = c("ordination", "trait_importance", "admissibility"),

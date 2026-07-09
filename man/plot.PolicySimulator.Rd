@@ -2,10 +2,9 @@
 % Please edit documentation in R/policysimulator.R
 \name{plot.PolicySimulator}
 \alias{plot.PolicySimulator}
-\alias{.plot_policy_simulator}
 \title{Plot a \code{PolicySimulator}}
 \usage{
-.plot_policy_simulator(
+plot(
   x,
   y = NULL,
   type = c("sensitivity_overview", "policy_stability", "multiplier_drift"),
