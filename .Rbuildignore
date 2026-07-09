@@ -21,6 +21,10 @@
 ^\.r-lib/.*$
 ^[0-9]+_R-CMD-check.*\.txt$
 ^[0-9]+_coverage\.txt$
+^_pkgdown\.yml$
+^pkgdown/.*$
+^docs/.*$
+^index\.md$
 \.Rhistory$
 \.tmp$
 ^\.tmp/.*$
