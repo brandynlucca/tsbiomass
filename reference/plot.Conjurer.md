@@ -5,6 +5,7 @@ Plot `Conjurer` missingness uncertainty summaries
 ## Usage
 
 ``` r
+# S3 method for class 'Conjurer'
 plot(
   x,
   y = NULL,

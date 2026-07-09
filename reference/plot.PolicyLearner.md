@@ -9,6 +9,7 @@ rebuilding diagnostic tables in user code.
 ## Usage
 
 ``` r
+# S3 method for class 'PolicyLearner'
 plot(
   x,
   y = NULL,

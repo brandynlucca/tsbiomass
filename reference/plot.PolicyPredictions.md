@@ -8,6 +8,7 @@ by hand.
 ## Usage
 
 ``` r
+# S3 method for class 'PolicyPredictions'
 plot(
   x,
   y = NULL,

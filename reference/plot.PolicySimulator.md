@@ -8,6 +8,7 @@ simulator object.
 ## Usage
 
 ``` r
+# S3 method for class 'PolicySimulator'
 plot(
   x,
   y = NULL,

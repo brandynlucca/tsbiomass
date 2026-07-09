@@ -293,47 +293,47 @@ Sensitivity simulation and outer-loop holdout validation.
 
 S3 plot methods dispatched via plot(object, …) for all major classes.
 
-- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Alchemist.md)
+- [`plot(`*`<Alchemist>`*`)`](https://brandynlucca.github.io/tsbiomass/reference/plot.Alchemist.md)
   :
 
   Plot an `Alchemist`
 
-- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Candidates.md)
+- [`plot(`*`<Candidates>`*`)`](https://brandynlucca.github.io/tsbiomass/reference/plot.Candidates.md)
   :
 
   Plot a `Candidates`
 
-- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Conjurer.md)
+- [`plot(`*`<Conjurer>`*`)`](https://brandynlucca.github.io/tsbiomass/reference/plot.Conjurer.md)
   :
 
   Plot `Conjurer` missingness uncertainty summaries
 
-- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicyLearner.md)
+- [`plot(`*`<PolicyLearner>`*`)`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicyLearner.md)
   :
 
   Plot a `PolicyLearner`
 
-- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicyPredictions.md)
+- [`plot(`*`<PolicyPredictions>`*`)`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicyPredictions.md)
   :
 
   Plot a `PolicyPredictions`
 
-- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicySelector.md)
+- [`plot(`*`<PolicySelector>`*`)`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicySelector.md)
   :
 
   Plot a `PolicySelector`
 
-- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicySimulator.md)
+- [`plot(`*`<PolicySimulator>`*`)`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicySimulator.md)
   :
 
   Plot a `PolicySimulator`
 
-- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Referee.md)
+- [`plot(`*`<Referee>`*`)`](https://brandynlucca.github.io/tsbiomass/reference/plot.Referee.md)
   :
 
   Plot a `Referee`
 
-- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Scorecard.md)
+- [`plot(`*`<Scorecard>`*`)`](https://brandynlucca.github.io/tsbiomass/reference/plot.Scorecard.md)
   :
 
   Plot a `Scorecard`

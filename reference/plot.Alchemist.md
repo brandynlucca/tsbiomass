@@ -7,6 +7,7 @@ types behave consistently at the REPL.
 ## Usage
 
 ``` r
+# S3 method for class 'Alchemist'
 plot(
   x,
   y = NULL,
