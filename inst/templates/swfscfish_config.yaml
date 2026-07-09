@@ -367,21 +367,70 @@ selection:
       colsample_bytree: 0.8
       lambda: 2.0
       alpha: 0.5
-    # BART family (stochtree). SHARED, user-tunable priors for the five
-    # self-contained BART learners: bart (pure MCMC), xbart (grow-from-root only),
-    # wsbart (warm start), vfbart (variance forest / heteroskedastic), and rebart
-    # (group random effect). Each learner's defining sampler schedule / mode is
-    # intrinsic and set in code by name (like alpha for glm_ridge/glm_lasso/
-    # glm_elastic), so it is NOT configured here. variance_forest_num_trees is used
-    # only by vfbart; random_effects_group only by rebart.
+    # BART methods (stochtree). Each public BART method owns its sampler
+    # schedule/mode directly. vfbart carries the variance forest; rebart carries
+    # the random-effect grouping column.
     bart:
       num_trees: 75
+      num_gfr: 0
+      num_burnin: 100
+      num_mcmc: 200
       alpha: 0.95
       beta: 2
       min_samples_leaf: 5
       max_depth: 10
       keep_gfr: true
+      variance_forest: false
+      random_effects: false
+    xbart:
+      num_trees: 75
+      num_gfr: 40
+      num_burnin: 0
+      num_mcmc: 0
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest: false
+      random_effects: false
+    wsbart:
+      num_trees: 75
+      num_gfr: 20
+      num_burnin: 0
+      num_mcmc: 200
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest: false
+      random_effects: false
+    vfbart:
+      num_trees: 75
+      num_gfr: 0
+      num_burnin: 100
+      num_mcmc: 200
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest: true
       variance_forest_num_trees: 50
+      random_effects: false
+    rebart:
+      num_trees: 75
+      num_gfr: 0
+      num_burnin: 100
+      num_mcmc: 200
+      alpha: 0.95
+      beta: 2
+      min_samples_leaf: 5
+      max_depth: 10
+      keep_gfr: true
+      variance_forest: false
+      random_effects: true
       random_effects_group: .split_group
     # k-nearest-neighbours regression (FNN::knn.reg) on the standardized feature
     # matrix.

@@ -2159,7 +2159,8 @@ normalize_learner_section <- function(learner_section) {
   }
   learner_section$method <- learner_section[["method", exact = TRUE]] %||% "glm"
   learner_section$method_settings <- normalize_meta_policy_method_settings(
-    learner_section$method_settings %||% NULL
+    learner_section$method_settings %||% NULL,
+    defaults_path = learner_section$method_defaults_path %||% NULL
   )
   learner_section
 }
@@ -2891,7 +2892,8 @@ validate_learner_section <- function(learner_section, section_name = "Selection"
   }
 
   method_settings <- normalize_meta_policy_method_settings(
-    learner_section$method_settings %||% NULL
+    learner_section$method_settings %||% NULL,
+    defaults_path = learner_section$method_defaults_path %||% NULL
   )
   method_catalog <- meta_policy_method_catalog(method_settings = method_settings)
   allowed_methods <- c("super_learner", method_catalog$methods)
@@ -2977,16 +2979,12 @@ validate_learner_section <- function(learner_section, section_name = "Selection"
 #' @keywords internal
 #' @noRd
 validate_metalearner_method_settings <- function(method_settings) {
+  method_settings <- strip_meta_policy_method_settings_controls(method_settings)
   if (!is.list(method_settings)) {
     stop("Metalearner field 'method_settings' must be a named list.", call. = FALSE)
   }
 
-  # "mars" is settable (degree/penalty/nprune/pmethod); "mean" is intentionally
-  # omitted because the intercept-only baseline exposes no hyperparameters.
-  allowed_sections <- c(
-    "glm_penalized", "qreg", "gam", "lmm", "rpart", "rf", "xgboost", "mars", "bart", "knn",
-    "cubist", "svr", "qrf", "gpr"
-  )
+  allowed_sections <- names(meta_policy_method_family_map())
   bad_sections <- setdiff(names(method_settings), allowed_sections)
   if (length(bad_sections) > 0) {
     stop(
@@ -2997,38 +2995,34 @@ validate_metalearner_method_settings <- function(method_settings) {
       call. = FALSE
     )
   }
-  validate_variant_block <- function(settings, field_label, validator) {
-    variants <- settings$variants %||% NULL
-    if (is.null(variants)) {
-      return(invisible(NULL))
-    }
-    if (!is.list(variants) || is.null(names(variants)) || anyNA(names(variants)) ||
-      any(!nzchar(names(variants)))) {
+
+  reject_variant_block <- function(settings, field_label) {
+    if (!is.null(settings$variants)) {
       stop(
-        sprintf("Metalearner field '%s.variants' must be a named list.", field_label),
+        sprintf(
+          "Metalearner field '%s.variants' is not supported; configure the method entry directly.",
+          field_label
+        ),
         call. = FALSE
       )
-    }
-    for (variant_name in names(variants)) {
-      variant_settings <- variants[[variant_name]]
-      if (!is.list(variant_settings)) {
-        stop(
-          sprintf(
-            "Metalearner field '%s.variants.%s' must be a named list.",
-            field_label,
-            variant_name
-          ),
-          call. = FALSE
-        )
-      }
-      validator(variant_settings, paste0(field_label, ".variants.", variant_name))
     }
     invisible(NULL)
   }
 
-  validate_glm_penalized_settings <- function(settings, field_label) {
+  validate_empty_settings <- function(settings, field_label) {
     if (!is.list(settings)) {
       stop(sprintf("Metalearner field '%s' must be a named list.", field_label), call. = FALSE)
+    }
+    reject_variant_block(settings, field_label)
+  }
+
+  validate_glm_penalized_settings <- function(settings, field_label) {
+    validate_empty_settings(settings, field_label)
+    if (!is.null(settings$alpha)) {
+      alpha_now <- suppressWarnings(as.numeric(settings$alpha)[[1]])
+      if (!is.finite(alpha_now) || alpha_now < 0 || alpha_now > 1) {
+        stop(sprintf("Metalearner field '%s.alpha' must be one finite number between 0 and 1.", field_label), call. = FALSE)
+      }
     }
     if (!is.null(settings$standardize) &&
       (!is.logical(settings$standardize) || length(settings$standardize) != 1 || is.na(settings$standardize))) {
@@ -3037,31 +3031,17 @@ validate_metalearner_method_settings <- function(method_settings) {
     if (!is.null(settings$type_measure)) {
       type_measure <- stringr::str_squish(as.character(settings$type_measure))
       if (length(type_measure) != 1 || !type_measure %in% c("mae", "mse", "deviance")) {
-        stop(
-          sprintf(
-            "Metalearner field '%s.type_measure' must be one of: mae, mse, deviance.",
-            field_label
-          ),
-          call. = FALSE
-        )
+        stop(sprintf("Metalearner field '%s.type_measure' must be one of: mae, mse, deviance.", field_label), call. = FALSE)
       }
     }
   }
 
   validate_gam_settings <- function(settings, field_label) {
-    if (!is.list(settings)) {
-      stop(sprintf("Metalearner field '%s' must be a named list.", field_label), call. = FALSE)
-    }
+    validate_empty_settings(settings, field_label)
     if (!is.null(settings$fit_method)) {
       fit_method <- stringr::str_squish(as.character(settings$fit_method))
       if (length(fit_method) != 1 || !fit_method %in% c("REML", "ML", "GCV.Cp")) {
-        stop(
-          sprintf(
-            "Metalearner field '%s.fit_method' must be one of: REML, ML, GCV.Cp.",
-            field_label
-          ),
-          call. = FALSE
-        )
+        stop(sprintf("Metalearner field '%s.fit_method' must be one of: REML, ML, GCV.Cp.", field_label), call. = FALSE)
       }
     }
     if (!is.null(settings$select_terms) &&
@@ -3071,188 +3051,134 @@ validate_metalearner_method_settings <- function(method_settings) {
   }
 
   validate_lmm_settings <- function(settings, field_label) {
-    if (!is.list(settings)) {
-      stop(sprintf("Metalearner field '%s' must be a named list.", field_label), call. = FALSE)
-    }
+    validate_empty_settings(settings, field_label)
     if (!is.null(settings$group_cols)) {
-      stop(
-        sprintf(
-          "Metalearner field '%s.group_cols' has been replaced by '%s.random_intercept'.",
-          field_label,
-          field_label
-        ),
-        call. = FALSE
-      )
+      stop(sprintf("Metalearner field '%s.group_cols' has been replaced by '%s.random_intercept'.", field_label, field_label), call. = FALSE)
     }
     if (!is.null(settings$fit_method)) {
       fit_method <- stringr::str_squish(as.character(settings$fit_method))
       if (length(fit_method) != 1 || !fit_method %in% c("REML", "ML")) {
-        stop(
-          sprintf(
-            "Metalearner field '%s.fit_method' must be one of: REML, ML.",
-            field_label
-          ),
-          call. = FALSE
-        )
+        stop(sprintf("Metalearner field '%s.fit_method' must be one of: REML, ML.", field_label), call. = FALSE)
       }
     }
     if (!is.null(settings$random_intercept)) {
       random_intercept <- as.character(unlist(settings$random_intercept, use.names = FALSE))
-      if (length(random_intercept) != 1L || anyNA(random_intercept) ||
-        !nzchar(stringr::str_squish(random_intercept))) {
-        stop(
-          sprintf(
-            paste(
-              "Metalearner field '%s.random_intercept' must contain exactly one",
-              "non-empty column name."
-            ),
-            field_label
-          ),
-          call. = FALSE
-        )
+      if (length(random_intercept) != 1L || anyNA(random_intercept) || !nzchar(stringr::str_squish(random_intercept))) {
+        stop(sprintf("Metalearner field '%s.random_intercept' must contain exactly one non-empty column name.", field_label), call. = FALSE)
       }
     }
-    validate_variant_block(settings, field_label, validate_lmm_settings)
   }
 
   validate_qreg_settings <- function(settings, field_label) {
-    if (!is.list(settings)) {
-      stop(sprintf("Metalearner field '%s' must be a named list.", field_label), call. = FALSE)
-    }
+    validate_empty_settings(settings, field_label)
     if (!is.null(settings$tau)) {
       tau_now <- suppressWarnings(as.numeric(settings$tau)[[1]])
       if (!is.finite(tau_now) || tau_now <= 0 || tau_now >= 1) {
-        stop(
-          sprintf("Metalearner field '%s.tau' must be one finite number strictly between 0 and 1.", field_label),
-          call. = FALSE
-        )
+        stop(sprintf("Metalearner field '%s.tau' must be one finite number strictly between 0 and 1.", field_label), call. = FALSE)
       }
     }
     if (!is.null(settings$fit_method)) {
       fit_method <- stringr::str_squish(as.character(settings$fit_method))
       if (length(fit_method) != 1 || !fit_method %in% c("br", "fn", "fnb", "pfn")) {
-        stop(
-          sprintf(
-            "Metalearner field '%s.fit_method' must be one of: br, fn, fnb, pfn.",
-            field_label
-          ),
-          call. = FALSE
-        )
+        stop(sprintf("Metalearner field '%s.fit_method' must be one of: br, fn, fnb, pfn.", field_label), call. = FALSE)
       }
     }
-    validate_variant_block(settings, field_label, validate_qreg_settings)
   }
 
   validate_rpart_settings <- function(settings, field_label) {
-    if (!is.list(settings)) {
-      stop(sprintf("Metalearner field '%s' must be a named list.", field_label), call. = FALSE)
-    }
-    if (!is.null(settings$cp) &&
-      (!is.numeric(settings$cp) || length(settings$cp) != 1 || !is.finite(settings$cp) || settings$cp < 0)) {
-      stop(
-        sprintf("Metalearner field '%s.cp' must be one finite number >= 0.", field_label),
-        call. = FALSE
-      )
+    validate_empty_settings(settings, field_label)
+    if (!is.null(settings$cp) && (!is.numeric(settings$cp) || length(settings$cp) != 1 || !is.finite(settings$cp) || settings$cp < 0)) {
+      stop(sprintf("Metalearner field '%s.cp' must be one finite number >= 0.", field_label), call. = FALSE)
     }
     for (field_name in c("minsplit", "minbucket", "maxdepth")) {
       field_value <- settings[[field_name]]
-      if (!is.null(field_value) &&
-        (!is.numeric(field_value) || length(field_value) != 1 || !is.finite(field_value) || field_value < 1)) {
-        stop(
-          sprintf("Metalearner field '%s.%s' must be one finite number >= 1.", field_label, field_name),
-          call. = FALSE
-        )
+      if (!is.null(field_value) && (!is.numeric(field_value) || length(field_value) != 1 || !is.finite(field_value) || field_value < 1)) {
+        stop(sprintf("Metalearner field '%s.%s' must be one finite number >= 1.", field_label, field_name), call. = FALSE)
       }
     }
-    validate_variant_block(settings, field_label, validate_rpart_settings)
   }
 
   validate_rf_settings <- function(settings, field_label) {
-    if (!is.list(settings)) {
-      stop(sprintf("Metalearner field '%s' must be a named list.", field_label), call. = FALSE)
-    }
+    validate_empty_settings(settings, field_label)
     for (field_name in c("num_trees", "min_node_size", "max_depth")) {
       field_value <- settings[[field_name]]
-      if (!is.null(field_value) &&
-        (!is.numeric(field_value) || length(field_value) != 1 || !is.finite(field_value) || field_value < 1)) {
-        stop(
-          sprintf("Metalearner field '%s.%s' must be one finite number >= 1.", field_label, field_name),
-          call. = FALSE
-        )
+      if (!is.null(field_value) && (!is.numeric(field_value) || length(field_value) != 1 || !is.finite(field_value) || field_value < 1)) {
+        stop(sprintf("Metalearner field '%s.%s' must be one finite number >= 1.", field_label, field_name), call. = FALSE)
       }
     }
     for (field_name in c("mtry", "sample_fraction")) {
       field_value <- settings[[field_name]]
-      if (!is.null(field_value) &&
-        (!is.numeric(field_value) || length(field_value) != 1 || !is.finite(field_value) || field_value <= 0)) {
-        stop(
-          sprintf("Metalearner field '%s.%s' must be one finite number > 0.", field_label, field_name),
-          call. = FALSE
-        )
+      if (!is.null(field_value) && (!is.numeric(field_value) || length(field_value) != 1 || !is.finite(field_value) || field_value <= 0)) {
+        stop(sprintf("Metalearner field '%s.%s' must be one finite number > 0.", field_label, field_name), call. = FALSE)
       }
     }
     if (!is.null(settings$sample_fraction) && settings$sample_fraction > 1) {
-      stop(
-        sprintf(
-          "Metalearner field '%s.sample_fraction' must be no greater than 1.",
-          field_label
-        ),
-        call. = FALSE
-      )
+      stop(sprintf("Metalearner field '%s.sample_fraction' must be no greater than 1.", field_label), call. = FALSE)
     }
-    if (!is.null(settings$replace) &&
-      (!is.logical(settings$replace) || length(settings$replace) != 1 || is.na(settings$replace))) {
+    if (!is.null(settings$replace) && (!is.logical(settings$replace) || length(settings$replace) != 1 || is.na(settings$replace))) {
       stop(sprintf("Metalearner field '%s.replace' must be TRUE or FALSE.", field_label), call. = FALSE)
     }
     if (!is.null(settings$respect_unordered_factors)) {
       respect_value <- stringr::str_squish(as.character(settings$respect_unordered_factors))
       if (length(respect_value) != 1 || !respect_value %in% c("ignore", "order", "partition")) {
-        stop(
-          paste(
-            sprintf("Metalearner field '%s.respect_unordered_factors'", field_label),
-            "must be one of: ignore, order, partition."
-          ),
-          call. = FALSE
-        )
+        stop(sprintf("Metalearner field '%s.respect_unordered_factors' must be one of: ignore, order, partition.", field_label), call. = FALSE)
       }
     }
-    validate_variant_block(settings, field_label, validate_rf_settings)
   }
 
   validate_xgboost_settings <- function(settings, field_label) {
-    if (!is.list(settings)) {
-      stop(sprintf("Metalearner field '%s' must be a named list.", field_label), call. = FALSE)
-    }
+    validate_empty_settings(settings, field_label)
     for (field_name in c("nrounds", "max_depth", "nthread")) {
       field_value <- settings[[field_name]]
-      if (!is.null(field_value) &&
-        (!is.numeric(field_value) || length(field_value) != 1 || !is.finite(field_value) || field_value < 1)) {
-        stop(
-          sprintf("Metalearner field '%s.%s' must be one finite number >= 1.", field_label, field_name),
-          call. = FALSE
-        )
+      if (!is.null(field_value) && (!is.numeric(field_value) || length(field_value) != 1 || !is.finite(field_value) || field_value < 1)) {
+        stop(sprintf("Metalearner field '%s.%s' must be one finite number >= 1.", field_label, field_name), call. = FALSE)
       }
     }
     for (field_name in c("eta", "min_child_weight", "subsample", "colsample_bytree", "lambda", "alpha")) {
       field_value <- settings[[field_name]]
-      if (!is.null(field_value) &&
-        (!is.numeric(field_value) || length(field_value) != 1 || !is.finite(field_value) || field_value < 0)) {
-        stop(
-          sprintf("Metalearner field '%s.%s' must be one finite number >= 0.", field_label, field_name),
-          call. = FALSE
-        )
+      if (!is.null(field_value) && (!is.numeric(field_value) || length(field_value) != 1 || !is.finite(field_value) || field_value < 0)) {
+        stop(sprintf("Metalearner field '%s.%s' must be one finite number >= 0.", field_label, field_name), call. = FALSE)
       }
     }
-    validate_variant_block(settings, field_label, validate_xgboost_settings)
   }
 
+  validate_mars_settings <- function(settings, field_label) {
+    validate_empty_settings(settings, field_label)
+    for (field_name in c("degree", "nprune")) {
+      field_value <- settings[[field_name]]
+      if (!is.null(field_value) && (!is.numeric(field_value) || length(field_value) != 1 || !is.finite(field_value) || field_value < 1)) {
+        stop(sprintf("Metalearner field '%s.%s' must be one finite number >= 1.", field_label, field_name), call. = FALSE)
+      }
+    }
+    if (!is.null(settings$penalty) && (!is.numeric(settings$penalty) || length(settings$penalty) != 1 || !is.finite(settings$penalty) || settings$penalty < 0)) {
+      stop(sprintf("Metalearner field '%s.penalty' must be one finite number >= 0.", field_label), call. = FALSE)
+    }
+    if (!is.null(settings$pmethod)) {
+      pmethod <- stringr::str_squish(as.character(settings$pmethod))
+      if (length(pmethod) != 1 || !pmethod %in% c("backward", "none", "exhaustive", "forward", "seqrep", "cv")) {
+        stop(sprintf("Metalearner field '%s.pmethod' is not a supported earth pruning method.", field_label), call. = FALSE)
+      }
+    }
+  }
+
+  validate_glm_penalized_settings(method_settings$glm_ridge %||% list(), "method_settings.glm_ridge")
+  validate_glm_penalized_settings(method_settings$glm_lasso %||% list(), "method_settings.glm_lasso")
+  validate_glm_penalized_settings(method_settings$glm_elastic %||% list(), "method_settings.glm_elastic")
   validate_qreg_settings(method_settings$qreg %||% list(), "method_settings.qreg")
-  validate_glm_penalized_settings(method_settings$glm_penalized %||% list(), "method_settings.glm_penalized")
   validate_gam_settings(method_settings$gam %||% list(), "method_settings.gam")
   validate_lmm_settings(method_settings$lmm %||% list(), "method_settings.lmm")
   validate_rpart_settings(method_settings$rpart %||% list(), "method_settings.rpart")
   validate_rf_settings(method_settings$rf %||% list(), "method_settings.rf")
   validate_xgboost_settings(method_settings$xgboost %||% list(), "method_settings.xgboost")
+  validate_mars_settings(method_settings$mars %||% list(), "method_settings.mars")
+  validate_rf_settings(method_settings$qrf %||% list(), "method_settings.qrf")
+  validate_empty_settings(method_settings$knn %||% list(), "method_settings.knn")
+  validate_empty_settings(method_settings$cubist %||% list(), "method_settings.cubist")
+  validate_empty_settings(method_settings$svr %||% list(), "method_settings.svr")
+  validate_empty_settings(method_settings$gpr %||% list(), "method_settings.gpr")
+  for (bart_method in c("bart", "xbart", "wsbart", "vfbart", "rebart")) {
+    validate_empty_settings(method_settings[[bart_method]] %||% list(), paste0("method_settings.", bart_method))
+  }
 
   invisible(NULL)
 }

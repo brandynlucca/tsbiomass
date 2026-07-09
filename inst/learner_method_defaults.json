@@ -1,0 +1,147 @@
+{
+  "families": {
+    "glm": {},
+    "glm_penalized": {
+      "standardize": true,
+      "type_measure": "mae"
+    },
+    "qreg": {
+      "tau": 0.5,
+      "fit_method": "fn"
+    },
+    "gam": {
+      "fit_method": "REML",
+      "select_terms": true
+    },
+    "lmm": {
+      "fit_method": "REML",
+      "random_intercept": ".split_group"
+    },
+    "rpart": {
+      "cp": 0.01,
+      "minsplit": 20,
+      "minbucket": 7,
+      "maxdepth": 30
+    },
+    "rf": {
+      "num_trees": 500,
+      "mtry": null,
+      "min_node_size": 5,
+      "max_depth": null,
+      "sample_fraction": 1,
+      "replace": true,
+      "respect_unordered_factors": "order"
+    },
+    "xgboost": {
+      "nrounds": 100,
+      "eta": 0.3,
+      "max_depth": 6,
+      "min_child_weight": 1,
+      "subsample": 1,
+      "colsample_bytree": 1,
+      "lambda": 1,
+      "alpha": 0,
+      "nthread": 1
+    },
+    "mars": {
+      "degree": 2,
+      "penalty": 3,
+      "nprune": null,
+      "pmethod": "backward"
+    },
+    "bart": {
+      "num_trees": 75,
+      "alpha": 0.95,
+      "beta": 2,
+      "min_samples_leaf": 5,
+      "max_depth": 10,
+      "keep_gfr": true
+    },
+    "knn": {
+      "k": 10
+    },
+    "cubist": {
+      "committees": 1,
+      "neighbors": 0
+    },
+    "svr": {
+      "C": 1,
+      "epsilon": 0.1
+    },
+    "qrf": {
+      "num_trees": 500,
+      "mtry": null,
+      "min_node_size": 10,
+      "max_depth": null,
+      "sample_fraction": 1,
+      "replace": true,
+      "quantile": 0.9
+    },
+    "gpr": {
+      "var": 0.001
+    },
+    "mean": {}
+  },
+  "methods": {
+    "glm": {},
+    "glm_ridge": {
+      "alpha": 0
+    },
+    "glm_lasso": {
+      "alpha": 1
+    },
+    "glm_elastic": {
+      "alpha": 0.25
+    },
+    "qreg": {},
+    "gam": {},
+    "lmm": {},
+    "rpart": {},
+    "rf": {},
+    "xgboost": {},
+    "mars": {},
+    "bart": {
+      "num_gfr": 0,
+      "num_burnin": 100,
+      "num_mcmc": 200,
+      "variance_forest": false,
+      "random_effects": false
+    },
+    "xbart": {
+      "num_gfr": 40,
+      "num_burnin": 0,
+      "num_mcmc": 0,
+      "variance_forest": false,
+      "random_effects": false
+    },
+    "wsbart": {
+      "num_gfr": 20,
+      "num_burnin": 0,
+      "num_mcmc": 200,
+      "variance_forest": false,
+      "random_effects": false
+    },
+    "vfbart": {
+      "num_gfr": 0,
+      "num_burnin": 100,
+      "num_mcmc": 200,
+      "variance_forest": true,
+      "variance_forest_num_trees": 50,
+      "random_effects": false
+    },
+    "rebart": {
+      "num_gfr": 0,
+      "num_burnin": 100,
+      "num_mcmc": 200,
+      "variance_forest": false,
+      "random_effects": true,
+      "random_effects_group": ".split_group"
+    },
+    "knn": {},
+    "cubist": {},
+    "svr": {},
+    "qrf": {},
+    "gpr": {},
+    "mean": {}
+  }
+}

@@ -88,6 +88,17 @@ alchemist_config_from_config <- function(source) {
   alch <- cfg$alchemist %||% list()
   sim <- cfg$similarity %||% list()
   ml <- cfg$selection %||% list()
+  method_defaults_path <- alch$learner$method_defaults_path %||%
+    ml$method_defaults_path %||%
+    NULL
+  method_settings <- merge_config_sections(
+    ml$method_settings %||% list(),
+    alch$learner$method_settings %||% list()
+  )
+  method_settings <- attach_meta_policy_method_defaults_path(
+    method_settings,
+    method_defaults_path
+  )
 
   list(
     species_traits = alch$species_traits %||% sim$species_traits %||% list(),
@@ -110,10 +121,8 @@ alchemist_config_from_config <- function(source) {
       oof_mode = alch$learner$oof_mode %||% "anchor_species",
       # Preserve the shared learner-family settings and let any Alchemist-
       # specific overrides replace only the fields they explicitly set.
-      method_settings = merge_config_sections(
-        ml$method_settings %||% list(),
-        alch$learner$method_settings %||% list()
-      ),
+      method_defaults_path = method_defaults_path,
+      method_settings = method_settings,
       workers = as.integer(alch$learner$workers %||% ml$workers %||% 1L)
     ),
     distill_workers = as.integer(alch$distill_workers %||% 1L),
@@ -1132,8 +1141,7 @@ build_alchemist_oof_splits <- function(training_data,
 #' @noRd
 resolve_learner_methods <- function(methods,
                                     method_settings = NULL) {
-  # Build the public Alchemist method namespace from the shared family catalog
-  # so variant aliases are derived from config rather than hard-coded here.
+  # Build the public Alchemist method namespace from the shared method catalog.
   catalog <- meta_policy_method_catalog(method_settings = method_settings)
   supported_families <- c(
     "glm",
@@ -1190,29 +1198,21 @@ feature_matrix <- function(data, feature_cols) {
   mat
 }
 
-#' Derive per-family method settings from a shared settings list
+#' Derive per-method settings from a shared settings list
 #'
-#' Extracts the settings block for one method family and applies any
-#' variant-specific overrides when the method name has a `_variant` suffix.
+#' Extracts the settings block for one public learner method name.
 #'
 #' @param family Character. One of `"glm"`, `"glm_penalized"`, `"gam"`,
 #'   `"rpart"`, `"rf"`, `"xgboost"`.
-#' @param method Character. Full method name, e.g. `"rf_shallow"`.
-#' @param method_settings Named list of per-family settings from config.
+#' @param method Character. Full method name, e.g. `"glm_elastic"`.
+#' @param method_settings Named list of per-method settings from config.
 #'
-#' @return Named list of resolved settings for this family+variant.
+#' @return Named list of resolved settings for this method.
 #'
 #' @keywords internal
 #' @noRd
 learner_method_settings <- function(family, method, method_settings) {
-  ms <- as.list(normalize_meta_policy_method_settings(method_settings)[[family]] %||% list())
-  variant <- sub(paste0("^", family, "_?"), "", method)
-  if (nzchar(variant) && !is.null(ms$variants[[variant]])) {
-    for (nm in names(ms$variants[[variant]])) {
-      ms[[nm]] <- ms$variants[[variant]][[nm]]
-    }
-  }
-  ms
+  as.list(normalize_meta_policy_method_settings(method_settings)[[method]] %||% list())
 }
 
 #' Prepare one dense regression frame for linear-style Alchemist learners
@@ -1262,7 +1262,7 @@ prepare_alchemist_regression_frame <- function(x_train) {
 #' @param y_train Numeric outcome vector (training rows), in transformed space.
 #' @param method Character method name. See `resolve_learner_methods()` for
 #'   the supported set.
-#' @param method_settings Named list of per-family tuning settings.
+#' @param method_settings Named list of per-method tuning settings.
 #' @param seed Integer random seed.
 #' @param lambda_rule Character. One of `"lambda.1se"` or `"lambda.min"`.
 #'   Only used by glm-penalized methods.
@@ -1279,11 +1279,13 @@ fit_base_learner <- function(x_train, y_train, method,
   if (!is.null(seed)) {
     set.seed(as.integer(seed))
   }
-  # Resolve the family from the shared method catalog so config-defined
-  # variants such as xgboost_conservative and qreg_q90 behave consistently.
   family <- meta_policy_method_spec(method, method_settings = method_settings)$family
 
   ms <- learner_method_settings(family, method, method_settings %||% list())
+  method_defaults <- meta_policy_method_default_arguments(
+    method,
+    defaults_path = meta_policy_method_settings_defaults_path(method_settings)
+  )
   feature_cols <- colnames(x_train)
 
   fit <- switch(family,
@@ -1297,12 +1299,11 @@ fit_base_learner <- function(x_train, y_train, method,
       stats::lm(.y ~ ., data = df_train)
     },
     glm_penalized = {
-      alpha_val <- switch(method,
-        glm_ridge = 0,
-        glm_lasso = 1,
-        glm_elastic = as.numeric(ms$alpha %||% 0.25),
-        0.25
-      )
+      alpha_val <- if (identical(method, "glm_elastic")) {
+        as.numeric(ms$alpha %||% method_defaults$alpha %||% 0.25)
+      } else {
+        as.numeric(method_defaults$alpha %||% 0.25)
+      }
       glmnet::cv.glmnet(
         x = x_train,
         y = y_train,
@@ -1543,7 +1544,7 @@ predict_base_learner <- function(object, x_new) {
 #' @param x_all Numeric feature matrix for the full training set.
 #' @param y_all Numeric outcome vector (transformed), full training set.
 #' @param foldid Integer fold-ID vector, length `nrow(x_all)`.
-#' @param method_settings Named list of per-family settings.
+#' @param method_settings Named list of per-method settings.
 #' @param seed Integer base seed. Each fold offsets this by its fold index.
 #' @param lambda_rule Character. Lambda selection rule for glm-penalized methods.
 #'
@@ -1654,7 +1655,7 @@ run_oof_method <- function(method, x_all, y_all, foldid = NULL,
 #'   One of `"lambda.1se"` or `"lambda.min"`.
 #' @param inner_folds Integer number of cross-validation folds.
 #' @param seed Integer random seed for fold assignment and base learner fits.
-#' @param method_settings Named list of per-family tuning overrides (same
+#' @param method_settings Named list of per-method tuning overrides (same
 #'   structure as `selection.method_settings` in the config YAML).
 #' @param oof_mode Cross-validation split mode. `"anchor_species"` keeps the
 #'   current receiving-species grouping; `"species_purged"` removes the held-out
@@ -5036,7 +5037,7 @@ screen_admissibility <- function(reference_anchors = NULL,
 
   # Build the donor-weighting context once for the full anchor set. When the
   # object already carries precomputed learned/Gower distances, keep using
-  # those distances rather than silently rebuilding the legacy similarity path.
+  # those distances rather than silently rebuilding the similarity path.
   use_precomputed_dist <- !is.null(candidates_obj) &&
     length(candidates_obj@gower_distances) > 0
   if (!is.null(candidates_obj) &&

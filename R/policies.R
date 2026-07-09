@@ -6150,171 +6150,67 @@ available_meta_policy_super_methods <- function(methods = NULL,
 #'
 #' @keywords internal
 #' @noRd
-default_meta_policy_method_settings <- function() {
-  list(
-    glm_penalized = list(
-      standardize = TRUE,
-      type_measure = "mae"
-    ),
-    qreg = list(
-      tau = 0.50,
-      fit_method = "fn",
-      variants = list(
-        q75 = list(
-          tau = 0.75
-        ),
-        q90 = list(
-          tau = 0.90
-        )
-      )
-    ),
-    gam = list(
-      fit_method = "REML",
-      select_terms = TRUE
-    ),
-    lmm = list(
-      fit_method = "REML",
-      random_intercept = ".split_group"
-    ),
-    rpart = list(
-      cp = 0.01,
-      minsplit = 20L,
-      minbucket = 7L,
-      maxdepth = 30L,
-      variants = list(
-        shallow = list(
-          cp = 0.02,
-          minsplit = 30L,
-          minbucket = 10L,
-          maxdepth = 3L
-        ),
-        deep = list(
-          cp = 0.001,
-          minsplit = 10L,
-          minbucket = 5L,
-          maxdepth = 10L
-        )
-      )
-    ),
-    rf = list(
-      num_trees = 500L,
-      mtry = NULL,
-      min_node_size = 5L,
-      max_depth = NULL,
-      sample_fraction = 1,
-      replace = TRUE,
-      respect_unordered_factors = "order",
-      variants = list(
-        shallow = list(
-          min_node_size = 15L,
-          sample_fraction = 0.8
-        ),
-        deep = list(
-          min_node_size = 3L,
-          sample_fraction = 0.8
-        )
-      )
-    ),
-    xgboost = list(
-      nrounds = 100L,
-      eta = 0.30,
-      max_depth = 6L,
-      min_child_weight = 1,
-      subsample = 1,
-      colsample_bytree = 1,
-      lambda = 1,
-      alpha = 0,
-      variants = list(
-        conservative = list(
-          nrounds = 200L,
-          eta = 0.05,
-          max_depth = 3L,
-          min_child_weight = 5,
-          subsample = 0.8,
-          colsample_bytree = 0.8,
-          lambda = 2,
-          alpha = 0.5
-        ),
-        flexible = list(
-          nrounds = 400L,
-          eta = 0.05,
-          max_depth = 6L,
-          min_child_weight = 1,
-          subsample = 0.9,
-          colsample_bytree = 0.9,
-          lambda = 1,
-          alpha = 0
-        )
-      )
-    ),
-    # MARS defaults: degree 2 permits pairwise interactions, penalty 3 is
-    # earth's recommended GCV complexity penalty when degree > 1, and a NULL
-    # nprune lets the backward pass choose the retained term count by GCV.
-    mars = list(
-      degree = 2L,
-      penalty = 3,
-      nprune = NULL,
-      pmethod = "backward"
-    ),
-    # BART family (stochtree). Shared, user-tunable priors for the five
-    # self-contained BART learners (bart, xbart, wsbart, vfbart, rebart). Each
-    # learner's *defining* sampler schedule and mode (num_gfr/num_mcmc, variance
-    # forest, random effects) is intrinsic to the model and hardcoded by name in
-    # meta_policy_method_arguments() -- exactly as alpha is intrinsic to
-    # glm_ridge/glm_lasso/glm_elastic -- so it does not live here.
-    # Tree/draw counts are leaned down from standalone BART because an ensemble
-    # base learner only needs the posterior mean; alpha/beta carry BART's
-    # weakly-informative tree prior; split-variable selection is uniform.
-    # `variance_forest_num_trees` is consumed only by vfbart, `random_effects_group`
-    # only by rebart.
-    bart = list(
-      num_trees = 75L,
-      alpha = 0.95,
-      beta = 2,
-      min_samples_leaf = 5L,
-      max_depth = 10L,
-      keep_gfr = TRUE,
-      variance_forest_num_trees = 50L,
-      random_effects_group = ".split_group"
-    ),
-    # k-nearest-neighbours regression (FNN::knn.reg) on the standardized feature
-    # matrix. A purely local, non-parametric learner whose bias/variance profile
-    # differs from every tree/linear/spline learner in the library.
-    knn = list(
-      k = 10L
-    ),
-    # Cubist (Cubist::cubist). committees are boosting-like model iterations;
-    # neighbors (0-9) applies an instance-based correction at predict time.
-    cubist = list(
-      committees = 1L,
-      neighbors = 0L
-    ),
-    # Support-vector regression (kernlab::ksvm, eps-svr, RBF). The RBF width
-    # (sigma) is estimated automatically via kernlab's sigest heuristic; C is the
-    # cost and epsilon the tube width.
-    svr = list(
-      C = 1,
-      epsilon = 0.1
-    ),
-    # Quantile regression forest (ranger, quantreg = TRUE). `quantile` is the
-    # conditional quantile predicted (an upper quantile suits interval widths).
-    qrf = list(
-      num_trees = 500L,
-      mtry = NULL,
-      min_node_size = 10L,
-      max_depth = NULL,
-      sample_fraction = 1,
-      replace = TRUE,
-      quantile = 0.9
-    ),
-    # Gaussian-process regression (kernlab::gausspr, RBF). sigma is estimated
-    # automatically; `var` is the Gaussian noise-variance regularizer.
-    gpr = list(
-      var = 0.001
-    )
-    # The "mean" baseline has no tunable hyperparameters, so it is intentionally
-    # absent here; effective_family_settings() returns an empty list for it.
+meta_policy_method_defaults_file <- function(defaults_path = NULL) {
+  if (!is.null(defaults_path)) {
+    defaults_path <- as.character(defaults_path)
+    if (length(defaults_path) != 1L || is.na(defaults_path) || !nzchar(defaults_path)) {
+      stop("'method_defaults_path' must be one non-empty file path.", call. = FALSE)
+    }
+    return(defaults_path)
+  }
+  system.file("learner_method_defaults.json", package = "tsbiomass", mustWork = TRUE)
+}
+
+read_meta_policy_method_defaults_registry <- function(defaults_path = NULL) {
+  path <- meta_policy_method_defaults_file(defaults_path)
+  if (!file.exists(path)) {
+    stop(sprintf("Learner method defaults registry does not exist: %s", path), call. = FALSE)
+  }
+  registry <- jsonlite::read_json(path, simplifyVector = FALSE)
+  if (!is.list(registry) || !is.list(registry$families) || !is.list(registry$methods)) {
+    stop("Learner method defaults registry must contain named 'families' and 'methods' objects.", call. = FALSE)
+  }
+  registry
+}
+
+meta_policy_method_family_map <- function() {
+  c(
+    glm = "glm",
+    glm_ridge = "glm_penalized",
+    glm_lasso = "glm_penalized",
+    glm_elastic = "glm_penalized",
+    qreg = "qreg",
+    gam = "gam",
+    lmm = "lmm",
+    rpart = "rpart",
+    rf = "rf",
+    xgboost = "xgboost",
+    mars = "mars",
+    bart = "bart",
+    xbart = "bart",
+    wsbart = "bart",
+    vfbart = "bart",
+    rebart = "bart",
+    knn = "knn",
+    cubist = "cubist",
+    svr = "svr",
+    qrf = "qrf",
+    gpr = "gpr",
+    mean = "mean"
   )
+}
+
+default_meta_policy_method_settings <- function(defaults_path = NULL) {
+  registry <- read_meta_policy_method_defaults_registry(defaults_path)
+  family_map <- meta_policy_method_family_map()
+  defaults <- stats::setNames(vector("list", length(family_map)), names(family_map))
+  for (method_name in names(family_map)) {
+    defaults[[method_name]] <- merge_config_sections(
+      registry$families[[family_map[[method_name]]]] %||% list(),
+      registry$methods[[method_name]] %||% list()
+    )
+  }
+  defaults
 }
 
 #' Merge learner-specific settings onto the package defaults
@@ -6325,8 +6221,46 @@ default_meta_policy_method_settings <- function() {
 #'
 #' @keywords internal
 #' @noRd
-normalize_meta_policy_method_settings <- function(method_settings = NULL) {
-  defaults <- default_meta_policy_method_settings()
+meta_policy_method_settings_defaults_path <- function(method_settings = NULL,
+                                                      defaults_path = NULL) {
+  if (!is.null(defaults_path)) {
+    return(defaults_path)
+  }
+  if (is.list(method_settings)) {
+    method_settings$method_defaults_path %||%
+      method_settings$.method_defaults_path %||%
+      NULL
+  } else {
+    NULL
+  }
+}
+
+strip_meta_policy_method_settings_controls <- function(method_settings = NULL) {
+  if (is.list(method_settings)) {
+    method_settings$method_defaults_path <- NULL
+    method_settings$.method_defaults_path <- NULL
+  }
+  method_settings
+}
+
+attach_meta_policy_method_defaults_path <- function(method_settings = NULL,
+                                                    defaults_path = NULL) {
+  if (is.null(defaults_path)) {
+    return(method_settings)
+  }
+  if (is.null(method_settings)) {
+    method_settings <- list()
+  }
+  method_settings$.method_defaults_path <- defaults_path
+  method_settings
+}
+
+normalize_meta_policy_method_settings <- function(method_settings = NULL,
+                                                  defaults_path = NULL) {
+  defaults_path <- meta_policy_method_settings_defaults_path(method_settings, defaults_path)
+  method_settings <- strip_meta_policy_method_settings_controls(method_settings)
+  defaults <- default_meta_policy_method_settings(defaults_path = defaults_path)
+  defaults <- attach_meta_policy_method_defaults_path(defaults, defaults_path)
   if (is.null(method_settings)) {
     return(defaults)
   }
@@ -6334,15 +6268,25 @@ normalize_meta_policy_method_settings <- function(method_settings = NULL) {
     stop("'method_settings' must be a named list when supplied.", call. = FALSE)
   }
 
-  merge_config_sections(defaults, method_settings)
+  attach_meta_policy_method_defaults_path(
+    merge_config_sections(defaults, method_settings),
+    defaults_path
+  )
+}
+
+meta_policy_method_default_arguments <- function(method,
+                                                 defaults_path = NULL) {
+  method <- as.character(method %||% "")
+  if (length(method) != 1L || !nzchar(method)) {
+    return(list())
+  }
+  default_meta_policy_method_settings(defaults_path = defaults_path)[[method]] %||% list()
 }
 
 #' Catalog the supported meta-policy learner methods
 #'
 #' Builds the public method namespace used by both single-method fits and the
-#' super-learner library. Named method variants are derived from the configured
-#' family-specific `variants` blocks so the library can expose multiple
-#' deliberately different learners from one model family.
+#' super-learner library.
 #'
 #' @param method_settings Optional learner method-settings list.
 #'
@@ -6351,79 +6295,10 @@ normalize_meta_policy_method_settings <- function(method_settings = NULL) {
 #' @noRd
 meta_policy_method_catalog <- function(method_settings = NULL) {
   method_settings <- normalize_meta_policy_method_settings(method_settings)
-  specs <- list(
-    glm_ridge = list(family = "glm_penalized", variant = NULL),
-    glm_lasso = list(family = "glm_penalized", variant = NULL),
-    glm_elastic = list(family = "glm_penalized", variant = NULL),
-    qreg = list(family = "qreg", variant = NULL),
-    glm = list(family = "glm", variant = NULL),
-    gam = list(family = "gam", variant = NULL),
-    lmm = list(family = "lmm", variant = NULL),
-    rpart = list(family = "rpart", variant = NULL),
-    rf = list(family = "rf", variant = NULL),
-    xgboost = list(family = "xgboost", variant = NULL),
-    # Multivariate adaptive regression splines (MARS, via the earth package).
-    # Builds its own piecewise-linear hinge basis from the plain additive
-    # formula, contributing nonlinear main effects and low-order interactions
-    # that the linear (glm, glm_penalized) and tree (rpart, rf, xgboost) learners
-    # do not otherwise cover.
-    mars = list(family = "mars", variant = NULL),
-    # BART family (Bayesian additive regression trees, via stochtree). Five
-    # self-contained learners in the `bart` family -- structured exactly like the
-    # glm_ridge/glm_lasso/glm_elastic trio: separate named entries
-    # whose defining characteristic (here the sampler schedule / mode, there the
-    # alpha mixing) is hardcoded by name in meta_policy_method_arguments():
-    #   bart   - pure-MCMC BART (root-initialized).
-    #   xbart  - accelerated grow-from-root only (num_mcmc = 0).
-    #   wsbart - warm start: short grow-from-root pass, then MCMC.
-    #   vfbart - heteroskedastic BART with a variance forest.
-    #   rebart - BART with an additive group random effect (lmm-style).
-    bart = list(family = "bart", variant = NULL),
-    xbart = list(family = "bart", variant = NULL),
-    wsbart = list(family = "bart", variant = NULL),
-    vfbart = list(family = "bart", variant = NULL),
-    rebart = list(family = "bart", variant = NULL),
-    # k-nearest-neighbours regression (FNN::knn.reg). A local, non-parametric
-    # learner distinct from the parametric/tree/spline learners above.
-    knn = list(family = "knn", variant = NULL),
-    # Cubist (Cubist::cubist): rule-based model with linear regressions in the
-    # leaves (M5-style) -- a piecewise-linear function class distinct from the
-    # CART/RF/boosting learners.
-    cubist = list(family = "cubist", variant = NULL),
-    # Support-vector regression (kernlab::ksvm, RBF kernel): the global kernel
-    # method complementing the local KNN learner.
-    svr = list(family = "svr", variant = NULL),
-    # Quantile regression forest (ranger with quantreg = TRUE): predicts a
-    # conditional quantile, so it is naturally suited to the uncertainty role.
-    # (Distinct from `rf`, which is the plain random-forest mean learner.)
-    qrf = list(family = "qrf", variant = NULL),
-    # Gaussian-process regression (kernlab::gausspr, RBF kernel): a kernel learner
-    # with a native predictive variance, well suited to the uncertainty role.
-    gpr = list(family = "gpr", variant = NULL),
-    # Intercept-only mean baseline: the SuperLearner "floor". It guarantees the
-    # ensemble degrades gracefully to the training-set mean on folds where every
-    # richer learner overfits, rather than extrapolating wildly.
-    mean = list(family = "mean", variant = NULL)
-  )
-
-  add_variant_specs <- function(family_name) {
-    variant_defs <- (method_settings[[family_name]] %||% list())$variants %||% list()
-    if (!is.list(variant_defs) || length(variant_defs) == 0) {
-      return(invisible(NULL))
-    }
-    variant_names <- names(variant_defs)
-    variant_names <- variant_names[!is.na(variant_names) & nzchar(variant_names)]
-    for (variant_name in unique(variant_names)) {
-      specs[[paste0(family_name, "_", variant_name)]] <<- list(
-        family = family_name,
-        variant = variant_name
-      )
-    }
-    invisible(NULL)
-  }
-
-  for (family_name in c("qreg", "lmm", "rpart", "rf", "xgboost")) {
-    add_variant_specs(family_name)
+  family_map <- meta_policy_method_family_map()
+  specs <- stats::setNames(vector("list", length(family_map)), names(family_map))
+  for (method_name in names(family_map)) {
+    specs[[method_name]] <- list(family = family_map[[method_name]], variant = NULL)
   }
 
   default_super_methods <- c(
@@ -6483,35 +6358,36 @@ meta_policy_method_spec <- function(method,
 #' @noRd
 meta_policy_method_arguments <- function(method,
                                          method_settings = NULL) {
-  method_settings <- normalize_meta_policy_method_settings(method_settings)
+  defaults_path <- meta_policy_method_settings_defaults_path(method_settings)
+  method_defaults <- meta_policy_method_default_arguments(method, defaults_path = defaults_path)
+  method_settings <- normalize_meta_policy_method_settings(method_settings, defaults_path = defaults_path)
   method_spec <- meta_policy_method_spec(method, method_settings = method_settings)
   compact_nulls <- function(x) {
     x[!vapply(x, is.null, logical(1))]
   }
-  effective_family_settings <- function(family_name) {
-    family_cfg <- method_settings[[family_name]] %||% list()
-    variant_cfg <- list()
-    if (!is.null(method_spec$variant) &&
-      is.list(family_cfg$variants) &&
-      method_spec$variant %in% names(family_cfg$variants)) {
-      variant_cfg <- family_cfg$variants[[method_spec$variant]] %||% list()
-    }
-    family_cfg$variants <- NULL
-    merge_config_sections(family_cfg, variant_cfg)
+  effective_method_settings <- function(method_name = method_spec$name) {
+    method_settings[[method_name]] %||% list()
   }
 
   if (identical(method_spec$family, "glm_penalized")) {
-    return(effective_family_settings("glm_penalized"))
+    method_cfg <- effective_method_settings()
+    method_cfg$alpha <- switch(method_spec$name,
+      glm_ridge = 0,
+      glm_lasso = 1,
+      glm_elastic = method_cfg$alpha %||% method_defaults$alpha %||% 0.25,
+      method_cfg$alpha %||% method_defaults$alpha %||% 0.25
+    )
+    return(merge_config_sections(method_defaults, method_cfg))
   }
   if (identical(method_spec$family, "qreg")) {
-    quantreg_cfg <- effective_family_settings("qreg")
+    quantreg_cfg <- effective_method_settings()
     return(compact_nulls(list(
       tau = as.numeric(quantreg_cfg$tau %||% 0.50),
       method = as.character(quantreg_cfg$fit_method %||% "fn")
     )))
   }
   if (identical(method_spec$family, "gam")) {
-    gam_cfg <- effective_family_settings("gam")
+    gam_cfg <- effective_method_settings()
     out <- list()
     if ("fit_method" %in% names(gam_cfg)) {
       out$method <- gam_cfg$fit_method
@@ -6522,7 +6398,7 @@ meta_policy_method_arguments <- function(method,
     return(compact_nulls(out))
   }
   if (identical(method_spec$family, "lmm")) {
-    lmm_cfg <- effective_family_settings("lmm")
+    lmm_cfg <- effective_method_settings()
     random_intercept <- as.character(unlist(
       lmm_cfg$random_intercept %||% character(0),
       use.names = FALSE
@@ -6540,7 +6416,7 @@ meta_policy_method_arguments <- function(method,
     )))
   }
   if (identical(method_spec$family, "rpart")) {
-    rpart_cfg <- effective_family_settings("rpart")
+    rpart_cfg <- effective_method_settings()
     out <- list(
       control = do.call(
         rpart::rpart.control,
@@ -6555,7 +6431,7 @@ meta_policy_method_arguments <- function(method,
     return(compact_nulls(out))
   }
   if (identical(method_spec$family, "rf")) {
-    ranger_cfg <- effective_family_settings("rf")
+    ranger_cfg <- effective_method_settings()
     out <- list(
       num.trees = as.integer(ranger_cfg$num_trees %||% 500L),
       mtry = ranger_cfg$mtry %||% NULL,
@@ -6574,7 +6450,7 @@ meta_policy_method_arguments <- function(method,
     return(compact_nulls(out))
   }
   if (identical(method_spec$family, "xgboost")) {
-    xgboost_cfg <- effective_family_settings("xgboost")
+    xgboost_cfg <- effective_method_settings()
     params <- list(
       objective = "reg:squarederror",
       eta = as.numeric(xgboost_cfg$eta %||% 0.30),
@@ -6593,7 +6469,7 @@ meta_policy_method_arguments <- function(method,
     )))
   }
   if (identical(method_spec$family, "mars")) {
-    earth_cfg <- effective_family_settings("mars")
+    earth_cfg <- effective_method_settings()
     # Map the YAML-facing names onto earth::earth() argument names. Dropping
     # NULLs lets earth fall back to its own GCV-driven defaults (e.g. when
     # nprune is unset the backward pass selects the term count automatically).
@@ -6605,57 +6481,56 @@ meta_policy_method_arguments <- function(method,
     )))
   }
   if (identical(method_spec$family, "bart")) {
-    # Shared, user-tunable priors from the single `bart` settings block.
-    bart_cfg <- effective_family_settings("bart")
-    # Each learner's defining sampler schedule + mode is intrinsic to the model
-    # and hardcoded by name -- the direct analogue of the alpha switch that
-    # distinguishes glm_ridge/glm_lasso/glm_elastic in the fit branch.
-    mode <- switch(method_spec$name,
-      bart = list(num_gfr = 0L, num_burnin = 100L, num_mcmc = 200L, variance_forest = FALSE, random_effects = FALSE),
-      xbart = list(num_gfr = 40L, num_burnin = 0L, num_mcmc = 0L, variance_forest = FALSE, random_effects = FALSE),
-      wsbart = list(num_gfr = 20L, num_burnin = 0L, num_mcmc = 200L, variance_forest = FALSE, random_effects = FALSE),
-      vfbart = list(num_gfr = 0L, num_burnin = 100L, num_mcmc = 200L, variance_forest = TRUE, random_effects = FALSE),
-      rebart = list(num_gfr = 0L, num_burnin = 100L, num_mcmc = 200L, variance_forest = FALSE, random_effects = TRUE),
-      stop(sprintf("Unknown BART learner '%s'.", method_spec$name), call. = FALSE)
-    )
+    bart_cfg <- effective_method_settings()
+    if (length(bart_cfg) == 0L) {
+      stop(sprintf("No BART defaults were defined for learner '%s'.", method_spec$name), call. = FALSE)
+    }
     return(compact_nulls(list(
       num_trees = as.integer(bart_cfg$num_trees %||% 75L),
-      num_gfr = as.integer(mode$num_gfr),
-      num_burnin = as.integer(mode$num_burnin),
-      num_mcmc = as.integer(mode$num_mcmc),
+      num_gfr = as.integer(bart_cfg$num_gfr),
+      num_burnin = as.integer(bart_cfg$num_burnin),
+      num_mcmc = as.integer(bart_cfg$num_mcmc),
       alpha = as.numeric(bart_cfg$alpha %||% 0.95),
       beta = as.numeric(bart_cfg$beta %||% 2),
       min_samples_leaf = as.integer(bart_cfg$min_samples_leaf %||% 5L),
       max_depth = as.integer(bart_cfg$max_depth %||% 10L),
       keep_gfr = isTRUE(bart_cfg$keep_gfr %||% TRUE),
-      variance_forest = isTRUE(mode$variance_forest),
-      variance_forest_num_trees = as.integer(bart_cfg$variance_forest_num_trees %||% 50L),
-      random_effects = isTRUE(mode$random_effects),
-      random_effects_group = as.character(bart_cfg$random_effects_group %||% ".split_group")
+      variance_forest = isTRUE(bart_cfg$variance_forest),
+      variance_forest_num_trees = if (isTRUE(bart_cfg$variance_forest)) {
+        as.integer(bart_cfg$variance_forest_num_trees %||% 50L)
+      } else {
+        NULL
+      },
+      random_effects = isTRUE(bart_cfg$random_effects),
+      random_effects_group = if (isTRUE(bart_cfg$random_effects)) {
+        as.character(bart_cfg$random_effects_group %||% ".split_group")
+      } else {
+        NULL
+      }
     )))
   }
   if (identical(method_spec$family, "knn")) {
-    knn_cfg <- effective_family_settings("knn")
+    knn_cfg <- effective_method_settings()
     return(compact_nulls(list(
       k = as.integer(knn_cfg$k %||% 10L)
     )))
   }
   if (identical(method_spec$family, "cubist")) {
-    cubist_cfg <- effective_family_settings("cubist")
+    cubist_cfg <- effective_method_settings()
     return(compact_nulls(list(
       committees = as.integer(cubist_cfg$committees %||% 1L),
       neighbors = as.integer(cubist_cfg$neighbors %||% 0L)
     )))
   }
   if (identical(method_spec$family, "svr")) {
-    svr_cfg <- effective_family_settings("svr")
+    svr_cfg <- effective_method_settings()
     return(compact_nulls(list(
       C = as.numeric(svr_cfg$C %||% 1),
       epsilon = as.numeric(svr_cfg$epsilon %||% 0.1)
     )))
   }
   if (identical(method_spec$family, "qrf")) {
-    qrf_cfg <- effective_family_settings("qrf")
+    qrf_cfg <- effective_method_settings()
     return(compact_nulls(list(
       num.trees = as.integer(qrf_cfg$num_trees %||% 500L),
       mtry = qrf_cfg$mtry %||% NULL,
@@ -6667,7 +6542,7 @@ meta_policy_method_arguments <- function(method,
     )))
   }
   if (identical(method_spec$family, "gpr")) {
-    gpr_cfg <- effective_family_settings("gpr")
+    gpr_cfg <- effective_method_settings()
     return(compact_nulls(list(
       var = as.numeric(gpr_cfg$var %||% 0.001)
     )))
@@ -7643,11 +7518,7 @@ fit_meta_policy_learner <- function(training_data,
   }
 
   if (identical(method_spec$family, "glm_penalized")) {
-    alpha <- alpha %||% switch(method,
-      glm_ridge = 0,
-      glm_lasso = 1,
-      glm_elastic = 0.25
-    )
+    alpha <- alpha %||% fit_arguments$alpha %||% 0.25
     mm <- meta_policy_model_matrix(model_frame)
     foldid <- if (".split_group" %in% names(training_data)) {
       grouped_foldid(training_data$.split_group, n_folds = inner_folds, seed = seed)

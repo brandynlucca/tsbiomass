@@ -33,31 +33,31 @@ devtools::install(".")
 
 <table>
   <tr>
-    <td width="75" valign="top" style="text-align: center;"><img src="man/figures/classes/configurer.svg" width="100" alt="Configurer" /> <p style="text-align: center;"> <code>Configurer</code> </p></td>
+    <td width="75" valign="top" style="text-align: center;"><a href="reference/Configurer-class.html"><img src="man/figures/classes/configurer.svg" width="100" alt="Configurer" /></a> <p style="text-align: center;"> <code>Configurer</code> </p></td>
     <td><strong>Configure analysis settings</strong><br />Specify paths, trait/policy registries, and runtime controls in a single configuration surface. This establishes a reproducible run contract before any modeling begins. </td>
   </tr>
   <tr>
-    <td width="75" valign="top" style="text-align: center;"><img src="man/figures/classes/candidates.svg" width="100" alt="Candidates" /> <code>Candidates</code></td>
+    <td width="75" valign="top" style="text-align: center;"><a href="reference/Candidates-class.html"><img src="man/figures/classes/candidates.svg" width="100" alt="Candidates" /></a> <code>Candidates</code></td>
     <td><strong>Assemble candidate model data</strong><br />Ingest and normalize candidate-model records, then identify reference anchors. This produces the standardized input set used for transferability evaluation. Various methods enable empirical approaches for constructing similarity matrices and estimating proxy model transferability tax.</td>
   </tr>
   <tr>
-    <td width="75" valign="top" style="text-align: center;"><img src="man/figures/classes/alchemist.svg" width="100" alt="Alchemist" /> <code>Alchemist</code></td>
+    <td width="75" valign="top" style="text-align: center;"><a href="reference/Alchemist-class.html"><img src="man/figures/classes/alchemist.svg" width="100" alt="Alchemist" /></a> <code>Alchemist</code></td>
     <td><strong>Build similarity context and admissibility filters</strong><br />Quantify donor-target relatedness and remove unsupported transfer paths using a Super Learner ensemble to construct similarity and transferability matrices, with optional <i>post hoc</i> ordination to visualize proxy model diversity. This constrains downstream policy decisions to credible support regions.</td>
   </tr>
   <tr>
-    <td width="75" valign="top" style="text-align: center;"><img src="man/figures/classes/policyselector.svg" width="100" alt="PolicySelector" /> <code>PolicySelector</code> <img src="man/figures/classes/policylearner.svg" width="100" alt="PolicyLearner" /> <code>PolicyLearner</code></td>
+    <td width="75" valign="top" style="text-align: center;"><a href="reference/PolicySelector-class.html"><img src="man/figures/classes/policyselector.svg" width="100" alt="PolicySelector" /></a> <code>PolicySelector</code> <a href="reference/PolicyLearner-class.html"><img src="man/figures/classes/policylearner.svg" width="100" alt="PolicyLearner" /></a> <code>PolicyLearner</code></td>
     <td><strong>Select and learn transfer policies</strong><br />Benchmark policy families, calibrate uncertainty, and fit meta-learners for context-aware policy choice. This stage determines which transfer rule is applied where.<br /> - <code>PolicySelector</code>: benchmarks and ranks available transfer policies against reference anchors, then calibrates prediction intervals.<br /> - <code>PolicyLearner</code>: fits a context-aware meta-learner that recommends the best policy for a given target based on cross-validated performance.</td>
   </tr>
   <tr>
-    <td width="75" valign="top" style="text-align: center;"><img src="man/figures/classes/policypredictions.svg" width="100" alt="PolicyPredictions" /> <p style="text-align: center;"> <code>PolicyPredictions</code> </p> <img src="man/figures/classes/referee.svg" width="100" alt="Referee" /> <p style="text-align: center;"> <code>Referee</code> </p> <img src="man/figures/classes/scorecard.svg" width="100" alt="Scorecard" /> <p style="text-align: center;"> <code>Scorecard</code> </p></td>
+    <td width="75" valign="top" style="text-align: center;"><a href="reference/PolicyPredictions-class.html"><img src="man/figures/classes/policypredictions.svg" width="100" alt="PolicyPredictions" /></a> <p style="text-align: center;"> <code>PolicyPredictions</code> </p> <a href="reference/Referee-class.html"><img src="man/figures/classes/referee.svg" width="100" alt="Referee" /></a> <p style="text-align: center;"> <code>Referee</code> </p> <a href="reference/Scorecard-class.html"><img src="man/figures/classes/scorecard.svg" width="100" alt="Scorecard" /></a> <p style="text-align: center;"> <code>Scorecard</code> </p></td>
     <td><strong>Generate predictions and score outcomes</strong><br />Generate policy-level predictions, aggregate them via referee logic, and summarize performance and interval behavior in scorecards for direct comparison.<br /> - <code>PolicyPredictions</code>: holds raw policy-level point predictions and uncertainty intervals for each target.<br /> - <code>Referee</code>: aggregates predictions across policies using learned weights and resolves conflicts into a final recommended estimate.<br /> - <code>Scorecard</code>: computes scored performance metrics (e.g., interval score, log-error) for comparing policies and learner configurations.</td>
   </tr>
   <tr>
-    <td width="75" valign="top" style="text-align: center;"><img src="man/figures/classes/conjurer.svg" width="100" alt="Conjurer" /> <code>Conjurer</code> <img src="man/figures/classes/policysimulator.svg" width="100" alt="PolicySimulator" /> <code>PolicySimulator</code></td>
+    <td width="75" valign="top" style="text-align: center;"><a href="reference/Conjurer-class.html"><img src="man/figures/classes/conjurer.svg" width="100" alt="Conjurer" /></a> <code>Conjurer</code> <a href="reference/PolicySimulator-class.html"><img src="man/figures/classes/policysimulator.svg" width="100" alt="PolicySimulator" /></a> <code>PolicySimulator</code></td>
     <td><strong>Probe sensitivity to assumptions</strong><br />Stress-test the pipeline by perturbing inputs and settings before committing to a recommendation.<br /> - <code>Conjurer</code>: evaluates the effect of trait missingness on TS-length proxy model uncertainty.<br /> - <code>PolicySimulator</code>: reruns policy benchmarking across perturbed scenarios to quantify how sensitive transfer-policy choice is to candidate-pool and admissibility settings.</td>
   </tr>
   <tr>
-    <td width="75" valign="top" style="text-align: center;"><img src="man/figures/classes/sentinel.svg" width="100" alt="Sentinel" /> <p style="text-align: center;"> <code>Sentinel</code> </p></td>
+    <td width="75" valign="top" style="text-align: center;"><a href="reference/Sentinel-class.html"><img src="man/figures/classes/sentinel.svg" width="100" alt="Sentinel" /></a> <p style="text-align: center;"> <code>Sentinel</code> </p></td>
     <td><strong>Validate under holdout scenarios</strong><br />Run outer-loop holdouts and ablations to quantify robustness across species/study splits and sensitivity to trait and gate assumptions.</td>
   </tr>
 </table>
