@@ -1,0 +1,355 @@
+# Package index
+
+## Configuration
+
+Build, read, and inspect analysis configurations.
+
+- [`build_configurer()`](https://brandynlucca.github.io/tsbiomass/reference/build_configurer.md)
+  :
+
+  Create a `Configurer`
+
+- [`read_configuration()`](https://brandynlucca.github.io/tsbiomass/reference/read_configuration.md)
+  : Read a configuration YAML file
+
+- [`create_configuration_template()`](https://brandynlucca.github.io/tsbiomass/reference/create_configuration_template.md)
+  : Create a configuration template
+
+- [`Configurer-class`](https://brandynlucca.github.io/tsbiomass/reference/Configurer-class.md)
+  [`Configurer`](https://brandynlucca.github.io/tsbiomass/reference/Configurer-class.md)
+  : Generalized Configurer S7 Class
+
+- [`trait_names()`](https://brandynlucca.github.io/tsbiomass/reference/trait_names.md)
+  : Return allowed trait names
+
+- [`trait_definition()`](https://brandynlucca.github.io/tsbiomass/reference/trait_definition.md)
+  : Return one trait definition
+
+## Candidates
+
+Ingest and normalize candidate TS-length models.
+
+- [`build_candidates()`](https://brandynlucca.github.io/tsbiomass/reference/build_candidates.md)
+  :
+
+  Build a `Candidates` object
+
+- [`Candidates-class`](https://brandynlucca.github.io/tsbiomass/reference/Candidates-class.md)
+  [`Candidates`](https://brandynlucca.github.io/tsbiomass/reference/Candidates-class.md)
+  : Candidate-Model Ingest and Preparation S7 Class
+
+- [`candidate_models`](https://brandynlucca.github.io/tsbiomass/reference/candidate_models.md)
+  : Preprocessed candidate models table
+
+- [`set_reference_anchors()`](https://brandynlucca.github.io/tsbiomass/reference/set_reference_anchors.md)
+  :
+
+  Set reference anchors on a candidate table or `Candidates` object
+
+- [`fetch_reference_anchors()`](https://brandynlucca.github.io/tsbiomass/reference/fetch_reference_anchors.md)
+  : Fetch the selected reference anchors
+
+- [`set_reference_length_pdf()`](https://brandynlucca.github.io/tsbiomass/reference/set_reference_length_pdf.md)
+  : Set user-supplied reference length PDFs
+
+- [`prepare_similarities()`](https://brandynlucca.github.io/tsbiomass/reference/prepare_similarities.md)
+  : Prepare similarity inputs
+
+- [`construct_gower_distances()`](https://brandynlucca.github.io/tsbiomass/reference/construct_gower_distances.md)
+  : Build Gower distance matrices
+
+## Alchemist
+
+Supervised metric learning for pairwise acoustic distances.
+
+- [`as_alchemist()`](https://brandynlucca.github.io/tsbiomass/reference/as_alchemist.md)
+  : Build an Alchemist from a Candidates object
+
+- [`Alchemist-class`](https://brandynlucca.github.io/tsbiomass/reference/Alchemist-class.md)
+  [`Alchemist`](https://brandynlucca.github.io/tsbiomass/reference/Alchemist-class.md)
+  : Learned-Distance Alchemist S7 Class
+
+- [`forge_distances()`](https://brandynlucca.github.io/tsbiomass/reference/forge_distances.md)
+  : Learn an Alchemist distance matrix
+
+- [`forge_distances.Alchemist`](https://brandynlucca.github.io/tsbiomass/reference/forge_distances.Alchemist.md)
+  :
+
+  Learn the distance matrix for an `Alchemist`
+
+- [`distill_traits()`](https://brandynlucca.github.io/tsbiomass/reference/distill_traits.md)
+  : Distill trait importances from a fitted Alchemist
+
+- [`distill_traits.Alchemist`](https://brandynlucca.github.io/tsbiomass/reference/distill_traits.Alchemist.md)
+  :
+
+  Distill trait importance for an `Alchemist`
+
+- [`run_ordination()`](https://brandynlucca.github.io/tsbiomass/reference/run_ordination.md)
+  : Run an NMDS ordination
+
+- [`screen_admissibility()`](https://brandynlucca.github.io/tsbiomass/reference/screen_admissibility.md)
+  : Screen admissibility across a reference-anchor set
+
+## Conjurer
+
+Trait-missingness sensitivity diagnostics.
+
+- [`as_conjurer()`](https://brandynlucca.github.io/tsbiomass/reference/as_conjurer.md)
+  :
+
+  Build a `Conjurer`
+
+- [`Conjurer-class`](https://brandynlucca.github.io/tsbiomass/reference/Conjurer-class.md)
+  [`Conjurer`](https://brandynlucca.github.io/tsbiomass/reference/Conjurer-class.md)
+  : Conjurer S7 Class
+
+## Policy Selection
+
+Benchmark, calibrate, and select transfer policies.
+
+- [`as_policyselector()`](https://brandynlucca.github.io/tsbiomass/reference/as_policyselector.md)
+  :
+
+  Build a `PolicySelector`
+
+- [`PolicySelector-class`](https://brandynlucca.github.io/tsbiomass/reference/PolicySelector-class.md)
+  [`PolicySelector`](https://brandynlucca.github.io/tsbiomass/reference/PolicySelector-class.md)
+  : Policy Selection S7 Classes
+
+- [`benchmark()`](https://brandynlucca.github.io/tsbiomass/reference/benchmark.md)
+  : Benchmark candidate policy transfers
+
+- [`benchmark.PolicySelector`](https://brandynlucca.github.io/tsbiomass/reference/benchmark.PolicySelector.md)
+  :
+
+  Benchmark a `PolicySelector`
+
+- [`calibrate_uncertainty()`](https://brandynlucca.github.io/tsbiomass/reference/calibrate_uncertainty.md)
+  : Calibrate policy-transfer uncertainty
+
+- [`calibrate_uncertainty.PolicySelector`](https://brandynlucca.github.io/tsbiomass/reference/calibrate_uncertainty.PolicySelector.md)
+  :
+
+  Calibrate benchmark-based uncertainty for a `PolicySelector`
+
+- [`select_policies()`](https://brandynlucca.github.io/tsbiomass/reference/select_policies.md)
+  : Select benchmark-supported policies
+
+- [`select_policies.PolicySelector`](https://brandynlucca.github.io/tsbiomass/reference/select_policies.PolicySelector.md)
+  :
+
+  Select benchmark-supported policies from a `PolicySelector`
+
+- [`available_policies()`](https://brandynlucca.github.io/tsbiomass/reference/available_policies.md)
+  : List available policy components
+
+- [`list_learners()`](https://brandynlucca.github.io/tsbiomass/reference/list_learners.md)
+  : List the Super Learner learners available in tsbiomass
+
+- [`tune_similarities()`](https://brandynlucca.github.io/tsbiomass/reference/tune_similarities.md)
+  : Empirically tune the similarity configuration
+
+- [`construct_species_coverage()`](https://brandynlucca.github.io/tsbiomass/reference/construct_species_coverage.md)
+  : Build a species-block coverage table
+
+- [`construct_species_coverage.default`](https://brandynlucca.github.io/tsbiomass/reference/construct_species_coverage.default.md)
+  : Build a species-block coverage table from conformal summary lists
+
+- [`construct_species_coverage.PolicySelector`](https://brandynlucca.github.io/tsbiomass/reference/construct_species_coverage.PolicySelector.md)
+  : Build a species-block coverage table from a PolicySelector
+
+- [`construct_anchor_audit()`](https://brandynlucca.github.io/tsbiomass/reference/construct_anchor_audit.md)
+  : Build the anchor support audit
+
+- [`construct_anchor_audit.default`](https://brandynlucca.github.io/tsbiomass/reference/construct_anchor_audit.default.md)
+  : Build an anchor support audit from selected-policy interval tables
+
+- [`construct_anchor_audit.PolicyPredictions`](https://brandynlucca.github.io/tsbiomass/reference/construct_anchor_audit.PolicyPredictions.md)
+  : Build an anchor support audit from a PolicyPredictions object
+
+## Policy Learning
+
+Fit context-aware meta-learners for policy recommendation.
+
+- [`as_policylearner()`](https://brandynlucca.github.io/tsbiomass/reference/as_policylearner.md)
+  :
+
+  Build a `PolicyLearner`
+
+- [`PolicyLearner-class`](https://brandynlucca.github.io/tsbiomass/reference/PolicyLearner-class.md)
+  [`PolicyLearner`](https://brandynlucca.github.io/tsbiomass/reference/PolicyLearner-class.md)
+  : Policy Learner S7 Class
+
+- [`crossfit()`](https://brandynlucca.github.io/tsbiomass/reference/crossfit.md)
+  : Cross-fit a policy learner
+
+- [`crossfit.PolicyLearner`](https://brandynlucca.github.io/tsbiomass/reference/crossfit.PolicyLearner.md)
+  :
+
+  Cross-fit a `PolicyLearner`
+
+- [`fit()`](https://brandynlucca.github.io/tsbiomass/reference/fit.md) :
+  Fit a final policy learner
+
+- [`fit.PolicyLearner`](https://brandynlucca.github.io/tsbiomass/reference/fit.PolicyLearner.md)
+  :
+
+  Fit a `PolicyLearner`
+
+- [`calibrate_uncertainty.PolicyLearner`](https://brandynlucca.github.io/tsbiomass/reference/calibrate_uncertainty.PolicyLearner.md)
+  :
+
+  Calibrate post-selection uncertainty for a `PolicyLearner`
+
+## Predictions and Scoring
+
+Generate predictions and evaluate policy performance.
+
+- [`predict.PolicySelector`](https://brandynlucca.github.io/tsbiomass/reference/predict.PolicySelector.md)
+  : Predict selected policy intervals
+
+- [`predict.PolicyLearner`](https://brandynlucca.github.io/tsbiomass/reference/predict.PolicyLearner.md)
+  : Predict policy transfer scores
+
+- [`PolicyPredictions-class`](https://brandynlucca.github.io/tsbiomass/reference/PolicyPredictions-class.md)
+  [`PolicyPredictions`](https://brandynlucca.github.io/tsbiomass/reference/PolicyPredictions-class.md)
+  : Policy prediction bundle
+
+- [`as_referee()`](https://brandynlucca.github.io/tsbiomass/reference/as_referee.md)
+  :
+
+  Build a `Referee`
+
+- [`Referee-class`](https://brandynlucca.github.io/tsbiomass/reference/Referee-class.md)
+  [`Referee`](https://brandynlucca.github.io/tsbiomass/reference/Referee-class.md)
+  : Referee and Scorecard S7 Classes
+
+- [`referee_rebuild()`](https://brandynlucca.github.io/tsbiomass/reference/referee_rebuild.md)
+  :
+
+  Rebuild a `Referee`
+
+- [`predict.Referee`](https://brandynlucca.github.io/tsbiomass/reference/predict.Referee.md)
+  : Predict a referee scorecard
+
+- [`recommend_ts_model()`](https://brandynlucca.github.io/tsbiomass/reference/recommend_ts_model.md)
+  : Evaluate transparent recommendation policies for one target
+
+- [`Scorecard-class`](https://brandynlucca.github.io/tsbiomass/reference/Scorecard-class.md)
+  [`Scorecard`](https://brandynlucca.github.io/tsbiomass/reference/Scorecard-class.md)
+  : Typed recommendation scorecard
+
+## Simulation and Validation
+
+Sensitivity simulation and outer-loop holdout validation.
+
+- [`as_policysimulator()`](https://brandynlucca.github.io/tsbiomass/reference/as_policysimulator.md)
+  :
+
+  Build a `PolicySimulator`
+
+- [`PolicySimulator-class`](https://brandynlucca.github.io/tsbiomass/reference/PolicySimulator-class.md)
+  [`PolicySimulator`](https://brandynlucca.github.io/tsbiomass/reference/PolicySimulator-class.md)
+  : Policy Simulator S7 Class
+
+- [`create_scenarios()`](https://brandynlucca.github.io/tsbiomass/reference/create_scenarios.md)
+  : Create a named Sentinel scenario grid
+
+- [`build_sentinel()`](https://brandynlucca.github.io/tsbiomass/reference/build_sentinel.md)
+  :
+
+  Build a `Sentinel`
+
+- [`run_sentinel()`](https://brandynlucca.github.io/tsbiomass/reference/run_sentinel.md)
+  : Run Sentinel outer-loop validation
+
+- [`Sentinel-class`](https://brandynlucca.github.io/tsbiomass/reference/Sentinel-class.md)
+  [`Sentinel`](https://brandynlucca.github.io/tsbiomass/reference/Sentinel-class.md)
+  : Sentinel S7 Class
+
+- [`sentinel_apply_scenario()`](https://brandynlucca.github.io/tsbiomass/reference/sentinel_apply_scenario.md)
+  : Apply one Sentinel scenario to a train/test fold
+
+- [`collect_sensitivity_results()`](https://brandynlucca.github.io/tsbiomass/reference/collect_sensitivity_results.md)
+  : Collect scenario benchmark tables
+
+- [`collect_sensitivity_results.default`](https://brandynlucca.github.io/tsbiomass/reference/collect_sensitivity_results.default.md)
+  : Collect scenario benchmark tables from a named scenario-result list
+
+- [`collect_sensitivity_results.PolicySimulator`](https://brandynlucca.github.io/tsbiomass/reference/collect_sensitivity_results.PolicySimulator.md)
+  : Collect scenario benchmark tables from a PolicySimulator
+
+- [`construct_sensitivity_table()`](https://brandynlucca.github.io/tsbiomass/reference/construct_sensitivity_table.md)
+  : Construct a sensitivity scenario manifest
+
+- [`construct_sensitivity_table.default`](https://brandynlucca.github.io/tsbiomass/reference/construct_sensitivity_table.default.md)
+  : Construct a scenario manifest from named sensitivity scenario lists
+
+- [`construct_sensitivity_table.PolicySimulator`](https://brandynlucca.github.io/tsbiomass/reference/construct_sensitivity_table.PolicySimulator.md)
+  : Construct a scenario manifest from a PolicySimulator
+
+## Visualization
+
+Plotting generics for all major classes.
+
+- [`.plot_alchemist()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Alchemist.md)
+  :
+
+  Plot an `Alchemist`
+
+- [`.plot_candidates()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Candidates.md)
+  :
+
+  Plot a `Candidates`
+
+- [`.plot_conjurer()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Conjurer.md)
+  :
+
+  Plot `Conjurer` missingness uncertainty summaries
+
+- [`.plot_policy_learner()`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicyLearner.md)
+  :
+
+  Plot a `PolicyLearner`
+
+- [`.plot_policy_predictions()`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicyPredictions.md)
+  :
+
+  Plot a `PolicyPredictions`
+
+- [`.plot_policy_selector()`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicySelector.md)
+  :
+
+  Plot a `PolicySelector`
+
+- [`.plot_policy_simulator()`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicySimulator.md)
+  :
+
+  Plot a `PolicySimulator`
+
+- [`.plot_referee()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Referee.md)
+  :
+
+  Plot a `Referee`
+
+- [`.plot_scorecard()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Scorecard.md)
+  :
+
+  Plot a `Scorecard`
+
+- [`plot_sentinel_ablation_decomposition_scorecard()`](https://brandynlucca.github.io/tsbiomass/reference/plot_sentinel_ablation_decomposition_scorecard.md)
+  : Plot the Sentinel ablation decomposition
+
+- [`plot_sentinel_ablation_scorecard()`](https://brandynlucca.github.io/tsbiomass/reference/plot_sentinel_ablation_scorecard.md)
+  : Plot paired Sentinel ablation importance from a Scorecard
+
+- [`plot_sentinel_coverage_scorecard()`](https://brandynlucca.github.io/tsbiomass/reference/plot_sentinel_coverage_scorecard.md)
+  : Plot Sentinel interval coverage from a Scorecard
+
+- [`explain()`](https://brandynlucca.github.io/tsbiomass/reference/explain.md)
+  : Explain one or more policies
+
+## Utilities
+
+Lower-level Rcpp benchmarking utilities.

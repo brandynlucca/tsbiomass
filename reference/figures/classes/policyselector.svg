@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="PolicySelector icon">
+  <rect x="8" y="8" width="112" height="112" rx="24" fill="#0f314c"/>
+  <path d="M34 46h42M34 64h42M34 82h42" stroke="#dbeafe" stroke-width="7" stroke-linecap="round"/>
+  <path d="M82 82l8 8 14-18" fill="none" stroke="#f59e0b" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
