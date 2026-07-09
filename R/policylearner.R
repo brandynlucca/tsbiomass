@@ -2811,7 +2811,7 @@ S7::method(predict_generic, PolicyLearner) <- .predict_policy_learner
 #' plot(learner, type = "residuals", view = "by_policy", outcome = "raw")
 #' }
 #' @usage
-#' \method{plot}{PolicyLearner}(
+#' graphics::plot(
 #'   x,
 #'   y = NULL,
 #'   type = c(

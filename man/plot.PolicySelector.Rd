@@ -4,7 +4,7 @@
 \alias{plot.PolicySelector}
 \title{Plot a \code{PolicySelector}}
 \usage{
-\method{plot}{PolicySelector}(
+graphics::plot(
   x,
   y = NULL,
   type = c(

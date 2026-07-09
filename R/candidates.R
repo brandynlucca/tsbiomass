@@ -1941,7 +1941,7 @@ S7::method(show_generic, Candidates) <- function(object) {
 #' plot(candidates, type = "candidate_review", view = "similarity_map")
 #' }
 #' @usage
-#' \method{plot}{Candidates}(
+#' graphics::plot(
 #'   x,
 #'   y = NULL,
 #'   type = c(

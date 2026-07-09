@@ -2182,7 +2182,7 @@ conjurer_heatmap_plot <- function(x,
 #' plot(conjurer, metric = "switch_rate_vs_baseline")
 #' }
 #' @usage
-#' \method{plot}{Conjurer}(
+#' graphics::plot(
 #'   x,
 #'   y = NULL,
 #'   metric = "mean_abs_db_shift",

@@ -1873,7 +1873,7 @@ S7::method(show_generic, Referee) <- function(object) {
 #' plot(scorecard, type = "field_missingness")
 #' }
 #' @usage
-#' \method{plot}{Scorecard}(
+#' graphics::plot(
 #'   x,
 #'   y = NULL,
 #'   type = c(
@@ -2242,7 +2242,7 @@ S7::method(plot_generic, Scorecard) <- .plot_scorecard
 #' plot(referee, type = "length_density", anchor_species = "Sardinops sagax")
 #' }
 #' @usage
-#' \method{plot}{Referee}(
+#' graphics::plot(
 #'   x,
 #'   y = NULL,
 #'   type = "biomass_change",

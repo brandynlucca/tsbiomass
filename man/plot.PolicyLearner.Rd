@@ -4,7 +4,7 @@
 \alias{plot.PolicyLearner}
 \title{Plot a \code{PolicyLearner}}
 \usage{
-\method{plot}{PolicyLearner}(
+graphics::plot(
   x,
   y = NULL,
   type = c(

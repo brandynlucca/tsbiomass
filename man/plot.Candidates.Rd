@@ -4,7 +4,7 @@
 \alias{plot.Candidates}
 \title{Plot a \code{Candidates}}
 \usage{
-\method{plot}{Candidates}(
+graphics::plot(
   x,
   y = NULL,
   type = c(

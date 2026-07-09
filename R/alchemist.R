@@ -2861,7 +2861,7 @@ S7::method(show_generic, Alchemist) <- function(object) {
 #' plot(alchemist, type = "trait_importance")
 #' }
 #' @usage
-#' \method{plot}{Alchemist}(
+#' graphics::plot(
 #'   x,
 #'   y = NULL,
 #'   type = c("ordination", "trait_importance", "admissibility"),

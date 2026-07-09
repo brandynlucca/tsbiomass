@@ -4,7 +4,7 @@
 \alias{plot.Scorecard}
 \title{Plot a \code{Scorecard}}
 \usage{
-\method{plot}{Scorecard}(
+graphics::plot(
   x,
   y = NULL,
   type = c(

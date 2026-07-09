@@ -1750,7 +1750,7 @@ as_tibble_policy_predictions <- function(x, ...) {
 #' plot(selector, type = "strategy_error_heatmap")
 #' }
 #' @usage
-#' \method{plot}{PolicySelector}(
+#' graphics::plot(
 #'   x,
 #'   y = NULL,
 #'   type = c(
@@ -1833,7 +1833,7 @@ S7::method(plot_generic, PolicySelector) <- .plot_policy_selector
 #' plot(predictions, type = "strategy_competition")
 #' }
 #' @usage
-#' \method{plot}{PolicyPredictions}(
+#' graphics::plot(
 #'   x,
 #'   y = NULL,
 #'   type = c("selected_intervals", "strategy_competition"),

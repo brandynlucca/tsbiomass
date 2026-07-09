@@ -4,7 +4,7 @@
 \alias{plot.Referee}
 \title{Plot a \code{Referee}}
 \usage{
-\method{plot}{Referee}(
+graphics::plot(
   x,
   y = NULL,
   type = "biomass_change",

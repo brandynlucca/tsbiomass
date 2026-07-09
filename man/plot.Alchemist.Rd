@@ -4,7 +4,7 @@
 \alias{plot.Alchemist}
 \title{Plot an \code{Alchemist}}
 \usage{
-\method{plot}{Alchemist}(
+graphics::plot(
   x,
   y = NULL,
   type = c("ordination", "trait_importance", "admissibility"),
