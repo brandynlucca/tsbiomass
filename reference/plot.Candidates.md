@@ -7,13 +7,25 @@ can be plotted directly with `plot(candidates, ...)`.
 ## Usage
 
 ``` r
-.plot_candidates(
+plot(
   x,
   y = NULL,
-  type = c("area_distribution", "ordination", "admissibility", "candidate_review",
-    "uncertainty_importance", "similarity_tuning", "most_similar",
-    "candidate_biomass_response", "model_weights", "similarity_map",
-    "component_importance", "tuning_variation", "slope_support", "slope_group"),
+  type = c(
+    "area_distribution",
+    "ordination",
+    "admissibility",
+    "candidate_review",
+    "uncertainty_importance",
+    "similarity_tuning",
+    "most_similar",
+    "candidate_biomass_response",
+    "model_weights",
+    "similarity_map",
+    "component_importance",
+    "tuning_variation",
+    "slope_support",
+    "slope_group"
+  ),
   count_type = c("studies", "models"),
   dissimilarity = c("combined", "species", "study"),
   view = NULL,

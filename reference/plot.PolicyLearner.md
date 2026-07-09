@@ -9,11 +9,18 @@ rebuilding diagnostic tables in user code.
 ## Usage
 
 ``` r
-.plot_policy_learner(
+plot(
   x,
   y = NULL,
-  type = c("predicted_vs_observed", "calibration_curve", "residuals", "score_by_policy",
-    "support_bin_error", "selected_policy_counts", "recommendation_stability"),
+  type = c(
+    "predicted_vs_observed",
+    "calibration_curve",
+    "residuals",
+    "score_by_policy",
+    "support_bin_error",
+    "selected_policy_counts",
+    "recommendation_stability"
+  ),
   view = NULL,
   outcome = c("modeled", "raw"),
   rows = c("all", "selected"),

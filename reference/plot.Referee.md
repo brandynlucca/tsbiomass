@@ -8,7 +8,7 @@ when both selector context and scorecard tables are needed.
 ## Usage
 
 ``` r
-.plot_referee(
+plot(
   x,
   y = NULL,
   type = "biomass_change",

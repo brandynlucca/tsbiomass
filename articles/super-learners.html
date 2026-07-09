@@ -15,7 +15,8 @@
 <link href="../deps/bootstrap-5.3.8/bootstrap.min.css" rel="stylesheet">
 <script src="../deps/bootstrap-5.3.8/bootstrap.bundle.min.js"></script><link href="../deps/font-awesome-6.5.2/css/all.min.css" rel="stylesheet">
 <link href="../deps/font-awesome-6.5.2/css/v4-shims.min.css" rel="stylesheet">
-<script src="../deps/headroom-0.11.0/headroom.min.js"></script><script src="../deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="../deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="../deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="../deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="../deps/search-1.0.0/fuse.min.js"></script><script src="../deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="../pkgdown.js"></script><meta property="og:title" content="Super Learners">
+<script src="../deps/headroom-0.11.0/headroom.min.js"></script><script src="../deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="../deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="../deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="../deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="../deps/search-1.0.0/fuse.min.js"></script><script src="../deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="../pkgdown.js"></script><link href="../extra.css" rel="stylesheet">
+<meta property="og:title" content="Super Learners">
 <meta name="description" content="The three Super Learner contexts in tsbiomass: what they do, which methods are available, and how to choose wisely.
 ">
 <meta property="og:description" content="The three Super Learner contexts in tsbiomass: what they do, which methods are available, and how to choose wisely.
@@ -57,8 +58,7 @@
     <li><a class="dropdown-item" href="../reference/as_policylearner.html">Policy Learning</a></li>
     <li><a class="dropdown-item" href="../reference/predict.PolicySelector.html">Predictions &amp; Scoring</a></li>
     <li><a class="dropdown-item" href="../reference/as_policysimulator.html">Simulation &amp; Validation</a></li>
-    <li><a class="dropdown-item" href="../reference/plot.Alchemist.html">Visualization</a></li>
-    <li><a class="dropdown-item" href="../reference/cpp_compute_gower.html">Utilities</a></li>
+    <li><a class="dropdown-item" href="../reference/explain.html">Utilities</a></li>
     <li><hr class="dropdown-divider"></li>
     <li><a class="dropdown-item" href="../reference/index.html">Full function index</a></li>
   </ul>
@@ -325,21 +325,26 @@ collapses to median regression with no tail benefit.</td>
 (<code>glm_elastic</code>), nonlinear main effects (<code>rf</code>),
 and interaction capture (<code>xgboost</code>). The NNLS combiner then
 determines how much weight each method gets per fold.</p>
-<p>!!! tip <strong>Feature type matters</strong> Before tuning the
-learner library, check <code>feature_type</code>. The default
-<code>feature_type="gower"</code> is unsigned, which means nonlinear
-methods like <code>rf</code> and <code>xgboost</code> must discover
-assymetries themselves. Switching to
-<code>feature_type="difference"</code> encodes direction explicitly and
-often improves RF and XGBoost generalization without any other
-change.</p>
-<p>!!! tip <strong>Taxonomic distances</strong> If your candidate pool
-has good phylogenetic coverage, setting
+<div class="tip" data-title="Feature type matters">
+<p>
+Before tuning the learner library, check <code>feature_type</code>. The
+default <code>feature_type = “gower”</code> is unsigned, which means
+nonlinear methods like <code>rf</code> and <code>xgboost</code> must
+discover asymmetries themselves. Switching to <code>feature_type =
+“difference”</code> encodes direction explicitly and often improves RF
+and XGBoost generalization without any other change.
+</p>
+</div>
+<div class="tip" data-title="Taxonomic distances">
+<p>
+If your candidate pool has good phylogenetic coverage, setting
 <code>taxonomic_distance = TRUE</code> replaces the separate species,
 genus, family, etc., traits with a single continuous distance from the
 Open Tree of Life. This reduces feature collinearity and tends to
 improve out-of-fold accuracy for methods with limited regularization
-(e.g., <code>gam</code>, <code>rpart</code>).</p>
+(e.g., <code>gam</code>, <code>rpart</code>).
+</p>
+</div>
 <p><strong>Growing or shrinking the library</strong></p>
 <p>The Alchemist is always a stacked ensemble: the <code>methods:</code>
 list <em>is</em> the library, and the NNLS combiner reweights it per
@@ -841,21 +846,23 @@ each outer fold), substantially increasing compute time. The
 log-error) is well-behaved (non-negative, roughly log-normal) and
 quantile-targeting methods add diversity that helps the NNLS
 combiner.</p>
-<div class="alert alert-success" role="alert">
-<p><strong>Pro tip - quantile diversity:</strong> Adding
-<code>qreg</code> and <code>qrf</code> alongside mean-regression methods
-gives the NNLS combiner access to upper-tail predictions. Because
-prediction intervals are set at the upper tail of the error
+<div class="tip" data-title="Pro tip - quantile diversity">
+<p>
+Adding <code>qreg</code> and <code>qrf</code> alongside mean-regression
+methods gives the NNLS combiner access to upper-tail predictions.
+Because prediction intervals are set at the upper tail of the error
 distribution, these quantile learners often receive substantial weight
-and meaningfully reduce coverage error.</p>
+and meaningfully reduce coverage error.
+</p>
 </div>
-<div class="alert alert-success" role="alert">
-<p><strong>Pro tip - lambda rule:</strong> For the uncertainty learner,
-prefer <code>lambda.min</code> over <code>lambda.1se</code>. The
-uncertainty stage is already regularized by the conformal calibration
-step that follows. Aggressive penalization in the learner can leave
-systematic variance unexplained and produce poorly calibrated
-intervals.</p>
+<div class="tip" data-title="Pro tip - lambda rule">
+<p>
+For the uncertainty learner, prefer <code>lambda.min</code> over
+<code>lambda.1se</code>. The uncertainty stage is already regularized by
+the conformal calibration step that follows. Aggressive penalization in
+the learner can leave systematic variance unexplained and produce poorly
+calibrated intervals.
+</p>
 </div>
 <p><strong>When to use <code>super_learner</code></strong></p>
 <p>The uncertainty learner ships with <code>method: super_learner</code>
@@ -1423,20 +1430,22 @@ consistently selecting the wrong policy family.</li>
 <span id="cb5-3"><a href="#cb5-3" tabindex="-1"></a><span class="at">  </span><span class="fu">super_methods</span><span class="kw">:</span><span class="at"> </span><span class="kw">[</span><span class="at">glm</span><span class="kw">,</span><span class="at"> glm_elastic</span><span class="kw">,</span><span class="at"> rf</span><span class="kw">,</span><span class="at"> mars</span><span class="kw">]</span></span>
 <span id="cb5-4"><a href="#cb5-4" tabindex="-1"></a><span class="at">  </span><span class="fu">n_folds</span><span class="kw">:</span><span class="at"> </span><span class="dv">5</span></span>
 <span id="cb5-5"><a href="#cb5-5" tabindex="-1"></a><span class="at">  </span><span class="fu">inner_folds</span><span class="kw">:</span><span class="at"> </span><span class="dv">5</span></span></code></pre></div>
-<div class="alert alert-success" role="alert">
-<p><strong>Pro tip - keep the library small:</strong> For the selection
-learner, a 3–4 method library (e.g. <code>[glm, glm_elastic, rf,
-mars]</code>) usually out-performs a large library. Adding many similar
-methods (multiple XGBoost variants, multiple RF variants) without
-diversity rarely improves the NNLS combiner and inflates cross-fitting
-time.</p>
+<div class="tip" data-title="Pro tip - keep the library small">
+<p>
+For the selection learner, a 3-4 method library (e.g. <code>[glm,
+glm_elastic, rf, mars]</code>) usually out-performs a large library.
+Adding many similar methods (multiple XGBoost variants, multiple RF
+variants) without diversity rarely improves the NNLS combiner and
+inflates cross-fitting time.
+</p>
 </div>
-<div class="alert alert-success" role="alert">
-<p><strong>Pro tip - outcome clipping:</strong> Set
-<code>outcome_clip_quantile</code> to 0.95–0.99 (default 0.99). A
+<div class="tip" data-title="Pro tip - outcome clipping">
+<p>
+Set <code>outcome_clip_quantile</code> to 0.95-0.99 (default 0.99). A
 handful of extreme benchmark errors can dominate the learner target and
 prevent the model from distinguishing between policies in the
-moderate-performance range where most selection decisions happen.</p>
+moderate-performance range where most selection decisions happen.
+</p>
 </div>
 <details><summary><strong>Method notes</strong>
 </summary><details><summary><code>glm</code>

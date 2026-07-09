@@ -7,7 +7,7 @@ types behave consistently at the REPL.
 ## Usage
 
 ``` r
-.plot_alchemist(
+plot(
   x,
   y = NULL,
   type = c("ordination", "trait_importance", "admissibility"),

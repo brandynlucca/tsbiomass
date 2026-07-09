@@ -291,49 +291,49 @@ Sensitivity simulation and outer-loop holdout validation.
 
 ## Visualization
 
-Plotting generics for all major classes.
+S3 plot methods dispatched via plot(object, …) for all major classes.
 
-- [`.plot_alchemist()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Alchemist.md)
+- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Alchemist.md)
   :
 
   Plot an `Alchemist`
 
-- [`.plot_candidates()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Candidates.md)
+- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Candidates.md)
   :
 
   Plot a `Candidates`
 
-- [`.plot_conjurer()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Conjurer.md)
+- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Conjurer.md)
   :
 
   Plot `Conjurer` missingness uncertainty summaries
 
-- [`.plot_policy_learner()`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicyLearner.md)
+- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicyLearner.md)
   :
 
   Plot a `PolicyLearner`
 
-- [`.plot_policy_predictions()`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicyPredictions.md)
+- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicyPredictions.md)
   :
 
   Plot a `PolicyPredictions`
 
-- [`.plot_policy_selector()`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicySelector.md)
+- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicySelector.md)
   :
 
   Plot a `PolicySelector`
 
-- [`.plot_policy_simulator()`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicySimulator.md)
+- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.PolicySimulator.md)
   :
 
   Plot a `PolicySimulator`
 
-- [`.plot_referee()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Referee.md)
+- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Referee.md)
   :
 
   Plot a `Referee`
 
-- [`.plot_scorecard()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Scorecard.md)
+- [`plot()`](https://brandynlucca.github.io/tsbiomass/reference/plot.Scorecard.md)
   :
 
   Plot a `Scorecard`
@@ -347,9 +347,9 @@ Plotting generics for all major classes.
 - [`plot_sentinel_coverage_scorecard()`](https://brandynlucca.github.io/tsbiomass/reference/plot_sentinel_coverage_scorecard.md)
   : Plot Sentinel interval coverage from a Scorecard
 
-- [`explain()`](https://brandynlucca.github.io/tsbiomass/reference/explain.md)
-  : Explain one or more policies
-
 ## Utilities
 
-Lower-level Rcpp benchmarking utilities.
+Diagnostics, explainability, and lower-level utilities.
+
+- [`explain()`](https://brandynlucca.github.io/tsbiomass/reference/explain.md)
+  : Explain one or more policies

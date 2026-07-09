@@ -8,7 +8,7 @@ simulator object.
 ## Usage
 
 ``` r
-.plot_policy_simulator(
+plot(
   x,
   y = NULL,
   type = c("sensitivity_overview", "policy_stability", "multiplier_drift"),

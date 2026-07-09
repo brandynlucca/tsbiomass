@@ -1,0 +1,278 @@
+main div.tip,
+main section.tip,
+main div.caution,
+main section.caution,
+main div.danger,
+main section.danger,
+main div.note,
+main section.note,
+main div.seealso,
+main section.seealso,
+main div.attention,
+main section.attention,
+main div.bug,
+main section.bug,
+main div.todo,
+main section.todo,
+main div.example,
+main section.example,
+main div.help,
+main section.help,
+main div.experiment,
+main section.experiment {
+  border: 1px solid #d1d5da;
+  border-left-width: 6px;
+  border-left-style: solid;
+  border-radius: 6px;
+  margin: 1.5em 0;
+  padding: 0;
+  overflow: hidden;
+  display: block;
+}
+
+main div.tip::before,
+main section.tip::before,
+main div.caution::before,
+main section.caution::before,
+main div.danger::before,
+main section.danger::before,
+main div.note::before,
+main section.note::before,
+main div.seealso::before,
+main section.seealso::before,
+main div.attention::before,
+main section.attention::before,
+main div.bug::before,
+main section.bug::before,
+main div.todo::before,
+main section.todo::before,
+main div.example::before,
+main section.example::before,
+main div.help::before,
+main section.help::before,
+main div.experiment::before,
+main section.experiment::before {
+  display: block;
+  color: #ffffff;
+  padding: 10px 15px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  line-height: 1.2;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+main div.tip > *,
+main section.tip > *,
+main div.caution > *,
+main section.caution > *,
+main div.danger > *,
+main section.danger > *,
+main div.note > *,
+main section.note > *,
+main div.seealso > *,
+main section.seealso > *,
+main div.attention > *,
+main section.attention > *,
+main div.bug > *,
+main section.bug > *,
+main div.todo > *,
+main section.todo > *,
+main div.example > *,
+main section.example > *,
+main div.help > *,
+main section.help > *,
+main div.experiment > *,
+main section.experiment > * {
+  padding-left: 15px;
+  padding-right: 15px;
+  margin-top: 12px;
+  margin-bottom: 12px;
+  color: #24292e;
+}
+
+main div.tip,
+main section.tip {
+  background-color: #e4f7e7;
+  border-left-color: #5fb488;
+}
+
+main div.tip::before,
+main section.tip::before {
+  background-color: #002f17;
+  content: "Tip";
+}
+
+main div.tip[data-title]::before,
+main section.tip[data-title]::before {
+  content: attr(data-title);
+}
+
+main div.caution,
+main section.caution {
+  background-color: #fff9e6;
+  border-left-color: #e6b800;
+}
+
+main div.caution::before,
+main section.caution::before {
+  background-color: #4d3d00;
+  content: "Caution";
+}
+
+main div.caution[data-title]::before,
+main section.caution[data-title]::before {
+  content: attr(data-title);
+}
+
+main div.danger,
+main section.danger {
+  background-color: #ffebe6;
+  border-left-color: #cc3300;
+}
+
+main div.danger::before,
+main section.danger::before {
+  background-color: #4d1400;
+  content: "Danger";
+}
+
+main div.danger[data-title]::before,
+main section.danger[data-title]::before {
+  content: attr(data-title);
+}
+
+main div.note,
+main section.note {
+  background-color: #e7f3ff;
+  border-left-color: #5fa1b4;
+}
+
+main div.note::before,
+main section.note::before {
+  background-color: #001d2f;
+  content: "Note";
+}
+
+main div.note[data-title]::before,
+main section.note[data-title]::before {
+  content: attr(data-title);
+}
+
+main div.seealso,
+main section.seealso {
+  background-color: #e6fffa;
+  border-left-color: #38b2ac;
+}
+
+main div.seealso::before,
+main section.seealso::before {
+  background-color: #234e52;
+  content: "See Also";
+}
+
+main div.seealso[data-title]::before,
+main section.seealso[data-title]::before {
+  content: attr(data-title);
+}
+
+main div.attention,
+main section.attention {
+  background-color: #fffaf0;
+  border-left-color: #ed8936;
+}
+
+main div.attention::before,
+main section.attention::before {
+  background-color: #7b341e;
+  content: "Attention";
+}
+
+main div.attention[data-title]::before,
+main section.attention[data-title]::before {
+  content: attr(data-title);
+}
+
+main div.bug,
+main section.bug {
+  background-color: #fff5f7;
+  border-left-color: #f66581;
+}
+
+main div.bug::before,
+main section.bug::before {
+  background-color: #700c23;
+  content: "Bug";
+}
+
+main div.bug[data-title]::before,
+main section.bug[data-title]::before {
+  content: attr(data-title);
+}
+
+main div.todo,
+main section.todo {
+  background-color: #f8fafc;
+  border-left-color: #64748b;
+}
+
+main div.todo::before,
+main section.todo::before {
+  background-color: #1e293b;
+  content: "Todo";
+}
+
+main div.todo[data-title]::before,
+main section.todo[data-title]::before {
+  content: attr(data-title);
+}
+
+main div.example,
+main section.example {
+  background-color: #f0f1ff;
+  border-left-color: #667eea;
+}
+
+main div.example::before,
+main section.example::before {
+  background-color: #2d3748;
+  content: "Example";
+}
+
+main div.example[data-title]::before,
+main section.example[data-title]::before {
+  content: attr(data-title);
+}
+
+main div.help,
+main section.help {
+  background-color: #e0fcff;
+  border-left-color: #00b5d8;
+}
+
+main div.help::before,
+main section.help::before {
+  background-color: #086070;
+  content: "Help";
+}
+
+main div.help[data-title]::before,
+main section.help[data-title]::before {
+  content: attr(data-title);
+}
+
+main div.experiment,
+main section.experiment {
+  background-color: #faf5ff;
+  border-left-color: #b794f4;
+}
+
+main div.experiment::before,
+main section.experiment::before {
+  background-color: #44337a;
+  content: "Experiment";
+}
+
+main div.experiment[data-title]::before,
+main section.experiment[data-title]::before {
+  content: attr(data-title);
+}

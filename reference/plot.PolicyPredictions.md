@@ -8,7 +8,7 @@ by hand.
 ## Usage
 
 ``` r
-.plot_policy_predictions(
+plot(
   x,
   y = NULL,
   type = c("selected_intervals", "strategy_competition"),

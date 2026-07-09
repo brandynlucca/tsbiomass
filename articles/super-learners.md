@@ -84,19 +84,18 @@ The default three-method ensemble balances regularized linearity
 (`xgboost`). The NNLS combiner then determines how much weight each
 method gets per fold.
 
-!!! tip **Feature type matters** Before tuning the learner library,
-check `feature_type`. The default `feature_type="gower"` is unsigned,
-which means nonlinear methods like `rf` and `xgboost` must discover
-assymetries themselves. Switching to `feature_type="difference"` encodes
-direction explicitly and often improves RF and XGBoost generalization
-without any other change.
+Before tuning the learner library, check `feature_type`. The default
+`feature_type = “gower”` is unsigned, which means nonlinear methods like
+`rf` and `xgboost` must discover asymmetries themselves. Switching to
+`feature_type = “difference”` encodes direction explicitly and often
+improves RF and XGBoost generalization without any other change.
 
-!!! tip **Taxonomic distances** If your candidate pool has good
-phylogenetic coverage, setting `taxonomic_distance = TRUE` replaces the
-separate species, genus, family, etc., traits with a single continuous
-distance from the Open Tree of Life. This reduces feature collinearity
-and tends to improve out-of-fold accuracy for methods with limited
-regularization (e.g., `gam`, `rpart`).
+If your candidate pool has good phylogenetic coverage, setting
+`taxonomic_distance = TRUE` replaces the separate species, genus,
+family, etc., traits with a single continuous distance from the Open
+Tree of Life. This reduces feature collinearity and tends to improve
+out-of-fold accuracy for methods with limited regularization (e.g.,
+`gam`, `rpart`).
 
 **Growing or shrinking the library**
 
@@ -287,17 +286,16 @@ The full library is appropriate here because the outcome (absolute
 log-error) is well-behaved (non-negative, roughly log-normal) and
 quantile-targeting methods add diversity that helps the NNLS combiner.
 
-**Pro tip - quantile diversity:** Adding `qreg` and `qrf` alongside
-mean-regression methods gives the NNLS combiner access to upper-tail
-predictions. Because prediction intervals are set at the upper tail of
-the error distribution, these quantile learners often receive
-substantial weight and meaningfully reduce coverage error.
+Adding `qreg` and `qrf` alongside mean-regression methods gives the NNLS
+combiner access to upper-tail predictions. Because prediction intervals
+are set at the upper tail of the error distribution, these quantile
+learners often receive substantial weight and meaningfully reduce
+coverage error.
 
-**Pro tip - lambda rule:** For the uncertainty learner, prefer
-`lambda.min` over `lambda.1se`. The uncertainty stage is already
-regularized by the conformal calibration step that follows. Aggressive
-penalization in the learner can leave systematic variance unexplained
-and produce poorly calibrated intervals.
+For the uncertainty learner, prefer `lambda.min` over `lambda.1se`. The
+uncertainty stage is already regularized by the conformal calibration
+step that follows. Aggressive penalization in the learner can leave
+systematic variance unexplained and produce poorly calibrated intervals.
 
 **When to use `super_learner`**
 
@@ -573,17 +571,16 @@ selection:
   inner_folds: 5
 ```
 
-**Pro tip - keep the library small:** For the selection learner, a 3–4
-method library (e.g. `[glm, glm_elastic, rf, mars]`) usually
-out-performs a large library. Adding many similar methods (multiple
-XGBoost variants, multiple RF variants) without diversity rarely
-improves the NNLS combiner and inflates cross-fitting time.
+For the selection learner, a 3-4 method library
+(e.g. `[glm, glm_elastic, rf, mars]`) usually out-performs a large
+library. Adding many similar methods (multiple XGBoost variants,
+multiple RF variants) without diversity rarely improves the NNLS
+combiner and inflates cross-fitting time.
 
-**Pro tip - outcome clipping:** Set `outcome_clip_quantile` to 0.95–0.99
-(default 0.99). A handful of extreme benchmark errors can dominate the
-learner target and prevent the model from distinguishing between
-policies in the moderate-performance range where most selection
-decisions happen.
+Set `outcome_clip_quantile` to 0.95-0.99 (default 0.99). A handful of
+extreme benchmark errors can dominate the learner target and prevent the
+model from distinguishing between policies in the moderate-performance
+range where most selection decisions happen.
 
 **Method notes**
 

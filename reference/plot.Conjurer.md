@@ -5,7 +5,7 @@ Plot `Conjurer` missingness uncertainty summaries
 ## Usage
 
 ``` r
-.plot_conjurer(
+plot(
   x,
   y = NULL,
   metric = "mean_abs_db_shift",

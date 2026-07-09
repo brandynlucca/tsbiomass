@@ -7,11 +7,15 @@ summaries can be drawn directly from the package object.
 ## Usage
 
 ``` r
-.plot_policy_selector(
+plot(
   x,
   y = NULL,
-  type = c("strategy_error_heatmap", "conformal_scores", "policy_benchmark",
-    "species_policy_ranked"),
+  type = c(
+    "strategy_error_heatmap",
+    "conformal_scores",
+    "policy_benchmark",
+    "species_policy_ranked"
+  ),
   ...
 )
 ```
