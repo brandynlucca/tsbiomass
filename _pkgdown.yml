@@ -97,7 +97,9 @@ reference:
       - as_alchemist
       - Alchemist-class
       - forge_distances
+      - forge_distances.Alchemist
       - distill_traits
+      - distill_traits.Alchemist
       - run_ordination
       - screen_admissibility
 
