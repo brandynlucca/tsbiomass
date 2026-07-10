@@ -1212,7 +1212,21 @@ feature_matrix <- function(data, feature_cols) {
 #' @keywords internal
 #' @noRd
 learner_method_settings <- function(family, method, method_settings) {
-  as.list(normalize_meta_policy_method_settings(method_settings)[[method]] %||% list())
+  method_settings <- normalize_meta_policy_method_settings(method_settings)
+  method_spec <- meta_policy_method_spec(method, method_settings = method_settings)
+  family_cfg <- method_settings[[method_spec$family]] %||% list()
+  base_cfg <- method_settings[[method_spec$base]] %||% list()
+  variant_cfg <- if (!is.null(method_spec$variant)) {
+    base_cfg$variants[[method_spec$variant]] %||% list()
+  } else {
+    list()
+  }
+  family_cfg$variants <- NULL
+  base_cfg$variants <- NULL
+  as.list(merge_config_sections(
+    merge_config_sections(family_cfg, base_cfg),
+    variant_cfg
+  ))
 }
 
 #' Prepare one dense regression frame for linear-style Alchemist learners
@@ -1282,8 +1296,9 @@ fit_base_learner <- function(x_train, y_train, method,
   family <- meta_policy_method_spec(method, method_settings = method_settings)$family
 
   ms <- learner_method_settings(family, method, method_settings %||% list())
+  method_spec <- meta_policy_method_spec(method, method_settings = method_settings)
   method_defaults <- meta_policy_method_default_arguments(
-    method,
+    method_spec$base,
     defaults_path = meta_policy_method_settings_defaults_path(method_settings)
   )
   feature_cols <- colnames(x_train)

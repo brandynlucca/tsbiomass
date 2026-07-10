@@ -2984,7 +2984,10 @@ validate_metalearner_method_settings <- function(method_settings) {
     stop("Metalearner field 'method_settings' must be a named list.", call. = FALSE)
   }
 
-  allowed_sections <- names(meta_policy_method_family_map())
+  allowed_sections <- union(
+    names(meta_policy_method_family_map()),
+    unname(unique(meta_policy_method_family_map()))
+  )
   bad_sections <- setdiff(names(method_settings), allowed_sections)
   if (length(bad_sections) > 0) {
     stop(
@@ -2996,24 +2999,10 @@ validate_metalearner_method_settings <- function(method_settings) {
     )
   }
 
-  reject_variant_block <- function(settings, field_label) {
-    if (!is.null(settings$variants)) {
-      stop(
-        sprintf(
-          "Metalearner field '%s.variants' is not supported; configure the method entry directly.",
-          field_label
-        ),
-        call. = FALSE
-      )
-    }
-    invisible(NULL)
-  }
-
   validate_empty_settings <- function(settings, field_label) {
     if (!is.list(settings)) {
       stop(sprintf("Metalearner field '%s' must be a named list.", field_label), call. = FALSE)
     }
-    reject_variant_block(settings, field_label)
   }
 
   validate_glm_penalized_settings <- function(settings, field_label) {
@@ -3161,23 +3150,56 @@ validate_metalearner_method_settings <- function(method_settings) {
     }
   }
 
-  validate_glm_penalized_settings(method_settings$glm_ridge %||% list(), "method_settings.glm_ridge")
-  validate_glm_penalized_settings(method_settings$glm_lasso %||% list(), "method_settings.glm_lasso")
-  validate_glm_penalized_settings(method_settings$glm_elastic %||% list(), "method_settings.glm_elastic")
-  validate_qreg_settings(method_settings$qreg %||% list(), "method_settings.qreg")
-  validate_gam_settings(method_settings$gam %||% list(), "method_settings.gam")
-  validate_lmm_settings(method_settings$lmm %||% list(), "method_settings.lmm")
-  validate_rpart_settings(method_settings$rpart %||% list(), "method_settings.rpart")
-  validate_rf_settings(method_settings$rf %||% list(), "method_settings.rf")
-  validate_xgboost_settings(method_settings$xgboost %||% list(), "method_settings.xgboost")
-  validate_mars_settings(method_settings$mars %||% list(), "method_settings.mars")
-  validate_rf_settings(method_settings$qrf %||% list(), "method_settings.qrf")
-  validate_empty_settings(method_settings$knn %||% list(), "method_settings.knn")
-  validate_empty_settings(method_settings$cubist %||% list(), "method_settings.cubist")
-  validate_empty_settings(method_settings$svr %||% list(), "method_settings.svr")
-  validate_empty_settings(method_settings$gpr %||% list(), "method_settings.gpr")
+  validate_with_variants <- function(settings, field_label, validator) {
+    settings <- settings %||% list()
+    if (!is.list(settings)) {
+      stop(sprintf("Metalearner field '%s' must be a named list.", field_label), call. = FALSE)
+    }
+    variants <- settings$variants %||% NULL
+    base_settings <- settings
+    base_settings$variants <- NULL
+    validator(base_settings, field_label)
+    if (is.null(variants)) {
+      return(invisible(NULL))
+    }
+    if (!is.list(variants) || is.null(names(variants)) || anyNA(names(variants)) ||
+      any(!nzchar(names(variants)))) {
+      stop(sprintf("Metalearner field '%s.variants' must be a named list.", field_label), call. = FALSE)
+    }
+    for (variant_name in names(variants)) {
+      variant_settings <- variants[[variant_name]]
+      if (!is.list(variant_settings)) {
+        stop(
+          sprintf("Metalearner field '%s.variants.%s' must be a named list.", field_label, variant_name),
+          call. = FALSE
+        )
+      }
+      validator(
+        merge_config_sections(base_settings, variant_settings),
+        sprintf("%s.variants.%s", field_label, variant_name)
+      )
+    }
+    invisible(NULL)
+  }
+
+  validate_with_variants(method_settings$glm_penalized %||% list(), "method_settings.glm_penalized", validate_glm_penalized_settings)
+  validate_with_variants(method_settings$glm_ridge %||% list(), "method_settings.glm_ridge", validate_glm_penalized_settings)
+  validate_with_variants(method_settings$glm_lasso %||% list(), "method_settings.glm_lasso", validate_glm_penalized_settings)
+  validate_with_variants(method_settings$glm_elastic %||% list(), "method_settings.glm_elastic", validate_glm_penalized_settings)
+  validate_with_variants(method_settings$qreg %||% list(), "method_settings.qreg", validate_qreg_settings)
+  validate_with_variants(method_settings$gam %||% list(), "method_settings.gam", validate_gam_settings)
+  validate_with_variants(method_settings$lmm %||% list(), "method_settings.lmm", validate_lmm_settings)
+  validate_with_variants(method_settings$rpart %||% list(), "method_settings.rpart", validate_rpart_settings)
+  validate_with_variants(method_settings$rf %||% list(), "method_settings.rf", validate_rf_settings)
+  validate_with_variants(method_settings$xgboost %||% list(), "method_settings.xgboost", validate_xgboost_settings)
+  validate_with_variants(method_settings$mars %||% list(), "method_settings.mars", validate_mars_settings)
+  validate_with_variants(method_settings$qrf %||% list(), "method_settings.qrf", validate_rf_settings)
+  validate_with_variants(method_settings$knn %||% list(), "method_settings.knn", validate_empty_settings)
+  validate_with_variants(method_settings$cubist %||% list(), "method_settings.cubist", validate_empty_settings)
+  validate_with_variants(method_settings$svr %||% list(), "method_settings.svr", validate_empty_settings)
+  validate_with_variants(method_settings$gpr %||% list(), "method_settings.gpr", validate_empty_settings)
   for (bart_method in c("bart", "xbart", "wsbart", "vfbart", "rebart")) {
-    validate_empty_settings(method_settings[[bart_method]] %||% list(), paste0("method_settings.", bart_method))
+    validate_with_variants(method_settings[[bart_method]] %||% list(), paste0("method_settings.", bart_method), validate_empty_settings)
   }
 
   invisible(NULL)

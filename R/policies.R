@@ -6280,7 +6280,8 @@ meta_policy_method_default_arguments <- function(method,
   if (length(method) != 1L || !nzchar(method)) {
     return(list())
   }
-  default_meta_policy_method_settings(defaults_path = defaults_path)[[method]] %||% list()
+  defaults <- default_meta_policy_method_settings(defaults_path = defaults_path)
+  defaults[[method]] %||% list()
 }
 
 #' Catalog the supported meta-policy learner methods
@@ -6298,7 +6299,36 @@ meta_policy_method_catalog <- function(method_settings = NULL) {
   family_map <- meta_policy_method_family_map()
   specs <- stats::setNames(vector("list", length(family_map)), names(family_map))
   for (method_name in names(family_map)) {
-    specs[[method_name]] <- list(family = family_map[[method_name]], variant = NULL)
+    specs[[method_name]] <- list(
+      family = family_map[[method_name]],
+      base = method_name,
+      variant = NULL
+    )
+  }
+
+  for (base_name in names(method_settings)) {
+    settings <- method_settings[[base_name]]
+    if (!is.list(settings)) {
+      next
+    }
+    variants <- settings$variants %||% NULL
+    if (!is.list(variants) || length(variants) == 0L) {
+      next
+    }
+    base_spec <- specs[[base_name]] %||% NULL
+    if (!is.list(base_spec)) {
+      next
+    }
+    variant_names <- names(variants)
+    variant_names <- variant_names[!is.na(variant_names) & nzchar(variant_names)]
+    for (variant_name in variant_names) {
+      method_name <- paste(base_name, variant_name, sep = "_")
+      specs[[method_name]] <- list(
+        family = base_spec$family,
+        base = base_name,
+        variant = variant_name
+      )
+    }
   }
 
   default_super_methods <- c(
@@ -6359,14 +6389,26 @@ meta_policy_method_spec <- function(method,
 meta_policy_method_arguments <- function(method,
                                          method_settings = NULL) {
   defaults_path <- meta_policy_method_settings_defaults_path(method_settings)
-  method_defaults <- meta_policy_method_default_arguments(method, defaults_path = defaults_path)
   method_settings <- normalize_meta_policy_method_settings(method_settings, defaults_path = defaults_path)
   method_spec <- meta_policy_method_spec(method, method_settings = method_settings)
+  method_defaults <- meta_policy_method_default_arguments(method_spec$base, defaults_path = defaults_path)
   compact_nulls <- function(x) {
     x[!vapply(x, is.null, logical(1))]
   }
-  effective_method_settings <- function(method_name = method_spec$name) {
-    method_settings[[method_name]] %||% list()
+  effective_method_settings <- function() {
+    family_cfg <- method_settings[[method_spec$family]] %||% list()
+    base_cfg <- method_settings[[method_spec$base]] %||% list()
+    variant_cfg <- if (!is.null(method_spec$variant)) {
+      base_cfg$variants[[method_spec$variant]] %||% list()
+    } else {
+      list()
+    }
+    family_cfg$variants <- NULL
+    base_cfg$variants <- NULL
+    merge_config_sections(
+      merge_config_sections(family_cfg, base_cfg),
+      variant_cfg
+    )
   }
 
   if (identical(method_spec$family, "glm_penalized")) {

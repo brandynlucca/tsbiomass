@@ -1,4 +1,4 @@
----
+﻿---
 title: "Super Learners"
 description: >
   The three Super Learner contexts in tsbiomass: what they do, which
@@ -23,27 +23,31 @@ code_drop <- function(id, yaml, r, title = "Default configuration") {
     x <- gsub("<", "&lt;", x, fixed = TRUE)
     gsub(">", "&gt;", x, fixed = TRUE)
   }
-  knitr::asis_output(sprintf(
-'<details class="code-drop">
-<summary>&#128187; %s</summary>
-<div class="config-tabs">
-<input class="config-tab-yaml" type="radio" name="cfg-%s" id="cfg-%s-yaml" checked>
-<input class="config-tab-r" type="radio" name="cfg-%s" id="cfg-%s-r">
-<div class="config-tab-labels">
-<label class="config-label-yaml" for="cfg-%s-yaml">YAML</label>
-<label class="config-label-r" for="cfg-%s-r">R list</label>
-</div>
-<div class="config-tab-panels">
-<div class="config-panel config-panel-yaml">
-<pre><code class="language-yaml">%s</code></pre>
-</div>
-<div class="config-panel config-panel-r">
-<pre><code class="language-r">%s</code></pre>
-</div>
-</div>
-</div>
-</details>',
-    esc(title), id, id, id, id, id, id, esc(yaml), esc(r)))
+  knitr::asis_output(paste0(
+    '<details class="code-drop">',
+    "\n<summary>&#128187; ", esc(title), "</summary>\n\n",
+    "::: {.panel-tabset}\n\n",
+    "### YAML\n\n",
+    "```yaml\n", yaml, "\n```\n\n",
+    "### R list\n\n",
+    "```r\n", r, "\n```\n\n",
+    ":::\n\n",
+    "</details>"
+  ))
+}
+
+code_only_drop <- function(id, code, title = "Code", language = "r") {
+  esc <- function(x) {
+    x <- gsub("&", "&amp;", x, fixed = TRUE)
+    x <- gsub("<", "&lt;", x, fixed = TRUE)
+    gsub(">", "&gt;", x, fixed = TRUE)
+  }
+  knitr::asis_output(paste0(
+    '<details class="code-drop">',
+    "\n<summary>&#128187; ", esc(title), "</summary>\n\n",
+    "```", language, "\n", code, "\n```\n\n",
+    "</details>"
+  ))
 }
 
 method_default_registry <- local({
@@ -185,11 +189,19 @@ Each learner has a different outcome, a different feature set, and different
 practical constraints. Understanding which learner is which, and what it is
 actually predicting, is the most important thing before you start tuning.
 
-```r
-library(tsbiomass)
-
-# See what method names are valid in any context
-list_learners()
+```{r list-learners-example, echo=FALSE, results='asis', eval=TRUE}
+code_only_drop(
+  id = "list-learners-example",
+  title = "List available learner methods",
+  language = "r",
+  code = paste(
+    "library(tsbiomass)",
+    "",
+    "# See what method names are valid in any context",
+    "list_learners()",
+    sep = "\n"
+  )
+)
 ```
 
 Each learner section below includes a collapsible table of its valid methods.
@@ -396,47 +408,42 @@ In very high-dimensional feature spaces (many trait expansions,
 may overfit the training pairs. Prefer `lambda.1se` for this learner unless you
 have a large candidate pool and Sentinel validates the more aggressive fit.
 
-<details class="code-drop">
-<summary>&#128187; Elastic-net emphasis</summary>
-<div class="config-tabs">
-<input class="config-tab-yaml" type="radio" name="cfg-alchemist-elastic" id="cfg-alchemist-elastic-yaml" checked>
-<input class="config-tab-r" type="radio" name="cfg-alchemist-elastic" id="cfg-alchemist-elastic-r">
-<div class="config-tab-labels">
-<label class="config-label-yaml" for="cfg-alchemist-elastic-yaml">YAML</label>
-<label class="config-label-r" for="cfg-alchemist-elastic-r">R list</label>
-</div>
-<div class="config-tab-panels">
-<div class="config-panel config-panel-yaml">
-<pre><code class="language-yaml">alchemist:
-  learner:
-    methods: [glm_elastic]
-    lambda_rule: lambda.1se
-    method_settings:
-      glm_elastic:
-        alpha: 0.25
-        standardize: true
-        type_measure: mae</code></pre>
-</div>
-<div class="config-panel config-panel-r">
-<pre><code class="language-r">list(
-  alchemist = list(
-    learner = list(
-      methods = "glm_elastic",
-      lambda_rule = "lambda.1se",
-      method_settings = list(
-        glm_elastic = list(
-          alpha = 0.25,
-          standardize = TRUE,
-          type_measure = "mae"
-        )
-      )
-    )
+```{r code-drop-cfg-alchemist-elastic, echo=FALSE, results='asis', eval=TRUE}
+code_drop(
+  id = "cfg-alchemist-elastic",
+  title = "Elastic-net emphasis",
+  yaml = paste(
+    "alchemist:",
+    "  learner:",
+    "    methods: [glm_elastic]",
+    "    lambda_rule: lambda.1se",
+    "    method_settings:",
+    "      glm_elastic:",
+    "        alpha: 0.25",
+    "        standardize: true",
+    "        type_measure: mae",
+    sep = "\n"
+  ),
+  r = paste(
+    "list(",
+    "  alchemist = list(",
+    "    learner = list(",
+    "      methods = \"glm_elastic\",",
+    "      lambda_rule = \"lambda.1se\",",
+    "      method_settings = list(",
+    "        glm_elastic = list(",
+    "          alpha = 0.25,",
+    "          standardize = TRUE,",
+    "          type_measure = \"mae\"",
+    "        )",
+    "      )",
+    "    )",
+    "  )",
+    ")",
+    sep = "\n"
   )
-)</code></pre>
-</div>
-</div>
-</div>
-</details>
+)
+```
 :::
 
 </details>
@@ -503,45 +510,40 @@ If memory is tight, reduce `num_trees` to 200-300 before reducing
 `sample_fraction`; fewer trees usually cost less accuracy than starving every
 tree of rows.
 
-<details class="code-drop">
-<summary>&#128187; Random forest, memory-constrained</summary>
-<div class="config-tabs">
-<input class="config-tab-yaml" type="radio" name="cfg-alchemist-rf-memory" id="cfg-alchemist-rf-memory-yaml" checked>
-<input class="config-tab-r" type="radio" name="cfg-alchemist-rf-memory" id="cfg-alchemist-rf-memory-r">
-<div class="config-tab-labels">
-<label class="config-label-yaml" for="cfg-alchemist-rf-memory-yaml">YAML</label>
-<label class="config-label-r" for="cfg-alchemist-rf-memory-r">R list</label>
-</div>
-<div class="config-tab-panels">
-<div class="config-panel config-panel-yaml">
-<pre><code class="language-yaml">alchemist:
-  learner:
-    method_settings:
-      rf:
-        num_trees: 300
-        min_node_size: 10
-        sample_fraction: 0.6
-        replace: false</code></pre>
-</div>
-<div class="config-panel config-panel-r">
-<pre><code class="language-r">list(
-  alchemist = list(
-    learner = list(
-      method_settings = list(
-        rf = list(
-          num_trees = 300,
-          min_node_size = 10,
-          sample_fraction = 0.6,
-          replace = FALSE
-        )
-      )
-    )
+```{r code-drop-cfg-alchemist-rf-memory, echo=FALSE, results='asis', eval=TRUE}
+code_drop(
+  id = "cfg-alchemist-rf-memory",
+  title = "Random forest, memory-constrained",
+  yaml = paste(
+    "alchemist:",
+    "  learner:",
+    "    method_settings:",
+    "      rf:",
+    "        num_trees: 300",
+    "        min_node_size: 10",
+    "        sample_fraction: 0.6",
+    "        replace: false",
+    sep = "\n"
+  ),
+  r = paste(
+    "list(",
+    "  alchemist = list(",
+    "    learner = list(",
+    "      method_settings = list(",
+    "        rf = list(",
+    "          num_trees = 300,",
+    "          min_node_size = 10,",
+    "          sample_fraction = 0.6,",
+    "          replace = FALSE",
+    "        )",
+    "      )",
+    "    )",
+    "  )",
+    ")",
+    sep = "\n"
   )
-)</code></pre>
-</div>
-</div>
-</div>
-</details>
+)
+```
 :::
 
 </details>
@@ -562,55 +564,50 @@ In small candidate pools (N < 50 models), boosted trees can memorize sparse
 donor-anchor patterns. Keep `xgboost` shallow and slow-learning unless Sentinel
 shows that a higher-capacity fit improves holdout error.
 
-<details class="code-drop">
-<summary>&#128187; XGBoost for a small candidate pool</summary>
-<div class="config-tabs">
-<input class="config-tab-yaml" type="radio" name="cfg-alchemist-small-pool" id="cfg-alchemist-small-pool-yaml" checked>
-<input class="config-tab-r" type="radio" name="cfg-alchemist-small-pool" id="cfg-alchemist-small-pool-r">
-<div class="config-tab-labels">
-<label class="config-label-yaml" for="cfg-alchemist-small-pool-yaml">YAML</label>
-<label class="config-label-r" for="cfg-alchemist-small-pool-r">R list</label>
-</div>
-<div class="config-tab-panels">
-<div class="config-panel config-panel-yaml">
-<pre><code class="language-yaml">alchemist:
-  learner:
-    methods: [xgboost]
-    method_settings:
-      xgboost:
-        nrounds: 200
-        eta: 0.05
-        max_depth: 3
-        min_child_weight: 5
-        subsample: 0.8
-        colsample_bytree: 0.8
-        lambda: 2
-        alpha: 0.5</code></pre>
-</div>
-<div class="config-panel config-panel-r">
-<pre><code class="language-r">list(
-  alchemist = list(
-    learner = list(
-      methods = "xgboost",
-      method_settings = list(
-        xgboost = list(
-          nrounds = 200,
-          eta = 0.05,
-          max_depth = 3,
-          min_child_weight = 5,
-          subsample = 0.8,
-          colsample_bytree = 0.8,
-          lambda = 2,
-          alpha = 0.5
-        )
-      )
-    )
+```{r code-drop-cfg-alchemist-small-pool, echo=FALSE, results='asis', eval=TRUE}
+code_drop(
+  id = "cfg-alchemist-small-pool",
+  title = "XGBoost for a small candidate pool",
+  yaml = paste(
+    "alchemist:",
+    "  learner:",
+    "    methods: [xgboost]",
+    "    method_settings:",
+    "      xgboost:",
+    "        nrounds: 200",
+    "        eta: 0.05",
+    "        max_depth: 3",
+    "        min_child_weight: 5",
+    "        subsample: 0.8",
+    "        colsample_bytree: 0.8",
+    "        lambda: 2",
+    "        alpha: 0.5",
+    sep = "\n"
+  ),
+  r = paste(
+    "list(",
+    "  alchemist = list(",
+    "    learner = list(",
+    "      methods = \"xgboost\",",
+    "      method_settings = list(",
+    "        xgboost = list(",
+    "          nrounds = 200,",
+    "          eta = 0.05,",
+    "          max_depth = 3,",
+    "          min_child_weight = 5,",
+    "          subsample = 0.8,",
+    "          colsample_bytree = 0.8,",
+    "          lambda = 2,",
+    "          alpha = 0.5",
+    "        )",
+    "      )",
+    "    )",
+    "  )",
+    ")",
+    sep = "\n"
   )
-)</code></pre>
-</div>
-</div>
-</div>
-</details>
+)
+```
 :::
 
 </details>
@@ -914,36 +911,31 @@ With many benchmark features, `degree = 2` can overfit a small benchmark table.
 Drop to `degree = 1` if the backward pass retains spurious hinge terms or
 Sentinel shows unstable interval calibration.
 
-<details class="code-drop">
-<summary>&#128187; MARS (additive)</summary>
-<div class="config-tabs">
-<input class="config-tab-yaml" type="radio" name="cfg-uncertainty-mars" id="cfg-uncertainty-mars-yaml" checked>
-<input class="config-tab-r" type="radio" name="cfg-uncertainty-mars" id="cfg-uncertainty-mars-r">
-<div class="config-tab-labels">
-<label class="config-label-yaml" for="cfg-uncertainty-mars-yaml">YAML</label>
-<label class="config-label-r" for="cfg-uncertainty-mars-r">R list</label>
-</div>
-<div class="config-tab-panels">
-<div class="config-panel config-panel-yaml">
-<pre><code class="language-yaml">uncertainty:
-  method_settings:
-    mars:
-      degree: 1
-      penalty: 3
-      pmethod: backward</code></pre>
-</div>
-<div class="config-panel config-panel-r">
-<pre><code class="language-r">list(
-  uncertainty = list(
-    method_settings = list(
-      mars = list(degree = 1, penalty = 3, pmethod = "backward")
-    )
+```{r code-drop-cfg-uncertainty-mars, echo=FALSE, results='asis', eval=TRUE}
+code_drop(
+  id = "cfg-uncertainty-mars",
+  title = "MARS (additive)",
+  yaml = paste(
+    "uncertainty:",
+    "  method_settings:",
+    "    mars:",
+    "      degree: 1",
+    "      penalty: 3",
+    "      pmethod: backward",
+    sep = "\n"
+  ),
+  r = paste(
+    "list(",
+    "  uncertainty = list(",
+    "    method_settings = list(",
+    "      mars = list(degree = 1, penalty = 3, pmethod = \"backward\")",
+    "    )",
+    "  )",
+    ")",
+    sep = "\n"
   )
-)</code></pre>
-</div>
-</div>
-</div>
-</details>
+)
+```
 :::
 
 </details>
@@ -979,41 +971,36 @@ method_default_drop("method-rf-02", "rf")
 that determines interval width. In a stacked uncertainty learner, pair it with
 `qreg` or `qrf` so the library contains both central and tail behavior.
 
-<details class="code-drop">
-<summary>&#128187; Tail-focused ensemble</summary>
-<div class="config-tabs">
-<input class="config-tab-yaml" type="radio" name="cfg-uncertainty-rf-tail" id="cfg-uncertainty-rf-tail-yaml" checked>
-<input class="config-tab-r" type="radio" name="cfg-uncertainty-rf-tail" id="cfg-uncertainty-rf-tail-r">
-<div class="config-tab-labels">
-<label class="config-label-yaml" for="cfg-uncertainty-rf-tail-yaml">YAML</label>
-<label class="config-label-r" for="cfg-uncertainty-rf-tail-r">R list</label>
-</div>
-<div class="config-tab-panels">
-<div class="config-panel config-panel-yaml">
-<pre><code class="language-yaml">uncertainty:
-  method: super_learner
-  super_methods: [glm, rf, qreg, qrf]
-  method_settings:
-    qreg:
-      tau: 0.90
-    qrf:
-      quantile: 0.90</code></pre>
-</div>
-<div class="config-panel config-panel-r">
-<pre><code class="language-r">list(
-  uncertainty = list(
-    method = "super_learner",
-    super_methods = c("glm", "rf", "qreg", "qrf"),
-    method_settings = list(
-      qreg = list(tau = 0.90),
-      qrf = list(quantile = 0.90)
-    )
+```{r code-drop-cfg-uncertainty-rf-tail, echo=FALSE, results='asis', eval=TRUE}
+code_drop(
+  id = "cfg-uncertainty-rf-tail",
+  title = "Tail-focused ensemble",
+  yaml = paste(
+    "uncertainty:",
+    "  method: super_learner",
+    "  super_methods: [glm, rf, qreg, qrf]",
+    "  method_settings:",
+    "    qreg:",
+    "      tau: 0.90",
+    "    qrf:",
+    "      quantile: 0.90",
+    sep = "\n"
+  ),
+  r = paste(
+    "list(",
+    "  uncertainty = list(",
+    "    method = \"super_learner\",",
+    "    super_methods = c(\"glm\", \"rf\", \"qreg\", \"qrf\"),",
+    "    method_settings = list(",
+    "      qreg = list(tau = 0.90),",
+    "      qrf = list(quantile = 0.90)",
+    "    )",
+    "  )",
+    ")",
+    sep = "\n"
   )
-)</code></pre>
-</div>
-</div>
-</div>
-</details>
+)
+```
 :::
 
 </details>
@@ -1105,44 +1092,39 @@ Use `rebart` when group-level offsets remain after fixed-feature modeling. The g
 ::: {.caution data-title="Random-effects grouping in ReBART"}
 If species-level groups are too sparse, move to a coarser grouping variable and keep split-safe random effects explicit.
 
-<details class="code-drop">
-<summary>&#128187; ReBART with coarser grouping</summary>
-<div class="config-tabs">
-<input class="config-tab-yaml" type="radio" name="cfg-uncertainty-rebart-group" id="cfg-uncertainty-rebart-group-yaml" checked>
-<input class="config-tab-r" type="radio" name="cfg-uncertainty-rebart-group" id="cfg-uncertainty-rebart-group-r">
-<div class="config-tab-labels">
-<label class="config-label-yaml" for="cfg-uncertainty-rebart-group-yaml">YAML</label>
-<label class="config-label-r" for="cfg-uncertainty-rebart-group-r">R list</label>
-</div>
-<div class="config-tab-panels">
-<div class="config-panel config-panel-yaml">
-<pre><code class="language-yaml">uncertainty:
-  method: rebart
-  group_col: genus
-  method_settings:
-    rebart:
-      random_effects_group: .split_group
-      num_burnin: 100
-      num_mcmc: 200</code></pre>
-</div>
-<div class="config-panel config-panel-r">
-<pre><code class="language-r">list(
-  uncertainty = list(
-    method = "rebart",
-    group_col = "genus",
-    method_settings = list(
-      rebart = list(
-        random_effects_group = ".split_group",
-        num_burnin = 100,
-        num_mcmc = 200
-      )
-    )
+```{r code-drop-cfg-uncertainty-rebart-group, echo=FALSE, results='asis', eval=TRUE}
+code_drop(
+  id = "cfg-uncertainty-rebart-group",
+  title = "ReBART with coarser grouping",
+  yaml = paste(
+    "uncertainty:",
+    "  method: rebart",
+    "  group_col: genus",
+    "  method_settings:",
+    "    rebart:",
+    "      random_effects_group: .split_group",
+    "      num_burnin: 100",
+    "      num_mcmc: 200",
+    sep = "\n"
+  ),
+  r = paste(
+    "list(",
+    "  uncertainty = list(",
+    "    method = \"rebart\",",
+    "    group_col = \"genus\",",
+    "    method_settings = list(",
+    "      rebart = list(",
+    "        random_effects_group = \".split_group\",",
+    "        num_burnin = 100,",
+    "        num_mcmc = 200",
+    "      )",
+    "    )",
+    "  )",
+    ")",
+    sep = "\n"
   )
-)</code></pre>
-</div>
-</div>
-</div>
-</details>
+)
+```
 :::
 
 ```{r defaults-method-rebart-01, echo=FALSE, results='asis', eval=TRUE}
@@ -1214,34 +1196,29 @@ Gaussian-process fits can fail or degenerate when features are nearly
 collinear. Raise the GPR nugget if `kernlab` emits fitting warnings or the
 learner produces nearly constant predictions.
 
-<details class="code-drop">
-<summary>&#128187; Gaussian process nugget</summary>
-<div class="config-tabs">
-<input class="config-tab-yaml" type="radio" name="cfg-uncertainty-gpr" id="cfg-uncertainty-gpr-yaml" checked>
-<input class="config-tab-r" type="radio" name="cfg-uncertainty-gpr" id="cfg-uncertainty-gpr-r">
-<div class="config-tab-labels">
-<label class="config-label-yaml" for="cfg-uncertainty-gpr-yaml">YAML</label>
-<label class="config-label-r" for="cfg-uncertainty-gpr-r">R list</label>
-</div>
-<div class="config-tab-panels">
-<div class="config-panel config-panel-yaml">
-<pre><code class="language-yaml">uncertainty:
-  method_settings:
-    gpr:
-      var: 0.01</code></pre>
-</div>
-<div class="config-panel config-panel-r">
-<pre><code class="language-r">list(
-  uncertainty = list(
-    method_settings = list(
-      gpr = list(var = 0.01)
-    )
+```{r code-drop-cfg-uncertainty-gpr, echo=FALSE, results='asis', eval=TRUE}
+code_drop(
+  id = "cfg-uncertainty-gpr",
+  title = "Gaussian process nugget",
+  yaml = paste(
+    "uncertainty:",
+    "  method_settings:",
+    "    gpr:",
+    "      var: 0.01",
+    sep = "\n"
+  ),
+  r = paste(
+    "list(",
+    "  uncertainty = list(",
+    "    method_settings = list(",
+    "      gpr = list(var = 0.01)",
+    "    )",
+    "  )",
+    ")",
+    sep = "\n"
   )
-)</code></pre>
-</div>
-</div>
-</div>
-</details>
+)
+```
 :::
 
 </details>
@@ -1303,42 +1280,37 @@ This LMM parameterization captures group-level baseline error shifts while prese
 ::: {.caution data-title="Sparse groups or singular fits"}
 If random-effect variance collapses or singular-fit warnings appear, coarsen `group_col` and compare `ML` against `REML`.
 
-<details class="code-drop">
-<summary>&#128187; LMM with coarser grouping</summary>
-<div class="config-tabs">
-<input class="config-tab-yaml" type="radio" name="cfg-uncertainty-lmm-group" id="cfg-uncertainty-lmm-group-yaml" checked>
-<input class="config-tab-r" type="radio" name="cfg-uncertainty-lmm-group" id="cfg-uncertainty-lmm-group-r">
-<div class="config-tab-labels">
-<label class="config-label-yaml" for="cfg-uncertainty-lmm-group-yaml">YAML</label>
-<label class="config-label-r" for="cfg-uncertainty-lmm-group-r">R list</label>
-</div>
-<div class="config-tab-panels">
-<div class="config-panel config-panel-yaml">
-<pre><code class="language-yaml">uncertainty:
-  method: lmm
-  group_col: genus
-  method_settings:
-    lmm:
-      fit_method: ML
-      random_intercept: .split_group</code></pre>
-</div>
-<div class="config-panel config-panel-r">
-<pre><code class="language-r">list(
-  uncertainty = list(
-    method = "lmm",
-    group_col = "genus",
-    method_settings = list(
-      lmm = list(
-        fit_method = "ML",
-        random_intercept = ".split_group"
-      )
-    )
+```{r code-drop-cfg-uncertainty-lmm-group, echo=FALSE, results='asis', eval=TRUE}
+code_drop(
+  id = "cfg-uncertainty-lmm-group",
+  title = "LMM with coarser grouping",
+  yaml = paste(
+    "uncertainty:",
+    "  method: lmm",
+    "  group_col: genus",
+    "  method_settings:",
+    "    lmm:",
+    "      fit_method: ML",
+    "      random_intercept: .split_group",
+    sep = "\n"
+  ),
+  r = paste(
+    "list(",
+    "  uncertainty = list(",
+    "    method = \"lmm\",",
+    "    group_col = \"genus\",",
+    "    method_settings = list(",
+    "      lmm = list(",
+    "        fit_method = \"ML\",",
+    "        random_intercept = \".split_group\"",
+    "      )",
+    "    )",
+    "  )",
+    ")",
+    sep = "\n"
   )
-)</code></pre>
-</div>
-</div>
-</div>
-</details>
+)
+```
 :::
 
 ```{r defaults-method-lmm-01, echo=FALSE, results='asis', eval=TRUE}
@@ -1552,36 +1524,31 @@ Switch to `method: super_learner` when:
 - Outer-fold holdout validation (Sentinel) shows that the GLM is consistently
   selecting the wrong policy family.
 
-<details class="code-drop">
-<summary>&#128187; Super Learner ensemble</summary>
-<div class="config-tabs">
-<input class="config-tab-yaml" type="radio" name="cfg-selection-super" id="cfg-selection-super-yaml" checked>
-<input class="config-tab-r" type="radio" name="cfg-selection-super" id="cfg-selection-super-r">
-<div class="config-tab-labels">
-<label class="config-label-yaml" for="cfg-selection-super-yaml">YAML</label>
-<label class="config-label-r" for="cfg-selection-super-r">R list</label>
-</div>
-<div class="config-tab-panels">
-<div class="config-panel config-panel-yaml">
-<pre><code class="language-yaml">selection:
-  method: super_learner
-  super_methods: [glm, glm_elastic, rf, mars]
-  n_folds: 5
-  inner_folds: 5</code></pre>
-</div>
-<div class="config-panel config-panel-r">
-<pre><code class="language-r">list(
-  selection = list(
-    method = "super_learner",
-    super_methods = c("glm", "glm_elastic", "rf", "mars"),
-    n_folds = 5,
-    inner_folds = 5
+```{r code-drop-cfg-selection-super, echo=FALSE, results='asis', eval=TRUE}
+code_drop(
+  id = "selection-super",
+  title = "Super Learner ensemble",
+  yaml = paste(
+    "selection:",
+    "  method: super_learner",
+    "  super_methods: [glm, glm_elastic, rf, mars]",
+    "  n_folds: 5",
+    "  inner_folds: 5",
+    sep = "\n"
+  ),
+  r = paste(
+    "list(",
+    "  selection = list(",
+    "    method = \"super_learner\",",
+    "    super_methods = c(\"glm\", \"glm_elastic\", \"rf\", \"mars\"),",
+    "    n_folds = 5,",
+    "    inner_folds = 5",
+    "  )",
+    ")",
+    sep = "\n"
   )
-)</code></pre>
-</div>
-</div>
-</div>
-</details>
+)
+```
 
 ::: {.tip data-title="Keep the library small"}
 For the selection learner, a 3-4 method library (e.g.,
@@ -1693,40 +1660,35 @@ In the selection learner, keep `degree = 1` (additive hinges only) unless you
 have many anchors. `degree = 2` is highly unstable with fewer than about 20
 species.
 
-<details class="code-drop">
-<summary>&#128187; Adding MARS to the ensemble</summary>
-<div class="config-tabs">
-<input class="config-tab-yaml" type="radio" name="cfg-selection-mars" id="cfg-selection-mars-yaml" checked>
-<input class="config-tab-r" type="radio" name="cfg-selection-mars" id="cfg-selection-mars-r">
-<div class="config-tab-labels">
-<label class="config-label-yaml" for="cfg-selection-mars-yaml">YAML</label>
-<label class="config-label-r" for="cfg-selection-mars-r">R list</label>
-</div>
-<div class="config-tab-panels">
-<div class="config-panel config-panel-yaml">
-<pre><code class="language-yaml">selection:
-  method: super_learner
-  super_methods: [glm, glm_elastic, mars]
-  method_settings:
-    mars:
-      degree: 1
-      penalty: 3
-      pmethod: backward</code></pre>
-</div>
-<div class="config-panel config-panel-r">
-<pre><code class="language-r">list(
-  selection = list(
-    method = "super_learner",
-    super_methods = c("glm", "glm_elastic", "mars"),
-    method_settings = list(
-      mars = list(degree = 1, penalty = 3, pmethod = "backward")
-    )
+```{r code-drop-cfg-selection-mars, echo=FALSE, results='asis', eval=TRUE}
+code_drop(
+  id = "cfg-selection-mars",
+  title = "Adding MARS to the ensemble",
+  yaml = paste(
+    "selection:",
+    "  method: super_learner",
+    "  super_methods: [glm, glm_elastic, mars]",
+    "  method_settings:",
+    "    mars:",
+    "      degree: 1",
+    "      penalty: 3",
+    "      pmethod: backward",
+    sep = "\n"
+  ),
+  r = paste(
+    "list(",
+    "  selection = list(",
+    "    method = \"super_learner\",",
+    "    super_methods = c(\"glm\", \"glm_elastic\", \"mars\"),",
+    "    method_settings = list(",
+    "      mars = list(degree = 1, penalty = 3, pmethod = \"backward\")",
+    "    )",
+    "  )",
+    ")",
+    sep = "\n"
   )
-)</code></pre>
-</div>
-</div>
-</div>
-</details>
+)
+```
 :::
 
 </details>
@@ -1966,83 +1928,73 @@ method_default_drop("method-lmm-02", "lmm")
 `group_col` in the selection config resolves to a valid species identifier in
 the benchmark table.
 
-<details class="code-drop">
-<summary>&#128187; Linear mixed model</summary>
-<div class="config-tabs">
-<input class="config-tab-yaml" type="radio" name="cfg-selection-lmm" id="cfg-selection-lmm-yaml" checked>
-<input class="config-tab-r" type="radio" name="cfg-selection-lmm" id="cfg-selection-lmm-r">
-<div class="config-tab-labels">
-<label class="config-label-yaml" for="cfg-selection-lmm-yaml">YAML</label>
-<label class="config-label-r" for="cfg-selection-lmm-r">R list</label>
-</div>
-<div class="config-tab-panels">
-<div class="config-panel config-panel-yaml">
-<pre><code class="language-yaml">selection:
-  method: lmm
-  group_col: species
-  method_settings:
-    lmm:
-      fit_method: REML
-      random_intercept: .split_group</code></pre>
-</div>
-<div class="config-panel config-panel-r">
-<pre><code class="language-r">list(
-  selection = list(
-    method = "lmm",
-    group_col = "species",
-    method_settings = list(
-      lmm = list(
-        fit_method = "REML",
-        random_intercept = ".split_group"
-      )
-    )
+```{r code-drop-cfg-selection-lmm, echo=FALSE, results='asis', eval=TRUE}
+code_drop(
+  id = "cfg-selection-lmm",
+  title = "Linear mixed model",
+  yaml = paste(
+    "selection:",
+    "  method: lmm",
+    "  group_col: species",
+    "  method_settings:",
+    "    lmm:",
+    "      fit_method: REML",
+    "      random_intercept: .split_group",
+    sep = "\n"
+  ),
+  r = paste(
+    "list(",
+    "  selection = list(",
+    "    method = \"lmm\",",
+    "    group_col = \"species\",",
+    "    method_settings = list(",
+    "      lmm = list(",
+    "        fit_method = \"REML\",",
+    "        random_intercept = \".split_group\"",
+    "      )",
+    "    )",
+    "  )",
+    ")",
+    sep = "\n"
   )
-)</code></pre>
-</div>
-</div>
-</div>
-</details>
+)
+```
 :::
 
 ::: {.caution data-title="Alternative random-effects grouping"}
 If species-level groups are sparse, coarsen the grouping level and compare ML vs REML fit behavior.
 
-<details class="code-drop">
-<summary>&#128187; Coarser-group LMM alternative</summary>
-<div class="config-tabs">
-<input class="config-tab-yaml" type="radio" name="cfg-selection-lmm-alt" id="cfg-selection-lmm-alt-yaml" checked>
-<input class="config-tab-r" type="radio" name="cfg-selection-lmm-alt" id="cfg-selection-lmm-alt-r">
-<div class="config-tab-labels">
-<label class="config-label-yaml" for="cfg-selection-lmm-alt-yaml">YAML</label>
-<label class="config-label-r" for="cfg-selection-lmm-alt-r">R list</label>
-</div>
-<div class="config-tab-panels">
-<div class="config-panel config-panel-yaml">
-<pre><code class="language-yaml">selection:
-  method: lmm
-  group_col: genus
-  method_settings:
-    lmm:
-      fit_method: ML
-      random_intercept: .split_group</code></pre>
-</div>
-<div class="config-panel config-panel-r">
-<pre><code class="language-r">list(
-  selection = list(
-    method = "lmm",
-    group_col = "genus",
-    method_settings = list(
-      lmm = list(
-        fit_method = "ML",
-        random_intercept = ".split_group"
-      )
-    )
+```{r code-drop-cfg-selection-lmm-alt, echo=FALSE, results='asis', eval=TRUE}
+code_drop(
+  id = "cfg-selection-lmm-alt",
+  title = "Coarser-group LMM alternative",
+  yaml = paste(
+    "selection:",
+    "  method: lmm",
+    "  group_col: genus",
+    "  method_settings:",
+    "    lmm:",
+    "      fit_method: ML",
+    "      random_intercept: .split_group",
+    sep = "\n"
+  ),
+  r = paste(
+    "list(",
+    "  selection = list(",
+    "    method = \"lmm\",",
+    "    group_col = \"genus\",",
+    "    method_settings = list(",
+    "      lmm = list(",
+    "        fit_method = \"ML\",",
+    "        random_intercept = \".split_group\"",
+    "      )",
+    "    )",
+    "  )",
+    ")",
+    sep = "\n"
   )
-)</code></pre>
-</div>
-</div>
-</div>
-</details>
+)
+```
 :::
 
 </details>

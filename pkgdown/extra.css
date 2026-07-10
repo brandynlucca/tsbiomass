@@ -311,10 +311,15 @@ main section.experiment > .config-tabs {
   padding-right: 0;
 }
 
-.config-tabs > input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
+.config-tabs > input[type="radio"],
+.config-tabs input.config-tab-yaml,
+.config-tabs input.config-tab-r {
+  position: absolute !important;
+  left: -9999px !important;
+  width: 1px !important;
+  height: 1px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 .config-tab-labels {
@@ -323,6 +328,11 @@ main section.experiment > .config-tabs {
   margin: 0;
   border-bottom: 1px solid #d1d5da;
   background: #f6f8fa;
+}
+
+.config-tab-labels > p {
+  display: flex;
+  margin: 0;
 }
 
 .config-tab-labels label {
