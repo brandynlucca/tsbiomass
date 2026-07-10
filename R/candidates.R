@@ -1941,7 +1941,7 @@ S7::method(show_generic, Candidates) <- function(object) {
 #' plot(candidates, type = "candidate_review", view = "similarity_map")
 #' }
 #' @usage
-#' graphics::plot(
+#' \method{plot}{Candidates}(
 #'   x,
 #'   y = NULL,
 #'   type = c(
@@ -2479,6 +2479,7 @@ NULL
 #'
 #' @keywords internal
 #' @noRd
+plot.Candidates <- .plot_candidates
 S7::method(plot_generic, Candidates) <- .plot_candidates
 
 

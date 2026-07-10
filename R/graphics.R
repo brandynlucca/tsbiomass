@@ -2182,7 +2182,7 @@ conjurer_heatmap_plot <- function(x,
 #' plot(conjurer, metric = "switch_rate_vs_baseline")
 #' }
 #' @usage
-#' graphics::plot(
+#' \method{plot}{Conjurer}(
 #'   x,
 #'   y = NULL,
 #'   metric = "mean_abs_db_shift",
@@ -2235,6 +2235,7 @@ NULL
 #'
 #' @keywords internal
 #' @noRd
+plot.Conjurer <- .plot_conjurer
 S7::method(plot_generic, Conjurer) <- .plot_conjurer
 
 #' Summarize species-policy benchmark performance

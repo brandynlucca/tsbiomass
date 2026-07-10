@@ -4,7 +4,7 @@
 \alias{plot.Conjurer}
 \title{Plot \code{Conjurer} missingness uncertainty summaries}
 \usage{
-graphics::plot(
+\method{plot}{Conjurer}(
   x,
   y = NULL,
   metric = "mean_abs_db_shift",

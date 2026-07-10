@@ -448,7 +448,7 @@ S7::method(show_generic, PolicySimulator) <- function(object) {
 #' plot(simulator, type = "multiplier_drift")
 #' }
 #' @usage
-#' graphics::plot(
+#' \method{plot}{PolicySimulator}(
 #'   x,
 #'   y = NULL,
 #'   type = c("sensitivity_overview", "policy_stability", "multiplier_drift"),
@@ -556,4 +556,5 @@ NULL
 #'
 #' @keywords internal
 #' @noRd
+plot.PolicySimulator <- .plot_policy_simulator
 S7::method(plot_generic, PolicySimulator) <- .plot_policy_simulator
