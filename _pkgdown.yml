@@ -27,6 +27,10 @@ navbar:
       menu:
         - text: Configuration Reference
           href: articles/configuration.html
+        - text: Alchemist Distance Learning
+          href: articles/alchemist-distance-learning.html
+        - text: Empirical Similarity Tuning
+          href: articles/empirical-similarity-tuning.html
         - text: Super Learners
           href: articles/super-learners.html
     reference:
