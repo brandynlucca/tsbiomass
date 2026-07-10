@@ -7,7 +7,8 @@ report tables can be visualized directly from the scorecard object.
 ## Usage
 
 ``` r
-graphics::plot(
+# S3 method for class 'Scorecard'
+plot(
   x,
   y = NULL,
   type = c(

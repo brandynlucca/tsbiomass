@@ -9,7 +9,8 @@ rebuilding diagnostic tables in user code.
 ## Usage
 
 ``` r
-graphics::plot(
+# S3 method for class 'PolicyLearner'
+plot(
   x,
   y = NULL,
   type = c(

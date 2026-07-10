@@ -7,7 +7,8 @@ can be plotted directly with `plot(candidates, ...)`.
 ## Usage
 
 ``` r
-graphics::plot(
+# S3 method for class 'Candidates'
+plot(
   x,
   y = NULL,
   type = c(

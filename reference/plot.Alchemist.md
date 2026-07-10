@@ -7,7 +7,8 @@ types behave consistently at the REPL.
 ## Usage
 
 ``` r
-graphics::plot(
+# S3 method for class 'Alchemist'
+plot(
   x,
   y = NULL,
   type = c("ordination", "trait_importance", "admissibility"),
