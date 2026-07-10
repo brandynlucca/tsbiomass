@@ -160,6 +160,9 @@ policy_selector_config_value <- function(cfg,
   if (!is.list(cfg)) {
     return(NULL)
   }
+  if (identical(key, "progress")) {
+    return(cfg$progress %||% (cfg$execution %||% list())$progress %||% NULL)
+  }
   if (!is.null(cfg[[key]])) {
     return(cfg[[key]])
   }
@@ -685,8 +688,8 @@ S7::method(benchmark, PolicySelector) <- function(object,
     (((cfg$policies) %||% list())$policy_params %||% list()),
     merge_config_sections(
       list(
-        equation_branch_filters = policy_selector_config_value(
-          cfg, "equation_branch_filters",
+        slope_class = policy_selector_config_value(
+          cfg, "slope_class",
           sections = "policies"
         )
       ),
@@ -1004,8 +1007,8 @@ S7::method(select_policies, PolicySelector) <- function(object,
     (((cfg$policies) %||% list())$policy_params %||% list()),
     merge_config_sections(
       list(
-        equation_branch_filters = policy_selector_config_value(
-          cfg, "equation_branch_filters",
+        slope_class = policy_selector_config_value(
+          cfg, "slope_class",
           sections = "policies"
         )
       ),
@@ -1089,32 +1092,32 @@ S7::method(select_policies, PolicySelector) <- function(object,
     if ((is.null(active_policies) || length(active_policies) == 0) &&
       length(object@benchmark) > 0) {
       active_policies <- infer_policy_bases((object@benchmark)$policy_perf %||% tibble::tibble())
-      if (is.null(policy_params$equation_branch_filters) &&
+      if (is.null(policy_params$slope_class) &&
         nrow((object@benchmark)$policy_perf %||% tibble::tibble()) > 0) {
-        policy_params$equation_branch_filters <- infer_equation_branch_filters(
+        policy_params$slope_class <- infer_equation_branch_filters(
           (object@benchmark)$policy_perf %||% tibble::tibble()
         )
       }
     }
     if (is.null(active_policies) || length(active_policies) == 0) {
       active_policies <- infer_policy_bases(select_tbl)
-      if (is.null(policy_params$equation_branch_filters) && nrow(select_tbl) > 0) {
-        policy_params$equation_branch_filters <- infer_equation_branch_filters(select_tbl)
+      if (is.null(policy_params$slope_class) && nrow(select_tbl) > 0) {
+        policy_params$slope_class <- infer_equation_branch_filters(select_tbl)
       }
     }
   } else {
     if (is.null(active_policies) || length(active_policies) == 0) {
       active_policies <- infer_policy_bases(select_tbl)
-      if (is.null(policy_params$equation_branch_filters) && nrow(select_tbl) > 0) {
-        policy_params$equation_branch_filters <- infer_equation_branch_filters(select_tbl)
+      if (is.null(policy_params$slope_class) && nrow(select_tbl) > 0) {
+        policy_params$slope_class <- infer_equation_branch_filters(select_tbl)
       }
     }
     if ((is.null(active_policies) || length(active_policies) == 0) &&
       length(object@benchmark) > 0) {
       active_policies <- infer_policy_bases((object@benchmark)$policy_perf %||% tibble::tibble())
-      if (is.null(policy_params$equation_branch_filters) &&
+      if (is.null(policy_params$slope_class) &&
         nrow((object@benchmark)$policy_perf %||% tibble::tibble()) > 0) {
-        policy_params$equation_branch_filters <- infer_equation_branch_filters(
+        policy_params$slope_class <- infer_equation_branch_filters(
           (object@benchmark)$policy_perf %||% tibble::tibble()
         )
       }

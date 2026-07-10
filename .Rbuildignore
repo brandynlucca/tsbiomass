@@ -35,6 +35,7 @@
 \.log$
 \.rds$
 ^temp_.*$
+^tmp_.*$
 ^\.github$
 \.r-lib$
 \.o$

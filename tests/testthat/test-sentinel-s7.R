@@ -1458,7 +1458,8 @@ test_that("Sentinel writes isolated fold logs beneath the configured cache", {
     workflow_fn = workflow_fn,
     config = list(
       paths = list(cache_dir = configured_cache),
-      sentinel = list(progress = FALSE, logging = TRUE)
+      execution = list(progress = FALSE),
+      sentinel = list(logging = TRUE)
     ),
     split_mode = "species_holdout",
     output_dir = output_dir

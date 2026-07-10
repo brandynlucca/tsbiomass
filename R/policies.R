@@ -3073,7 +3073,7 @@ build_policy_execution_plan <- function(policies = NULL,
   }
 
   default_equation_branch_filters <- normalize_policy_equation_branch_filters(
-    policy_params$equation_branch_filters %||% NULL
+    policy_params$slope_class %||% NULL
   )
   branch_defs <- shared_registry$policy_branches %||% list()
   branch_display_tags <- stats::setNames(
@@ -3089,8 +3089,7 @@ build_policy_execution_plan <- function(policies = NULL,
     policy_def <- policy_defs[[policy_name]]
     params <- policy_parameters(policy_name, policy_def, policy_params = policy_params)
     equation_branch_filters_now <- normalize_policy_equation_branch_filters(
-      params$equation_branch_filters %||%
-        params$equation_branch_filters %||%
+      params$slope_class %||%
         default_equation_branch_filters
     )
     canonical_name <- as.character(policy_def$coded_name %||% policy_name)[[1]]
@@ -4815,15 +4814,14 @@ run_policy_benchmark <- function(candidate_models,
     ),
     default_anchor_config(config)
   )
-  config_equation_branch_filters <- NULL
+  config_slope_class <- NULL
   config_policy_params <- list()
   if (is_s7_instance(config, "Configurer")) {
-    config_equation_branch_filters <- (((config@data)$policies) %||% list())$equation_branch_filters %||% NULL
+    config_slope_class <- (((config@data)$policies) %||% list())$slope_class %||% NULL
     config_policy_params <- (((config@data)$policies) %||% list())$policy_params %||% list()
   } else if (is.list(config)) {
-    config_equation_branch_filters <- config$equation_branch_filters %||%
-      config$policies$equation_branch_filters %||%
-      NULL
+    config_slope_class <- config$slope_class %||%
+      config$policies$slope_class %||% NULL
     config_policy_params <- config$policy_params %||%
       config$policies$policy_params %||%
       list()
@@ -4831,7 +4829,7 @@ run_policy_benchmark <- function(candidate_models,
   policy_params_ <- merge_config_sections(
     config_policy_params,
     merge_config_sections(
-      list(equation_branch_filters = config_equation_branch_filters),
+      list(slope_class = config_slope_class),
       policy_params
     )
   )
@@ -4976,7 +4974,7 @@ run_policy_benchmark <- function(candidate_models,
     invisible(NULL)
   }
   n_equation_branch_filters <- length(normalize_policy_equation_branch_filters(
-    policy_params_$equation_branch_filters %||% NULL
+    policy_params_$slope_class %||% NULL
   ))
   if (!is.finite(n_equation_branch_filters) || n_equation_branch_filters < 1L) {
     n_equation_branch_filters <- 1L

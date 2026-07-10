@@ -13,7 +13,7 @@ create_configuration_template(
 )
 }
 \arguments{
-\item{input_file}{Input workbook path.}
+\item{input_file}{Placeholder input workbook path. The workbook is not read.}
 
 \item{output_root}{Output root directory.}
 

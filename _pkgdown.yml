@@ -64,6 +64,8 @@ articles:
     navbar: ~
     contents:
       - configuration
+      - alchemist-distance-learning
+      - empirical-similarity-tuning
       - super-learners
 
 reference:

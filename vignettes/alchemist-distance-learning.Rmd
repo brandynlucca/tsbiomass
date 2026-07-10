@@ -1,0 +1,72 @@
+---
+title: "Alchemist Distance Learning"
+description: >
+  Configuration and parameterization notes for the supervised Alchemist distance
+  path.
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Alchemist Distance Learning}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", eval = FALSE)
+```
+
+Alchemist replaces empirical Gower-distance tuning with a supervised distance
+learner. It starts from a prepared `Candidates` object, builds pairwise trait
+features between candidate models, and trains a learner to predict transfer
+error. The learned distance matrix is then used by ordination, admissibility
+review, benchmarking, and policy recommendation.
+
+Use this path when you have enough anchor diversity to learn how trait
+differences map to acoustic-transfer error. When anchors are sparse, the
+empirical similarity path is usually easier to diagnose because its parameters
+remain direct weights and kernel settings.
+
+```{r}
+cfg <- create_configuration_template()
+
+cfg$alchemist <- list(
+  taxonomic_distance = TRUE,
+  feature_type = "difference",
+  distill_workers = 4,
+  learner = list(
+    methods = c("glm_elastic", "mars", "rf"),
+    inner_folds = 3,
+    workers = 4,
+    seed = 20260702,
+    outcome_transform = "log1p",
+    lambda_rule = "lambda.1se"
+  )
+)
+
+config <- build_configurer(cfg)
+candidates <- build_candidates(config)
+alchemist <- as_alchemist(candidates, config = config)
+alchemist <- forge_distances(alchemist)
+```
+
+The `alchemist` section owns this path. `similarity` still matters because it
+defines the candidate traits and coherence features available to the learner,
+but empirical tuning controls in `tuning` do not control Alchemist fitting.
+
+Key parameterization choices:
+
+- `taxonomic_distance`: collapses family/genus/species distance into one
+  continuous taxonomic feature when possible.
+- `feature_type`: choose `difference` when signed standardized differences are
+  meaningful; choose `gower` for bounded unsigned distances.
+- `learner.methods`: use a small, defensible learner library before expanding
+  to heavier models.
+- `learner.inner_folds`: keep folds low when pair tables are small; larger
+  values are useful only when anchor support is broad.
+- `distill_workers`: controls trait-dropout sensitivity parallelism, not the
+  main learner fit.
+
+Alchemist diagnostics should focus on whether the learned distance is stable:
+trait-dropout rankings, fold-level errors, and whether nearest learned donors
+are scientifically plausible. If the learner overfits, simplify `methods`,
+raise regularization through method-specific settings, or switch back to the
+empirical similarity path until more anchor support exists.

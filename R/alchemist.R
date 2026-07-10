@@ -127,7 +127,7 @@ alchemist_config_from_config <- function(source) {
     ),
     distill_workers = as.integer(alch$distill_workers %||% 1L),
     registry_path = alch$registry_path %||% cfg$registry_path %||% NULL,
-    progress = alch$progress %||% FALSE,
+    progress = (cfg$execution %||% list())$progress %||% FALSE,
     config_data = cfg
   )
 }

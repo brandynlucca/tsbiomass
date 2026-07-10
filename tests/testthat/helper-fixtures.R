@@ -27,24 +27,24 @@ minimal_config_data <- function() {
       output_root = "outputs",
       cache_folder = "cache",
       support_folder = "supplemental",
-      area_file = "fao.csv",
       log_path = "logs/run.log"
     ),
     execution = list(
       strict_pdf = FALSE,
       run_multiplier = FALSE,
-      write_log = FALSE
+      write_log = FALSE,
+      progress = FALSE
     ),
     tuning = list(
       species_model_limit = 2L,
       resamples = 3L,
-      equal_start_weights = TRUE
+      equal_start_weights = TRUE,
+      alpha_range = list(from = 0.1, to = 0.9),
+      kernel_scale_range = list(from = 1, to = 8)
     ),
     similarity = list(
       alpha = 0.8,
       kernel_scale = 4,
-      alpha_range = list(from = 0.1, to = 0.9),
-      kernel_scale_range = list(from = 1, to = 8),
       core_weight_cutoff = 0.8,
       conformal_alpha = 0.10,
       species_traits = list(genus = 1, family = 0.5),
@@ -85,7 +85,7 @@ minimal_config_data <- function() {
     ),
     policies = list(
       active = c("closest_within_species", "weighted_mean_within_genus"),
-      equation_branch_filters = c("all", "fixed20_only")
+      slope_class = c("all", "fixed20_only")
     ),
     selection = list(
       method = "glm",

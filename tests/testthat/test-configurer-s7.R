@@ -27,7 +27,7 @@ test_that("Configurer validates list and YAML inputs", {
   expect_true(is.list(yaml_from_ingest))
   expect_equal(yaml_from_ingest$similarity$coherence$frequency$mode, "overlap")
   expect_equal(yaml_from_ingest$policy$length_overlap_weight, 2)
-  expect_equal(yaml_from_ingest$policies$equation_branch_filters, c("all", "fixed20_only"))
+  expect_equal(yaml_from_ingest$policies$slope_class, c("all", "fixed20_only"))
   expect_equal(unname(cfg_from_yaml@data$policy$study_traits[["fao_area"]]), 1)
   expect_equal(cfg_from_yaml@data$policies$active, cfg@data$policies$active)
   expect_equal(names(cfg_from_yaml@data$policy$species_traits), c("genus", "family"))
@@ -195,7 +195,7 @@ test_that("policy constructor traits remain independent of similarity traits", {
       genus = list(joint = list("ocean_basin")),
       ocean_basin = NULL
     ),
-    branch = "all"
+    slope_class = "all"
   )
 
   normalized <- tsbiomass:::normalize_active_policy_names(config_now)
@@ -254,16 +254,16 @@ test_that("selection method_settings are validated at ingestion", {
 test_that("Sentinel logging controls are validated at ingestion", {
   config_now <- minimal_config_data()
   config_now$sentinel <- list(
-    progress = TRUE,
     logging = TRUE,
     cache_dir = "sentinel-cache",
     log_file = "sentinel.log"
   )
+  config_now$execution$progress <- TRUE
   yaml_path <- tempfile(fileext = ".yaml")
   yaml::write_yaml(config_now, yaml_path)
 
   cfg <- read_configuration(yaml_path, base_dir = tempdir())
-  expect_true(cfg$sentinel$progress)
+  expect_true(cfg$execution$progress)
   expect_true(cfg$sentinel$logging)
   expect_equal(cfg$sentinel$cache_dir, "sentinel-cache")
 
@@ -302,6 +302,28 @@ test_that("Alchemist rf controls are validated at ingestion", {
   expect_error(
     read_configuration(yaml_path, base_dir = tempdir()),
     "method_settings.rf.max_depth"
+  )
+})
+
+test_that("stale configuration field names are rejected", {
+  bad_policy_config <- minimal_config_data()
+  bad_policy_config$policies$branch <- "all"
+  bad_policy_config$policies$slope_class <- NULL
+  yaml_path <- tempfile(fileext = ".yaml")
+  yaml::write_yaml(bad_policy_config, yaml_path)
+
+  expect_error(
+    read_configuration(yaml_path, base_dir = tempdir()),
+    "Use 'slope_class'"
+  )
+
+  bad_similarity_config <- minimal_config_data()
+  bad_similarity_config$similarity$alpha_range <- list(from = 0.1, to = 0.9)
+  yaml::write_yaml(bad_similarity_config, yaml_path)
+
+  expect_error(
+    read_configuration(yaml_path, base_dir = tempdir()),
+    "top-level 'tuning'"
   )
 })
 

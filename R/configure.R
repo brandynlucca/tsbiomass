@@ -123,6 +123,10 @@ resolve_config_value <- function(config,
     return(NULL)
   }
 
+  if (identical(key, "progress")) {
+    return(config$progress %||% (config$execution %||% list())$progress %||% NULL)
+  }
+
   if (!is.null(config[[key]])) {
     return(config[[key]])
   }
@@ -289,13 +293,6 @@ normalize_explicit_config <- function(config,
       base_dir = base_dir
     )
   }
-  if (!is.null(config$paths$fao_polygon_csv)) {
-    config$paths$fao_polygon_csv <- path_absolute(
-      config$paths$fao_polygon_csv,
-      base_dir = base_dir
-    )
-  }
-
   # Materialize the active config fields used by the current execution layer.
   config$alpha <- config$policy$alpha
   config$kernel_scale <- config$similarity$kernel_scale %||% NULL
@@ -538,11 +535,11 @@ configurer_console_summary <- function(x) {
 
   active_policies <- as.character(unlist((data_list$policies %||% list())$active %||% character(0), use.names = FALSE))
   active_policies <- active_policies[!is.na(active_policies) & nzchar(active_policies)]
-  equation_branch_filters <- as.character(unlist(
-    ((data_list$policies %||% list())$equation_branch_filters %||% (data_list$policies %||% list())$equation_branch_filters %||% character(0)),
+  slope_classes <- as.character(unlist(
+    ((data_list$policies %||% list())$slope_class %||% character(0)),
     use.names = FALSE
   ))
-  equation_branch_filters <- equation_branch_filters[!is.na(equation_branch_filters) & nzchar(equation_branch_filters)]
+  slope_classes <- slope_classes[!is.na(slope_classes) & nzchar(slope_classes)]
 
   enabled_sections <- names(data_list)[vapply(data_list, function(value) {
     is.list(value) && length(value) > 0
@@ -558,7 +555,7 @@ configurer_console_summary <- function(x) {
   cat("  species_traits: ", preview_values(species_traits), "\n", sep = "")
   cat("  study_traits: ", preview_values(study_traits), "\n", sep = "")
   cat("  active_policies: ", preview_values(active_policies), "\n", sep = "")
-  cat("  equation_branch_filters: ", preview_values(equation_branch_filters), "\n", sep = "")
+  cat("  slope_class: ", preview_values(slope_classes), "\n", sep = "")
   cat("  selection_method: ", selection_section$method %||% "none", "\n", sep = "")
   cat("  uncertainty_method: ", uncertainty_section$method %||% "none", "\n", sep = "")
   cat("  alpha: ", policy_section$alpha %||% similarity_section$alpha %||% NA_real_, "\n", sep = "")
@@ -1246,11 +1243,7 @@ normalize_active_policy_names <- function(config,
   registry <- read_policy_registry(policy_path = policy_path)
   policy_defs <- registry$policies %||% list()
 
-  branch_field <- policies_section$branch %||%
-    policies_section$branches %||%
-    policies_section$equation_branch_filters %||%
-    policies_section$equation_branch_filters %||%
-    NULL
+  slope_class_field <- policies_section$slope_class %||% NULL
   metric_field <- policies_section$metric %||% policies_section$metrics %||% NULL
   group_field <- policies_section$group %||% policies_section$groups %||% NULL
 
@@ -1354,8 +1347,8 @@ normalize_active_policy_names <- function(config,
     active_values <- stringr::str_squish(as.character(unlist(policies_section$active %||% character(0), use.names = FALSE)))
     active_values <- active_values[!is.na(active_values) & nzchar(active_values)]
     policies_section$active <- active_values
-    if (!is.null(branch_field)) {
-      policies_section$equation_branch_filters <- canonicalize_branch(branch_field)
+    if (!is.null(slope_class_field)) {
+      policies_section$slope_class <- canonicalize_branch(slope_class_field)
     }
     config$policies <- policies_section
     return(config)
@@ -1377,7 +1370,7 @@ normalize_active_policy_names <- function(config,
   package_default_metrics <- c("closest", "weighted_mean", "unweighted_mean")
   package_default_branches <- "all"
   global_metrics <- canonicalize_metric(metric_field)
-  global_branches <- if (is.null(branch_field)) package_default_branches else canonicalize_branch(branch_field)
+  global_branches <- if (is.null(slope_class_field)) package_default_branches else canonicalize_branch(slope_class_field)
 
   if (length(global_metrics) == 0) {
     global_metrics <- package_default_metrics
@@ -1402,7 +1395,7 @@ normalize_active_policy_names <- function(config,
         include_base <- TRUE
       } else if (is.list(group_value)) {
         metrics_now <- canonicalize_metric(group_value$metric %||% group_value$metrics %||% global_metrics)
-        branches_now <- canonicalize_branch(group_value$branch %||% group_value$branches %||% global_branches)
+        branches_now <- canonicalize_branch(group_value$slope_class %||% global_branches)
         joint_variants <- group_value$joint %||% group_value$join %||% group_value$joints %||% NULL
         include_base <- if (is.null(joint_variants)) {
           TRUE
@@ -1639,7 +1632,7 @@ normalize_active_policy_names <- function(config,
     }
     selected_policies <- c(selected_policies, matches$policy)
     for (policy_name in matches$policy) {
-      policy_param_overrides[[policy_name]] <- list(equation_branch_filters = spec_now$branches)
+      policy_param_overrides[[policy_name]] <- list(slope_class = spec_now$branches)
     }
   }
 
@@ -1650,12 +1643,12 @@ normalize_active_policy_names <- function(config,
 
   policies_section$active <- selected_policies
   policies_section$policy_params <- policy_param_overrides
-  policies_section$equation_branch_filters <- unique(unlist(
-    lapply(policy_param_overrides, function(x) x$equation_branch_filters %||% character(0)),
+  policies_section$slope_class <- unique(unlist(
+    lapply(policy_param_overrides, function(x) x$slope_class %||% character(0)),
     use.names = FALSE
   ))
-  if (length(policies_section$equation_branch_filters) == 0) {
-    policies_section$equation_branch_filters <- global_branches
+  if (length(policies_section$slope_class) == 0) {
+    policies_section$slope_class <- global_branches
   }
   config$policies <- policies_section
   config
@@ -1746,24 +1739,14 @@ replace_explicit_trait_maps <- function(merged_cfg,
   if ("metric" %in% names(input_policies)) {
     merged_cfg$policies$metric <- input_policies$metric
   }
-  if ("branch" %in% names(input_policies)) {
-    merged_cfg$policies$branch <- input_policies$branch
-  }
-  if ("branches" %in% names(input_policies)) {
-    merged_cfg$policies$branches <- input_policies$branches
-  }
-  if ("equation_branch_filters" %in% names(input_policies)) {
-    merged_cfg$policies$equation_branch_filters <- input_policies$equation_branch_filters
-  }
-  if ("equation_branch_filters" %in% names(input_policies)) {
-    merged_cfg$policies$equation_branch_filters <- input_policies$equation_branch_filters
+  if ("slope_class" %in% names(input_policies)) {
+    merged_cfg$policies$slope_class <- input_policies$slope_class
   }
   if ("active" %in% names(input_policies)) {
-    if (!any(c("group", "metric", "branch", "branches") %in% names(input_policies))) {
+    if (!any(c("group", "metric", "slope_class") %in% names(input_policies))) {
       merged_cfg$policies$group <- NULL
       merged_cfg$policies$metric <- NULL
-      merged_cfg$policies$branch <- NULL
-      merged_cfg$policies$branches <- NULL
+      merged_cfg$policies$slope_class <- NULL
     }
     merged_cfg$policies$active <- input_policies$active
   }
@@ -1776,7 +1759,7 @@ replace_explicit_trait_maps <- function(merged_cfg,
 #' Builds a pipeline-agnostic baseline configuration with neutral path
 #' placeholders and registry-derived default trait and policy selections.
 #'
-#' @param input_file Input workbook path.
+#' @param input_file Placeholder input workbook path.
 #' @param output_root Output root directory.
 #' @param cache_folder Cache folder.
 #' @param registry_path Optional trait-registry path used to derive default
@@ -1792,7 +1775,8 @@ create_configuration_template <- function(input_file = "input.xlsx",
                                           registry_path = NULL,
                                           policy_path = NULL) {
   # Derive the minimal required trait and policy defaults from the registries
-  # so the fallback config stays pipeline-agnostic.
+  # so the fallback config stays pipeline-agnostic. The input path is only a
+  # placeholder in the returned list; no workbook is read here.
   species_traits <- trait_names(scope = "species", registry_path = registry_path)
   study_traits <- trait_names(scope = "study", registry_path = registry_path)
   if (length(species_traits) == 0) {
@@ -1813,13 +1797,21 @@ create_configuration_template <- function(input_file = "input.xlsx",
     execution = list(
       strict_length_pdf = FALSE,
       run_multiplier_model = FALSE,
-      write_log = FALSE
+      write_log = FALSE,
+      progress = FALSE
     ),
     tuning = list(
       max_models_per_species = 2L,
       n_resamples = 8L,
       n_cores = 1L,
       seed = NULL,
+      alpha_range = list(from = 0.1, to = 0.9),
+      kernel_scale_range = list(from = 1, to = 8),
+      coherence = list(
+        length = list(range = list(from = 0.5, to = 6)),
+        depth = list(range = list(from = 0.5, to = 6)),
+        frequency = list(range = list(from = 0.5, to = 6))
+      ),
       grid_refinement_levels = 1L,
       response_surface_top_n = 20L,
       rmse_tolerance = 0.01,
@@ -1830,8 +1822,7 @@ create_configuration_template <- function(input_file = "input.xlsx",
         coherence_scale = 0.05,
         stability = 0.02
       ),
-      equal_start_weights = FALSE,
-      progress = FALSE
+      equal_start_weights = FALSE
     ),
     similarity = list(
       alpha = 0.8,
@@ -1839,24 +1830,20 @@ create_configuration_template <- function(input_file = "input.xlsx",
       species_traits = stats::setNames(list(1), species_traits[[1]]),
       study_traits = stats::setNames(list(1), study_traits[[1]]),
       coherence = list(
-        length = list(mode = "overlap", weight = 2, range = list(from = 0.5, to = 6)),
-        depth = list(mode = "overlap", weight = 3, range = list(from = 0.5, to = 6)),
-        frequency = list(mode = "overlap", weight = 2, range = list(from = 0.5, to = 6), gap = 60)
+        length = list(mode = "overlap", weight = 2),
+        depth = list(mode = "overlap", weight = 3),
+        frequency = list(mode = "overlap", weight = 2, gap = 60)
       ),
-      conformal_alpha = 0.1,
-      alpha_range = list(from = 0.1, to = 0.9),
-      kernel_scale_range = list(from = 1, to = 8),
-      progress = FALSE
+      conformal_alpha = 0.1
     ),
     ordination = list(
       include_loadings = FALSE,
-      include_centroids = FALSE,
-      progress = FALSE
+      include_centroids = FALSE
     ),
     policies = list(
       group = list("species"),
       metric = list("closest"),
-      equation_branch_filters = list("all")
+      slope_class = list("all")
     ),
     cache = list(
       folder = cache_folder,
@@ -1866,8 +1853,7 @@ create_configuration_template <- function(input_file = "input.xlsx",
     benchmark = list(
       workers = 1L,
       engine = "cpp",
-      include_ts_error = FALSE,
-      progress = FALSE
+      include_ts_error = FALSE
     ),
     admissibility = list(
       species_traits = character(0),
@@ -1877,11 +1863,9 @@ create_configuration_template <- function(input_file = "input.xlsx",
         depth = list(mode = "overlap", min = 0.25),
         frequency = list(mode = "none", gap = 60)
       ),
-      key_metadata_max = 0.25,
-      progress = FALSE
+      key_metadata_max = 0.25
     ),
     uncertainty = list(
-      progress = FALSE,
       # Uncertainty-stage learner (self-contained; no shared metalearner section).
       method = "glm",
       super_methods = NULL,
@@ -1925,11 +1909,10 @@ create_configuration_template <- function(input_file = "input.xlsx",
       lambda_rule = "lambda.1se",
       loss = "squared_error",
       max_selection_tolerance = 1e-12,
-      progress = FALSE
+      refresh = FALSE
     ),
     simulation = list(
-      workers = 1L,
-      progress = FALSE
+      workers = 1L
     )
   )
 }
@@ -2041,13 +2024,6 @@ normalize_config <- function(config,
       base_dir = base_dir
     )
   }
-  if (!is.null(normalized_config$paths$fao_polygon_csv)) {
-    normalized_config$paths$fao_polygon_csv <- path_absolute(
-      normalized_config$paths$fao_polygon_csv,
-      base_dir = base_dir
-    )
-  }
-
   # Materialize the flat top-level fields that admissibility and nested
   # validation still read directly from the config object.
   normalized_config$alpha <- normalized_config$policy$alpha
@@ -2305,7 +2281,7 @@ validate_execution_flags <- function(execution_section,
                                      paths_section) {
   # Require the known execution booleans explicitly so any misshapen YAML values
   # fail before the script wrapper interprets them.
-  flag_fields <- c("strict_length_pdf", "run_multiplier_model", "write_log")
+  flag_fields <- c("strict_length_pdf", "run_multiplier_model", "write_log", "progress")
   for (field_name in flag_fields) {
     field_value <- execution_section[[field_name]]
     if (!is.logical(field_value) || length(field_value) != 1 || is.na(field_value)) {
@@ -2388,11 +2364,37 @@ validate_tuning_section <- function(tuning_section) {
       is.na(tuning_section$equal_start_weights))) {
     stop("Tuning field 'equal_start_weights' must be TRUE or FALSE.", call. = FALSE)
   }
-  if (!is.null(tuning_section$progress) &&
-    (!is.logical(tuning_section$progress) ||
-      length(tuning_section$progress) != 1 ||
-      is.na(tuning_section$progress))) {
-    stop("Tuning field 'progress' must be TRUE or FALSE.", call. = FALSE)
+
+  validate_tuning_range <- function(x, field_name, alpha_like = FALSE) {
+    if (is.null(x)) {
+      return(invisible(NULL))
+    }
+    values <- if (is.list(x) && all(c("from", "to") %in% names(x))) {
+      c(x$from, x$to)
+    } else {
+      unlist(x, use.names = FALSE)
+    }
+    values <- suppressWarnings(as.numeric(values))
+    values <- values[is.finite(values)]
+    if (length(values) < 2L) {
+      stop(sprintf("Tuning field '%s' must contain at least two finite numeric values or a from/to range.", field_name), call. = FALSE)
+    }
+    if (isTRUE(alpha_like)) {
+      if (any(values <= 0 | values >= 1)) {
+        stop(sprintf("Tuning field '%s' must stay strictly between 0 and 1.", field_name), call. = FALSE)
+      }
+    } else if (any(values < 0)) {
+      stop(sprintf("Tuning field '%s' must be nonnegative.", field_name), call. = FALSE)
+    }
+    invisible(NULL)
+  }
+  validate_tuning_range(tuning_section$alpha_range, "alpha_range", alpha_like = TRUE)
+  validate_tuning_range(tuning_section$kernel_scale_range, "kernel_scale_range")
+  tuning_coherence <- tuning_section$coherence %||% list()
+  for (field_name in c("length", "depth", "frequency")) {
+    field_cfg <- tuning_coherence[[field_name]] %||% list()
+    validate_tuning_range(field_cfg$range, sprintf("coherence.%s.range", field_name))
+    validate_tuning_range(field_cfg$grid, sprintf("coherence.%s.grid", field_name))
   }
 }
 
@@ -2495,8 +2497,10 @@ validate_similarity_section <- function(similarity_section,
 
   validate_weight_map(similarity_section$species_traits, scope = "species", registry_path = registry_path)
   validate_weight_map(similarity_section$study_traits, scope = "study", registry_path = registry_path)
-  validate_search_range(similarity_section$alpha_range %||% similarity_section$alpha_grid, "alpha_range", alpha_like = TRUE)
-  validate_search_range(similarity_section$kernel_scale_range %||% similarity_section$kernel_scale_grid, "kernel_scale_range", alpha_like = FALSE)
+  if (!is.null(similarity_section$alpha_range) || !is.null(similarity_section$alpha_grid) ||
+    !is.null(similarity_section$kernel_scale_range) || !is.null(similarity_section$kernel_scale_grid)) {
+    stop("Similarity tuning ranges belong under the top-level 'tuning' section.", call. = FALSE)
+  }
 
   coherence <- similarity_section$coherence %||% list()
   for (field_name in c("length", "depth", "frequency")) {
@@ -2521,13 +2525,9 @@ validate_similarity_section <- function(similarity_section,
         stop(sprintf("Similarity coherence field '%s.%s' must be one finite numeric value.", field_name, numeric_name), call. = FALSE)
       }
     }
-    validate_search_range(field_cfg$range %||% field_cfg$weight_range %||% NULL, sprintf("coherence.%s.range", field_name), alpha_like = FALSE)
-    validate_search_range(field_cfg$grid %||% field_cfg$weight_grid %||% NULL, sprintf("coherence.%s.grid", field_name), alpha_like = FALSE)
-  }
-  if (!is.null(similarity_section$progress) &&
-    (!is.logical(similarity_section$progress) || length(similarity_section$progress) != 1 ||
-      is.na(similarity_section$progress))) {
-    stop("Similarity field 'progress' must be TRUE or FALSE.", call. = FALSE)
+    if (!is.null(field_cfg$range) || !is.null(field_cfg$grid)) {
+      stop(sprintf("Similarity coherence tuning ranges belong under 'tuning.coherence.%s'.", field_name), call. = FALSE)
+    }
   }
 
   invisible(NULL)
@@ -3279,6 +3279,17 @@ validate_policy_list_section <- function(policies_section,
                                          policy_path = NULL) {
   # Confirm that the active policy list is non-empty and entirely drawn from
   # the policy registry or from a valid constructor-resolvable canonical name.
+  stale_fields <- intersect(c("branch", "branches", "equation_branch_filters"), names(policies_section))
+  if (length(stale_fields) > 0L) {
+    stop(
+      sprintf(
+        "Unsupported policies field(s): %s. Use 'slope_class'.",
+        paste(stale_fields, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+
   active_values <- stringr::str_squish(as.character(unlist(policies_section$active %||% character(0), use.names = FALSE)))
   active_values <- active_values[!is.na(active_values) & nzchar(active_values)]
   policies_section$active <- active_values
@@ -3300,6 +3311,10 @@ validate_policy_list_section <- function(policies_section,
       sprintf("Unknown config policy name(s): %s", paste(unknown_values, collapse = ", ")),
       call. = FALSE
     )
+  }
+
+  if (!is.null(policies_section$slope_class)) {
+    normalize_policy_equation_branch_filters(policies_section$slope_class)
   }
 }
 

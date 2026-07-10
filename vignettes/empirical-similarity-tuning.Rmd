@@ -1,0 +1,82 @@
+---
+title: "Empirical Similarity Tuning"
+description: >
+  Configuration and parameterization notes for the Candidates empirical
+  similarity-tuning path.
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Empirical Similarity Tuning}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", eval = FALSE)
+```
+
+The empirical path keeps distance construction explicit. The `similarity`
+section defines the baseline trait set, trait weights, coherence weights,
+`alpha`, and `kernel_scale`. The `tuning` section then defines how
+`tune_similarities()` searches around that baseline using leave-one-out
+transfer error.
+
+Use this path when you want direct control over which biological and study
+traits contribute to donor similarity, or when there are not enough anchors to
+fit a stable supervised Alchemist model.
+
+```{r}
+cfg <- create_configuration_template()
+
+cfg$similarity <- list(
+  alpha = 0.7,
+  kernel_scale = 3,
+  species_traits = list(genus = 1, family = 1, trophic = 0.5),
+  study_traits = list(frequency = 1, fao_area = 1),
+  coherence = list(
+    length = list(mode = "overlap", weight = 2),
+    depth = list(mode = "overlap", weight = 2),
+    frequency = list(mode = "overlap", weight = 1, gap = 60)
+  ),
+  conformal_alpha = 0.1
+)
+
+cfg$tuning <- list(
+  max_models_per_species = 2,
+  n_resamples = 8,
+  n_cores = 4,
+  alpha_range = list(from = 0.4, to = 0.9),
+  kernel_scale_range = list(from = 1, to = 6),
+  coherence = list(
+    length = list(range = list(from = 0.5, to = 6)),
+    depth = list(range = list(from = 0.5, to = 6)),
+    frequency = list(range = list(from = 0.25, to = 4))
+  ),
+  equal_start_weights = FALSE,
+  seed = 20260702
+)
+
+config <- build_configurer(cfg)
+candidates <- build_candidates(config)
+candidates <- prepare_similarities(candidates, config = config)
+candidates <- tune_similarities(candidates, config = config)
+```
+
+Parameter ownership is intentionally split:
+
+- `similarity.species_traits` and `similarity.study_traits` select the traits
+  and set their starting weights.
+- `similarity.coherence.*.weight` sets the starting weights for length, depth,
+  and frequency coherence features.
+- `tuning.alpha_range` and `tuning.kernel_scale_range` define empirical search
+  bounds for the scalar similarity parameters.
+- `tuning.coherence.*.range` defines empirical search bounds for coherence
+  weights.
+- Trait-weight adjustment is handled by the component-impact pass after the
+  scalar search; selected trait starting weights in `similarity` are the prior
+  weights that this pass rescales.
+
+Keep the search ranges scientifically plausible. If the optimum lands on a
+range boundary, widen the range only when the boundary value is defensible; a
+boundary optimum is often a sign that the selected traits do not describe the
+transfer problem well enough. For sparse anchor sets, prefer fewer traits and
+stable priors over large trait lists with aggressive empirical reweighting.

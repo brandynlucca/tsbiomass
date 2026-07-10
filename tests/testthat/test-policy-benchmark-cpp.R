@@ -46,7 +46,7 @@ test_that("compiled policy plan collapses repeated donor pools", {
   )
   plan <- tsbiomass:::build_policy_execution_plan(
     policies = policies,
-    policy_params = list(equation_branch_filters = "all")
+    policy_params = list(slope_class = "all")
   )
   compiled <- tsbiomass:::compile_policy_execution_plan_cpp(plan)
 
@@ -68,7 +68,7 @@ test_that("C++ policy engine matches the R oracle column by column", {
   )
   plan <- tsbiomass:::build_policy_execution_plan(
     policies = policies,
-    policy_params = list(equation_branch_filters = "all")
+    policy_params = list(slope_class = "all")
   )
   compiled <- tsbiomass:::compile_policy_execution_plan_cpp(plan)
   eval_obj <- cpp_policy_eval_fixture()
@@ -125,7 +125,7 @@ test_that("C++ engine matches the complete production policy plan", {
   plan <- tsbiomass:::build_policy_execution_plan(
     policies = policies,
     policy_params = list(
-      equation_branch_filters = config$policies$branch
+      slope_class = config$policies$slope_class
     )
   )
   compiled <- tsbiomass:::compile_policy_execution_plan_cpp(plan)
@@ -168,7 +168,7 @@ test_that("C++ engine preserves R fallback semantics for absent distance columns
   )
   plan <- tsbiomass:::build_policy_execution_plan(
     policies = policies,
-    policy_params = list(equation_branch_filters = "all")
+    policy_params = list(slope_class = "all")
   )
   compiled <- tsbiomass:::compile_policy_execution_plan_cpp(plan)
   eval_obj <- cpp_policy_eval_fixture()

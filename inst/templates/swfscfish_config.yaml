@@ -12,6 +12,7 @@ execution:
   strict_length_pdf: false
   run_multiplier_model: false
   write_log: false
+  progress: true
 
 cache:
   folder: cache
@@ -55,10 +56,9 @@ candidates:
       regional_body: SWFSC
 
 alchemist:
-  progress: true
   # Set taxonomic_distance: true to replace individual family/genus/species
   # Gower features with one continuous phylogenetic distance (rotl Tree of Life,
-  # with rank-based fallback). Coherence terms are inherited from similarity:.
+  # with rank-based fallback). Coherence terms are inherited from similarity.
   taxonomic_distance: true
   # feature_type controls what pairwise features are fed to the Super Learner.
   # "gower"      - unsigned Gower distances in [0, 1] (original behavior)
@@ -95,7 +95,6 @@ alchemist:
 
 similarity:
   conformal_alpha: 0.1
-  progress: true
   species_traits: [body_shape, family, genus, species, trophic, ocean_basin]
   study_traits: [fao_area, season, diel, pressure_corrected, length_metric]
   coherence:
@@ -120,7 +119,6 @@ similarity:
 ordination:
   include_loadings: false
   include_centroids: false
-  progress: true
   nmds_args:
     try: 10
     trymax: 20
@@ -167,13 +165,12 @@ policies:
     fao:
     study_cell:
     all:
-  branch: [all, fixed_slope, free_slope]
+  slope_class: [all, fixed_slope, free_slope]
 
 benchmark:
   workers: 8
   engine: cpp
   include_ts_error: true
-  progress: true
 
 sentinel:
   # Aggregate headline validation: ten species-disjoint outer folds.
@@ -196,8 +193,8 @@ sentinel:
   throttle_inner_workers: true
   # Keep the configured NMDS schedule; this flag can independently reduce it.
   fast_validation: false
-  # Console output and fold-local file logging are independent controls.
-  progress: true
+  # Console output is controlled globally by execution.progress; fold-local
+  # file logging is controlled here.
   logging: true
   save_case_artifacts: false
 
@@ -215,10 +212,8 @@ admissibility:
       mode: overlap
       gap: 60
   key_metadata_max: 0.75
-  progress: true
 
 uncertainty:
-  progress: true
   # Uncertainty-stage Super Learner (self-contained; predicts interval widths).
   method: super_learner
   super_methods:
@@ -286,7 +281,6 @@ selection:
   bin_alpha: 0.1
   min_bin_scores: 15
   use_support_bin_intervals: false
-  progress: true
   # Selection-stage Super Learner (self-contained; predicts replacement error).
   method: super_learner
   # Public learner names can be plain families (`glm`, `gam`, `rpart`,
@@ -458,7 +452,6 @@ selection:
 
 simulation:
   workers: 8
-  progress: true
 
 outputs:
   fao_distribution:

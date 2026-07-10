@@ -55,8 +55,8 @@ library(tsbiomass)
 # From a YAML file
 cfg <- build_configurer("path/to/config.yaml")
 
-# From a list (useful for scripted runs)
-cfg <- build_configurer(create_configuration_template("input.xlsx"))
+# From the default list template (useful for scripted runs)
+cfg <- build_configurer(create_configuration_template())
 ```
 
 ::: {.note data-title="How to read this page"}
@@ -121,14 +121,6 @@ sources. External YAML alias: `support_folder`.
 
 </details>
 
-<details class="cfg-key">
-<summary><code>fao_polygon_csv</code>: FAO area polygons</summary>
-
-*string*: FAO major-area polygon CSV used for spatial admissibility. External
-YAML alias: `area_file`.
-
-</details>
-
 </details>
 
 ## Runtime behavior (`execution`)
@@ -157,6 +149,14 @@ from PDF construction rather than back-filled. External YAML alias: `strict_pdf`
 <summary><code>write_log</code>: write a run log</summary>
 
 *logical*: Writes progress and error messages to `paths.log_file`.
+
+</details>
+
+<details class="cfg-key">
+<summary><code>progress</code>: progress messages</summary>
+
+*logical*: Enables package progress messages globally. Individual function
+arguments can still override this for one call.
 
 </details>
 
@@ -452,13 +452,6 @@ pair-level features for the distance learner.
 </details>
 
 <details class="cfg-key">
-<summary><code>progress</code>: progress messages</summary>
-
-*logical*: Enable progress messages.
-
-</details>
-
-<details class="cfg-key">
 <summary><code>learner</code>: Super Learner library</summary>
 
 Controls the stacked ensemble trained inside `forge_distances()`. See
@@ -535,7 +528,9 @@ in the Alchemist section of the
 ## Similarity matrix (`similarity`)
 
 Trait selection, coherence, and kernel settings for the similarity matrix. This
-is the primary tuning surface.
+section defines the baseline distance surface. Empirical search ranges and
+resampling controls live in [`tuning`](#similarity-tuning-tuning); the
+supervised Alchemist path is described in [Alchemist distance learning](alchemist-distance-learning.html).
 
 <details><summary>Parameters</summary>
 
@@ -588,20 +583,6 @@ subsets.
 </details>
 
 <details class="cfg-key">
-<summary><code>alpha_range</code>: alpha search bounds</summary>
-
-*`{from, to}`*: Search bounds for `alpha` during similarity tuning.
-
-</details>
-
-<details class="cfg-key">
-<summary><code>kernel_scale_range</code>: kernel-scale search bounds</summary>
-
-*`{from, to}`*: Search bounds for `kernel_scale` during similarity tuning.
-
-</details>
-
-<details class="cfg-key">
 <summary><code>cache_path</code>: cache override</summary>
 
 *string*: Explicit cache-path override for the similarity matrix.
@@ -612,13 +593,6 @@ subsets.
 <summary><code>refresh</code>: force recompute</summary>
 
 *logical*: Force recompute of the similarity cache.
-
-</details>
-
-<details class="cfg-key">
-<summary><code>progress</code>: stage messages</summary>
-
-*logical*: Enable similarity-stage messages.
 
 </details>
 
@@ -634,7 +608,6 @@ Length-overlap coherence feature.
 
 - `mode` *(string)*: `overlap`, `literal`, or `none`.
 - `weight` *(number)*: Feature weight.
-- `range` *(`{from, to}`)*: Weight search bounds during tuning.
 
 </details>
 
@@ -645,7 +618,6 @@ Depth-overlap coherence feature.
 
 - `mode` *(string)*: `overlap`, `literal`, or `none`.
 - `weight` *(number)*: Feature weight.
-- `range` *(`{from, to}`)*: Weight search bounds during tuning.
 
 </details>
 
@@ -656,7 +628,6 @@ Acoustic-frequency-overlap coherence feature.
 
 - `mode` *(string)*: `overlap`, `literal`, or `none`.
 - `weight` *(number)*: Feature weight.
-- `range` *(`{from, to}`)*: Weight search bounds during tuning.
 - `gap` *(number)*: Maximum frequency gap (kHz) treated as overlapping under
   `mode: overlap`.
 
@@ -669,7 +640,9 @@ Acoustic-frequency-overlap coherence feature.
 ## Similarity tuning (`tuning`)
 
 Hyper-parameters for the empirical similarity-tuning search over trait weights,
-`alpha`, and `kernel_scale`.
+coherence weights, `alpha`, and `kernel_scale`. These settings apply to
+`tune_similarities()` and the empirical Candidates path described in
+[Empirical similarity tuning](empirical-similarity-tuning.html).
 
 <details><summary>Parameters</summary>
 
@@ -700,6 +673,29 @@ alias: `species_model_limit`.
 <summary><code>seed</code>: reproducibility seed</summary>
 
 *integer*: Reproducibility seed.
+
+</details>
+
+<details class="cfg-key">
+<summary><code>alpha_range</code>: alpha search bounds</summary>
+
+*`{from, to}`*: Empirical tuning bounds for the species-versus-study blend.
+
+</details>
+
+<details class="cfg-key">
+<summary><code>kernel_scale_range</code>: kernel-scale search bounds</summary>
+
+*`{from, to}`*: Empirical tuning bounds for the global kernel scale.
+
+</details>
+
+<details class="cfg-key">
+<summary><code>coherence</code>: coherence-weight search bounds</summary>
+
+*named list*: Optional empirical tuning bounds for coherence weights. Supported
+entries are `length.range`, `depth.range`, and `frequency.range`, each as
+`{from, to}`.
 
 </details>
 
@@ -747,13 +743,6 @@ magnitudes as priors.
 
 </details>
 
-<details class="cfg-key">
-<summary><code>progress</code>: tuning messages</summary>
-
-*logical*: Enable tuning messages.
-
-</details>
-
 </details>
 
 ## Ordination (`ordination`)
@@ -774,13 +763,6 @@ model diversity.
 <summary><code>include_centroids</code>: factor-level centroids</summary>
 
 *logical*: Include factor-level centroids.
-
-</details>
-
-<details class="cfg-key">
-<summary><code>progress</code>: ordination messages</summary>
-
-*logical*: Enable ordination messages.
 
 </details>
 
@@ -851,13 +833,6 @@ fields.
 </details>
 
 <details class="cfg-key">
-<summary><code>progress</code>: stage messages</summary>
-
-*logical*: Enable admissibility-stage messages.
-
-</details>
-
-<details class="cfg-key">
 <summary><code>coherence</code>: measurement-overlap gates</summary>
 
 Minimum measurement-overlap requirements applied as gates.
@@ -899,7 +874,7 @@ Frequency-overlap gate.
 ## Transfer policies (`policies`)
 
 Declares the transfer policies to benchmark. Use the **constructor form**
-(`metric` + `branch` + `group`) to generate named policy sets from the registry,
+(`metric` + `slope_class` + `group`) to generate named policy sets from the registry,
 or the **explicit form** (`active`) to list policy names directly.
 
 <details><summary>Parameters</summary>
@@ -914,10 +889,10 @@ or the **explicit form** (`active`) to list policy names directly.
 </details>
 
 <details class="cfg-key">
-<summary><code>branch</code>: equation-branch filter</summary>
+<summary><code>slope_class</code>: slope-class filter</summary>
 
-*character vector*: Equation branch filters. Supported: `all`, `fixed_slope`,
-`free_slope`. (In the explicit form the key is `equation_branch_filters`.)
+*character vector*: Slope classes. Supported: `all`, `fixed_slope`,
+`free_slope`.
 
 </details>
 
@@ -1000,13 +975,6 @@ reference anchors.
 <summary><code>refresh</code>: force recompute</summary>
 
 *logical*: Force recompute of the benchmark cache.
-
-</details>
-
-<details class="cfg-key">
-<summary><code>progress</code>: stage messages</summary>
-
-*logical*: Enable benchmark-stage messages.
 
 </details>
 
@@ -1119,13 +1087,6 @@ section of the
 <summary><code>refresh</code>: force recompute</summary>
 
 *logical*: Force recompute of the uncertainty cache.
-
-</details>
-
-<details class="cfg-key">
-<summary><code>progress</code>: stage messages</summary>
-
-*logical*: Enable uncertainty-stage messages.
 
 </details>
 
@@ -1286,13 +1247,6 @@ Selection section of the
 
 </details>
 
-<details class="cfg-key">
-<summary><code>progress</code>: stage messages</summary>
-
-*logical*: Enable selection-stage messages.
-
-</details>
-
 </details>
 
 # Validation & sensitivity
@@ -1358,13 +1312,6 @@ workers.
 </details>
 
 <details class="cfg-key">
-<summary><code>progress</code>: console output</summary>
-
-*logical*: Enable fold-level console output.
-
-</details>
-
-<details class="cfg-key">
 <summary><code>logging</code>: file logging</summary>
 
 *logical*: Enable fold-level file logging.
@@ -1408,13 +1355,6 @@ perturbed scenarios.
 
 </details>
 
-<details class="cfg-key">
-<summary><code>progress</code>: stage messages</summary>
-
-*logical*: Enable simulation-stage messages.
-
-</details>
-
 </details>
 
 # Default configuration
@@ -1436,11 +1376,31 @@ execution:
   strict_length_pdf: false
   run_multiplier_model: false
   write_log: false
+  progress: false
 tuning:
   max_models_per_species: 2
   n_resamples: 8
   n_cores: 1
   seed: ~
+  alpha_range:
+    from: 0.1
+    to: 0.9
+  kernel_scale_range:
+    from: 1.0
+    to: 8.0
+  coherence:
+    length:
+      range:
+        from: 0.5
+        to: 6.0
+    depth:
+      range:
+        from: 0.5
+        to: 6.0
+    frequency:
+      range:
+        from: 0.5
+        to: 6.0
   grid_refinement_levels: 1
   response_surface_top_n: 20
   rmse_tolerance: 0.01
@@ -1451,7 +1411,6 @@ tuning:
     coherence_scale: 0.05
     stability: 0.02
   equal_start_weights: false
-  progress: false
 similarity:
   alpha: 0.8
   kernel_scale: 4.0
@@ -1463,40 +1422,23 @@ similarity:
     length:
       mode: overlap
       weight: 2.0
-      range:
-        from: 0.5
-        to: 6.0
     depth:
       mode: overlap
       weight: 3.0
-      range:
-        from: 0.5
-        to: 6.0
     frequency:
       mode: overlap
       weight: 2.0
-      range:
-        from: 0.5
-        to: 6.0
       gap: 60.0
   conformal_alpha: 0.1
-  alpha_range:
-    from: 0.1
-    to: 0.9
-  kernel_scale_range:
-    from: 1.0
-    to: 8.0
-  progress: false
 ordination:
   include_loadings: false
   include_centroids: false
-  progress: false
 policies:
   group:
   - species
   metric:
   - closest
-  equation_branch_filters:
+  slope_class:
   - all
 cache:
   folder: cache
@@ -1520,7 +1462,6 @@ benchmark:
   workers: 1
   engine: cpp
   include_ts_error: false
-  progress: false
 admissibility:
   species_traits: []
   study_traits: []
@@ -1535,9 +1476,7 @@ admissibility:
       mode: none
       gap: 60.0
   key_metadata_max: 0.25
-  progress: false
 uncertainty:
-  progress: false
   method: glm
   super_methods: ~
   method_settings:
@@ -1859,10 +1798,9 @@ selection:
   lambda_rule: lambda.1se
   loss: squared_error
   max_selection_tolerance: 1.0e-12
-  progress: false
 simulation:
   workers: 1
-  progress: false)--",
+)--",
   r = r"--(list(
   paths = list(
     input_file = "input.xlsx",
@@ -1874,13 +1812,27 @@ simulation:
   execution = list(
     strict_length_pdf = FALSE,
     run_multiplier_model = FALSE,
-    write_log = FALSE
+    write_log = FALSE,
+    progress = FALSE
   ),
   tuning = list(
     max_models_per_species = 2,
     n_resamples = 8,
     n_cores = 1,
     seed = NULL,
+    alpha_range = list(
+      from = 0.1,
+      to = 0.9
+    ),
+    kernel_scale_range = list(
+      from = 1,
+      to = 8
+    ),
+    coherence = list(
+      length = list(range = list(from = 0.5, to = 6)),
+      depth = list(range = list(from = 0.5, to = 6)),
+      frequency = list(range = list(from = 0.5, to = 6))
+    ),
     grid_refinement_levels = 1,
     response_surface_top_n = 20,
     rmse_tolerance = 0.01,
@@ -1891,8 +1843,7 @@ simulation:
       coherence_scale = 0.05,
       stability = 0.02
     ),
-    equal_start_weights = FALSE,
-    progress = FALSE
+    equal_start_weights = FALSE
   ),
   similarity = list(
     alpha = 0.8,
@@ -1906,50 +1857,28 @@ simulation:
     coherence = list(
       length = list(
         mode = "overlap",
-        weight = 2,
-        range = list(
-          from = 0.5,
-          to = 6
-        )
+        weight = 2
       ),
       depth = list(
         mode = "overlap",
-        weight = 3,
-        range = list(
-          from = 0.5,
-          to = 6
-        )
+        weight = 3
       ),
       frequency = list(
         mode = "overlap",
         weight = 2,
-        range = list(
-          from = 0.5,
-          to = 6
-        ),
         gap = 60
       )
     ),
-    conformal_alpha = 0.1,
-    alpha_range = list(
-      from = 0.1,
-      to = 0.9
-    ),
-    kernel_scale_range = list(
-      from = 1,
-      to = 8
-    ),
-    progress = FALSE
+    conformal_alpha = 0.1
   ),
   ordination = list(
     include_loadings = FALSE,
-    include_centroids = FALSE,
-    progress = FALSE
+    include_centroids = FALSE
   ),
   policies = list(
     group = list("species"),
     metric = list("closest"),
-    equation_branch_filters = list("all")
+    slope_class = list("all")
   ),
   cache = list(
     folder = "cache",
@@ -1974,8 +1903,7 @@ simulation:
   benchmark = list(
     workers = 1,
     engine = "cpp",
-    include_ts_error = FALSE,
-    progress = FALSE
+    include_ts_error = FALSE
   ),
   admissibility = list(
     species_traits = character(0),
@@ -1994,11 +1922,9 @@ simulation:
         gap = 60
       )
     ),
-    key_metadata_max = 0.25,
-    progress = FALSE
+    key_metadata_max = 0.25
   ),
   uncertainty = list(
-    progress = FALSE,
     method = "glm",
     super_methods = NULL,
     method_settings = list(
@@ -2360,11 +2286,10 @@ simulation:
     lambda_rule = "lambda.1se",
     loss = "squared_error",
     max_selection_tolerance = 1e-12,
-    progress = FALSE
+    refresh = FALSE
   ),
   simulation = list(
-    workers = 1,
-    progress = FALSE
+    workers = 1
   )
 ))--")
 ```
