@@ -94,7 +94,7 @@ cfg
 #>   species_traits: genus, family
 #>   study_traits: frequency, fao_area
 #>   active_policies: closest_within_species
-#>   equation_branch_filters: all
+#>   slope_class: none
 #>   selection_method: glm
 #>   uncertainty_method: glm
 #>   alpha: 0.8

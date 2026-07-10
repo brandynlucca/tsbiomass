@@ -12,8 +12,8 @@ library(tsbiomass)
 # From a YAML file
 cfg <- build_configurer("path/to/config.yaml")
 
-# From a list (useful for scripted runs)
-cfg <- build_configurer(create_configuration_template("input.xlsx"))
+# From the default list template (useful for scripted runs)
+cfg <- build_configurer(create_configuration_template())
 ```
 
 Configuration keys are grouped by the pipeline stage they control. Every
@@ -60,11 +60,6 @@ External YAML alias: `cache_folder`.
 *string*: Where progress and error messages are written. Used only when
 `execution.write_log = true`. External YAML alias: `log_path`.
 
-`fao_polygon_csv`: FAO area polygons
-
-*string*: FAO major-area polygon CSV used for spatial admissibility.
-External YAML alias: `area_file`.
-
 ### Runtime behavior (`execution`)
 
 Global switches that change how the pipeline runs, independent of any
@@ -86,6 +81,11 @@ alias: `run_multiplier`.
 `write_log`: write a run log
 
 *logical*: Writes progress and error messages to `paths.log_file`.
+
+`progress`: progress messages
+
+*logical*: Enables package progress messages globally. Individual
+function arguments can still override this for one call.
 
 ### Caching (`cache`)
 
@@ -295,10 +295,6 @@ as pair-level features for the distance learner.
 *integer*: Worker count for sigma-dropout sensitivity in
 [`distill_traits()`](https://brandynlucca.github.io/tsbiomass/reference/distill_traits.md).
 
-`progress`: progress messages
-
-*logical*: Enable progress messages.
-
 `learner`: Super Learner library
 
 Controls the stacked ensemble trained inside
@@ -350,7 +346,11 @@ vignette](https://brandynlucca.github.io/tsbiomass/articles/super-learners.html#
 ### Similarity matrix (`similarity`)
 
 Trait selection, coherence, and kernel settings for the similarity
-matrix. This is the primary tuning surface.
+matrix. This section defines the baseline distance surface. Empirical
+search ranges and resampling controls live in
+[`tuning`](#similarity-tuning-tuning); the supervised Alchemist path is
+described in [Alchemist distance
+learning](https://brandynlucca.github.io/tsbiomass/articles/alchemist-distance-learning.md).
 
 Parameters
 
@@ -385,15 +385,6 @@ weights.
 *number*: Similarity-weight threshold for identifying high-support donor
 subsets.
 
-`alpha_range`: alpha search bounds
-
-*`{from, to}`*: Search bounds for `alpha` during similarity tuning.
-
-`kernel_scale_range`: kernel-scale search bounds
-
-*`{from, to}`*: Search bounds for `kernel_scale` during similarity
-tuning.
-
 `cache_path`: cache override
 
 *string*: Explicit cache-path override for the similarity matrix.
@@ -401,10 +392,6 @@ tuning.
 `refresh`: force recompute
 
 *logical*: Force recompute of the similarity cache.
-
-`progress`: stage messages
-
-*logical*: Enable similarity-stage messages.
 
 `coherence`: measurement-overlap features
 
@@ -416,7 +403,6 @@ Length-overlap coherence feature.
 
 - `mode` *(string)*: `overlap`, `literal`, or `none`.
 - `weight` *(number)*: Feature weight.
-- `range` *(`{from, to}`)*: Weight search bounds during tuning.
 
 `depth`
 
@@ -424,7 +410,6 @@ Depth-overlap coherence feature.
 
 - `mode` *(string)*: `overlap`, `literal`, or `none`.
 - `weight` *(number)*: Feature weight.
-- `range` *(`{from, to}`)*: Weight search bounds during tuning.
 
 `frequency`
 
@@ -432,14 +417,17 @@ Acoustic-frequency-overlap coherence feature.
 
 - `mode` *(string)*: `overlap`, `literal`, or `none`.
 - `weight` *(number)*: Feature weight.
-- `range` *(`{from, to}`)*: Weight search bounds during tuning.
 - `gap` *(number)*: Maximum frequency gap (kHz) treated as overlapping
   under `mode: overlap`.
 
 ### Similarity tuning (`tuning`)
 
 Hyper-parameters for the empirical similarity-tuning search over trait
-weights, `alpha`, and `kernel_scale`.
+weights, coherence weights, `alpha`, and `kernel_scale`. These settings
+apply to
+[`tune_similarities()`](https://brandynlucca.github.io/tsbiomass/reference/tune_similarities.md)
+and the empirical Candidates path described in [Empirical similarity
+tuning](https://brandynlucca.github.io/tsbiomass/articles/empirical-similarity-tuning.md).
 
 Parameters
 
@@ -460,6 +448,21 @@ External YAML alias: `species_model_limit`.
 `seed`: reproducibility seed
 
 *integer*: Reproducibility seed.
+
+`alpha_range`: alpha search bounds
+
+*`{from, to}`*: Empirical tuning bounds for the species-versus-study
+blend.
+
+`kernel_scale_range`: kernel-scale search bounds
+
+*`{from, to}`*: Empirical tuning bounds for the global kernel scale.
+
+`coherence`: coherence-weight search bounds
+
+*named list*: Optional empirical tuning bounds for coherence weights.
+Supported entries are `length.range`, `depth.range`, and
+`frequency.range`, each as `{from, to}`.
 
 `grid_refinement_levels`: local refinement passes
 
@@ -490,10 +493,6 @@ near their priors. Fields: `alpha`, `kernel_scale`, `coherence_scale`,
 *logical*: Initialize all trait weights equally rather than using
 configured magnitudes as priors.
 
-`progress`: tuning messages
-
-*logical*: Enable tuning messages.
-
 ### Ordination (`ordination`)
 
 NMDS ordination settings, applied after
@@ -509,10 +508,6 @@ Parameters
 `include_centroids`: factor-level centroids
 
 *logical*: Include factor-level centroids.
-
-`progress`: ordination messages
-
-*logical*: Enable ordination messages.
 
 `nmds_args`: metaMDS arguments
 
@@ -559,10 +554,6 @@ metadata fields.
 
 *logical*: Force recompute of the admissibility cache.
 
-`progress`: stage messages
-
-*logical*: Enable admissibility-stage messages.
-
 `coherence`: measurement-overlap gates
 
 Minimum measurement-overlap requirements applied as gates.
@@ -591,9 +582,9 @@ Frequency-overlap gate.
 ### Transfer policies (`policies`)
 
 Declares the transfer policies to benchmark. Use the **constructor
-form** (`metric` + `branch` + `group`) to generate named policy sets
-from the registry, or the **explicit form** (`active`) to list policy
-names directly.
+form** (`metric` + `slope_class` + `group`) to generate named policy
+sets from the registry, or the **explicit form** (`active`) to list
+policy names directly.
 
 Parameters
 
@@ -603,11 +594,10 @@ Parameters
 `weighted_mean`, `unweighted_mean`, `survey_distance`, `taxon_distance`,
 `species_distance`, `random`.
 
-`branch`: equation-branch filter
+`slope_class`: slope-class filter
 
-*character vector*: Equation branch filters. Supported: `all`,
-`fixed_slope`, `free_slope`. (In the explicit form the key is
-`equation_branch_filters`.)
+*character vector*: Slope classes. Supported: `all`, `fixed_slope`,
+`free_slope`.
 
 `group`: per-grouping overrides
 
@@ -660,10 +650,6 @@ path.
 `refresh`: force recompute
 
 *logical*: Force recompute of the benchmark cache.
-
-`progress`: stage messages
-
-*logical*: Enable benchmark-stage messages.
 
 ## Uncertainty & policy selection
 
@@ -738,10 +724,6 @@ vignette](https://brandynlucca.github.io/tsbiomass/articles/super-learners.html#
 `refresh`: force recompute
 
 *logical*: Force recompute of the uncertainty cache.
-
-`progress`: stage messages
-
-*logical*: Enable uncertainty-stage messages.
 
 ### Policy selection & meta-learner (`selection`)
 
@@ -844,10 +826,6 @@ vignette](https://brandynlucca.github.io/tsbiomass/articles/super-learners.html#
 
 *logical*: Force recompute of the selection cache.
 
-`progress`: stage messages
-
-*logical*: Enable selection-stage messages.
-
 ## Validation & sensitivity
 
 Outer-loop holdout validation and scenario-based sensitivity analysis.
@@ -891,10 +869,6 @@ outer workers.
 
 *logical*: Reduce the NMDS schedule for faster runs.
 
-`progress`: console output
-
-*logical*: Enable fold-level console output.
-
 `logging`: file logging
 
 *logical*: Enable fold-level file logging.
@@ -922,10 +896,6 @@ Parameters
 
 *logical*: Force recompute of the sensitivity cache.
 
-`progress`: stage messages
-
-*logical*: Enable simulation-stage messages.
-
 ## Default configuration
 
 The complete default configuration produced by
@@ -948,11 +918,31 @@ execution:
   strict_length_pdf: false
   run_multiplier_model: false
   write_log: false
+  progress: false
 tuning:
   max_models_per_species: 2
   n_resamples: 8
   n_cores: 1
   seed: ~
+  alpha_range:
+    from: 0.1
+    to: 0.9
+  kernel_scale_range:
+    from: 1.0
+    to: 8.0
+  coherence:
+    length:
+      range:
+        from: 0.5
+        to: 6.0
+    depth:
+      range:
+        from: 0.5
+        to: 6.0
+    frequency:
+      range:
+        from: 0.5
+        to: 6.0
   grid_refinement_levels: 1
   response_surface_top_n: 20
   rmse_tolerance: 0.01
@@ -963,7 +953,6 @@ tuning:
     coherence_scale: 0.05
     stability: 0.02
   equal_start_weights: false
-  progress: false
 similarity:
   alpha: 0.8
   kernel_scale: 4.0
@@ -975,40 +964,23 @@ similarity:
     length:
       mode: overlap
       weight: 2.0
-      range:
-        from: 0.5
-        to: 6.0
     depth:
       mode: overlap
       weight: 3.0
-      range:
-        from: 0.5
-        to: 6.0
     frequency:
       mode: overlap
       weight: 2.0
-      range:
-        from: 0.5
-        to: 6.0
       gap: 60.0
   conformal_alpha: 0.1
-  alpha_range:
-    from: 0.1
-    to: 0.9
-  kernel_scale_range:
-    from: 1.0
-    to: 8.0
-  progress: false
 ordination:
   include_loadings: false
   include_centroids: false
-  progress: false
 policies:
   group:
   - species
   metric:
   - closest
-  equation_branch_filters:
+  slope_class:
   - all
 cache:
   folder: cache
@@ -1032,7 +1004,6 @@ benchmark:
   workers: 1
   engine: cpp
   include_ts_error: false
-  progress: false
 admissibility:
   species_traits: []
   study_traits: []
@@ -1047,9 +1018,7 @@ admissibility:
       mode: none
       gap: 60.0
   key_metadata_max: 0.25
-  progress: false
 uncertainty:
-  progress: false
   method: glm
   super_methods: ~
   method_settings:
@@ -1371,10 +1340,8 @@ selection:
   lambda_rule: lambda.1se
   loss: squared_error
   max_selection_tolerance: 1.0e-12
-  progress: false
 simulation:
   workers: 1
-  progress: false
 ```
 
 ``` r
@@ -1389,13 +1356,27 @@ list(
   execution = list(
     strict_length_pdf = FALSE,
     run_multiplier_model = FALSE,
-    write_log = FALSE
+    write_log = FALSE,
+    progress = FALSE
   ),
   tuning = list(
     max_models_per_species = 2,
     n_resamples = 8,
     n_cores = 1,
     seed = NULL,
+    alpha_range = list(
+      from = 0.1,
+      to = 0.9
+    ),
+    kernel_scale_range = list(
+      from = 1,
+      to = 8
+    ),
+    coherence = list(
+      length = list(range = list(from = 0.5, to = 6)),
+      depth = list(range = list(from = 0.5, to = 6)),
+      frequency = list(range = list(from = 0.5, to = 6))
+    ),
     grid_refinement_levels = 1,
     response_surface_top_n = 20,
     rmse_tolerance = 0.01,
@@ -1406,8 +1387,7 @@ list(
       coherence_scale = 0.05,
       stability = 0.02
     ),
-    equal_start_weights = FALSE,
-    progress = FALSE
+    equal_start_weights = FALSE
   ),
   similarity = list(
     alpha = 0.8,
@@ -1421,50 +1401,28 @@ list(
     coherence = list(
       length = list(
         mode = "overlap",
-        weight = 2,
-        range = list(
-          from = 0.5,
-          to = 6
-        )
+        weight = 2
       ),
       depth = list(
         mode = "overlap",
-        weight = 3,
-        range = list(
-          from = 0.5,
-          to = 6
-        )
+        weight = 3
       ),
       frequency = list(
         mode = "overlap",
         weight = 2,
-        range = list(
-          from = 0.5,
-          to = 6
-        ),
         gap = 60
       )
     ),
-    conformal_alpha = 0.1,
-    alpha_range = list(
-      from = 0.1,
-      to = 0.9
-    ),
-    kernel_scale_range = list(
-      from = 1,
-      to = 8
-    ),
-    progress = FALSE
+    conformal_alpha = 0.1
   ),
   ordination = list(
     include_loadings = FALSE,
-    include_centroids = FALSE,
-    progress = FALSE
+    include_centroids = FALSE
   ),
   policies = list(
     group = list("species"),
     metric = list("closest"),
-    equation_branch_filters = list("all")
+    slope_class = list("all")
   ),
   cache = list(
     folder = "cache",
@@ -1489,8 +1447,7 @@ list(
   benchmark = list(
     workers = 1,
     engine = "cpp",
-    include_ts_error = FALSE,
-    progress = FALSE
+    include_ts_error = FALSE
   ),
   admissibility = list(
     species_traits = character(0),
@@ -1509,11 +1466,9 @@ list(
         gap = 60
       )
     ),
-    key_metadata_max = 0.25,
-    progress = FALSE
+    key_metadata_max = 0.25
   ),
   uncertainty = list(
-    progress = FALSE,
     method = "glm",
     super_methods = NULL,
     method_settings = list(
@@ -1875,11 +1830,10 @@ list(
     lambda_rule = "lambda.1se",
     loss = "squared_error",
     max_selection_tolerance = 1e-12,
-    progress = FALSE
+    refresh = FALSE
   ),
   simulation = list(
-    workers = 1,
-    progress = FALSE
+    workers = 1
   )
 )
 ```

@@ -46,7 +46,7 @@ devtools::install(".")
 library(tsbiomass)
 
 # Configure
-cfg <- build_configurer(create_configuration_template("input.xlsx"), base_dir = getwd())
+cfg <- build_configurer(create_configuration_template(), base_dir = getwd())
 
 # Candidates + anchors
 candidates <- build_candidates(cfg)

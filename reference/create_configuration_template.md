@@ -19,7 +19,7 @@ create_configuration_template(
 
 - input_file:
 
-  Input workbook path.
+  Placeholder input workbook path. The workbook is not read.
 
 - output_root:
 

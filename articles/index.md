@@ -11,6 +11,18 @@ Workflow guides and method references.
   one copy-ready default configuration generated from the package
   template.
 
+- [Alchemist Distance
+  Learning](https://brandynlucca.github.io/tsbiomass/articles/alchemist-distance-learning.md):
+
+  Configuration and parameterization notes for the supervised Alchemist
+  distance path.
+
+- [Empirical Similarity
+  Tuning](https://brandynlucca.github.io/tsbiomass/articles/empirical-similarity-tuning.md):
+
+  Configuration and parameterization notes for the Candidates empirical
+  similarity-tuning path.
+
 - [Super
   Learners](https://brandynlucca.github.io/tsbiomass/articles/super-learners.md):
 

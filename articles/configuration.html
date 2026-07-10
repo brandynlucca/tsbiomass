@@ -100,8 +100,8 @@ modeling begins. This page documents every valid section and key.</p>
 <span><span class="co"># From a YAML file</span></span>
 <span><span class="va">cfg</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/build_configurer.html">build_configurer</a></span><span class="op">(</span><span class="st">"path/to/config.yaml"</span><span class="op">)</span></span>
 <span></span>
-<span><span class="co"># From a list (useful for scripted runs)</span></span>
-<span><span class="va">cfg</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/build_configurer.html">build_configurer</a></span><span class="op">(</span><span class="fu"><a href="../reference/create_configuration_template.html">create_configuration_template</a></span><span class="op">(</span><span class="st">"input.xlsx"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
+<span><span class="co"># From the default list template (useful for scripted runs)</span></span>
+<span><span class="va">cfg</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/build_configurer.html">build_configurer</a></span><span class="op">(</span><span class="fu"><a href="../reference/create_configuration_template.html">create_configuration_template</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <div class="note" data-title="How to read this page">
 <p>Configuration keys are grouped by the pipeline stage they control.
 Every key expands to its own dropdown describing its type and behavior.
@@ -142,9 +142,6 @@ referenced by <code>data</code> sources. External YAML alias:
 </summary><p><em>string</em>: Where progress and error messages are written. Used
 only when <code>execution.write_log = true</code>. External YAML alias:
 <code>log_path</code>.</p>
-</details><details class="cfg-key"><summary><code>fao_polygon_csv</code>: FAO area polygons
-</summary><p><em>string</em>: FAO major-area polygon CSV used for spatial
-admissibility. External YAML alias: <code>area_file</code>.</p>
 </details></details>
 </div>
 <div class="section level3">
@@ -164,6 +161,9 @@ External YAML alias: <code>run_multiplier</code>.</p>
 </details><details class="cfg-key"><summary><code>write_log</code>: write a run log
 </summary><p><em>logical</em>: Writes progress and error messages to
 <code>paths.log_file</code>.</p>
+</details><details class="cfg-key"><summary><code>progress</code>: progress messages
+</summary><p><em>logical</em>: Enables package progress messages globally.
+Individual function arguments can still override this for one call.</p>
 </details></details>
 </div>
 <div class="section level3">
@@ -400,8 +400,6 @@ learner.</p>
 </details><details class="cfg-key"><summary><code>distill_workers</code>: sensitivity worker count
 </summary><p><em>integer</em>: Worker count for sigma-dropout sensitivity in
 <code><a href="../reference/distill_traits.html">distill_traits()</a></code>.</p>
-</details><details class="cfg-key"><summary><code>progress</code>: progress messages
-</summary><p><em>logical</em>: Enable progress messages.</p>
 </details><details class="cfg-key"><summary><code>learner</code>: Super Learner library
 </summary><p>Controls the stacked ensemble trained inside
 <code><a href="../reference/forge_distances.html">forge_distances()</a></code>. See <code><a href="../reference/list_learners.html">list_learners()</a></code> for
@@ -441,7 +439,10 @@ vignette</a>.</p>
 <h3 id="similarity-matrix-similarity">Similarity matrix (<code>similarity</code>)<a class="anchor" aria-label="anchor" href="#similarity-matrix-similarity"></a>
 </h3>
 <p>Trait selection, coherence, and kernel settings for the similarity
-matrix. This is the primary tuning surface.</p>
+matrix. This section defines the baseline distance surface. Empirical
+search ranges and resampling controls live in <a href="#similarity-tuning-tuning"><code>tuning</code></a>; the supervised
+Alchemist path is described in <a href="alchemist-distance-learning.html">Alchemist distance
+learning</a>.</p>
 <details><summary>
 Parameters
 </summary><details class="cfg-key"><summary><code>alpha</code>: species-vs-study blend
@@ -464,19 +465,11 @@ calibration.</p>
 </details><details class="cfg-key"><summary><code>core_weight_cutoff</code>: high-support donor threshold
 </summary><p><em>number</em>: Similarity-weight threshold for identifying
 high-support donor subsets.</p>
-</details><details class="cfg-key"><summary><code>alpha_range</code>: alpha search bounds
-</summary><p><em><code>{from, to}</code></em>: Search bounds for
-<code>alpha</code> during similarity tuning.</p>
-</details><details class="cfg-key"><summary><code>kernel_scale_range</code>: kernel-scale search bounds
-</summary><p><em><code>{from, to}</code></em>: Search bounds for
-<code>kernel_scale</code> during similarity tuning.</p>
 </details><details class="cfg-key"><summary><code>cache_path</code>: cache override
 </summary><p><em>string</em>: Explicit cache-path override for the similarity
 matrix.</p>
 </details><details class="cfg-key"><summary><code>refresh</code>: force recompute
 </summary><p><em>logical</em>: Force recompute of the similarity cache.</p>
-</details><details class="cfg-key"><summary><code>progress</code>: stage messages
-</summary><p><em>logical</em>: Enable similarity-stage messages.</p>
 </details><details class="cfg-key"><summary><code>coherence</code>: measurement-overlap features
 </summary><p>Measurement-overlap features supplementing trait distances.</p>
 <details class="cfg-key"><summary><code>length</code>
@@ -487,9 +480,6 @@ matrix.</p>
 <code>literal</code>, or <code>none</code>.</li>
 <li>
 <code>weight</code> <em>(number)</em>: Feature weight.</li>
-<li>
-<code>range</code> <em>(<code>{from, to}</code>)</em>: Weight search
-bounds during tuning.</li>
 </ul></details><details class="cfg-key"><summary><code>depth</code>
 </summary><p>Depth-overlap coherence feature.</p>
 <ul>
@@ -498,9 +488,6 @@ bounds during tuning.</li>
 <code>literal</code>, or <code>none</code>.</li>
 <li>
 <code>weight</code> <em>(number)</em>: Feature weight.</li>
-<li>
-<code>range</code> <em>(<code>{from, to}</code>)</em>: Weight search
-bounds during tuning.</li>
 </ul></details><details class="cfg-key"><summary><code>frequency</code>
 </summary><p>Acoustic-frequency-overlap coherence feature.</p>
 <ul>
@@ -510,9 +497,6 @@ bounds during tuning.</li>
 <li>
 <code>weight</code> <em>(number)</em>: Feature weight.</li>
 <li>
-<code>range</code> <em>(<code>{from, to}</code>)</em>: Weight search
-bounds during tuning.</li>
-<li>
 <code>gap</code> <em>(number)</em>: Maximum frequency gap (kHz)
 treated as overlapping under <code>mode: overlap</code>.</li>
 </ul></details></details></details>
@@ -521,7 +505,11 @@ treated as overlapping under <code>mode: overlap</code>.</li>
 <h3 id="similarity-tuning-tuning">Similarity tuning (<code>tuning</code>)<a class="anchor" aria-label="anchor" href="#similarity-tuning-tuning"></a>
 </h3>
 <p>Hyper-parameters for the empirical similarity-tuning search over
-trait weights, <code>alpha</code>, and <code>kernel_scale</code>.</p>
+trait weights, coherence weights, <code>alpha</code>, and
+<code>kernel_scale</code>. These settings apply to
+<code><a href="../reference/tune_similarities.html">tune_similarities()</a></code> and the empirical Candidates path
+described in <a href="empirical-similarity-tuning.html">Empirical
+similarity tuning</a>.</p>
 <details><summary>
 Parameters
 </summary><details class="cfg-key"><summary><code>max_models_per_species</code>: models per species in subsets
@@ -534,6 +522,17 @@ alias: <code>resamples</code>.</p>
 </summary><p><em>integer</em>: Worker count for tuning runs.</p>
 </details><details class="cfg-key"><summary><code>seed</code>: reproducibility seed
 </summary><p><em>integer</em>: Reproducibility seed.</p>
+</details><details class="cfg-key"><summary><code>alpha_range</code>: alpha search bounds
+</summary><p><em><code>{from, to}</code></em>: Empirical tuning bounds for the
+species-versus-study blend.</p>
+</details><details class="cfg-key"><summary><code>kernel_scale_range</code>: kernel-scale search bounds
+</summary><p><em><code>{from, to}</code></em>: Empirical tuning bounds for the
+global kernel scale.</p>
+</details><details class="cfg-key"><summary><code>coherence</code>: coherence-weight search bounds
+</summary><p><em>named list</em>: Optional empirical tuning bounds for coherence
+weights. Supported entries are <code>length.range</code>,
+<code>depth.range</code>, and <code>frequency.range</code>, each as
+<code>{from, to}</code>.</p>
 </details><details class="cfg-key"><summary><code>grid_refinement_levels</code>: local refinement passes
 </summary><p><em>integer</em>: Local search-refinement passes after the coarse
 grid.</p>
@@ -554,8 +553,6 @@ parameters near their priors. Fields: <code>alpha</code>,
 </details><details class="cfg-key"><summary><code>equal_start_weights</code>: equal initial trait weights
 </summary><p><em>logical</em>: Initialize all trait weights equally rather than
 using configured magnitudes as priors.</p>
-</details><details class="cfg-key"><summary><code>progress</code>: tuning messages
-</summary><p><em>logical</em>: Enable tuning messages.</p>
 </details></details>
 </div>
 <div class="section level3">
@@ -570,8 +567,6 @@ Parameters
 output.</p>
 </details><details class="cfg-key"><summary><code>include_centroids</code>: factor-level centroids
 </summary><p><em>logical</em>: Include factor-level centroids.</p>
-</details><details class="cfg-key"><summary><code>progress</code>: ordination messages
-</summary><p><em>logical</em>: Enable ordination messages.</p>
 </details><details class="cfg-key"><summary><code>nmds_args</code>: metaMDS arguments
 </summary><p><em>named list</em>: Arguments forwarded to
 <code><a href="https://vegandevs.github.io/vegan/reference/metaMDS.html" class="external-link">vegan::metaMDS()</a></code>.</p>
@@ -608,8 +603,6 @@ study-level metadata fields.</p>
 screen.</p>
 </details><details class="cfg-key"><summary><code>refresh</code>: force recompute
 </summary><p><em>logical</em>: Force recompute of the admissibility cache.</p>
-</details><details class="cfg-key"><summary><code>progress</code>: stage messages
-</summary><p><em>logical</em>: Enable admissibility-stage messages.</p>
 </details><details class="cfg-key"><summary><code>coherence</code>: measurement-overlap gates
 </summary><p>Minimum measurement-overlap requirements applied as gates.</p>
 <details class="cfg-key"><summary><code>length</code>
@@ -646,8 +639,8 @@ depth overlap.</li>
 </h3>
 <p>Declares the transfer policies to benchmark. Use the
 <strong>constructor form</strong> (<code>metric</code> +
-<code>branch</code> + <code>group</code>) to generate named policy sets
-from the registry, or the <strong>explicit form</strong>
+<code>slope_class</code> + <code>group</code>) to generate named policy
+sets from the registry, or the <strong>explicit form</strong>
 (<code>active</code>) to list policy names directly.</p>
 <details><summary>
 Parameters
@@ -657,10 +650,9 @@ Parameters
 <code>unweighted_mean</code>, <code>survey_distance</code>,
 <code>taxon_distance</code>, <code>species_distance</code>,
 <code>random</code>.</p>
-</details><details class="cfg-key"><summary><code>branch</code>: equation-branch filter
-</summary><p><em>character vector</em>: Equation branch filters. Supported:
-<code>all</code>, <code>fixed_slope</code>, <code>free_slope</code>. (In
-the explicit form the key is <code>equation_branch_filters</code>.)</p>
+</details><details class="cfg-key"><summary><code>slope_class</code>: slope-class filter
+</summary><p><em>character vector</em>: Slope classes. Supported:
+<code>all</code>, <code>fixed_slope</code>, <code>free_slope</code>.</p>
 </details><details class="cfg-key"><summary><code>group</code>: per-grouping overrides
 </summary><p><em>named list</em>: One entry per donor-pool grouping
 (e.g. <code>species</code>, <code>genus</code>, <code>family</code>).
@@ -699,8 +691,6 @@ outputs.</p>
 </summary><p><em>string</em>: Explicit cache-path override for the benchmark.</p>
 </details><details class="cfg-key"><summary><code>refresh</code>: force recompute
 </summary><p><em>logical</em>: Force recompute of the benchmark cache.</p>
-</details><details class="cfg-key"><summary><code>progress</code>: stage messages
-</summary><p><em>logical</em>: Enable benchmark-stage messages.</p>
 </details></details>
 </div>
 </div>
@@ -755,8 +745,6 @@ Learners vignette</a>.</p>
 learner.</p>
 </details><details class="cfg-key"><summary><code>refresh</code>: force recompute
 </summary><p><em>logical</em>: Force recompute of the uncertainty cache.</p>
-</details><details class="cfg-key"><summary><code>progress</code>: stage messages
-</summary><p><em>logical</em>: Enable uncertainty-stage messages.</p>
 </details></details>
 </div>
 <div class="section level3">
@@ -828,8 +816,6 @@ Learners vignette</a>.</p>
 </summary><p><em>string</em>: Explicit cache-path override for selection.</p>
 </details><details class="cfg-key"><summary><code>refresh</code>: force recompute
 </summary><p><em>logical</em>: Force recompute of the selection cache.</p>
-</details><details class="cfg-key"><summary><code>progress</code>: stage messages
-</summary><p><em>logical</em>: Enable selection-stage messages.</p>
 </details></details>
 </div>
 </div>
@@ -863,8 +849,6 @@ benchmarks.</p>
 allocated to outer workers.</p>
 </details><details class="cfg-key"><summary><code>fast_validation</code>: reduced NMDS schedule
 </summary><p><em>logical</em>: Reduce the NMDS schedule for faster runs.</p>
-</details><details class="cfg-key"><summary><code>progress</code>: console output
-</summary><p><em>logical</em>: Enable fold-level console output.</p>
 </details><details class="cfg-key"><summary><code>logging</code>: file logging
 </summary><p><em>logical</em>: Enable fold-level file logging.</p>
 </details><details class="cfg-key"><summary><code>save_case_artifacts</code>: persist fold artifacts
@@ -885,8 +869,6 @@ Parameters
 simulation.</p>
 </details><details class="cfg-key"><summary><code>refresh</code>: force recompute
 </summary><p><em>logical</em>: Force recompute of the sensitivity cache.</p>
-</details><details class="cfg-key"><summary><code>progress</code>: stage messages
-</summary><p><em>logical</em>: Enable simulation-stage messages.</p>
 </details></details>
 </div>
 </div>
@@ -916,11 +898,31 @@ execution:
   strict_length_pdf: false
   run_multiplier_model: false
   write_log: false
+  progress: false
 tuning:
   max_models_per_species: 2
   n_resamples: 8
   n_cores: 1
   seed: ~
+  alpha_range:
+    from: 0.1
+    to: 0.9
+  kernel_scale_range:
+    from: 1.0
+    to: 8.0
+  coherence:
+    length:
+      range:
+        from: 0.5
+        to: 6.0
+    depth:
+      range:
+        from: 0.5
+        to: 6.0
+    frequency:
+      range:
+        from: 0.5
+        to: 6.0
   grid_refinement_levels: 1
   response_surface_top_n: 20
   rmse_tolerance: 0.01
@@ -931,7 +933,6 @@ tuning:
     coherence_scale: 0.05
     stability: 0.02
   equal_start_weights: false
-  progress: false
 similarity:
   alpha: 0.8
   kernel_scale: 4.0
@@ -943,40 +944,23 @@ similarity:
     length:
       mode: overlap
       weight: 2.0
-      range:
-        from: 0.5
-        to: 6.0
     depth:
       mode: overlap
       weight: 3.0
-      range:
-        from: 0.5
-        to: 6.0
     frequency:
       mode: overlap
       weight: 2.0
-      range:
-        from: 0.5
-        to: 6.0
       gap: 60.0
   conformal_alpha: 0.1
-  alpha_range:
-    from: 0.1
-    to: 0.9
-  kernel_scale_range:
-    from: 1.0
-    to: 8.0
-  progress: false
 ordination:
   include_loadings: false
   include_centroids: false
-  progress: false
 policies:
   group:
   - species
   metric:
   - closest
-  equation_branch_filters:
+  slope_class:
   - all
 cache:
   folder: cache
@@ -1000,7 +984,6 @@ benchmark:
   workers: 1
   engine: cpp
   include_ts_error: false
-  progress: false
 admissibility:
   species_traits: []
   study_traits: []
@@ -1015,9 +998,7 @@ admissibility:
       mode: none
       gap: 60.0
   key_metadata_max: 0.25
-  progress: false
 uncertainty:
-  progress: false
   method: glm
   super_methods: ~
   method_settings:
@@ -1339,10 +1320,9 @@ selection:
   lambda_rule: lambda.1se
   loss: squared_error
   max_selection_tolerance: 1.0e-12
-  progress: false
 simulation:
   workers: 1
-  progress: false</code></pre>
+</code></pre>
 </div>
 <div class="config-panel config-panel-r">
 <pre><code class="language-r"><span><span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
@@ -1356,13 +1336,27 @@ simulation:
 <span>  execution <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
 <span>    strict_length_pdf <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>    run_multiplier_model <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>    write_log <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>    write_log <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>    progress <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span>  <span class="op">)</span>,</span>
 <span>  tuning <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
 <span>    max_models_per_species <span class="op">=</span> <span class="fl">2</span>,</span>
 <span>    n_resamples <span class="op">=</span> <span class="fl">8</span>,</span>
 <span>    n_cores <span class="op">=</span> <span class="fl">1</span>,</span>
 <span>    seed <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>    alpha_range <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>      from <span class="op">=</span> <span class="fl">0.1</span>,</span>
+<span>      to <span class="op">=</span> <span class="fl">0.9</span></span>
+<span>    <span class="op">)</span>,</span>
+<span>    kernel_scale_range <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>      from <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>      to <span class="op">=</span> <span class="fl">8</span></span>
+<span>    <span class="op">)</span>,</span>
+<span>    coherence <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>      length <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>range <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>from <span class="op">=</span> <span class="fl">0.5</span>, to <span class="op">=</span> <span class="fl">6</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>      depth <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>range <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>from <span class="op">=</span> <span class="fl">0.5</span>, to <span class="op">=</span> <span class="fl">6</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>      frequency <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>range <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>from <span class="op">=</span> <span class="fl">0.5</span>, to <span class="op">=</span> <span class="fl">6</span><span class="op">)</span><span class="op">)</span></span>
+<span>    <span class="op">)</span>,</span>
 <span>    grid_refinement_levels <span class="op">=</span> <span class="fl">1</span>,</span>
 <span>    response_surface_top_n <span class="op">=</span> <span class="fl">20</span>,</span>
 <span>    rmse_tolerance <span class="op">=</span> <span class="fl">0.01</span>,</span>
@@ -1373,8 +1367,7 @@ simulation:
 <span>      coherence_scale <span class="op">=</span> <span class="fl">0.05</span>,</span>
 <span>      stability <span class="op">=</span> <span class="fl">0.02</span></span>
 <span>    <span class="op">)</span>,</span>
-<span>    equal_start_weights <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>    progress <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>    equal_start_weights <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span>  <span class="op">)</span>,</span>
 <span>  similarity <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
 <span>    alpha <span class="op">=</span> <span class="fl">0.8</span>,</span>
@@ -1388,50 +1381,28 @@ simulation:
 <span>    coherence <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
 <span>      length <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
 <span>        mode <span class="op">=</span> <span class="st">"overlap"</span>,</span>
-<span>        weight <span class="op">=</span> <span class="fl">2</span>,</span>
-<span>        range <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>          from <span class="op">=</span> <span class="fl">0.5</span>,</span>
-<span>          to <span class="op">=</span> <span class="fl">6</span></span>
-<span>        <span class="op">)</span></span>
+<span>        weight <span class="op">=</span> <span class="fl">2</span></span>
 <span>      <span class="op">)</span>,</span>
 <span>      depth <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
 <span>        mode <span class="op">=</span> <span class="st">"overlap"</span>,</span>
-<span>        weight <span class="op">=</span> <span class="fl">3</span>,</span>
-<span>        range <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>          from <span class="op">=</span> <span class="fl">0.5</span>,</span>
-<span>          to <span class="op">=</span> <span class="fl">6</span></span>
-<span>        <span class="op">)</span></span>
+<span>        weight <span class="op">=</span> <span class="fl">3</span></span>
 <span>      <span class="op">)</span>,</span>
 <span>      frequency <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
 <span>        mode <span class="op">=</span> <span class="st">"overlap"</span>,</span>
 <span>        weight <span class="op">=</span> <span class="fl">2</span>,</span>
-<span>        range <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>          from <span class="op">=</span> <span class="fl">0.5</span>,</span>
-<span>          to <span class="op">=</span> <span class="fl">6</span></span>
-<span>        <span class="op">)</span>,</span>
 <span>        gap <span class="op">=</span> <span class="fl">60</span></span>
 <span>      <span class="op">)</span></span>
 <span>    <span class="op">)</span>,</span>
-<span>    conformal_alpha <span class="op">=</span> <span class="fl">0.1</span>,</span>
-<span>    alpha_range <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>      from <span class="op">=</span> <span class="fl">0.1</span>,</span>
-<span>      to <span class="op">=</span> <span class="fl">0.9</span></span>
-<span>    <span class="op">)</span>,</span>
-<span>    kernel_scale_range <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>      from <span class="op">=</span> <span class="fl">1</span>,</span>
-<span>      to <span class="op">=</span> <span class="fl">8</span></span>
-<span>    <span class="op">)</span>,</span>
-<span>    progress <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>    conformal_alpha <span class="op">=</span> <span class="fl">0.1</span></span>
 <span>  <span class="op">)</span>,</span>
 <span>  ordination <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
 <span>    include_loadings <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>    include_centroids <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>    progress <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>    include_centroids <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span>  <span class="op">)</span>,</span>
 <span>  policies <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
 <span>    group <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="st">"species"</span><span class="op">)</span>,</span>
 <span>    metric <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="st">"closest"</span><span class="op">)</span>,</span>
-<span>    equation_branch_filters <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="st">"all"</span><span class="op">)</span></span>
+<span>    slope_class <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="st">"all"</span><span class="op">)</span></span>
 <span>  <span class="op">)</span>,</span>
 <span>  cache <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
 <span>    folder <span class="op">=</span> <span class="st">"cache"</span>,</span>
@@ -1456,8 +1427,7 @@ simulation:
 <span>  benchmark <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
 <span>    workers <span class="op">=</span> <span class="fl">1</span>,</span>
 <span>    engine <span class="op">=</span> <span class="st">"cpp"</span>,</span>
-<span>    include_ts_error <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>    progress <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>    include_ts_error <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span>  <span class="op">)</span>,</span>
 <span>  admissibility <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
 <span>    species_traits <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">character</a></span><span class="op">(</span><span class="fl">0</span><span class="op">)</span>,</span>
@@ -1476,11 +1446,9 @@ simulation:
 <span>        gap <span class="op">=</span> <span class="fl">60</span></span>
 <span>      <span class="op">)</span></span>
 <span>    <span class="op">)</span>,</span>
-<span>    key_metadata_max <span class="op">=</span> <span class="fl">0.25</span>,</span>
-<span>    progress <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>    key_metadata_max <span class="op">=</span> <span class="fl">0.25</span></span>
 <span>  <span class="op">)</span>,</span>
 <span>  uncertainty <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>    progress <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>    method <span class="op">=</span> <span class="st">"glm"</span>,</span>
 <span>    super_methods <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>    method_settings <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
@@ -1842,11 +1810,10 @@ simulation:
 <span>    lambda_rule <span class="op">=</span> <span class="st">"lambda.1se"</span>,</span>
 <span>    loss <span class="op">=</span> <span class="st">"squared_error"</span>,</span>
 <span>    max_selection_tolerance <span class="op">=</span> <span class="fl">1e-12</span>,</span>
-<span>    progress <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>    refresh <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span>  <span class="op">)</span>,</span>
 <span>  simulation <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>    workers <span class="op">=</span> <span class="fl">1</span>,</span>
-<span>    progress <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>    workers <span class="op">=</span> <span class="fl">1</span></span>
 <span>  <span class="op">)</span></span>
 <span><span class="op">)</span></span></code></pre>
 </div>

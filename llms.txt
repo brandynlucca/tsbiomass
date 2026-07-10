@@ -46,7 +46,7 @@ devtools::install(".")
 library(tsbiomass)
 
 # Configure
-cfg <- build_configurer(create_configuration_template("input.xlsx"), base_dir = getwd())
+cfg <- build_configurer(create_configuration_template(), base_dir = getwd())
 
 # Candidates + anchors
 candidates <- build_candidates(cfg)
@@ -451,6 +451,18 @@ Workflow guides and method references.
   Every configuration section and key, grouped by what it controls, with
   one copy-ready default configuration generated from the package
   template.
+
+- [Alchemist Distance
+  Learning](https://brandynlucca.github.io/tsbiomass/articles/alchemist-distance-learning.md):
+
+  Configuration and parameterization notes for the supervised Alchemist
+  distance path.
+
+- [Empirical Similarity
+  Tuning](https://brandynlucca.github.io/tsbiomass/articles/empirical-similarity-tuning.md):
+
+  Configuration and parameterization notes for the Candidates empirical
+  similarity-tuning path.
 
 - [Super
   Learners](https://brandynlucca.github.io/tsbiomass/articles/super-learners.md):
