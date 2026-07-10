@@ -6,6 +6,8 @@ and different practical constraints. Understanding which learner is
 which, and what it is actually predicting, is the most important thing
 before you start tuning.
 
+💻 List available learner methods
+
 ``` r
 
 library(tsbiomass)
@@ -82,7 +84,8 @@ Conditional quantile
 
 💻 Default Alchemist learner configuration
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 alchemist:
@@ -94,6 +97,7 @@ alchemist:
 ```
 
 ``` r
+
 list(
   alchemist = list(
     learner = list(
@@ -145,7 +149,8 @@ than foundational.
 
 💻 Default configuration for glm
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: glm
@@ -154,6 +159,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "glm",
   method_settings = list(
@@ -177,7 +183,8 @@ scales.
 
 💻 Default configuration for glm_ridge
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: glm_ridge
@@ -189,6 +196,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "glm_ridge",
   method_settings = list(
@@ -213,7 +221,8 @@ usually prefer elastic-net unless hard sparsity is explicitly needed.
 
 💻 Default configuration for glm_lasso
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: glm_lasso
@@ -225,6 +234,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "glm_lasso",
   method_settings = list(
@@ -260,7 +270,8 @@ the final bias-variance dial for pair-table size and feature breadth.
 
 💻 Default configuration for glm_elastic
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: glm_elastic
@@ -272,6 +283,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "glm_elastic",
   method_settings = list(
@@ -292,7 +304,8 @@ Sentinel validates the more aggressive fit.
 
 💻 Elastic-net emphasis
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 alchemist:
@@ -307,6 +320,7 @@ alchemist:
 ```
 
 ``` r
+
 list(
   alchemist = list(
     learner = list(
@@ -339,7 +353,8 @@ lingering as noise absorbers.
 
 💻 Default configuration for gam
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: gam
@@ -350,6 +365,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "gam",
   method_settings = list(
@@ -376,7 +392,8 @@ pair counts are too small to justify long hinge paths.
 
 💻 Default configuration for mars
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: mars
@@ -389,6 +406,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "mars",
   method_settings = list(
@@ -417,7 +435,8 @@ smoother models are averaging away.
 
 💻 Default configuration for rpart
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: rpart
@@ -430,6 +449,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "rpart",
   method_settings = list(
@@ -453,7 +473,8 @@ split, `min_node_size` and `max_depth` control tree complexity, and
 
 💻 Default configuration for rf
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: rf
@@ -469,6 +490,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "rf",
   method_settings = list(
@@ -492,7 +514,8 @@ every tree of rows.
 
 💻 Random forest, memory-constrained
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 alchemist:
@@ -506,6 +529,7 @@ alchemist:
 ```
 
 ``` r
+
 list(
   alchemist = list(
     learner = list(
@@ -532,7 +556,8 @@ values because boosting can memorize sparse donor-anchor patterns.
 
 💻 Default configuration for xgboost
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: xgboost
@@ -550,6 +575,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "xgboost",
   method_settings = list(
@@ -574,7 +600,8 @@ unless Sentinel shows that a higher-capacity fit improves holdout error.
 
 💻 XGBoost for a small candidate pool
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 alchemist:
@@ -593,6 +620,7 @@ alchemist:
 ```
 
 ``` r
+
 list(
   alchemist = list(
     learner = list(
@@ -630,7 +658,8 @@ tables can be method-sensitive.
 
 💻 Default configuration for qreg
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: qreg
@@ -641,6 +670,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "qreg",
   method_settings = list(
@@ -742,7 +772,8 @@ Baseline and ensemble
 
 💻 Default uncertainty learner configuration
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 uncertainty:
@@ -756,6 +787,7 @@ uncertainty:
 ```
 
 ``` r
+
 list(
   uncertainty = list(
     method = "super_learner",
@@ -805,7 +837,8 @@ covariates.
 
 💻 Default configuration for glm
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: glm
@@ -814,6 +847,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "glm",
   method_settings = list(
@@ -835,7 +869,8 @@ regularization.
 
 💻 Default configuration for glm_ridge
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: glm_ridge
@@ -847,6 +882,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "glm_ridge",
   method_settings = list(
@@ -871,7 +907,8 @@ elastic-net is usually preferred for production interval calibration.
 
 💻 Default configuration for glm_lasso
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: glm_lasso
@@ -883,6 +920,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "glm_lasso",
   method_settings = list(
@@ -910,7 +948,8 @@ and noisy.
 
 💻 Default configuration for glm_elastic
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: glm_elastic
@@ -922,6 +961,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "glm_elastic",
   method_settings = list(
@@ -946,7 +986,8 @@ from inflating variance in stacked settings.
 
 💻 Default configuration for gam
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: gam
@@ -957,6 +998,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "gam",
   method_settings = list(
@@ -977,7 +1019,8 @@ the pruning strategy, and `nprune` can cap retained terms.
 
 💻 Default configuration for mars
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: mars
@@ -990,6 +1033,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "mars",
   method_settings = list(
@@ -1009,7 +1053,8 @@ terms or Sentinel shows unstable interval calibration.
 
 💻 MARS (additive)
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 uncertainty:
@@ -1021,6 +1066,7 @@ uncertainty:
 ```
 
 ``` r
+
 list(
   uncertainty = list(
     method_settings = list(
@@ -1043,7 +1089,8 @@ partitioner.
 
 💻 Default configuration for rpart
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: rpart
@@ -1056,6 +1103,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "rpart",
   method_settings = list(
@@ -1078,7 +1126,8 @@ nonlinear mean-regression structure. `num_trees` controls ensemble size,
 
 💻 Default configuration for rf
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: rf
@@ -1094,6 +1143,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "rf",
   method_settings = list(
@@ -1117,7 +1167,8 @@ central and tail behavior.
 
 💻 Tail-focused ensemble
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 uncertainty:
@@ -1131,6 +1182,7 @@ uncertainty:
 ```
 
 ``` r
+
 list(
   uncertainty = list(
     method = "super_learner",
@@ -1158,7 +1210,8 @@ the method.
 
 💻 Default configuration for xgboost
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: xgboost
@@ -1176,6 +1229,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "xgboost",
   method_settings = list(
@@ -1207,7 +1261,8 @@ rather than just point prediction.
 
 💻 Default configuration for bart
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: bart
@@ -1227,6 +1282,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "bart",
   method_settings = list(
@@ -1260,7 +1316,8 @@ behavior.
 
 💻 Default configuration for xbart
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: xbart
@@ -1280,6 +1337,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "xbart",
   method_settings = list(
@@ -1311,7 +1369,8 @@ full `bart` is too slow but deterministic `xbart` is too narrow.
 
 💻 Default configuration for wsbart
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: wsbart
@@ -1331,6 +1390,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "wsbart",
   method_settings = list(
@@ -1366,7 +1426,8 @@ become unstable.
 
 💻 Default configuration for vfbart
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: vfbart
@@ -1387,6 +1448,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "vfbart",
   method_settings = list(
@@ -1425,7 +1487,8 @@ variable and keep split-safe random effects explicit.
 
 💻 ReBART with coarser grouping
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 uncertainty:
@@ -1439,6 +1502,7 @@ uncertainty:
 ```
 
 ``` r
+
 list(
   uncertainty = list(
     method = "rebart",
@@ -1456,7 +1520,8 @@ list(
 
 💻 Default configuration for rebart
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: rebart
@@ -1477,6 +1542,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "rebart",
   method_settings = list(
@@ -1508,7 +1574,8 @@ useful when conformal intervals are under-wide in high-error regions.
 
 💻 Default configuration for qreg
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: qreg
@@ -1519,6 +1586,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "qreg",
   method_settings = list(
@@ -1554,7 +1622,8 @@ and tail behavior.
 
 💻 Default configuration for qrf
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: qrf
@@ -1570,6 +1639,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "qrf",
   method_settings = list(
@@ -1600,7 +1670,8 @@ Computationally $`O(N^3)`$. Avoid in very large training sets.
 
 💻 Default configuration for gpr
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: gpr
@@ -1610,6 +1681,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "gpr",
   method_settings = list(
@@ -1626,7 +1698,8 @@ the learner produces nearly constant predictions.
 
 💻 Gaussian process nugget
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 uncertainty:
@@ -1636,6 +1709,7 @@ uncertainty:
 ```
 
 ``` r
+
 list(
   uncertainty = list(
     method_settings = list(
@@ -1659,7 +1733,8 @@ starting point unless diagnostics show systematic underfit.
 
 💻 Default configuration for svr
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: svr
@@ -1670,6 +1745,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "svr",
   method_settings = list(
@@ -1695,7 +1771,8 @@ keep global members in the same ensemble.
 
 💻 Default configuration for knn
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: knn
@@ -1705,6 +1782,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "knn",
   method_settings = list(
@@ -1729,7 +1807,8 @@ correction around rule boundaries.
 
 💻 Default configuration for cubist
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: cubist
@@ -1740,6 +1819,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "cubist",
   method_settings = list(
@@ -1766,7 +1846,8 @@ coarsen `group_col` and compare `ML` against `REML`.
 
 💻 LMM with coarser grouping
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 uncertainty:
@@ -1779,6 +1860,7 @@ uncertainty:
 ```
 
 ``` r
+
 list(
   uncertainty = list(
     method = "lmm",
@@ -1795,7 +1877,8 @@ list(
 
 💻 Default configuration for lmm
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: lmm
@@ -1806,6 +1889,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "lmm",
   method_settings = list(
@@ -1829,7 +1913,8 @@ covariate structure.
 
 💻 Default configuration for mean
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: mean
@@ -1838,6 +1923,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "mean",
   method_settings = list(
@@ -1859,7 +1945,8 @@ tradeoff for the blending targets.
 
 💻 Default configuration for super_learner
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: super_learner
@@ -1869,6 +1956,7 @@ metalearner_loss: squared_error
 ```
 
 ``` r
+
 list(
   method = "super_learner",
   super_methods = NULL,
@@ -1961,7 +2049,8 @@ Baseline and ensemble
 
 💻 Default selection learner configuration
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 selection:
@@ -1973,6 +2062,7 @@ selection:
 ```
 
 ``` r
+
 list(
   selection = list(
     method = "glm",
@@ -2003,7 +2093,8 @@ Switch to `method: super_learner` when:
 
 💻 Super Learner ensemble
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 selection:
@@ -2014,6 +2105,7 @@ selection:
 ```
 
 ``` r
+
 list(
   selection = list(
     method = "super_learner",
@@ -2050,7 +2142,8 @@ members.
 
 💻 Default configuration for glm
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: glm
@@ -2059,6 +2152,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "glm",
   method_settings = list(
@@ -2079,7 +2173,8 @@ selection stage.
 
 💻 Default configuration for glm_ridge
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: glm_ridge
@@ -2091,6 +2186,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "glm_ridge",
   method_settings = list(
@@ -2114,7 +2210,8 @@ context covariates are correlated.
 
 💻 Default configuration for glm_lasso
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: glm_lasso
@@ -2126,6 +2223,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "glm_lasso",
   method_settings = list(
@@ -2153,7 +2251,8 @@ current bottleneck.
 
 💻 Default configuration for glm_elastic
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: glm_elastic
@@ -2165,6 +2264,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "glm_elastic",
   method_settings = list(
@@ -2189,7 +2289,8 @@ in moderate-size benchmark tables.
 
 💻 Default configuration for gam
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: gam
@@ -2200,6 +2301,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "gam",
   method_settings = list(
@@ -2220,7 +2322,8 @@ the pruning strategy, and `nprune` can cap retained terms.
 
 💻 Default configuration for mars
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: mars
@@ -2233,6 +2336,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "mars",
   method_settings = list(
@@ -2252,7 +2356,8 @@ than about 20 species.
 
 💻 Adding MARS to the ensemble
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 selection:
@@ -2266,6 +2371,7 @@ selection:
 ```
 
 ``` r
+
 list(
   selection = list(
     method = "super_learner",
@@ -2289,7 +2395,8 @@ thresholds rather than smooth gradients.
 
 💻 Default configuration for rpart
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: rpart
@@ -2302,6 +2409,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "rpart",
   method_settings = list(
@@ -2328,7 +2436,8 @@ issue.
 
 💻 Default configuration for rf
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: rf
@@ -2344,6 +2453,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "rf",
   method_settings = list(
@@ -2379,7 +2489,8 @@ becoming unstable noise.
 
 💻 Default configuration for xgboost
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: xgboost
@@ -2397,6 +2508,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "xgboost",
   method_settings = list(
@@ -2428,7 +2540,8 @@ close.
 
 💻 Default configuration for bart
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: bart
@@ -2448,6 +2561,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "bart",
   method_settings = list(
@@ -2479,7 +2593,8 @@ other members for robustness.
 
 💻 Default configuration for xbart
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: xbart
@@ -2499,6 +2614,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "xbart",
   method_settings = list(
@@ -2530,7 +2646,8 @@ compromise between `bart` and `xbart`.
 
 💻 Default configuration for wsbart
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: wsbart
@@ -2550,6 +2667,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "wsbart",
   method_settings = list(
@@ -2583,7 +2701,8 @@ complexity moderate unless anchor coverage is large.
 
 💻 Default configuration for vfbart
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: vfbart
@@ -2604,6 +2723,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "vfbart",
   method_settings = list(
@@ -2639,7 +2759,8 @@ enough observations per level.
 
 💻 Default configuration for rebart
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: rebart
@@ -2660,6 +2781,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "rebart",
   method_settings = list(
@@ -2695,7 +2817,8 @@ picks.
 
 💻 Default configuration for qreg
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: qreg
@@ -2706,6 +2829,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "qreg",
   method_settings = list(
@@ -2730,7 +2854,8 @@ interactions rather than additive trends.
 
 💻 Default configuration for qrf
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: qrf
@@ -2746,6 +2871,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "qrf",
   method_settings = list(
@@ -2775,7 +2901,8 @@ is the first response to kernel-conditioning warnings.
 
 💻 Default configuration for gpr
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: gpr
@@ -2785,6 +2912,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "gpr",
   method_settings = list(
@@ -2808,7 +2936,8 @@ since aggressive tuning can destabilize small selection tables.
 
 💻 Default configuration for svr
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: svr
@@ -2819,6 +2948,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "svr",
   method_settings = list(
@@ -2842,7 +2972,8 @@ complementary member with at least one global learner.
 
 💻 Default configuration for knn
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: knn
@@ -2852,6 +2983,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "knn",
   method_settings = list(
@@ -2875,7 +3007,8 @@ members in policy selection.
 
 💻 Default configuration for cubist
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: cubist
@@ -2886,6 +3019,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "cubist",
   method_settings = list(
@@ -2908,7 +3042,8 @@ estimation.
 
 💻 Default configuration for lmm
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: lmm
@@ -2919,6 +3054,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "lmm",
   method_settings = list(
@@ -2936,7 +3072,8 @@ identifier in the benchmark table.
 
 💻 Linear mixed model
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 selection:
@@ -2949,6 +3086,7 @@ selection:
 ```
 
 ``` r
+
 list(
   selection = list(
     method = "lmm",
@@ -2968,7 +3106,8 @@ compare ML vs REML fit behavior.
 
 💻 Coarser-group LMM alternative
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 selection:
@@ -2981,6 +3120,7 @@ selection:
 ```
 
 ``` r
+
 list(
   selection = list(
     method = "lmm",
@@ -3008,7 +3148,8 @@ benchmarking or features.
 
 💻 Default configuration for mean
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: mean
@@ -3017,6 +3158,7 @@ method_settings:
 ```
 
 ``` r
+
 list(
   method = "mean",
   method_settings = list(
@@ -3037,7 +3179,8 @@ base learners remain identifiable while blend weights are still stable.
 
 💻 Default configuration for super_learner
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 method: super_learner
@@ -3047,6 +3190,7 @@ metalearner_loss: squared_error
 ```
 
 ``` r
+
 list(
   method = "super_learner",
   super_methods = NULL,
@@ -3077,7 +3221,8 @@ run.
 
 💻 Use a custom method-default registry
 
-YAML R list
+- YAML
+- R list
 
 ``` yaml
 selection:
@@ -3090,6 +3235,7 @@ selection:
 ```
 
 ``` r
+
 list(
   selection = list(
     method_defaults_path = "path/to/learner_method_defaults.json",
