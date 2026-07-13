@@ -8379,11 +8379,20 @@ crossfit_meta_policy_learner <- function(policy_perf,
   # streaming path for super_learner avoids accumulating all 11 base learner
   # model objects simultaneously - only one model at a time is held in RAM.
   run_fold_split <- function(fold_split) {
+    fold_start <- proc.time()
     f <- fold_split$fold_id
     train <- fold_split$train
     test <- fold_split$test
     if (nrow(train) == 0 || nrow(test) == 0) {
-      return(tibble::tibble())
+      out <- tibble::tibble()
+      attr(out, "fold_timing") <- tibble::tibble(
+        fold_id = as.integer(f),
+        n_train = nrow(train),
+        n_test = nrow(test),
+        seconds = unname((proc.time() - fold_start)[["elapsed"]]),
+        succeeded = FALSE
+      )
+      return(out)
     }
     outer_seed <- if (is.null(seed)) NULL else as.integer(seed) + f
     if (is_super) {
@@ -8424,6 +8433,13 @@ crossfit_meta_policy_learner <- function(policy_perf,
     }
     learner_timings <- attr(preds, "learner_timings")
     out <- preds |> dplyr::mutate(fold_id = f)
+    attr(out, "fold_timing") <- tibble::tibble(
+      fold_id = as.integer(f),
+      n_train = nrow(train),
+      n_test = nrow(test),
+      seconds = unname((proc.time() - fold_start)[["elapsed"]]),
+      succeeded = TRUE
+    )
     if (is.data.frame(learner_timings) && nrow(learner_timings) > 0L) {
       attr(out, "learner_timings") <- learner_timings |>
         dplyr::mutate(outer_fold = f)
@@ -8467,6 +8483,12 @@ crossfit_meta_policy_learner <- function(policy_perf,
     cluster_obj <- initialize_parallel_cluster(
       workers = n_workers_eff
     )
+    report_progress(
+      progress,
+      "Policy learner cross-fit backend: ",
+      parallel_cluster_description(cluster_obj),
+      "; parallel unit=outer fold; method-local workers=1."
+    )
     on.exit(parallel::stopCluster(cluster_obj), add = TRUE)
     tsb_cluster_export(
       cluster_obj,
@@ -8493,9 +8515,20 @@ crossfit_meta_policy_learner <- function(policy_perf,
     fold_results,
     function(result) attr(result, "learner_timings") %||% tibble::tibble()
   ))
+  fold_timings <- dplyr::bind_rows(lapply(
+    fold_results,
+    function(result) attr(result, "fold_timing") %||% tibble::tibble()
+  ))
   pred_rows <- dplyr::bind_rows(fold_results)
 
-  report_progress(progress, sprintf("Cross-fit complete: %d prediction rows collected.", nrow(pred_rows)))
+  report_progress(
+    progress,
+    sprintf(
+      "Cross-fit complete: %d prediction rows collected across %d fold task(s).",
+      nrow(pred_rows),
+      nrow(fold_timings)
+    )
+  )
 
   # Mirror the observed outcome onto the configured outcome name so downstream
   # code can work with one stable column regardless of whether it expects the
@@ -8508,6 +8541,7 @@ crossfit_meta_policy_learner <- function(policy_perf,
     fold_assignments = fold_tbl,
     predictions = pred_rows,
     learner_timings = learner_timings,
+    fold_timings = fold_timings,
     outcome_clip_quantile = data_clip_quantile,
     outcome_clip_cap = data_clip_cap
   )

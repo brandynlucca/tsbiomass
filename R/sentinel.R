@@ -150,6 +150,7 @@ sentinel_default_options <- function(options = NULL) {
     log_file = "sentinel.log",
     manifest_file = "sentinel_manifest.csv",
     results_index_file = "sentinel_results_index.csv",
+    timings_file = "sentinel_fold_timings.csv",
     summary_dir = "summaries",
     artifact_dir = "artifacts",
     cache_root_dir = "fold_cache",
@@ -716,6 +717,10 @@ sentinel_output_paths <- function(object) {
     results_index_file = file.path(
       object@output_dir,
       object@options$results_index_file %||% "sentinel_results_index.csv"
+    ),
+    timings_file = file.path(
+      object@output_dir,
+      object@options$timings_file %||% "sentinel_fold_timings.csv"
     ),
     summary_dir = file.path(
       object@output_dir,
@@ -1374,6 +1379,8 @@ sentinel_patch_fold_config <- function(config,
     cfg_now$alchemist$learner <- cfg_now$alchemist$learner %||% list()
     cfg_now$alchemist$learner$workers <- 1L
     cfg_now$alchemist$distill_workers <- 1L
+    cfg_now$sentinel <- cfg_now$sentinel %||% list()
+    cfg_now$sentinel$inner_worker_policy <- "outer_parallel_inner_workers_1"
   }
 
   # TS-error reconstruction is independent of the scalar replacement-error
@@ -2637,9 +2644,23 @@ sentinel_run_one_fold <- function(object,
                                   workflow_fn,
                                   progress = FALSE,
                                   split_plan = NULL) {
+  fold_total_start <- proc.time()
+  timing_rows <- list()
+  add_timing <- function(stage, start_time, extra = list()) {
+    timing_rows[[length(timing_rows) + 1L]] <<- c(
+      list(
+        stage = stage,
+        seconds = unname((proc.time() - start_time)[["elapsed"]])
+      ),
+      extra
+    )
+    invisible(NULL)
+  }
+
   # Partition the candidate table first, then apply the active scenario.
   scenario_nm <- as.character(manifest_row$scenario[[1]])
   scenario_spec <- object@scenario_grid[[scenario_nm]] %||% list()
+  stage_start <- proc.time()
   partitioned <- sentinel_partition_data(
     data = object@data,
     split_col = object@split_col,
@@ -2648,6 +2669,8 @@ sentinel_run_one_fold <- function(object,
     options = object@options,
     split_plan = split_plan
   )
+  add_timing("partition_data", stage_start)
+  stage_start <- proc.time()
   prepared <- sentinel_apply_scenario(
     train_data = partitioned$train_data,
     test_data = partitioned$test_data,
@@ -2656,6 +2679,7 @@ sentinel_run_one_fold <- function(object,
     manifest_row = manifest_row,
     object = object
   )
+  add_timing("apply_scenario", stage_start)
 
   report_progress(
     progress,
@@ -2680,24 +2704,50 @@ sentinel_run_one_fold <- function(object,
     )
   )
   uses_object_workflow <- sentinel_object_workflow(workflow_fn)
-  fold_candidates <- if (uses_object_workflow) {
-    sentinel_build_candidates(
-      candidate_models = prepared$train_data,
-      reference_anchors = prepared$test_data,
-      config = prepared$config
-    )
-  } else {
-    NULL
-  }
-  fold_configurer <- if (uses_object_workflow) {
-    sentinel_fold_configurer(
-      config = prepared$config,
-      object = object
-    )
-  } else {
-    NULL
+  fold_candidates <- NULL
+  fold_configurer <- NULL
+  if (uses_object_workflow) {
+    stage_start <- proc.time()
+    fold_cache_file <- ""
+    if ("cache_dir" %in% names(manifest_row)) {
+      cache_dir_now <- as.character(manifest_row$cache_dir[[1]] %||% "")
+      if (nzchar(cache_dir_now)) {
+        dir.create(cache_dir_now, recursive = TRUE, showWarnings = FALSE)
+        fold_cache_file <- file.path(cache_dir_now, "sentinel_fold_inputs.rds")
+      }
+    }
+    cache_hit <- FALSE
+    if (nzchar(fold_cache_file) &&
+      file.exists(fold_cache_file) &&
+      !isTRUE(object@options$cache_refresh %||% FALSE)) {
+      cached_inputs <- readRDS(fold_cache_file)
+      fold_candidates <- cached_inputs$candidates
+      fold_configurer <- cached_inputs$configurer
+      cache_hit <- TRUE
+    } else {
+      fold_candidates <- sentinel_build_candidates(
+        candidate_models = prepared$train_data,
+        reference_anchors = prepared$test_data,
+        config = prepared$config
+      )
+      fold_configurer <- sentinel_fold_configurer(
+        config = prepared$config,
+        object = object
+      )
+      if (nzchar(fold_cache_file)) {
+        saveRDS(
+          list(
+            candidates = fold_candidates,
+            configurer = fold_configurer
+          ),
+          fold_cache_file
+        )
+      }
+    }
+    add_timing("prepare_object_workflow_inputs", stage_start, list(cache_hit = cache_hit))
   }
 
+  stage_start <- proc.time()
   result <- sentinel_invoke_workflow(
     workflow_fn = workflow_fn,
     candidates = fold_candidates,
@@ -2709,9 +2759,13 @@ sentinel_run_one_fold <- function(object,
     manifest_row = manifest_row,
     sentinel = object
   )
+  add_timing("workflow", stage_start)
+  stage_start <- proc.time()
   result <- sentinel_normalize_result(result)
+  add_timing("normalize_result", stage_start)
 
   # Attach fold metadata to the normalized metric table before writing it.
+  stage_start <- proc.time()
   metrics_tbl <- sentinel_validate_metrics(result$metrics) |>
     dplyr::mutate(
       fold_id = as.integer(manifest_row$fold_id[[1]]),
@@ -2733,6 +2787,7 @@ sentinel_run_one_fold <- function(object,
     )
 
   sentinel_write_table(metrics_tbl, manifest_row$summary_file[[1]])
+  add_timing("write_summary", stage_start)
 
   # Persist one canonical case-study bundle so downstream inspection can rely
   # on stable field names even when the workflow also supplies custom artifacts.
@@ -2740,6 +2795,7 @@ sentinel_run_one_fold <- function(object,
     isTRUE(manifest_row$case_study[[1]]) &&
     (!is.null(result$artifacts) || !is.null(result$selected) || !is.null(result$intervals))
   if (save_artifacts) {
+    stage_start <- proc.time()
     dir.create(dirname(manifest_row$artifact_file[[1]]), recursive = TRUE, showWarnings = FALSE)
     saveRDS(
       list(
@@ -2750,11 +2806,48 @@ sentinel_run_one_fold <- function(object,
       ),
       manifest_row$artifact_file[[1]]
     )
+    add_timing("write_artifacts", stage_start)
   }
+
+  timing_tbl <- dplyr::bind_rows(lapply(timing_rows, tibble::as_tibble)) |>
+    dplyr::mutate(
+      fold_id = as.integer(manifest_row$fold_id[[1]]),
+      outer_fold_id = as.integer((manifest_row$outer_fold_id %||% manifest_row$fold_id)[[1]]),
+      repeat_id = as.integer((manifest_row$repeat_id %||% 1L)[[1]]),
+      deployment_target = as.character(
+        manifest_row$deployment_target[[1]] %||%
+          object@options$deployment_target %||%
+          "custom"
+      ),
+      scenario = scenario_nm,
+      split_mode = as.character(manifest_row$split_mode[[1]]),
+      holdout_id = as.character(manifest_row$holdout_id[[1]]),
+      .before = 1
+    )
+  timing_tbl <- dplyr::bind_rows(
+    timing_tbl,
+    tibble::tibble(
+      fold_id = as.integer(manifest_row$fold_id[[1]]),
+      outer_fold_id = as.integer((manifest_row$outer_fold_id %||% manifest_row$fold_id)[[1]]),
+      repeat_id = as.integer((manifest_row$repeat_id %||% 1L)[[1]]),
+      deployment_target = as.character(
+        manifest_row$deployment_target[[1]] %||%
+          object@options$deployment_target %||%
+          "custom"
+      ),
+      scenario = scenario_nm,
+      split_mode = as.character(manifest_row$split_mode[[1]]),
+      holdout_id = as.character(manifest_row$holdout_id[[1]]),
+      stage = "total",
+      seconds = unname((proc.time() - fold_total_start)[["elapsed"]]),
+      cache_hit = NA
+    )
+  )
 
   list(
     metrics = metrics_tbl,
-    artifacts_saved = save_artifacts
+    artifacts_saved = save_artifacts,
+    timings = timing_tbl
   )
 }
 
@@ -2802,6 +2895,7 @@ run_sentinel <- function(object,
   runtime_options$workers <- workers
   runtime_options$progress <- progress
   runtime_options$logging <- logging
+  runtime_options$throttle_inner_workers <- isTRUE(runtime_options$throttle_inner_workers %||% FALSE)
   object <- sentinel_rebuild(
     object,
     workflow_fn = workflow_fn,
@@ -2849,6 +2943,9 @@ run_sentinel <- function(object,
 
   if (length(pending_rows) == 0L) {
     sentinel_write_table(object@results, sentinel_output_paths(object)$results_index_file)
+    if (file.exists(sentinel_output_paths(object)$timings_file)) {
+      report_progress(progress, "Sentinel timing table: ", sentinel_output_paths(object)$timings_file)
+    }
     if (logging) {
       sentinel_compile_fold_logs(
         manifest_tbl = manifest_tbl,
@@ -2869,6 +2966,20 @@ run_sentinel <- function(object,
   task_rows <- lapply(pending_rows, function(row_idx) {
     tibble::as_tibble(manifest_tbl[row_idx, , drop = FALSE])
   })
+  report_progress(
+    progress,
+    "Sentinel runtime: pending_folds=", length(task_rows),
+    ", requested_workers=", workers,
+    ", effective_workers=", min(workers, length(task_rows)),
+    ", throttle_inner_workers=", runtime_options$throttle_inner_workers,
+    "."
+  )
+  if (runtime_options$throttle_inner_workers && workers > 1L) {
+    report_progress(
+      progress,
+      "Sentinel worker policy: outer folds parallelized; fold-local benchmark, Alchemist, selection, uncertainty, and simulation workers forced to 1."
+    )
+  }
   worker_object <- sentinel_rebuild(
     object,
     workflow_fn = workflow_fn,
@@ -2944,6 +3055,12 @@ run_sentinel <- function(object,
       workers = min(workers, length(task_rows)),
       worker_output = progress
     )
+    report_progress(
+      progress,
+      "Sentinel outer-fold worker backend: ",
+      parallel_cluster_description(cluster_obj),
+      "."
+    )
     on.exit(parallel::stopCluster(cluster_obj), add = TRUE)
     tsb_cluster_export(
       cluster_obj,
@@ -3018,6 +3135,51 @@ run_sentinel <- function(object,
     tibble::tibble()
   }
   sentinel_write_table(results_tbl, sentinel_output_paths(object)$results_index_file)
+
+  timing_rows <- dplyr::bind_rows(lapply(
+    fold_outputs,
+    function(task_out) {
+      if (!isTRUE(task_out$ok)) {
+        row_now <- tibble::as_tibble(task_out$row)
+        return(tibble::tibble(
+          fold_id = as.integer(task_out$fold_id),
+          outer_fold_id = as.integer((row_now$outer_fold_id %||% row_now$fold_id)[[1]]),
+          repeat_id = as.integer((row_now$repeat_id %||% 1L)[[1]]),
+          deployment_target = as.character(row_now$deployment_target[[1]] %||% object@options$deployment_target %||% "custom"),
+          scenario = as.character(row_now$scenario[[1]]),
+          split_mode = as.character(row_now$split_mode[[1]]),
+          holdout_id = as.character(row_now$holdout_id[[1]]),
+          stage = "failed",
+          seconds = NA_real_,
+          cache_hit = NA,
+          error_message = task_out$error_message %||% "unknown error"
+        ))
+      }
+      if (!is.null(task_out$fold_result$timings) &&
+        is.data.frame(task_out$fold_result$timings) &&
+        nrow(task_out$fold_result$timings) > 0L) {
+        return(task_out$fold_result$timings)
+      }
+      row_now <- tibble::as_tibble(task_out$row)
+      tibble::tibble(
+        fold_id = as.integer(task_out$fold_id),
+        outer_fold_id = as.integer((row_now$outer_fold_id %||% row_now$fold_id)[[1]]),
+        repeat_id = as.integer((row_now$repeat_id %||% 1L)[[1]]),
+        deployment_target = as.character(row_now$deployment_target[[1]] %||% object@options$deployment_target %||% "custom"),
+        scenario = as.character(row_now$scenario[[1]]),
+        split_mode = as.character(row_now$split_mode[[1]]),
+        holdout_id = as.character(row_now$holdout_id[[1]]),
+        stage = "timing_unavailable",
+        seconds = NA_real_,
+        cache_hit = NA,
+        error_message = NA_character_
+      )
+    }
+  ))
+  if (nrow(timing_rows) > 0L) {
+    sentinel_write_table(timing_rows, sentinel_output_paths(object)$timings_file)
+    report_progress(progress, "Sentinel timing table: ", sentinel_output_paths(object)$timings_file)
+  }
 
   sentinel_rebuild(
     object,

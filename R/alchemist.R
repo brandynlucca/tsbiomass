@@ -1549,11 +1549,86 @@ predict_base_learner <- function(object, x_new) {
   )
 }
 
+#' Run one Alchemist out-of-fold base learner task
+#'
+#' This is the method-fold worker used by the Super Learner OOF stage. Keeping
+#' this unit at one method and one fold lets cloud workers drain a balanced task
+#' queue instead of leaving one long-running learner to occupy a single core.
+#'
+#' @param task Named list with `method`, `fold_id`, and `fold_spec`.
+#' @param x_all Numeric feature matrix for the full training set.
+#' @param y_all Numeric outcome vector (transformed), full training set.
+#' @param method_settings Named list of per-method settings.
+#' @param seed Integer base seed. The fold offsets this by its fold index.
+#' @param lambda_rule Character. Lambda selection rule for glm-penalized methods.
+#'
+#' @return A named list with fields `method`, `fold_id`, `valid_idx`, `pred`,
+#'   `error`, and `oof_seconds`.
+#'
+#' @keywords internal
+#' @noRd
+run_oof_fold_task <- function(task, x_all, y_all,
+                              method_settings, seed, lambda_rule) {
+  timing_start <- proc.time()
+  method <- as.character(task$method[[1]])
+  fold_spec <- task$fold_spec
+  fold_now <- as.integer(task$fold_id %||% fold_spec$fold_id %||% NA_integer_)
+  train_idx <- as.integer(fold_spec$train_idx %||% integer(0))
+  valid_idx <- as.integer(fold_spec$valid_idx %||% integer(0))
+  pred <- NULL
+  err_msg <- NULL
+
+  if (length(train_idx) == 0L || length(valid_idx) == 0L) {
+    err_msg <- "Fold has zero training or validation rows."
+  } else {
+    fold_seed <- if (is.null(seed)) NULL else as.integer(seed) + as.integer(fold_now)
+    learner <- tryCatch(
+      fit_base_learner(
+        x_train = x_all[train_idx, , drop = FALSE],
+        y_train = y_all[train_idx],
+        method = method,
+        method_settings = method_settings,
+        seed = fold_seed,
+        lambda_rule = lambda_rule
+      ),
+      error = function(e) structure(conditionMessage(e), class = "try-error")
+    )
+
+    if (inherits(learner, "try-error")) {
+      err_msg <- as.character(learner)
+    } else {
+      pred <- tryCatch(
+        predict_base_learner(learner, x_all[valid_idx, , drop = FALSE]),
+        error = function(e) structure(conditionMessage(e), class = "try-error")
+      )
+
+      if (inherits(pred, "try-error") || length(pred) != length(valid_idx)) {
+        err_msg <- if (inherits(pred, "try-error")) {
+          as.character(pred)
+        } else {
+          "Prediction length mismatch."
+        }
+        pred <- NULL
+      }
+    }
+  }
+
+  list(
+    method = method,
+    fold_id = fold_now,
+    valid_idx = valid_idx,
+    n_train = length(train_idx),
+    n_valid = length(valid_idx),
+    pred = pred,
+    error = err_msg,
+    oof_seconds = unname((proc.time() - timing_start)[["elapsed"]])
+  )
+}
+
 #' Run K-fold OOF predictions for one Alchemist base learner method
 #'
-#' This is the per-method worker function that parallel workers execute. Each
-#' worker runs all K folds for its assigned method and returns a named list
-#' with the OOF prediction vector and any error captured.
+#' This sequential fallback runs all K folds for one assigned method and returns
+#' a named list with the OOF prediction vector and any error captured.
 #'
 #' @param method Character. Single base learner method name.
 #' @param x_all Numeric feature matrix for the full training set.
@@ -1590,57 +1665,55 @@ run_oof_method <- function(method, x_all, y_all, foldid = NULL,
     })
   }
 
-  for (fold_spec in fold_splits) {
-    fold_now <- fold_spec$fold_id %||% NA_integer_
-    train_idx <- as.integer(fold_spec$train_idx %||% integer(0))
-    valid_idx <- as.integer(fold_spec$valid_idx %||% integer(0))
-    if (length(train_idx) == 0L || length(valid_idx) == 0L) {
-      ok <- FALSE
-      break
-    }
-
-    fold_seed <- if (is.null(seed)) NULL else as.integer(seed) + as.integer(fold_now)
-    learner <- tryCatch(
-      fit_base_learner(
-        x_train = x_all[train_idx, , drop = FALSE],
-        y_train = y_all[train_idx],
+  fold_results <- lapply(fold_splits, function(fold_spec) {
+    run_oof_fold_task(
+      task = list(
         method = method,
-        method_settings = method_settings,
-        seed = fold_seed,
-        lambda_rule = lambda_rule
+        fold_id = fold_spec$fold_id %||% NA_integer_,
+        fold_spec = fold_spec
       ),
-      error = function(e) structure(conditionMessage(e), class = "try-error")
+      x_all = x_all,
+      y_all = y_all,
+      method_settings = method_settings,
+      seed = seed,
+      lambda_rule = lambda_rule
     )
+  })
 
-    if (inherits(learner, "try-error")) {
+  for (fold_result in fold_results) {
+    valid_idx <- as.integer(fold_result$valid_idx %||% integer(0))
+    if (!is.null(fold_result$error) || is.null(fold_result$pred)) {
       ok <- FALSE
-      err_msg <- as.character(learner)
+      err_msg <- paste0(
+        "fold ", fold_result$fold_id %||% NA_integer_, ": ",
+        fold_result$error %||% "unknown error"
+      )
       break
     }
-
-    preds <- tryCatch(
-      predict_base_learner(learner, x_all[valid_idx, , drop = FALSE]),
-      error = function(e) structure(conditionMessage(e), class = "try-error")
-    )
-
-    if (inherits(preds, "try-error") || length(preds) != length(valid_idx)) {
+    if (length(valid_idx) == 0L || length(fold_result$pred) != length(valid_idx)) {
       ok <- FALSE
-      err_msg <- if (inherits(preds, "try-error")) {
-        as.character(preds)
-      } else {
-        "Prediction length mismatch."
-      }
+      err_msg <- paste0("fold ", fold_result$fold_id %||% NA_integer_, ": Prediction length mismatch.")
       break
     }
-
-    oof_pred[valid_idx] <- preds
+    oof_pred[valid_idx] <- fold_result$pred
   }
 
   list(
     method = method,
     oof_pred = if (ok && all(is.finite(oof_pred))) oof_pred else NULL,
     error = err_msg,
-    oof_seconds = unname((proc.time() - timing_start)[["elapsed"]])
+    oof_seconds = unname((proc.time() - timing_start)[["elapsed"]]),
+    fold_timings = dplyr::bind_rows(lapply(fold_results, function(fold_result) {
+      tibble::tibble(
+        method = fold_result$method,
+        fold_id = as.integer(fold_result$fold_id %||% NA_integer_),
+        n_train = as.integer(fold_result$n_train %||% NA_integer_),
+        n_valid = as.integer(fold_result$n_valid %||% NA_integer_),
+        oof_seconds = suppressWarnings(as.numeric(fold_result$oof_seconds %||% NA_real_)),
+        succeeded = is.null(fold_result$error) && !is.null(fold_result$pred),
+        error = fold_result$error %||% NA_character_
+      )
+    }))
   )
 }
 
@@ -1648,9 +1721,9 @@ run_oof_method <- function(method, x_all, y_all, foldid = NULL,
 #'
 #' Trains a stacked ensemble over a library of base learners using K-fold
 #' out-of-fold (OOF) cross-validation. Base learner fits are parallelised
-#' across methods when `workers > 1`. NNLS stacking weights are computed from
-#' the OOF predictions; a final round of base learner fits on the full training
-#' set is then used for prediction at inference time.
+#' across method-fold tasks when `workers > 1`. NNLS stacking weights are
+#' computed from the OOF predictions; a final round of base learner fits on the
+#' full training set is then used for prediction at inference time.
 #'
 #' This function is entirely independent of the policy-learner path in
 #' `meta_policy.R`. It is purpose-built for learning pairwise acoustic
@@ -1675,8 +1748,8 @@ run_oof_method <- function(method, x_all, y_all, foldid = NULL,
 #' @param oof_mode Cross-validation split mode. `"anchor_species"` keeps the
 #'   current receiving-species grouping; `"species_purged"` removes the held-out
 #'   species from both anchor and donor roles in each OOF fold.
-#' @param workers Integer number of parallel workers. Workers are assigned one
-#'   method each. `1L` runs sequentially.
+#' @param workers Integer number of parallel workers. OOF workers are assigned
+#'   one method-fold task each. `1L` runs sequentially.
 #' @param progress Logical. Emit `tsb_message()` progress lines when `TRUE`.
 #'
 #' @return A list with class `"SuperLearner"` containing:
@@ -1731,53 +1804,134 @@ fit_super_learner <- function(training_data,
     )
   }
 
+  oof_tasks <- unlist(
+    lapply(methods, function(method) {
+      lapply(fold_splits, function(fold_spec) {
+        list(
+          method = method,
+          fold_id = as.integer(fold_spec$fold_id %||% NA_integer_),
+          fold_spec = fold_spec
+        )
+      })
+    }),
+    recursive = FALSE
+  )
+  oof_workers <- min(max(1L, workers), length(oof_tasks))
+
   report_progress(
     progress,
     "[Alchemist] Fitting ", length(methods), " base learner(s) with ",
     length(fold_splits), "-fold CV",
     " [mode=", oof_mode, "]",
-    if (workers > 1L) paste0(" across ", workers, " workers") else " (sequential)",
+    if (oof_workers > 1L) {
+      paste0(" across ", oof_workers, " worker(s) over ", length(oof_tasks), " method-fold task(s)")
+    } else {
+      " (sequential)"
+    },
     "..."
   )
 
-  # ---- OOF phase: parallelise across methods --------------------------------
-  if (workers > 1L && length(methods) > 1L) {
-    cl <- initialize_parallel_cluster(workers = min(workers, length(methods)))
+  # ---- OOF phase: parallelise across method-fold tasks ----------------------
+  if (oof_workers > 1L && length(oof_tasks) > 1L) {
+    cl <- initialize_parallel_cluster(workers = oof_workers)
     if (!is.null(cl)) {
       on.exit(parallel::stopCluster(cl), add = TRUE)
-      oof_results <- parallel::parLapplyLB(
-        cl, methods,
-        fun = run_oof_method,
+      oof_task_results <- parallel::parLapplyLB(
+        cl,
+        oof_tasks,
+        fun = run_oof_fold_task,
         x_all = x_all,
         y_all = y_all,
-        fold_splits = fold_splits,
         method_settings = method_settings,
         seed = seed,
         lambda_rule = lambda_rule
       )
     } else {
-      oof_results <- lapply(
-        methods, run_oof_method,
+      oof_task_results <- lapply(
+        oof_tasks,
+        run_oof_fold_task,
         x_all = x_all,
         y_all = y_all,
-        fold_splits = fold_splits,
         method_settings = method_settings,
         seed = seed,
         lambda_rule = lambda_rule
       )
     }
   } else {
-    oof_results <- lapply(
-      methods, run_oof_method,
+    oof_task_results <- lapply(
+      oof_tasks,
+      run_oof_fold_task,
       x_all = x_all,
       y_all = y_all,
-      fold_splits = fold_splits,
       method_settings = method_settings,
       seed = seed,
       lambda_rule = lambda_rule
     )
   }
-  names(oof_results) <- methods
+
+  oof_fold_timings <- dplyr::bind_rows(lapply(oof_task_results, function(fold_result) {
+    tibble::tibble(
+      method = fold_result$method,
+      fold_id = as.integer(fold_result$fold_id %||% NA_integer_),
+      n_train = as.integer(fold_result$n_train %||% NA_integer_),
+      n_valid = as.integer(fold_result$n_valid %||% NA_integer_),
+      oof_seconds = suppressWarnings(as.numeric(fold_result$oof_seconds %||% NA_real_)),
+      succeeded = is.null(fold_result$error) && !is.null(fold_result$pred),
+      error = fold_result$error %||% NA_character_
+    )
+  }))
+
+  oof_results <- stats::setNames(vector("list", length(methods)), methods)
+  for (method in methods) {
+    method_task_results <- Filter(
+      function(fold_result) identical(as.character(fold_result$method), as.character(method)),
+      oof_task_results
+    )
+    oof_pred <- rep(NA_real_, length(y_all))
+    method_error <- NULL
+
+    for (fold_result in method_task_results) {
+      valid_idx <- as.integer(fold_result$valid_idx %||% integer(0))
+      if (!is.null(fold_result$error) || is.null(fold_result$pred)) {
+        method_error <- paste0(
+          "fold ", fold_result$fold_id %||% NA_integer_, ": ",
+          fold_result$error %||% "unknown error"
+        )
+        break
+      }
+      if (length(valid_idx) == 0L || length(fold_result$pred) != length(valid_idx)) {
+        method_error <- paste0("fold ", fold_result$fold_id %||% NA_integer_, ": Prediction length mismatch.")
+        break
+      }
+      oof_pred[valid_idx] <- fold_result$pred
+    }
+
+    if (is.null(method_error) && !all(is.finite(oof_pred))) {
+      method_error <- "Incomplete OOF predictions."
+    }
+
+    oof_results[[method]] <- list(
+      method = method,
+      oof_pred = if (is.null(method_error)) oof_pred else NULL,
+      error = method_error,
+      oof_seconds = sum(vapply(
+        method_task_results,
+        function(fold_result) suppressWarnings(as.numeric(fold_result$oof_seconds %||% NA_real_)),
+        numeric(1)
+      ), na.rm = TRUE),
+      fold_timings = dplyr::bind_rows(lapply(method_task_results, function(fold_result) {
+        tibble::tibble(
+          method = fold_result$method,
+          fold_id = as.integer(fold_result$fold_id %||% NA_integer_),
+          n_train = as.integer(fold_result$n_train %||% NA_integer_),
+          n_valid = as.integer(fold_result$n_valid %||% NA_integer_),
+          oof_seconds = suppressWarnings(as.numeric(fold_result$oof_seconds %||% NA_real_)),
+          succeeded = is.null(fold_result$error) && !is.null(fold_result$pred),
+          error = fold_result$error %||% NA_character_
+        )
+      }))
+    )
+  }
 
   # ---- Collect successful OOF predictions ----------------------------------
   ok_methods <- Filter(function(r) !is.null(r$oof_pred), oof_results)
@@ -1944,6 +2098,7 @@ fit_super_learner <- function(training_data,
       oof_predictions = tibble::as_tibble(oof_mat),
       oof_ensemble_prediction = oof_ensemble_pred,
       oof_performance = perf_tbl,
+      oof_fold_timings = oof_fold_timings,
       learner_timings = learner_timings
     ),
     class = "SuperLearner"
@@ -2393,6 +2548,42 @@ dropout_trait_group <- function(fcs, trait_name, pair_data, anchor_idx, donor_id
   )
 }
 
+#' Run one Alchemist trait-dropout task on a cluster worker
+#'
+#' Worker payloads are exported once into the worker global environment before
+#' this function is called. Keeping this function in the package namespace avoids
+#' serializing the full fitted Alchemist environment with every task.
+#'
+#' @param trait_name Trait group name.
+#'
+#' @return One-row trait-dropout tibble.
+#' @keywords internal
+#' @noRd
+run_alchemist_dropout_task <- function(trait_name) {
+  trait_groups <- get("trait_groups", envir = .GlobalEnv, inherits = FALSE)
+  pair_data <- get("pair_data", envir = .GlobalEnv, inherits = FALSE)
+  anchor_idx <- get("anchor_idx", envir = .GlobalEnv, inherits = FALSE)
+  donor_idx <- get("donor_idx", envir = .GlobalEnv, inherits = FALSE)
+  sl_fit <- get("sl_fit", envir = .GlobalEnv, inherits = FALSE)
+  donor_sigma_mat <- get("donor_sigma_mat", envir = .GlobalEnv, inherits = FALSE)
+  target_sigma <- get("target_sigma", envir = .GlobalEnv, inherits = FALSE)
+  baseline_sigma_rmse <- get("baseline_sigma_rmse", envir = .GlobalEnv, inherits = FALSE)
+  scale_param <- get("scale_param", envir = .GlobalEnv, inherits = FALSE)
+
+  dropout_trait_group(
+    fcs = trait_groups[[trait_name]],
+    trait_name = trait_name,
+    pair_data = pair_data,
+    anchor_idx = anchor_idx,
+    donor_idx = donor_idx,
+    sl_fit = sl_fit,
+    donor_sigma_mat = donor_sigma_mat,
+    target_sigma = target_sigma,
+    baseline_sigma_rmse = baseline_sigma_rmse,
+    scale = scale_param
+  )
+}
+
 # - distill_traits -
 
 #' Distill trait importance for an `Alchemist`
@@ -2482,21 +2673,38 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
   if (use_parallel) {
     cl <- initialize_parallel_cluster(workers = min(workers, n_groups))
     if (!is.null(cl)) {
-      on.exit(parallel::stopCluster(cl), add = TRUE)
-      tsb_cluster_export(
-        cl,
-        varlist = c(
-          "pair_data", "anchor_idx", "donor_idx",
-          "sl_fit", "donor_sigma_mat", "target_sigma",
-          "baseline_sigma_rmse", "scale_param",
-          "trait_groups"
-        ),
-        envir = environment()
+      on.exit(if (!is.null(cl)) parallel::stopCluster(cl), add = TRUE)
+      export_ok <- tryCatch(
+        {
+          parallel::clusterExport(
+            cl,
+            varlist = c(
+              "pair_data", "anchor_idx", "donor_idx",
+              "sl_fit", "donor_sigma_mat", "target_sigma",
+              "baseline_sigma_rmse", "scale_param",
+              "trait_groups"
+            ),
+            envir = environment()
+          )
+          TRUE
+        },
+        error = function(e) {
+          report_progress(
+            progress,
+            "[Alchemist] distill_traits parallel setup failed; falling back to sequential dropout: ",
+            conditionMessage(e)
+          )
+          FALSE
+        }
       )
       report_progress(
         progress,
-        "[Alchemist] Cluster ready: ", min(workers, n_groups), " workers."
+        "[Alchemist] Cluster ready: ", parallel_cluster_description(cl), "."
       )
+      if (!isTRUE(export_ok)) {
+        parallel::stopCluster(cl)
+        cl <- NULL
+      }
     }
   }
 
@@ -2525,22 +2733,22 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
   }
 
   importance_rows <- if (!is.null(cl)) {
-    parallel::parLapplyLB(cl, trait_names_ordered, fun = function(trait_name) {
-      fcs <- trait_groups[[trait_name]]
-      dropout_trait_group <- utils::getFromNamespace("dropout_trait_group", "tsbiomass")
-      dropout_trait_group(
-        fcs = fcs,
-        trait_name = trait_name,
-        pair_data = pair_data,
-        anchor_idx = anchor_idx,
-        donor_idx = donor_idx,
-        sl_fit = sl_fit,
-        donor_sigma_mat = donor_sigma_mat,
-        target_sigma = target_sigma,
-        baseline_sigma_rmse = baseline_sigma_rmse,
-        scale = scale_param
-      )
-    })
+    parallel_rows <- tryCatch(
+      parallel::parLapplyLB(cl, trait_names_ordered, fun = run_alchemist_dropout_task),
+      error = function(e) {
+        report_progress(
+          progress,
+          "[Alchemist] distill_traits parallel dropout failed; falling back to sequential dropout: ",
+          conditionMessage(e)
+        )
+        NULL
+      }
+    )
+    if (is.null(parallel_rows)) {
+      lapply(trait_names_ordered, run_dropout_group)
+    } else {
+      parallel_rows
+    }
   } else {
     lapply(trait_names_ordered, run_dropout_group)
   }

@@ -461,3 +461,19 @@ tsb_cluster_export <- function(cl, varlist, envir = parent.frame()) {
   }
   parallel::clusterExport(cl, varlist, envir = envir)
 }
+
+#' Describe a parallel cluster
+#'
+#' @param cl Cluster object returned by [initialize_parallel_cluster()].
+#'
+#' @return One short human-readable cluster description.
+#' @keywords internal
+#' @noRd
+parallel_cluster_description <- function(cl) {
+  if (is.null(cl)) {
+    return("sequential")
+  }
+  cluster_type <- attr(cl, "cluster_type") %||% "unknown"
+  n_workers <- length(cl)
+  sprintf("%s cluster, %d worker(s)", cluster_type, n_workers)
+}
