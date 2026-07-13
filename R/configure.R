@@ -2609,7 +2609,8 @@ validate_sentinel_section <- function(sentinel_section) {
 
   integer_fields <- c(
     "workers", "batch_size", "outer_repeats", "species_folds",
-    "baseline_species_folds", "ablation_species_folds"
+    "baseline_species_folds", "ablation_species_folds",
+    "baseline_target_folds", "ablation_target_folds"
   )
   for (field_name in integer_fields) {
     value <- sentinel_section[[field_name]]

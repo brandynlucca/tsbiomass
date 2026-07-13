@@ -33,3 +33,7 @@ temp_*
 artifacts/
 .r-lib
 *.o
+docs/
+.codex_*
+*.out
+*.gcda

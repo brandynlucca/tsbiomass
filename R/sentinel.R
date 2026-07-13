@@ -865,6 +865,49 @@ sentinel_split_plan <- function(data,
   split_groups <- split(all_rows, split_vals)
   split_groups <- split_groups[!is.na(names(split_groups)) & nzchar(names(split_groups))]
   holdout_ids <- sort(names(split_groups))
+  holdout_folds <- options$holdout_folds %||% NULL
+  if (!is.null(holdout_folds)) {
+    if (!is.numeric(holdout_folds) || length(holdout_folds) != 1L ||
+      !is.finite(holdout_folds) || holdout_folds < 2L) {
+      stop("Sentinel option `holdout_folds` must be NULL or one integer >= 2.", call. = FALSE)
+    }
+    holdout_folds <- min(as.integer(holdout_folds), length(holdout_ids))
+  }
+
+  if (!is.null(holdout_folds) && holdout_folds < length(holdout_ids)) {
+    seed_now <- suppressWarnings(as.integer(options$seed %||% 1L))
+    if (!is.finite(seed_now)) {
+      seed_now <- 1L
+    }
+    set.seed(seed_now)
+    shuffled_ids <- sample(holdout_ids, length(holdout_ids), replace = FALSE)
+    fold_id <- rep(seq_len(holdout_folds), length.out = length(shuffled_ids))
+    split_holdouts <- split(shuffled_ids, fold_id)
+    fold_stem <- switch(split_mode,
+      anchor_row_holdout = "anchor_row",
+      study_holdout = "study",
+      study_cell_holdout = "study_cell",
+      group_holdout = "group",
+      "holdout"
+    )
+    grouped_holdouts <- stats::setNames(
+      unname(split_holdouts),
+      sprintf("%s_fold_%02d", fold_stem, seq_along(split_holdouts))
+    )
+    holdout_ids <- names(grouped_holdouts)
+    test_indices <- lapply(grouped_holdouts, function(ids_now) {
+      unlist(split_groups[ids_now], use.names = FALSE)
+    })
+    names(test_indices) <- holdout_ids
+    return(list(
+      holdout_ids = holdout_ids,
+      holdout_n = stats::setNames(vapply(test_indices, length, integer(1)), holdout_ids),
+      test_indices = test_indices,
+      train_indices = NULL,
+      holdout_groups = grouped_holdouts
+    ))
+  }
+
   test_indices <- split_groups[holdout_ids]
 
   list(
@@ -1275,6 +1318,25 @@ sentinel_patch_fold_config <- function(config,
         cfg_now$cache$refresh <- isTRUE(object@options$cache_refresh %||% FALSE)
       }
       cfg_now <- apply_cache_defaults(cfg_now)
+      cache_names <- cfg_now$cache$names %||% list()
+      cache_path_for <- function(section, key) {
+        section_now <- cfg_now[[section]] %||% list()
+        file_name <- cache_names[[key]] %||% basename(section_now$cache_path %||% paste0(key, ".rds"))
+        file.path(cache_dir_now, file_name)
+      }
+      for (pair in list(
+        c("similarity", "similarity_tuning"),
+        c("admissibility", "anchor_admissibility"),
+        c("benchmark", "policy_benchmark"),
+        c("uncertainty", "policy_conformal"),
+        c("selection", "policy_selection"),
+        c("simulation", "policy_sensitivity")
+      )) {
+        section_name <- pair[[1]]
+        key_name <- pair[[2]]
+        cfg_now[[section_name]] <- cfg_now[[section_name]] %||% list()
+        cfg_now[[section_name]]$cache_path <- cache_path_for(section_name, key_name)
+      }
     }
   }
 
@@ -2995,7 +3057,12 @@ collect_sentinel_results <- function(object,
     if (!nzchar(summary_path) || !file.exists(summary_path)) {
       return(tibble::tibble())
     }
-    sentinel_read_table(summary_path)
+    out <- sentinel_read_table(summary_path)
+    fingerprint_cols <- names(out)[grepl("fingerprint", names(out), fixed = TRUE)]
+    for (col in fingerprint_cols) {
+      out[[col]] <- as.character(out[[col]])
+    }
+    out
   })
 }
 

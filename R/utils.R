@@ -388,17 +388,55 @@ initialize_parallel_cluster <- function(workers,
         cluster_obj,
         {
           .libPaths(unique(c(library_paths, .libPaths())))
+          package_libraries <- library_paths[
+            file.exists(file.path(library_paths, package_name, "DESCRIPTION"))
+          ]
+          package_library <- if (length(package_libraries) > 0L) {
+            package_libraries[[1]]
+          } else {
+            NA_character_
+          }
           loadNamespace("graphics")
           loadNamespace("stats")
           loadNamespace("methods")
-          if (!requireNamespace(package_name, quietly = TRUE)) {
+          if (package_name %in% loadedNamespaces()) {
+            loaded_path <- normalizePath(
+              getNamespaceInfo(asNamespace(package_name), "path"),
+              winslash = "/",
+              mustWork = FALSE
+            )
+            target_path <- normalizePath(
+              file.path(package_library, package_name),
+              winslash = "/",
+              mustWork = FALSE
+            )
+            if (!identical(loaded_path, target_path)) {
+              unloadNamespace(package_name)
+            }
+          }
+          if (is.na(package_library) || !dir.exists(file.path(package_library, package_name))) {
+            if (!requireNamespace(package_name, quietly = TRUE)) {
+              stop(
+                sprintf("Parallel workers could not load installed package '%s'.", package_name),
+                call. = FALSE
+              )
+            }
+          } else if (!requireNamespace(package_name, lib.loc = package_library, quietly = TRUE)) {
             stop(
-              sprintf("Parallel workers could not load installed package '%s'.", package_name),
+              sprintf(
+                "Parallel workers could not load installed package '%s' from '%s'.",
+                package_name,
+                package_library
+              ),
               call. = FALSE
             )
           }
           suppressPackageStartupMessages(
-            library(package_name, character.only = TRUE)
+            if (is.na(package_library)) {
+              library(package_name, character.only = TRUE)
+            } else {
+              library(package_name, character.only = TRUE, lib.loc = package_library)
+            }
           )
 
           NULL
