@@ -8537,6 +8537,195 @@ run_meta_policy_crossfit_method_task <- function(task) {
   run_meta_policy_crossfit_method_payload_task(task, payload)
 }
 
+#' Build a failed meta-policy method-fold task result
+#'
+#' Creates the same result shape as a completed method-fold task when a worker
+#' connection failure prevents the task from returning its own diagnostics.
+#'
+#' @param task List with `fold_id` and `method` entries.
+#' @param message Failure message to attach.
+#'
+#' @return List containing failed task diagnostics.
+#' @keywords internal
+#' @noRd
+failed_meta_policy_crossfit_method_task <- function(task,
+                                                    message) {
+  list(
+    fold_id = as.integer(task$fold_id),
+    method = as.character(task$method),
+    train_n = NA_integer_,
+    test_n = NA_integer_,
+    oof_pred = NULL,
+    test_pred = NULL,
+    oof_seconds = NA_real_,
+    refit_seconds = NA_real_,
+    total_seconds = NA_real_,
+    succeeded_oof = FALSE,
+    succeeded_refit = FALSE,
+    error = as.character(message %||% "method-fold task failed")
+  )
+}
+
+#' Split meta-policy method-fold tasks into generic scheduler batches
+#'
+#' Divides the task list into order-preserving batches no larger than the
+#' requested worker budget. The batching is intentionally method-agnostic: it
+#' does not encode learner names, families, or workflow-specific assumptions.
+#'
+#' @param tasks List of method-fold tasks.
+#' @param workers Requested worker budget.
+#'
+#' @return List of scheduler batch objects.
+#' @keywords internal
+#' @noRd
+split_meta_policy_crossfit_method_tasks <- function(tasks,
+                                                    workers = 1L) {
+  if (length(tasks) == 0L) {
+    return(list())
+  }
+  batch_size <- max(1L, min(as.integer(workers %||% 1L), length(tasks)))
+  batch_ids <- ceiling(seq_along(tasks) / batch_size)
+  lapply(sort(unique(batch_ids)), function(batch_id) {
+    idx <- which(batch_ids == batch_id)
+    list(
+      key = sprintf("batch_%03d", as.integer(batch_id)),
+      tasks = tasks[idx],
+      workers = min(batch_size, length(idx))
+    )
+  })
+}
+
+#' Run one batch of meta-policy method-fold tasks
+#'
+#' Executes a bounded-concurrency method-fold batch. If a worker connection
+#' dies, retries the same batch with fewer workers before marking those tasks
+#' failed.
+#'
+#' @param batch Scheduler batch from [split_meta_policy_crossfit_method_tasks()].
+#' @param payload Named list containing fold splits and learner settings.
+#' @param progress Logical. Emit progress messages.
+#'
+#' @return List of method-fold task results.
+#' @keywords internal
+#' @noRd
+run_meta_policy_crossfit_method_task_batch <- function(batch,
+                                                       payload,
+                                                       progress = FALSE) {
+  tasks <- batch$tasks
+  if (length(tasks) == 0L) {
+    return(list())
+  }
+  max_workers <- min(as.integer(batch$workers %||% 1L), length(tasks))
+  attempt_workers <- max(1L, max_workers)
+  last_error <- NULL
+  repeat {
+    report_progress(
+      progress,
+      sprintf(
+        "  Method-fold batch '%s': %d task(s), %d worker(s).",
+        batch$key,
+        length(tasks),
+        attempt_workers
+      )
+    )
+    if (attempt_workers <= 1L) {
+      cluster_obj <- initialize_parallel_cluster(workers = 1L)
+      result <- tryCatch(
+        lapply(tasks, run_meta_policy_crossfit_method_payload_task, payload = payload),
+        error = function(e) e
+      )
+    } else {
+      set_meta_policy_crossfit_payload(payload)
+      cluster_obj <- initialize_parallel_cluster(workers = attempt_workers)
+      cluster_type <- attr(cluster_obj, "cluster_type", exact = TRUE) %||% "unknown"
+      result <- tryCatch(
+        {
+          if (identical(cluster_type, "fork")) {
+            parallel::parLapplyLB(cluster_obj, tasks, run_meta_policy_crossfit_method_task)
+          } else {
+            run_method_task <- function(task) {
+              run_meta_policy_crossfit_method_payload_task(task, payload)
+            }
+            environment(run_method_task) <- list2env(
+              list(
+                payload = payload,
+                run_meta_policy_crossfit_method_payload_task = run_meta_policy_crossfit_method_payload_task
+              ),
+              parent = baseenv()
+            )
+            tsb_cluster_export(cluster_obj, c("run_method_task"), envir = environment())
+            parallel::parLapplyLB(cluster_obj, tasks, run_method_task)
+          }
+        },
+        error = function(e) e
+      )
+      try(parallel::stopCluster(cluster_obj), silent = TRUE)
+      clear_meta_policy_crossfit_payload()
+    }
+    if (!inherits(result, "error")) {
+      return(result)
+    }
+    last_error <- conditionMessage(result)
+    if (attempt_workers <= 1L) {
+      report_progress(
+        progress,
+        sprintf(
+          "  Method-fold batch '%s' failed at one worker; marking %d task(s) failed: %s",
+          batch$key,
+          length(tasks),
+          last_error
+        )
+      )
+      return(lapply(tasks, failed_meta_policy_crossfit_method_task, message = last_error))
+    }
+    attempt_workers <- max(1L, floor(attempt_workers / 2L))
+    report_progress(
+      progress,
+      sprintf(
+        "  Method-fold batch '%s' failed; retrying with %d worker(s): %s",
+        batch$key,
+        attempt_workers,
+        last_error
+      )
+    )
+  }
+}
+
+#' Run meta-policy Super Learner method-fold tasks in bounded batches
+#'
+#' Executes all method-fold tasks using generic batches. Failed batches produce
+#' failed task records instead of forcing a full sequential outer-fold restart.
+#'
+#' @param tasks List of method-fold tasks.
+#' @param payload Named list containing fold splits and learner settings.
+#' @param workers Requested worker budget.
+#' @param progress Logical. Emit progress messages.
+#'
+#' @return List of method-fold task results.
+#' @keywords internal
+#' @noRd
+run_meta_policy_crossfit_method_tasks <- function(tasks,
+                                                  payload,
+                                                  workers,
+                                                  progress = FALSE) {
+  batches <- split_meta_policy_crossfit_method_tasks(
+    tasks,
+    workers = workers
+  )
+  report_progress(
+    progress,
+    sprintf(
+      "Policy learner method-fold scheduler: %d batch(es), %d total task(s).",
+      length(batches),
+      length(tasks)
+    )
+  )
+  unlist(
+    lapply(batches, run_meta_policy_crossfit_method_task_batch, payload = payload, progress = progress),
+    recursive = FALSE
+  )
+}
+
 #' Combine method-fold tasks for one meta-policy Super Learner fold
 #'
 #' Estimates fold-specific metalearner weights from completed base-learner OOF
@@ -8859,77 +9048,46 @@ crossfit_meta_policy_learner <- function(policy_perf,
   )
 
   if (workers > 1L && n_parallel_units > 1L) {
-    set_meta_policy_crossfit_payload(c(fold_payload, list(fold_splits = fold_splits)))
-    on.exit(clear_meta_policy_crossfit_payload(), add = TRUE)
-    cluster_obj <- initialize_parallel_cluster(
-      workers = n_workers_eff
-    )
-    cluster_type <- attr(cluster_obj, "cluster_type", exact = TRUE) %||% "unknown"
-    report_progress(
-      progress,
-      "Policy learner cross-fit backend: ",
-      parallel_cluster_description(cluster_obj),
-      if (is_super) {
-        "; parallel unit=method-fold; method-local workers=1."
-      } else {
-        "; parallel unit=outer fold; method-local workers=1."
-      }
-    )
-    on.exit(try(parallel::stopCluster(cluster_obj), silent = TRUE), add = TRUE)
-    fold_results <- if (is_super) {
-      super_task_results <- tryCatch(
-        {
-          if (identical(cluster_type, "fork")) {
-            parallel::parLapplyLB(cluster_obj, super_tasks, run_meta_policy_crossfit_method_task)
-          } else {
-            run_method_task <- function(task) {
-              run_meta_policy_crossfit_method_payload_task(
-                task,
-                c(fold_payload, list(fold_splits = fold_splits))
-              )
-            }
-            environment(run_method_task) <- list2env(
-              list(
-                fold_payload = fold_payload,
-                fold_splits = fold_splits,
-                run_meta_policy_crossfit_method_payload_task = run_meta_policy_crossfit_method_payload_task
-              ),
-              parent = baseenv()
-            )
-            tsb_cluster_export(
-              cluster_obj,
-              c("run_method_task"),
-              envir = environment()
-            )
-            parallel::parLapplyLB(cluster_obj, super_tasks, run_method_task)
-          }
-        },
-        error = function(e) {
-          report_progress(
-            progress,
-            "Policy learner method-fold cross-fit failed; falling back to sequential outer folds: ",
-            conditionMessage(e)
-          )
-          NULL
-        }
+    if (is_super) {
+      report_progress(
+        progress,
+        sprintf(
+          "Policy learner cross-fit backend: bounded method-fold scheduler, up to %d worker(s); method-local workers=1.",
+          n_workers_eff
+        )
       )
-      if (is.null(super_task_results)) {
-        NULL
-      } else {
-        lapply(seq_along(fold_splits), function(i) {
-          combine_meta_policy_super_fold_tasks(
-            fold_split = fold_splits[[i]],
-            task_results = super_task_results[vapply(
-              super_task_results,
-              function(result) identical(as.integer(result$fold_id), as.integer(i)),
-              logical(1)
-            )],
-            payload = fold_payload
-          )
-        })
-      }
+      super_task_results <- run_meta_policy_crossfit_method_tasks(
+        tasks = super_tasks,
+        payload = c(fold_payload, list(fold_splits = fold_splits)),
+        workers = n_workers_eff,
+        progress = progress
+      )
+      fold_results <- lapply(seq_along(fold_splits), function(i) {
+        combine_meta_policy_super_fold_tasks(
+          fold_split = fold_splits[[i]],
+          task_results = super_task_results[vapply(
+            super_task_results,
+            function(result) identical(as.integer(result$fold_id), as.integer(i)),
+            logical(1)
+          )],
+          payload = fold_payload
+        )
+      })
     } else {
-      tryCatch(
+      set_meta_policy_crossfit_payload(c(fold_payload, list(fold_splits = fold_splits)))
+      on.exit(clear_meta_policy_crossfit_payload(), add = TRUE)
+      cluster_obj <- initialize_parallel_cluster(
+        workers = n_workers_eff
+      )
+      cluster_type <- attr(cluster_obj, "cluster_type", exact = TRUE) %||% "unknown"
+      report_progress(
+        progress,
+        "Policy learner cross-fit backend: ",
+        parallel_cluster_description(cluster_obj),
+        "; parallel unit=outer fold; method-local workers=1."
+      )
+      on.exit(try(parallel::stopCluster(cluster_obj), silent = TRUE), add = TRUE)
+      fold_results <- tryCatch(
         {
           if (identical(cluster_type, "fork")) {
             parallel::parLapplyLB(cluster_obj, seq_along(fold_splits), run_meta_policy_crossfit_task)
@@ -8954,18 +9112,18 @@ crossfit_meta_policy_learner <- function(policy_perf,
           NULL
         }
       )
-    }
-    if (is.null(fold_results)) {
-      fold_results <- lapply(seq_along(fold_splits), function(i) {
-        report_progress(
-          progress,
-          sprintf(
-            "  Outer fold %d/%d (%d train rows, %d test rows) ...",
-            i, n_folds, nrow(fold_splits[[i]]$train), nrow(fold_splits[[i]]$test)
+      if (is.null(fold_results)) {
+        fold_results <- lapply(seq_along(fold_splits), function(i) {
+          report_progress(
+            progress,
+            sprintf(
+              "  Outer fold %d/%d (%d train rows, %d test rows) ...",
+              i, n_folds, nrow(fold_splits[[i]]$train), nrow(fold_splits[[i]]$test)
+            )
           )
-        )
-        run_fold_split(fold_splits[[i]])
-      })
+          run_fold_split(fold_splits[[i]])
+        })
+      }
     }
   } else {
     fold_results <- lapply(seq_along(fold_splits), function(i) {
