@@ -195,4 +195,4 @@ reference:
     desc: "Diagnostics, explainability, and lower-level utilities."
     contents:
       - explain
-      - starts_with("cpp_")
+      - tsb_message

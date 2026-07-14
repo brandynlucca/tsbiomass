@@ -11,8 +11,7 @@
 #' @param anchor_sigma Anchor truth mean backscatter.
 #'
 #' @return A data frame of core policy predictions and diagnostics.
-#'
-#' @keywords internal
+#' @noRd
 cpp_evaluate_policy_plan <- function(donors, pool_masks, plan, length_cm, pdf_weight, anchor_sigma) {
     .Call(`_tsbiomass_cpp_evaluate_policy_plan`, donors, pool_masks, plan, length_cm, pdf_weight, anchor_sigma)
 }
@@ -26,8 +25,7 @@ cpp_evaluate_policy_plan <- function(donors, pool_masks, plan, length_cm, pdf_we
 #' @param grid_size Number of equally spaced relative-length points.
 #'
 #' @return A data frame with one row per valid policy and relative-length point.
-#'
-#' @keywords internal
+#' @noRd
 cpp_build_benchmark_ts_errors <- function(anchors, policies, grid_size = 11L) {
     .Call(`_tsbiomass_cpp_build_benchmark_ts_errors`, anchors, policies, grid_size)
 }
@@ -44,8 +42,7 @@ cpp_build_benchmark_ts_errors <- function(anchors, policies, grid_size = 11L) {
 #' @param seed Base integer seed.
 #'
 #' @return Pairwise policy-equivalence data frame.
-#'
-#' @keywords internal
+#' @noRd
 cpp_policy_equivalence_pairs <- function(policy_matrix, policy, branch, policy_key, tolerance, n_boot, seed) {
     .Call(`_tsbiomass_cpp_policy_equivalence_pairs`, policy_matrix, policy, branch, policy_key, tolerance, n_boot, seed)
 }

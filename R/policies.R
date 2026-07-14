@@ -8357,6 +8357,299 @@ run_meta_policy_crossfit_payload_fold <- function(fold_split,
   out
 }
 
+#' Run one meta-policy super-learner method-fold task
+#'
+#' Fits one configured base learner for one outer cross-fit fold, including its
+#' inner out-of-fold predictions on the outer training split and its refit
+#' predictions on the outer test split. The caller combines the returned
+#' method-level results into fold-level Super Learner weights.
+#'
+#' @param task List with `fold_id` and `method` entries.
+#' @param payload Named list containing `fold_splits` and learner settings.
+#'
+#' @return List containing OOF predictions, test predictions, and timings.
+#' @keywords internal
+#' @noRd
+run_meta_policy_crossfit_method_payload_task <- function(task,
+                                                         payload) {
+  fold_id <- as.integer(task$fold_id)
+  method_now <- as.character(task$method)
+  fold_split <- payload$fold_splits[[fold_id]]
+  train_data <- tibble::as_tibble(fold_split$train)
+  test_data <- tibble::as_tibble(fold_split$test)
+  outer_seed <- if (is.null(payload$seed)) NULL else as.integer(payload$seed) + fold_id
+  task_start <- proc.time()
+  oof_seconds <- NA_real_
+  refit_seconds <- NA_real_
+
+  if (nrow(train_data) == 0L || nrow(test_data) == 0L) {
+    return(list(
+      fold_id = fold_id,
+      method = method_now,
+      train_n = nrow(train_data),
+      test_n = nrow(test_data),
+      oof_pred = NULL,
+      test_pred = NULL,
+      oof_seconds = oof_seconds,
+      refit_seconds = refit_seconds,
+      total_seconds = unname((proc.time() - task_start)[["elapsed"]]),
+      succeeded_oof = FALSE,
+      succeeded_refit = FALSE,
+      error = "empty outer train/test split"
+    ))
+  }
+
+  foldid <- if (".split_group" %in% names(train_data)) {
+    grouped_foldid(train_data$.split_group, n_folds = payload$inner_folds, seed = outer_seed)
+  } else {
+    NULL
+  }
+  foldid <- foldid %||% row_foldid(nrow(train_data), n_folds = payload$inner_folds, seed = outer_seed)
+  if (is.null(foldid)) {
+    return(list(
+      fold_id = fold_id,
+      method = method_now,
+      train_n = nrow(train_data),
+      test_n = nrow(test_data),
+      oof_pred = NULL,
+      test_pred = NULL,
+      oof_seconds = oof_seconds,
+      refit_seconds = refit_seconds,
+      total_seconds = unname((proc.time() - task_start)[["elapsed"]]),
+      succeeded_oof = FALSE,
+      succeeded_refit = FALSE,
+      error = "inner cross-validation requires at least two training rows"
+    ))
+  }
+
+  oof_start <- proc.time()
+  oof_pred <- rep(NA_real_, nrow(train_data))
+  ok_oof <- TRUE
+  error_msg <- NA_character_
+  for (fold_now in sort(unique(foldid))) {
+    tr_idx <- which(foldid != fold_now)
+    vl_idx <- which(foldid == fold_now)
+    if (length(tr_idx) == 0L || length(vl_idx) == 0L) {
+      ok_oof <- FALSE
+      error_msg <- "empty inner train/validation split"
+      break
+    }
+    fold_seed <- if (is.null(outer_seed)) NULL else as.integer(outer_seed) + as.integer(fold_now)
+    bl <- fit_meta_policy_ensemble_base(
+      training_data = train_data[tr_idx, , drop = FALSE],
+      method = method_now,
+      feature_cols = payload$feature_cols,
+      outcome_transform = payload$outcome_transform,
+      lambda_rule = payload$lambda_rule,
+      inner_folds = payload$inner_folds,
+      seed = fold_seed,
+      method_settings = payload$method_settings
+    )
+    if (inherits(bl, "try-error")) {
+      ok_oof <- FALSE
+      error_msg <- as.character(bl)[[1]]
+      break
+    }
+    sc <- try(predict_meta_policy_score(bl, train_data[vl_idx, , drop = FALSE]), silent = TRUE)
+    if (inherits(sc, "try-error") || !".meta_predicted_score" %in% names(sc)) {
+      ok_oof <- FALSE
+      error_msg <- if (inherits(sc, "try-error")) as.character(sc)[[1]] else "missing .meta_predicted_score"
+      break
+    }
+    oof_pred[vl_idx] <- sc$.meta_predicted_score
+    rm(bl, sc)
+  }
+  oof_seconds <- unname((proc.time() - oof_start)[["elapsed"]])
+  ok_oof <- ok_oof && all(is.finite(oof_pred))
+  if (!ok_oof) {
+    return(list(
+      fold_id = fold_id,
+      method = method_now,
+      train_n = nrow(train_data),
+      test_n = nrow(test_data),
+      oof_pred = NULL,
+      test_pred = NULL,
+      oof_seconds = oof_seconds,
+      refit_seconds = refit_seconds,
+      total_seconds = unname((proc.time() - task_start)[["elapsed"]]),
+      succeeded_oof = FALSE,
+      succeeded_refit = FALSE,
+      error = error_msg %||% "incomplete OOF predictions"
+    ))
+  }
+
+  refit_start <- proc.time()
+  test_pred <- NULL
+  bl <- fit_meta_policy_ensemble_base(
+    training_data = train_data,
+    method = method_now,
+    feature_cols = payload$feature_cols,
+    outcome_transform = payload$outcome_transform,
+    lambda_rule = payload$lambda_rule,
+    inner_folds = payload$inner_folds,
+    seed = outer_seed,
+    method_settings = payload$method_settings
+  )
+  if (!inherits(bl, "try-error")) {
+    sc <- try(predict_meta_policy_score(bl, test_data), silent = TRUE)
+    if (!inherits(sc, "try-error") && ".meta_predicted_score" %in% names(sc)) {
+      test_pred <- sc$.meta_predicted_score
+    } else {
+      error_msg <- if (inherits(sc, "try-error")) as.character(sc)[[1]] else "missing .meta_predicted_score"
+    }
+    rm(bl, sc)
+  } else {
+    error_msg <- as.character(bl)[[1]]
+  }
+  refit_seconds <- unname((proc.time() - refit_start)[["elapsed"]])
+  ok_refit <- is.numeric(test_pred) &&
+    length(test_pred) == nrow(test_data) &&
+    all(is.finite(test_pred))
+
+  list(
+    fold_id = fold_id,
+    method = method_now,
+    train_n = nrow(train_data),
+    test_n = nrow(test_data),
+    oof_pred = if (ok_refit) oof_pred else NULL,
+    test_pred = if (ok_refit) test_pred else NULL,
+    oof_seconds = oof_seconds,
+    refit_seconds = refit_seconds,
+    total_seconds = unname((proc.time() - task_start)[["elapsed"]]),
+    succeeded_oof = ok_oof,
+    succeeded_refit = ok_refit,
+    error = if (ok_refit) NA_character_ else error_msg %||% "refit prediction failed"
+  )
+}
+
+#' Run one inherited meta-policy super-learner method-fold task
+#'
+#' Fetches fold splits and learner settings from the namespace-local fork-worker
+#' payload and evaluates one method-fold task.
+#'
+#' @param task List with `fold_id` and `method` entries.
+#'
+#' @return List containing OOF predictions, test predictions, and timings.
+#' @keywords internal
+#' @noRd
+run_meta_policy_crossfit_method_task <- function(task) {
+  payload <- as.list(.meta_policy_crossfit_payload)
+  run_meta_policy_crossfit_method_payload_task(task, payload)
+}
+
+#' Combine method-fold tasks for one meta-policy Super Learner fold
+#'
+#' Estimates fold-specific metalearner weights from completed base-learner OOF
+#' predictions, combines refit predictions on the outer test split, and attaches
+#' fold and learner timing attributes.
+#'
+#' @param fold_split List with `train`, `test`, and `fold_id` entries.
+#' @param task_results List of method-fold task results for this fold.
+#' @param payload Named list of learner settings.
+#'
+#' @return Tibble of fold predictions with timing attributes.
+#' @keywords internal
+#' @noRd
+combine_meta_policy_super_fold_tasks <- function(fold_split,
+                                                 task_results,
+                                                 payload) {
+  fold_id <- as.integer(fold_split$fold_id)
+  train_data <- tibble::as_tibble(fold_split$train)
+  test_data <- tibble::as_tibble(fold_split$test)
+  methods <- payload$active_methods %||%
+    available_meta_policy_super_methods(payload$super_methods, method_settings = payload$method_settings)
+  timing_rows <- dplyr::bind_rows(lapply(task_results, function(result) {
+    tibble::tibble(
+      method = result$method,
+      oof_seconds = result$oof_seconds %||% NA_real_,
+      refit_seconds = result$refit_seconds %||% NA_real_,
+      total_seconds = result$total_seconds %||% NA_real_,
+      succeeded_oof = isTRUE(result$succeeded_oof),
+      succeeded_refit = isTRUE(result$succeeded_refit),
+      error = result$error %||% NA_character_
+    )
+  }))
+  if (nrow(timing_rows) == 0L) {
+    timing_rows <- tibble::tibble(
+      method = character(),
+      oof_seconds = double(),
+      refit_seconds = double(),
+      total_seconds = double(),
+      succeeded_oof = logical(),
+      succeeded_refit = logical(),
+      error = character()
+    )
+  }
+  learner_timings <- tibble::tibble(method = methods) |>
+    dplyr::left_join(timing_rows, by = "method") |>
+    dplyr::mutate(
+      succeeded_oof = dplyr::coalesce(.data$succeeded_oof, FALSE),
+      succeeded_refit = dplyr::coalesce(.data$succeeded_refit, FALSE),
+      outer_fold = fold_id
+    )
+
+  ok_results <- task_results[vapply(
+    task_results,
+    function(result) {
+      isTRUE(result$succeeded_oof) &&
+        isTRUE(result$succeeded_refit) &&
+        is.numeric(result$oof_pred) &&
+        is.numeric(result$test_pred) &&
+        length(result$oof_pred) == nrow(train_data) &&
+        length(result$test_pred) == nrow(test_data) &&
+        all(is.finite(result$oof_pred)) &&
+        all(is.finite(result$test_pred))
+    },
+    logical(1)
+  )]
+  if (length(ok_results) == 0L) {
+    stop("meta-policy super learner fold had no completed base learner tasks.", call. = FALSE)
+  }
+
+  pred_cols <- stats::setNames(lapply(ok_results, `[[`, "oof_pred"), vapply(ok_results, `[[`, character(1), "method"))
+  oof_mat <- do.call(cbind, pred_cols)
+  colnames(oof_mat) <- names(pred_cols)
+  weights <- fit_super_learner_weights(oof_mat, train_data$.outcome, loss = payload$metalearner_loss)
+  names(weights) <- colnames(oof_mat)
+  weights <- weights[weights > 0]
+  if (length(weights) == 0L) {
+    stop("meta-policy super learner fold produced zero metalearner weight.", call. = FALSE)
+  }
+  weights <- weights / sum(weights)
+
+  prediction_cap <- meta_policy_prediction_cap(train_data$.outcome)
+  acc_pred <- rep(0, nrow(test_data))
+  weight_sum <- 0
+  for (result in ok_results) {
+    weight_now <- if (result$method %in% names(weights)) weights[[result$method]] else 0
+    if (!is.finite(weight_now) || weight_now <= 0) {
+      next
+    }
+    acc_pred <- acc_pred + weight_now * result$test_pred
+    weight_sum <- weight_sum + weight_now
+  }
+  if (weight_sum <= 0) {
+    stop("meta-policy super learner fold had no weighted refit predictions.", call. = FALSE)
+  }
+  acc_pred <- pmin(pmax(0, acc_pred / weight_sum), prediction_cap)
+  out <- test_data |>
+    dplyr::mutate(
+      .meta_predicted_score = acc_pred,
+      fold_id = fold_id
+    )
+  fold_seconds <- learner_timings$total_seconds
+  fold_seconds <- fold_seconds[is.finite(fold_seconds)]
+  attr(out, "learner_timings") <- learner_timings
+  attr(out, "fold_timing") <- tibble::tibble(
+    fold_id = fold_id,
+    n_train = nrow(train_data),
+    n_test = nrow(test_data),
+    seconds = if (length(fold_seconds) > 0L) max(fold_seconds) else NA_real_,
+    succeeded = TRUE
+  )
+  out
+}
+
 #' Run one inherited meta-policy cross-fit fold
 #'
 #' Fetches one fold split by index from the namespace-local fork-worker payload
@@ -8514,6 +8807,7 @@ crossfit_meta_policy_learner <- function(policy_perf,
 
   fold_payload <- list(
     is_super = is_super,
+    active_methods = active_methods,
     feature_cols = feature_cols,
     method = method,
     outcome_transform = outcome_transform,
@@ -8535,18 +8829,36 @@ crossfit_meta_policy_learner <- function(policy_perf,
     ),
     parent = baseenv()
   )
+  super_tasks <- if (is_super) {
+    unlist(
+      lapply(seq_along(fold_splits), function(f) {
+        lapply(active_methods, function(method_now) {
+          list(fold_id = f, method = method_now)
+        })
+      }),
+      recursive = FALSE
+    )
+  } else {
+    list()
+  }
 
   workers <- as.integer(workers)
-  n_workers_eff <- min(workers, n_folds)
+  n_parallel_units <- if (is_super) length(super_tasks) else n_folds
+  n_workers_eff <- min(workers, n_parallel_units)
   report_progress(
     progress,
     sprintf(
-      "Starting %d-fold cross-fit: method=%s, %d base learners, %d workers, %d rows.",
-      n_folds, method, n_base_methods, n_workers_eff, n_rows_data
+      "Starting %d-fold cross-fit: method=%s, %d base learners, %d workers, %d rows%s.",
+      n_folds,
+      method,
+      n_base_methods,
+      n_workers_eff,
+      n_rows_data,
+      if (is_super) sprintf(", %d method-fold task(s)", length(super_tasks)) else ""
     )
   )
 
-  if (workers > 1L && n_folds > 1L) {
+  if (workers > 1L && n_parallel_units > 1L) {
     set_meta_policy_crossfit_payload(c(fold_payload, list(fold_splits = fold_splits)))
     on.exit(clear_meta_policy_crossfit_payload(), add = TRUE)
     cluster_obj <- initialize_parallel_cluster(
@@ -8557,34 +8869,92 @@ crossfit_meta_policy_learner <- function(policy_perf,
       progress,
       "Policy learner cross-fit backend: ",
       parallel_cluster_description(cluster_obj),
-      "; parallel unit=outer fold; method-local workers=1."
-    )
-    on.exit(try(parallel::stopCluster(cluster_obj), silent = TRUE), add = TRUE)
-    fold_results <- tryCatch(
-      {
-        if (identical(cluster_type, "fork")) {
-          parallel::parLapplyLB(cluster_obj, seq_along(fold_splits), run_meta_policy_crossfit_task)
-        } else {
-          tsb_cluster_export(
-            cluster_obj,
-            # fold_splits is intentionally absent: parLapplyLB distributes each
-            # element as the function argument, and run_fold_split's closure
-            # environment has already been stripped to scalars only.
-            c("run_fold_split"),
-            envir = environment()
-          )
-          parallel::parLapplyLB(cluster_obj, fold_splits, run_fold_split)
-        }
-      },
-      error = function(e) {
-        report_progress(
-          progress,
-          "Policy learner parallel cross-fit failed; falling back to sequential outer folds: ",
-          conditionMessage(e)
-        )
-        NULL
+      if (is_super) {
+        "; parallel unit=method-fold; method-local workers=1."
+      } else {
+        "; parallel unit=outer fold; method-local workers=1."
       }
     )
+    on.exit(try(parallel::stopCluster(cluster_obj), silent = TRUE), add = TRUE)
+    fold_results <- if (is_super) {
+      super_task_results <- tryCatch(
+        {
+          if (identical(cluster_type, "fork")) {
+            parallel::parLapplyLB(cluster_obj, super_tasks, run_meta_policy_crossfit_method_task)
+          } else {
+            run_method_task <- function(task) {
+              run_meta_policy_crossfit_method_payload_task(
+                task,
+                c(fold_payload, list(fold_splits = fold_splits))
+              )
+            }
+            environment(run_method_task) <- list2env(
+              list(
+                fold_payload = fold_payload,
+                fold_splits = fold_splits,
+                run_meta_policy_crossfit_method_payload_task = run_meta_policy_crossfit_method_payload_task
+              ),
+              parent = baseenv()
+            )
+            tsb_cluster_export(
+              cluster_obj,
+              c("run_method_task"),
+              envir = environment()
+            )
+            parallel::parLapplyLB(cluster_obj, super_tasks, run_method_task)
+          }
+        },
+        error = function(e) {
+          report_progress(
+            progress,
+            "Policy learner method-fold cross-fit failed; falling back to sequential outer folds: ",
+            conditionMessage(e)
+          )
+          NULL
+        }
+      )
+      if (is.null(super_task_results)) {
+        NULL
+      } else {
+        lapply(seq_along(fold_splits), function(i) {
+          combine_meta_policy_super_fold_tasks(
+            fold_split = fold_splits[[i]],
+            task_results = super_task_results[vapply(
+              super_task_results,
+              function(result) identical(as.integer(result$fold_id), as.integer(i)),
+              logical(1)
+            )],
+            payload = fold_payload
+          )
+        })
+      }
+    } else {
+      tryCatch(
+        {
+          if (identical(cluster_type, "fork")) {
+            parallel::parLapplyLB(cluster_obj, seq_along(fold_splits), run_meta_policy_crossfit_task)
+          } else {
+            tsb_cluster_export(
+              cluster_obj,
+              # fold_splits is intentionally absent: parLapplyLB distributes each
+              # element as the function argument, and run_fold_split's closure
+              # environment has already been stripped to scalars only.
+              c("run_fold_split"),
+              envir = environment()
+            )
+            parallel::parLapplyLB(cluster_obj, fold_splits, run_fold_split)
+          }
+        },
+        error = function(e) {
+          report_progress(
+            progress,
+            "Policy learner parallel cross-fit failed; falling back to sequential outer folds: ",
+            conditionMessage(e)
+          )
+          NULL
+        }
+      )
+    }
     if (is.null(fold_results)) {
       fold_results <- lapply(seq_along(fold_splits), function(i) {
         report_progress(

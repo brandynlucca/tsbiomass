@@ -1139,7 +1139,10 @@ apply_cache_defaults <- function(config) {
   }
   defaults <- read_cache_defaults(cache_cfg$defaults_path %||% NULL)
   cache_names <- merge_config_sections(defaults, cache_cfg$names %||% cache_cfg$files %||% list())
-  cache_folder <- cache_cfg$folder %||% config$paths$cache_folder %||% "cache"
+  cache_folder <- config$paths$cache_dir %||%
+    config$paths$cache_folder %||%
+    cache_cfg$folder %||%
+    "cache"
   cache_refresh <- cache_cfg$refresh %||% FALSE
 
   cache_file <- function(key) {
@@ -1158,6 +1161,7 @@ apply_cache_defaults <- function(config) {
     ),
     cache_cfg
   )
+  config$cache$folder <- cache_folder
 
   if (is.list(config$candidates)) {
     source_names <- names(config$candidates$sources %||% list())
@@ -1759,7 +1763,7 @@ replace_explicit_trait_maps <- function(merged_cfg,
 #' Builds a pipeline-agnostic baseline configuration with neutral path
 #' placeholders and registry-derived default trait and policy selections.
 #'
-#' @param input_file Placeholder input workbook path.
+#' @param input_file Placeholder input workbook path. The workbook is not read.
 #' @param output_root Output root directory.
 #' @param cache_folder Cache folder.
 #' @param registry_path Optional trait-registry path used to derive default
