@@ -2698,14 +2698,6 @@ enrich_species_db <- function(db_list,
 #'
 #' @return A tibble containing the full study table plus joined species traits.
 #'
-#' @examples
-#' \dontrun{
-#' prepare_traits(
-#'   species_db = tsbiomass:::enrich_species_db(...),
-#'   study_db = tsbiomass:::read_tsl_table("fishery_survey_tsl.xlsx")
-#' )
-#' }
-#'
 #' @keywords internal
 #' @noRd
 prepare_traits <- function(species_db,

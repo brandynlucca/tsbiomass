@@ -394,8 +394,7 @@ run_script_from_config <- function(config_path,
 #' @param timestamp Boolean that dictates whether to prepend with timestamp.
 #' @param appendLF Passed to `base::message()`.
 #' @return Invisibly returns `NULL`.
-#' @keywords internal
-#' @noRd
+#' @export
 tsb_message <- function(..., timestamp = TRUE, appendLF = TRUE) {
   if (isTRUE(timestamp)) {
     base::message("[", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "] ", paste0(..., collapse = ""), appendLF = appendLF)

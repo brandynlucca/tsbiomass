@@ -8889,11 +8889,6 @@ build_recommendation_target_row <- function(target_species,
 #'
 #' @return List with normalized models and reusable similarity objects.
 #'
-#' @examples
-#' \dontrun{
-#' context <- tsbiomass:::prepare_recommendation_context(selector)
-#' }
-#'
 #' @keywords internal
 #' @noRd
 prepare_recommendation_context <- function(candidate_models,
