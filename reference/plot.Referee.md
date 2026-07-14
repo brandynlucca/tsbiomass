@@ -70,7 +70,7 @@ A ggplot object.
 if (FALSE) { # \dontrun{
 referee <- as_referee(selector, predictions = predictions)
 scorecard <- predict(referee)
-referee <- tsbiomass:::referee_rebuild(referee, scorecard = scorecard)
+referee <- referee_rebuild(referee, scorecard = scorecard)
 plot(referee, type = "biomass_change")
 plot(referee, type = "length_density", anchor_species = "Sardinops sagax")
 } # }

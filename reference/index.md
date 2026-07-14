@@ -353,3 +353,5 @@ Diagnostics, explainability, and lower-level utilities.
 
 - [`explain()`](https://brandynlucca.github.io/tsbiomass/reference/explain.md)
   : Explain one or more policies
+- [`tsb_message()`](https://brandynlucca.github.io/tsbiomass/reference/tsb_message.md)
+  : Emit a timestamped message

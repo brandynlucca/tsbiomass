@@ -48,9 +48,6 @@
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/construct_species_coverage.PolicySelector.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/construct_species_coverage.default.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/construct_species_coverage.html</loc></url>
-<url><loc>https://brandynlucca.github.io/tsbiomass/reference/cpp_build_benchmark_ts_errors.html</loc></url>
-<url><loc>https://brandynlucca.github.io/tsbiomass/reference/cpp_evaluate_policy_plan.html</loc></url>
-<url><loc>https://brandynlucca.github.io/tsbiomass/reference/cpp_policy_equivalence_pairs.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/create_configuration_template.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/create_scenarios.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/crossfit.PolicyLearner.html</loc></url>
@@ -94,6 +91,7 @@
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/set_reference_length_pdf.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/trait_definition.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/trait_names.html</loc></url>
+<url><loc>https://brandynlucca.github.io/tsbiomass/reference/tsb_message.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/tsbiomass-package.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/tune_similarities.html</loc></url>
 </urlset>
