@@ -2548,11 +2548,68 @@ dropout_trait_group <- function(fcs, trait_name, pair_data, anchor_idx, donor_id
   )
 }
 
+# Namespace-local payload used by Alchemist trait-dropout workers. Fork workers
+# inherit this environment by copy-on-write, avoiding socket export of the large
+# fitted learner payload on Unix.
+.alchemist_dropout_payload <- new.env(parent = emptyenv())
+
+#' Set the namespace-local Alchemist dropout payload
+#'
+#' Stores the large fitted objects required by trait-dropout workers in a
+#' namespace-local environment. Fork clusters inherit this environment by
+#' copy-on-write, while PSOCK clusters can export from it once during setup.
+#'
+#' @param payload Named list of objects required by
+#'   [run_alchemist_dropout_task()].
+#'
+#' @return Invisibly returns `NULL`.
+#' @keywords internal
+#' @noRd
+set_alchemist_dropout_payload <- function(payload) {
+  rm(list = ls(envir = .alchemist_dropout_payload, all.names = TRUE),
+     envir = .alchemist_dropout_payload)
+  list2env(payload, envir = .alchemist_dropout_payload)
+  invisible(NULL)
+}
+
+#' Clear the namespace-local Alchemist dropout payload
+#'
+#' Removes all stored trait-dropout payload objects after dropout sensitivity
+#' finishes so large fitted objects are not retained longer than needed.
+#'
+#' @return Invisibly returns `NULL`.
+#' @keywords internal
+#' @noRd
+clear_alchemist_dropout_payload <- function() {
+  rm(list = ls(envir = .alchemist_dropout_payload, all.names = TRUE),
+     envir = .alchemist_dropout_payload)
+  invisible(NULL)
+}
+
+#' Get one Alchemist dropout payload value
+#'
+#' Looks up a trait-dropout payload object from the namespace-local payload
+#' environment, falling back to the worker global environment for PSOCK workers
+#' that received explicit exports.
+#'
+#' @param name Single object name to retrieve.
+#'
+#' @return The requested payload object.
+#' @keywords internal
+#' @noRd
+get_alchemist_dropout_payload_value <- function(name) {
+  if (exists(name, envir = .alchemist_dropout_payload, inherits = FALSE)) {
+    return(get(name, envir = .alchemist_dropout_payload, inherits = FALSE))
+  }
+  get(name, envir = .GlobalEnv, inherits = FALSE)
+}
+
 #' Run one Alchemist trait-dropout task on a cluster worker
 #'
-#' Worker payloads are exported once into the worker global environment before
-#' this function is called. Keeping this function in the package namespace avoids
-#' serializing the full fitted Alchemist environment with every task.
+#' Fork workers inherit payloads from the namespace-local dropout environment.
+#' PSOCK workers receive the same payload once in their global environment.
+#' Keeping this function in the package namespace avoids serializing the full
+#' fitted Alchemist environment with every task.
 #'
 #' @param trait_name Trait group name.
 #'
@@ -2560,15 +2617,15 @@ dropout_trait_group <- function(fcs, trait_name, pair_data, anchor_idx, donor_id
 #' @keywords internal
 #' @noRd
 run_alchemist_dropout_task <- function(trait_name) {
-  trait_groups <- get("trait_groups", envir = .GlobalEnv, inherits = FALSE)
-  pair_data <- get("pair_data", envir = .GlobalEnv, inherits = FALSE)
-  anchor_idx <- get("anchor_idx", envir = .GlobalEnv, inherits = FALSE)
-  donor_idx <- get("donor_idx", envir = .GlobalEnv, inherits = FALSE)
-  sl_fit <- get("sl_fit", envir = .GlobalEnv, inherits = FALSE)
-  donor_sigma_mat <- get("donor_sigma_mat", envir = .GlobalEnv, inherits = FALSE)
-  target_sigma <- get("target_sigma", envir = .GlobalEnv, inherits = FALSE)
-  baseline_sigma_rmse <- get("baseline_sigma_rmse", envir = .GlobalEnv, inherits = FALSE)
-  scale_param <- get("scale_param", envir = .GlobalEnv, inherits = FALSE)
+  trait_groups <- get_alchemist_dropout_payload_value("trait_groups")
+  pair_data <- get_alchemist_dropout_payload_value("pair_data")
+  anchor_idx <- get_alchemist_dropout_payload_value("anchor_idx")
+  donor_idx <- get_alchemist_dropout_payload_value("donor_idx")
+  sl_fit <- get_alchemist_dropout_payload_value("sl_fit")
+  donor_sigma_mat <- get_alchemist_dropout_payload_value("donor_sigma_mat")
+  target_sigma <- get_alchemist_dropout_payload_value("target_sigma")
+  baseline_sigma_rmse <- get_alchemist_dropout_payload_value("baseline_sigma_rmse")
+  scale_param <- get_alchemist_dropout_payload_value("scale_param")
 
   dropout_trait_group(
     fcs = trait_groups[[trait_name]],
@@ -2668,35 +2725,48 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
     " (kernel_scale = ", kernel_scale, ", bandwidth = ", round(scale_param, 4), ")"
   )
 
+  dropout_payload <- list(
+    pair_data = pair_data,
+    anchor_idx = anchor_idx,
+    donor_idx = donor_idx,
+    sl_fit = sl_fit,
+    donor_sigma_mat = donor_sigma_mat,
+    target_sigma = target_sigma,
+    baseline_sigma_rmse = baseline_sigma_rmse,
+    scale_param = scale_param,
+    trait_groups = trait_groups
+  )
+  set_alchemist_dropout_payload(dropout_payload)
+  on.exit(clear_alchemist_dropout_payload(), add = TRUE)
+
   use_parallel <- workers > 1L && n_groups > 1L
   cl <- NULL
   if (use_parallel) {
     cl <- initialize_parallel_cluster(workers = min(workers, n_groups))
     if (!is.null(cl)) {
       on.exit(if (!is.null(cl)) parallel::stopCluster(cl), add = TRUE)
-      export_ok <- tryCatch(
-        {
-          parallel::clusterExport(
-            cl,
-            varlist = c(
-              "pair_data", "anchor_idx", "donor_idx",
-              "sl_fit", "donor_sigma_mat", "target_sigma",
-              "baseline_sigma_rmse", "scale_param",
-              "trait_groups"
-            ),
-            envir = environment()
-          )
-          TRUE
-        },
-        error = function(e) {
-          report_progress(
-            progress,
-            "[Alchemist] distill_traits parallel setup failed; falling back to sequential dropout: ",
-            conditionMessage(e)
-          )
-          FALSE
-        }
-      )
+      cluster_type <- attr(cl, "cluster_type", exact = TRUE) %||% "unknown"
+      export_ok <- TRUE
+      if (!identical(cluster_type, "fork")) {
+        export_ok <- tryCatch(
+          {
+            parallel::clusterExport(
+              cl,
+              varlist = names(dropout_payload),
+              envir = .alchemist_dropout_payload
+            )
+            TRUE
+          },
+          error = function(e) {
+            report_progress(
+              progress,
+              "[Alchemist] distill_traits parallel setup failed; falling back to sequential dropout: ",
+              conditionMessage(e)
+            )
+            FALSE
+          }
+        )
+      }
       report_progress(
         progress,
         "[Alchemist] Cluster ready: ", parallel_cluster_description(cl), "."

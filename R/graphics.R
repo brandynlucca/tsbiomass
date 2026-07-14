@@ -1812,7 +1812,7 @@ plot_anchor_ranges <- function(range_tbl) {
   }
   ggplot2::ggplot(
     plot_df,
-    ggplot2::aes(x = .data$reorder(.data$anchor_species, .data$q50_multiplier_admissible), y = .data$q50_multiplier_admissible)
+    ggplot2::aes(x = stats::reorder(.data$anchor_species, .data$q50_multiplier_admissible), y = .data$q50_multiplier_admissible)
   ) +
     ggplot2::geom_hline(yintercept = 1, linetype = "dashed", colour = "grey50") +
     ggplot2::geom_errorbar(ggplot2::aes(ymin = .data$q05_multiplier_admissible, ymax = .data$q95_multiplier_admissible), width = 0.15, colour = "#2171b5") +
@@ -1856,7 +1856,7 @@ plot_policy_boxplot <- function(perf_tbl) {
 
   ggplot2::ggplot(
     plot_df,
-    ggplot2::aes(x = .data$reorder(.data$policy, .data$plot_error, FUN = stats::median), y = .data$plot_error, fill = .data$policy)
+    ggplot2::aes(x = stats::reorder(.data$policy, .data$plot_error, FUN = stats::median), y = .data$plot_error, fill = .data$policy)
   ) +
     ggplot2::geom_boxplot(outlier.alpha = 0.18, width = 0.72) +
     ggplot2::coord_flip() +
@@ -1899,7 +1899,7 @@ plot_species_boxplot <- function(perf_tbl) {
 
   ggplot2::ggplot(
     plot_df,
-    ggplot2::aes(x = .data$reorder(.data$policy, .data$plot_error, FUN = stats::median), y = .data$plot_error, fill = .data$policy)
+    ggplot2::aes(x = stats::reorder(.data$policy, .data$plot_error, FUN = stats::median), y = .data$plot_error, fill = .data$policy)
   ) +
     ggplot2::geom_boxplot(outlier.alpha = 0.18, width = 0.72) +
     ggplot2::coord_flip() +
