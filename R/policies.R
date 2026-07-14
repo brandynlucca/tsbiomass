@@ -8240,6 +8240,143 @@ predict_meta_policy_score <- function(object,
     dplyr::mutate(.meta_predicted_score = pred)
 }
 
+# Namespace-local payload used by forked meta-policy cross-fit workers.
+.meta_policy_crossfit_payload <- new.env(parent = emptyenv())
+
+#' Set the namespace-local meta-policy cross-fit payload
+#'
+#' Stores cross-fit fold data and scalar learner settings in a namespace-local
+#' environment. Fork workers inherit this environment by copy-on-write so only
+#' fold indices need to be sent over worker connections.
+#'
+#' @param payload Named list containing `fold_splits` and learner settings.
+#'
+#' @return Invisibly returns `NULL`.
+#' @keywords internal
+#' @noRd
+set_meta_policy_crossfit_payload <- function(payload) {
+  rm(list = ls(envir = .meta_policy_crossfit_payload, all.names = TRUE),
+     envir = .meta_policy_crossfit_payload)
+  list2env(payload, envir = .meta_policy_crossfit_payload)
+  invisible(NULL)
+}
+
+#' Clear the namespace-local meta-policy cross-fit payload
+#'
+#' Removes stored fold data and learner settings after cross-fitting so large
+#' benchmark objects are not retained longer than needed.
+#'
+#' @return Invisibly returns `NULL`.
+#' @keywords internal
+#' @noRd
+clear_meta_policy_crossfit_payload <- function() {
+  rm(list = ls(envir = .meta_policy_crossfit_payload, all.names = TRUE),
+     envir = .meta_policy_crossfit_payload)
+  invisible(NULL)
+}
+
+#' Run one meta-policy cross-fit fold from an explicit payload
+#'
+#' Fits the configured meta-policy learner on one pre-sliced train/test fold and
+#' returns predictions with fold and learner timing attributes attached.
+#'
+#' @param fold_split List with `train`, `test`, and `fold_id` entries.
+#' @param payload Named list of learner settings.
+#'
+#' @return Tibble of fold predictions with timing attributes.
+#' @keywords internal
+#' @noRd
+run_meta_policy_crossfit_payload_fold <- function(fold_split,
+                                                 payload) {
+  fold_start <- proc.time()
+  f <- fold_split$fold_id
+  train <- fold_split$train
+  test <- fold_split$test
+  if (nrow(train) == 0 || nrow(test) == 0) {
+    out <- tibble::tibble()
+    attr(out, "fold_timing") <- tibble::tibble(
+      fold_id = as.integer(f),
+      n_train = nrow(train),
+      n_test = nrow(test),
+      seconds = unname((proc.time() - fold_start)[["elapsed"]]),
+      succeeded = FALSE
+    )
+    return(out)
+  }
+  seed <- payload$seed
+  outer_seed <- if (is.null(seed)) NULL else as.integer(seed) + f
+  if (isTRUE(payload$is_super)) {
+    stream_super_learner_fold <- utils::getFromNamespace(
+      "stream_super_learner_fold",
+      "tsbiomass"
+    )
+    preds <- stream_super_learner_fold(
+      train_data = train,
+      test_data = test,
+      feature_cols = payload$feature_cols,
+      outcome_transform = payload$outcome_transform,
+      lambda_rule = payload$lambda_rule,
+      inner_folds = payload$inner_folds,
+      seed = outer_seed,
+      super_methods = payload$super_methods,
+      metalearner_loss = payload$metalearner_loss,
+      method_settings = payload$method_settings,
+      progress = FALSE
+    )
+  } else {
+    fit_meta_policy_learner <- utils::getFromNamespace("fit_meta_policy_learner", "tsbiomass")
+    predict_meta_policy_score <- utils::getFromNamespace("predict_meta_policy_score", "tsbiomass")
+    learner <- fit_meta_policy_learner(
+      training_data = train,
+      method = payload$method,
+      feature_cols = payload$feature_cols,
+      outcome_transform = payload$outcome_transform,
+      lambda_rule = payload$lambda_rule,
+      alpha = payload$alpha,
+      inner_folds = payload$inner_folds,
+      super_methods = payload$super_methods,
+      metalearner_loss = payload$metalearner_loss,
+      seed = outer_seed,
+      method_settings = payload$method_settings
+    )
+    preds <- predict_meta_policy_score(learner, test)
+  }
+  learner_timings <- attr(preds, "learner_timings")
+  out <- preds |> dplyr::mutate(fold_id = f)
+  attr(out, "fold_timing") <- tibble::tibble(
+    fold_id = as.integer(f),
+    n_train = nrow(train),
+    n_test = nrow(test),
+    seconds = unname((proc.time() - fold_start)[["elapsed"]]),
+    succeeded = TRUE
+  )
+  if (is.data.frame(learner_timings) && nrow(learner_timings) > 0L) {
+    attr(out, "learner_timings") <- learner_timings |>
+      dplyr::mutate(outer_fold = f)
+  }
+  out
+}
+
+#' Run one inherited meta-policy cross-fit fold
+#'
+#' Fetches one fold split by index from the namespace-local fork-worker payload
+#' and evaluates it with [run_meta_policy_crossfit_payload_fold()].
+#'
+#' @param fold_id Integer fold index.
+#'
+#' @return Tibble of fold predictions with timing attributes.
+#' @keywords internal
+#' @noRd
+run_meta_policy_crossfit_task <- function(fold_id) {
+  fold_splits <- get("fold_splits", envir = .meta_policy_crossfit_payload, inherits = FALSE)
+  payload <- as.list(.meta_policy_crossfit_payload)
+  payload$fold_splits <- NULL
+  run_meta_policy_crossfit_payload_fold(
+    fold_split = fold_splits[[as.integer(fold_id)]],
+    payload = payload
+  )
+}
+
 #' Cross-fit a meta-policy learner on benchmark rows
 #'
 #' @param policy_perf Policy-performance table.
@@ -8375,96 +8512,26 @@ crossfit_meta_policy_learner <- function(policy_perf,
   })
   rm(data_all)
 
-  # run_fold_split receives a pre-sliced list(train, test, fold_id). Using the
-  # streaming path for super_learner avoids accumulating all 11 base learner
-  # model objects simultaneously - only one model at a time is held in RAM.
+  fold_payload <- list(
+    is_super = is_super,
+    feature_cols = feature_cols,
+    method = method,
+    outcome_transform = outcome_transform,
+    lambda_rule = lambda_rule,
+    alpha = alpha,
+    inner_folds = inner_folds,
+    super_methods = super_methods,
+    metalearner_loss = metalearner_loss,
+    method_settings = method_settings,
+    seed = seed
+  )
   run_fold_split <- function(fold_split) {
-    fold_start <- proc.time()
-    f <- fold_split$fold_id
-    train <- fold_split$train
-    test <- fold_split$test
-    if (nrow(train) == 0 || nrow(test) == 0) {
-      out <- tibble::tibble()
-      attr(out, "fold_timing") <- tibble::tibble(
-        fold_id = as.integer(f),
-        n_train = nrow(train),
-        n_test = nrow(test),
-        seconds = unname((proc.time() - fold_start)[["elapsed"]]),
-        succeeded = FALSE
-      )
-      return(out)
-    }
-    outer_seed <- if (is.null(seed)) NULL else as.integer(seed) + f
-    if (is_super) {
-      stream_super_learner_fold <- utils::getFromNamespace(
-        "stream_super_learner_fold",
-        "tsbiomass"
-      )
-      preds <- stream_super_learner_fold(
-        train_data = train,
-        test_data = test,
-        feature_cols = feature_cols,
-        outcome_transform = outcome_transform,
-        lambda_rule = lambda_rule,
-        inner_folds = inner_folds,
-        seed = outer_seed,
-        super_methods = super_methods,
-        metalearner_loss = metalearner_loss,
-        method_settings = method_settings,
-        progress = FALSE
-      )
-    } else {
-      fit_meta_policy_learner <- utils::getFromNamespace("fit_meta_policy_learner", "tsbiomass")
-      predict_meta_policy_score <- utils::getFromNamespace("predict_meta_policy_score", "tsbiomass")
-      learner <- fit_meta_policy_learner(
-        training_data = train,
-        method = method,
-        feature_cols = feature_cols,
-        outcome_transform = outcome_transform,
-        lambda_rule = lambda_rule,
-        alpha = alpha,
-        inner_folds = inner_folds,
-        super_methods = super_methods,
-        metalearner_loss = metalearner_loss,
-        seed = outer_seed,
-        method_settings = method_settings
-      )
-      preds <- predict_meta_policy_score(learner, test)
-    }
-    learner_timings <- attr(preds, "learner_timings")
-    out <- preds |> dplyr::mutate(fold_id = f)
-    attr(out, "fold_timing") <- tibble::tibble(
-      fold_id = as.integer(f),
-      n_train = nrow(train),
-      n_test = nrow(test),
-      seconds = unname((proc.time() - fold_start)[["elapsed"]]),
-      succeeded = TRUE
-    )
-    if (is.data.frame(learner_timings) && nrow(learner_timings) > 0L) {
-      attr(out, "learner_timings") <- learner_timings |>
-        dplyr::mutate(outer_fold = f)
-    }
-    out
+    run_meta_policy_crossfit_payload_fold(fold_split, fold_payload)
   }
-
-  # Replace the closure's captured environment with a minimal set of scalars.
-  # Without this, run_fold_split's environment includes fold_splits (10 x data_all
-  # in size) and that entire object is serialised into every PSOCK worker when
-  # clusterExport sends the function. Workers receive their fold_split as an
-  # argument from parLapplyLB - they do not need the full list in their namespace.
   environment(run_fold_split) <- list2env(
     list(
-      is_super = is_super,
-      feature_cols = feature_cols,
-      method = method,
-      outcome_transform = outcome_transform,
-      lambda_rule = lambda_rule,
-      alpha = alpha,
-      inner_folds = inner_folds,
-      super_methods = super_methods,
-      metalearner_loss = metalearner_loss,
-      method_settings = method_settings,
-      seed = seed
+      fold_payload = fold_payload,
+      run_meta_policy_crossfit_payload_fold = run_meta_policy_crossfit_payload_fold
     ),
     parent = baseenv()
   )
@@ -8480,25 +8547,56 @@ crossfit_meta_policy_learner <- function(policy_perf,
   )
 
   if (workers > 1L && n_folds > 1L) {
+    set_meta_policy_crossfit_payload(c(fold_payload, list(fold_splits = fold_splits)))
+    on.exit(clear_meta_policy_crossfit_payload(), add = TRUE)
     cluster_obj <- initialize_parallel_cluster(
       workers = n_workers_eff
     )
+    cluster_type <- attr(cluster_obj, "cluster_type", exact = TRUE) %||% "unknown"
     report_progress(
       progress,
       "Policy learner cross-fit backend: ",
       parallel_cluster_description(cluster_obj),
       "; parallel unit=outer fold; method-local workers=1."
     )
-    on.exit(parallel::stopCluster(cluster_obj), add = TRUE)
-    tsb_cluster_export(
-      cluster_obj,
-      # fold_splits is intentionally absent: parLapplyLB distributes each
-      # element as the function argument, and run_fold_split's closure
-      # environment has already been stripped to scalars only.
-      c("run_fold_split"),
-      envir = environment()
+    on.exit(try(parallel::stopCluster(cluster_obj), silent = TRUE), add = TRUE)
+    fold_results <- tryCatch(
+      {
+        if (identical(cluster_type, "fork")) {
+          parallel::parLapplyLB(cluster_obj, seq_along(fold_splits), run_meta_policy_crossfit_task)
+        } else {
+          tsb_cluster_export(
+            cluster_obj,
+            # fold_splits is intentionally absent: parLapplyLB distributes each
+            # element as the function argument, and run_fold_split's closure
+            # environment has already been stripped to scalars only.
+            c("run_fold_split"),
+            envir = environment()
+          )
+          parallel::parLapplyLB(cluster_obj, fold_splits, run_fold_split)
+        }
+      },
+      error = function(e) {
+        report_progress(
+          progress,
+          "Policy learner parallel cross-fit failed; falling back to sequential outer folds: ",
+          conditionMessage(e)
+        )
+        NULL
+      }
     )
-    fold_results <- parallel::parLapplyLB(cluster_obj, fold_splits, run_fold_split)
+    if (is.null(fold_results)) {
+      fold_results <- lapply(seq_along(fold_splits), function(i) {
+        report_progress(
+          progress,
+          sprintf(
+            "  Outer fold %d/%d (%d train rows, %d test rows) ...",
+            i, n_folds, nrow(fold_splits[[i]]$train), nrow(fold_splits[[i]]$test)
+          )
+        )
+        run_fold_split(fold_splits[[i]])
+      })
+    }
   } else {
     fold_results <- lapply(seq_along(fold_splits), function(i) {
       report_progress(
