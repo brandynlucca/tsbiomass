@@ -7195,17 +7195,20 @@ stream_super_learner_fold <- function(train_data,
   colnames(oof_mat) <- names(pred_cols)
   weights <- fit_super_learner_weights(oof_mat, y, loss = metalearner_loss)
   names(weights) <- colnames(oof_mat)
+  weight_lookup <- stats::setNames(rep(0, length(methods)), methods)
+  weight_lookup[names(weights)] <- weights
   weights <- weights[weights > 0]
   if (length(weights) == 0) {
     stop("stream_outer_fold: metalearner produced zero-weight ensemble.", call. = FALSE)
   }
   weights <- weights / sum(weights)
+  weight_lookup[names(weights)] <- weights
 
   prediction_cap <- meta_policy_prediction_cap(train_data$.outcome)
   n_test <- nrow(test_data)
   acc_pred <- rep(0, n_test)
   weight_sum <- 0
-  methods_final <- names(weights)
+  methods_final <- names(pred_cols)
   refit_seconds <- stats::setNames(rep(NA_real_, length(methods)), methods)
   method_test_errors <- stats::setNames(rep(NA_real_, length(methods)), methods)
   method_test_rmse <- stats::setNames(rep(NA_real_, length(methods)), methods)
@@ -7213,8 +7216,7 @@ stream_super_learner_fold <- function(train_data,
   report_progress(progress, sprintf("  Streaming %d final fits ...", length(methods_final)))
   for (i_final in seq_along(methods_final)) {
     method_now <- methods_final[[i_final]]
-    w <- weights[[method_now]]
-    if (!is.finite(w) || w <= 0) next
+    w <- if (method_now %in% names(weights)) weights[[method_now]] else 0
     timing_start <- proc.time()
     report_progress(progress, sprintf("  [%d/%d] Final: %s (w=%.3f)", i_final, length(methods_final), method_now, w))
     bl <- fit_meta_policy_ensemble_base(
@@ -7230,11 +7232,13 @@ stream_super_learner_fold <- function(train_data,
     if (!inherits(bl, "try-error")) {
       sc <- try(predict_meta_policy_score(bl, test_data), silent = TRUE)
       if (!inherits(sc, "try-error") && ".meta_predicted_score" %in% names(sc)) {
-        acc_pred <- acc_pred + w * sc$.meta_predicted_score
-        weight_sum <- weight_sum + w
         if (".outcome" %in% names(test_data)) {
           method_test_errors[[method_now]] <- mean(abs(test_data$.outcome - sc$.meta_predicted_score), na.rm = TRUE)
           method_test_rmse[[method_now]] <- sqrt(mean((test_data$.outcome - sc$.meta_predicted_score)^2, na.rm = TRUE))
+        }
+        if (is.finite(w) && w > 0) {
+          acc_pred <- acc_pred + w * sc$.meta_predicted_score
+          weight_sum <- weight_sum + w
         }
       }
       rm(bl, sc)
@@ -7252,7 +7256,7 @@ stream_super_learner_fold <- function(train_data,
     method = methods,
     oof_seconds = unname(oof_seconds[methods]),
     refit_seconds = unname(refit_seconds[methods]),
-    weight = unname(weights[methods]),
+    weight = unname(weight_lookup[methods]),
     test_mae = unname(method_test_errors[methods]),
     test_rmse = unname(method_test_rmse[methods])
   ) |>
@@ -9199,16 +9203,16 @@ combine_meta_policy_super_fold_tasks <- function(fold_split,
   test_mae_lookup <- stats::setNames(rep(NA_real_, length(methods)), methods)
   test_rmse_lookup <- stats::setNames(rep(NA_real_, length(methods)), methods)
   for (result in ok_results) {
+    if (".outcome" %in% names(test_data)) {
+      test_mae_lookup[[result$method]] <- mean(abs(test_data$.outcome - result$test_pred), na.rm = TRUE)
+      test_rmse_lookup[[result$method]] <- sqrt(mean((test_data$.outcome - result$test_pred)^2, na.rm = TRUE))
+    }
     weight_now <- if (result$method %in% names(weights)) weights[[result$method]] else 0
     if (!is.finite(weight_now) || weight_now <= 0) {
       next
     }
     acc_pred <- acc_pred + weight_now * result$test_pred
     weight_sum <- weight_sum + weight_now
-    if (".outcome" %in% names(test_data)) {
-      test_mae_lookup[[result$method]] <- mean(abs(test_data$.outcome - result$test_pred), na.rm = TRUE)
-      test_rmse_lookup[[result$method]] <- sqrt(mean((test_data$.outcome - result$test_pred)^2, na.rm = TRUE))
-    }
   }
   if (weight_sum <= 0) {
     stop("meta-policy super learner fold had no weighted refit predictions.", call. = FALSE)

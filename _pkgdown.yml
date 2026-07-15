@@ -143,6 +143,8 @@ reference:
       - crossfit.PolicyLearner
       - fit
       - fit.PolicyLearner
+      - screen_learners
+      - update_learners
       - calibrate_uncertainty.PolicyLearner
 
   - title: "Predictions and Scoring"
