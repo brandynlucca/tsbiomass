@@ -597,6 +597,127 @@ S7::method(show_generic, Configurer) <- function(object) {
   configurer_console_summary(object)
 }
 
+#' Extract learner-screening summary rows from scorecards
+#'
+#' @param scorecards A list of [Scorecard] objects.
+#'
+#' @return A tibble containing learner-screen summary rows.
+#' @keywords internal
+#' @noRd
+learner_screen_scorecard_rows <- function(scorecards) {
+  if (is.null(scorecards)) {
+    return(tibble::tibble())
+  }
+  if (is_s7_instance(scorecards, "Scorecard")) {
+    scorecards <- list(scorecards)
+  }
+  if (!is.list(scorecards)) {
+    stop("'scorecards' must be a Scorecard or a list of Scorecard objects.", call. = FALSE)
+  }
+  rows <- lapply(scorecards, function(scorecard_now) {
+    if (!is_s7_instance(scorecard_now, "Scorecard")) {
+      stop("All learner-screening scorecards must be `Scorecard` objects.", call. = FALSE)
+    }
+    diag_rows <- tibble::as_tibble(scorecard_now@selection_diagnostics %||% tibble::tibble())
+    if (nrow(diag_rows) == 0L) {
+      return(tibble::tibble())
+    }
+    dplyr::filter(diag_rows, .data$scorecard_type == "learner_screen_summary")
+  })
+  dplyr::bind_rows(rows)
+}
+
+#' Update a `Configurer` from learner-screening scorecards
+#'
+#' Applies one or more learner-screening [Scorecard] objects to a [Configurer]
+#' by replacing the corresponding parent `super_methods` vector with the
+#' methods marked `recommended_keep` in each scorecard. Only
+#' `selection$super_methods` and `uncertainty$super_methods` are modified;
+#' learner method settings, folds, outcomes, and all other config entries are
+#' preserved.
+#'
+#' @name update_learners.Configurer
+#' @usage NULL
+#'
+#' @param object A [Configurer].
+#' @param ... One or more [Scorecard] objects.
+#' @param scorecards Optional list of [Scorecard] objects.
+#' @param stages Optional stage filter. Defaults to all stages represented in
+#'   the scorecards.
+#' @param progress Logical scalar. If `TRUE`, emit update messages.
+#'
+#' @return A new [Configurer] with pruned Super Learner method libraries.
+S7::method(update_learners, Configurer) <- function(object,
+                                                    ...,
+                                                    scorecards = list(...),
+                                                    stages = NULL,
+                                                    progress = TRUE) {
+  rows <- learner_screen_scorecard_rows(scorecards)
+  if (nrow(rows) == 0L) {
+    warning("No learner-screening summary rows were found; returning the Configurer unchanged.", call. = FALSE)
+    return(object)
+  }
+  if (!"stage" %in% names(rows) || !"method" %in% names(rows) || !"recommended_keep" %in% names(rows)) {
+    stop("Learner-screening scorecards must contain 'stage', 'method', and 'recommended_keep' columns.", call. = FALSE)
+  }
+
+  valid_stages <- c("selection", "uncertainty")
+  stages <- stages %||% unique(as.character(rows$stage))
+  stages <- intersect(as.character(stages), valid_stages)
+  if (length(stages) == 0L) {
+    warning("No valid learner-screening stages were supplied; returning the Configurer unchanged.", call. = FALSE)
+    return(object)
+  }
+
+  updated <- object@data
+  for (stage_now in stages) {
+    stage_rows <- rows |>
+      dplyr::filter(.data$stage == stage_now) |>
+      dplyr::arrange(.data$original_order, .data$method)
+    if (nrow(stage_rows) == 0L) {
+      next
+    }
+    retained <- stage_rows$method[stage_rows$recommended_keep %in% TRUE]
+    retained <- retained[!is.na(retained) & nzchar(retained)]
+    retained <- unique(retained)
+    if (length(retained) == 0L) {
+      warning(
+        sprintf(
+          "Learner-screening scorecard for '%s' retained no methods; leaving that section unchanged.",
+          stage_now
+        ),
+        call. = FALSE
+      )
+      next
+    }
+    original <- as.character(unlist((updated[[stage_now]] %||% list())$super_methods %||% character(), use.names = FALSE))
+    dropped <- setdiff(original, retained)
+    updated[[stage_now]] <- updated[[stage_now]] %||% list()
+    updated[[stage_now]]$super_methods <- retained
+    report_progress(
+      progress,
+      sprintf(
+        "Updated %s Super Learner library: retained %d/%d method(s)%s.",
+        stage_now,
+        length(retained),
+        length(original),
+        if (length(dropped) > 0L) {
+          sprintf("; dropped: %s", paste(dropped, collapse = ", "))
+        } else {
+          ""
+        }
+      )
+    )
+  }
+
+  Configurer(
+    data = updated,
+    base_dir = object@base_dir,
+    registry_path = object@registry_path,
+    policy_path = object@policy_path
+  )
+}
+
 
 #' Read the packaged trait registry JSON
 #'
@@ -2965,6 +3086,39 @@ validate_learner_section <- function(learner_section, section_name = "Selection"
 
   if (!is.null(learner_section$method_settings)) {
     validate_metalearner_method_settings(method_settings)
+  }
+
+  if (!is.null(learner_section$screen_learners)) {
+    screen_cfg <- learner_section$screen_learners
+    if (!is.list(screen_cfg)) {
+      stop(sprintf("%s field 'screen_learners' must be a named list.", section_name), call. = FALSE)
+    }
+    bad_screen_fields <- setdiff(names(screen_cfg), c("n_folds", "seed"))
+    if (length(bad_screen_fields) > 0L) {
+      stop(
+        sprintf(
+          "%s field 'screen_learners' contains unsupported field(s): %s",
+          section_name,
+          paste(bad_screen_fields, collapse = ", ")
+        ),
+        call. = FALSE
+      )
+    }
+    if (is.null(screen_cfg$n_folds)) {
+      stop(sprintf("%s field 'screen_learners.n_folds' is required.", section_name), call. = FALSE)
+    }
+    if (!is.numeric(screen_cfg$n_folds) ||
+      length(screen_cfg$n_folds) != 1 ||
+      !is.finite(screen_cfg$n_folds) ||
+      screen_cfg$n_folds < 2) {
+      stop(sprintf("%s field 'screen_learners.n_folds' must be one finite number >= 2.", section_name), call. = FALSE)
+    }
+    if (!is.null(screen_cfg$seed) &&
+      (!is.numeric(screen_cfg$seed) ||
+        length(screen_cfg$seed) != 1 ||
+        !is.finite(screen_cfg$seed))) {
+      stop(sprintf("%s field 'screen_learners.seed' must be NULL or one finite number.", section_name), call. = FALSE)
+    }
   }
 
   if (!is.null(learner_section$max_selection_tolerance) &&

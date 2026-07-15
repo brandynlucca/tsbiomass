@@ -6824,7 +6824,10 @@ fit_stochtree_bart <- function(x, y, args, training_data, seed) {
 #' @keywords internal
 #' @noRd
 predict_stochtree_bart <- function(object, x, prediction_tbl) {
+  x <- as.matrix(x)
+  n_pred <- nrow(x)
   rfx_group_ids <- NULL
+  seen_group <- NULL
   rfx_group_col <- as.character(object$rfx_group_col %||% NA_character_)[[1]]
   if (!is.na(rfx_group_col) && nzchar(rfx_group_col)) {
     rfx_levels <- object$rfx_levels %||% character(0)
@@ -6833,27 +6836,39 @@ predict_stochtree_bart <- function(object, x, prediction_tbl) {
     } else {
       rep(NA_character_, nrow(x))
     }
-    # Unseen/new groups (id 0) fall back to the population-mean random effect.
     ids <- match(group_values, rfx_levels)
-    ids[is.na(ids)] <- 0L
+    seen_group <- !is.na(ids)
     rfx_group_ids <- as.integer(ids)
   }
 
-  draws <- if (is.null(rfx_group_ids)) {
-    stats::predict(object$fit, as.matrix(x))
-  } else {
-    stats::predict(object$fit, as.matrix(x), rfx_group_ids = rfx_group_ids)
+  reduce_draws <- function(draws) {
+    yhat <- if (is.list(draws)) {
+      draws$y_hat %||% draws$mean_forest_predictions %||% draws[[1]]
+    } else {
+      draws
+    }
+    if (is.null(dim(yhat))) as.numeric(yhat) else as.numeric(rowMeans(yhat))
   }
 
-  # stochtree predict() returns either a draws matrix ([obs x samples]) or a list
-  # carrying the mean prediction under y_hat/mean_forest_predictions; reduce to a
-  # posterior-mean vector either way.
-  yhat <- if (is.list(draws)) {
-    draws$y_hat %||% draws$mean_forest_predictions %||% draws[[1]]
-  } else {
-    draws
+  if (is.null(rfx_group_ids)) {
+    return(reduce_draws(stats::predict(object$fit, x)))
   }
-  if (is.null(dim(yhat))) as.numeric(yhat) else as.numeric(rowMeans(yhat))
+
+  pred <- rep(NA_real_, n_pred)
+  if (any(seen_group)) {
+    pred[seen_group] <- reduce_draws(stats::predict(
+      object$fit,
+      x[seen_group, , drop = FALSE],
+      rfx_group_ids = rfx_group_ids[seen_group]
+    ))
+  }
+  if (any(!seen_group)) {
+    pred[!seen_group] <- reduce_draws(stats::predict(
+      object$fit,
+      x[!seen_group, , drop = FALSE]
+    ))
+  }
+  pred
 }
 
 #' Predict from a fitted KNN-regression meta-policy learner
@@ -7187,6 +7202,8 @@ stream_super_learner_fold <- function(train_data,
   weight_sum <- 0
   methods_final <- names(weights)
   refit_seconds <- stats::setNames(rep(NA_real_, length(methods)), methods)
+  method_test_errors <- stats::setNames(rep(NA_real_, length(methods)), methods)
+  method_test_rmse <- stats::setNames(rep(NA_real_, length(methods)), methods)
 
   report_progress(progress, sprintf("  Streaming %d final fits ...", length(methods_final)))
   for (i_final in seq_along(methods_final)) {
@@ -7210,6 +7227,10 @@ stream_super_learner_fold <- function(train_data,
       if (!inherits(sc, "try-error") && ".meta_predicted_score" %in% names(sc)) {
         acc_pred <- acc_pred + w * sc$.meta_predicted_score
         weight_sum <- weight_sum + w
+        if (".outcome" %in% names(test_data)) {
+          method_test_errors[[method_now]] <- mean(abs(test_data$.outcome - sc$.meta_predicted_score), na.rm = TRUE)
+          method_test_rmse[[method_now]] <- sqrt(mean((test_data$.outcome - sc$.meta_predicted_score)^2, na.rm = TRUE))
+        }
       }
       rm(bl, sc)
     }
@@ -7225,7 +7246,10 @@ stream_super_learner_fold <- function(train_data,
   attr(out, "learner_timings") <- tibble::tibble(
     method = methods,
     oof_seconds = unname(oof_seconds[methods]),
-    refit_seconds = unname(refit_seconds[methods])
+    refit_seconds = unname(refit_seconds[methods]),
+    weight = unname(weights[methods]),
+    test_mae = unname(method_test_errors[methods]),
+    test_rmse = unname(method_test_rmse[methods])
   ) |>
     dplyr::mutate(
       total_seconds = rowSums(
@@ -8711,6 +8735,48 @@ format_meta_policy_crossfit_method_tasks <- function(tasks,
   paste(labels, collapse = ", ")
 }
 
+#' Log meta-policy method-fold task completion
+#'
+#' Emits one compact completion line and, for failed task results, emits the
+#' captured error on the next log line.
+#'
+#' @param result Method-fold task result.
+#' @param completed_n Number of completed tasks.
+#' @param total_tasks Total number of method-fold tasks.
+#' @param progress Logical. Emit progress messages.
+#'
+#' @return Invisibly returns `NULL`.
+#' @keywords internal
+#' @noRd
+log_meta_policy_crossfit_method_result <- function(result,
+                                                   completed_n,
+                                                   total_tasks,
+                                                   progress = FALSE) {
+  success_now <- isTRUE(result$succeeded_oof) && isTRUE(result$succeeded_refit)
+  summary <- sprintf(
+    "  %s Method-fold task complete: %d/%d [fold=%d method=%s success=%s].",
+    if (success_now) "✅" else "❌",
+    completed_n,
+    total_tasks,
+    as.integer(result$fold_id),
+    as.character(result$method),
+    success_now
+  )
+  if (success_now) {
+    report_progress(progress, summary)
+  } else {
+    report_progress(
+      progress,
+      paste0(
+        summary,
+        "\n",
+        as.character(result$error %||% "Unknown method-fold task failure.")
+      )
+    )
+  }
+  invisible(NULL)
+}
+
 #' Split a meta-policy method-fold suspect group
 #'
 #' Bisects a suspect task group after a worker-connection failure so only the
@@ -8788,19 +8854,7 @@ run_meta_policy_crossfit_method_queue_once <- function(tasks,
         error = function(e) failed_meta_policy_crossfit_method_task(task, conditionMessage(e))
       )
       completed_n <- completed_n + 1L
-      success_now <- isTRUE(result$succeeded_oof) && isTRUE(result$succeeded_refit)
-      report_progress(
-        progress,
-        sprintf(
-          "  Method-fold task complete: %d/%d [fold=%d method=%s success=%s%s].",
-          completed_n,
-          total_tasks,
-          as.integer(result$fold_id),
-          as.character(result$method),
-          success_now,
-          if (!success_now) paste0(" error=", as.character(result$error %||% "unknown")) else ""
-        )
-      )
+      log_meta_policy_crossfit_method_result(result, completed_n, total_tasks, progress)
       completed[[length(completed) + 1L]] <- result
     }
     return(list(
@@ -8885,19 +8939,7 @@ run_meta_policy_crossfit_method_queue_once <- function(tasks,
       received$value
     }
     completed_n <- completed_n + 1L
-    success_now <- isTRUE(result$succeeded_oof) && isTRUE(result$succeeded_refit)
-    report_progress(
-      progress,
-      sprintf(
-        "  Method-fold task complete: %d/%d [fold=%d method=%s success=%s%s].",
-        completed_n,
-        total_tasks,
-        as.integer(result$fold_id),
-        as.character(result$method),
-        success_now,
-        if (!success_now) paste0(" error=", as.character(result$error %||% "unknown")) else ""
-      )
-    )
+    log_meta_policy_crossfit_method_result(result, completed_n, total_tasks, progress)
     completed[[length(completed) + 1L]] <- result
     if (length(pending) > 0L) {
       submit_task(as.integer(node_id), pending[[1L]])
@@ -8982,19 +9024,7 @@ run_meta_policy_crossfit_method_tasks <- function(tasks,
           error = function(e) failed_meta_policy_crossfit_method_task(task, conditionMessage(e))
         )
         completed_n <- completed_n + 1L
-        success_now <- isTRUE(result$succeeded_oof) && isTRUE(result$succeeded_refit)
-        report_progress(
-          progress,
-          sprintf(
-            "  Method-fold task complete: %d/%d [fold=%d method=%s success=%s%s].",
-            completed_n,
-            total_tasks,
-            as.integer(result$fold_id),
-            as.character(result$method),
-            success_now,
-            if (!success_now) paste0(" error=", as.character(result$error %||% "unknown")) else ""
-          )
-        )
+        log_meta_policy_crossfit_method_result(result, completed_n, total_tasks, progress)
         completed_results[[length(completed_results) + 1L]] <- result
       }
       if (retry_mode) {
@@ -9038,7 +9068,7 @@ run_meta_policy_crossfit_method_tasks <- function(tasks,
         report_progress(
           progress,
           sprintf(
-            "  Method-fold task isolated after socket failure: %d/%d [fold=%d method=%s success=FALSE].",
+            "  ❌ Method-fold task isolated after socket failure: %d/%d [fold=%d method=%s success=FALSE].",
             completed_n,
             total_tasks,
             as.integer(result$fold_id),
@@ -9058,12 +9088,12 @@ run_meta_policy_crossfit_method_tasks <- function(tasks,
           pending_tasks <- queue_result$unstarted
         }
         report_progress(
-          progress,
-          sprintf(
-            "  Method-fold queue failed while active tasks were [%s]; retaining completed tasks and splitting suspect set into %d group(s); %d pending task(s) remain at full worker budget: %s",
-            format_meta_policy_crossfit_method_tasks(queue_result$failed_active),
-            length(suspect_groups),
-            length(pending_tasks),
+        progress,
+        sprintf(
+          "  ⚠️ Method-fold queue failed while active tasks were [%s]; retaining completed tasks and splitting suspect set into %d group(s); %d pending task(s) remain at full worker budget: %s",
+          format_meta_policy_crossfit_method_tasks(queue_result$failed_active),
+          length(suspect_groups),
+          length(pending_tasks),
             queue_result$error
           )
         )
@@ -9153,10 +9183,14 @@ combine_meta_policy_super_fold_tasks <- function(fold_split,
     stop("meta-policy super learner fold produced zero metalearner weight.", call. = FALSE)
   }
   weights <- weights / sum(weights)
+  weight_lookup <- stats::setNames(rep(0, length(methods)), methods)
+  weight_lookup[names(weights)] <- weights
 
   prediction_cap <- meta_policy_prediction_cap(train_data$.outcome)
   acc_pred <- rep(0, nrow(test_data))
   weight_sum <- 0
+  test_mae_lookup <- stats::setNames(rep(NA_real_, length(methods)), methods)
+  test_rmse_lookup <- stats::setNames(rep(NA_real_, length(methods)), methods)
   for (result in ok_results) {
     weight_now <- if (result$method %in% names(weights)) weights[[result$method]] else 0
     if (!is.finite(weight_now) || weight_now <= 0) {
@@ -9164,6 +9198,10 @@ combine_meta_policy_super_fold_tasks <- function(fold_split,
     }
     acc_pred <- acc_pred + weight_now * result$test_pred
     weight_sum <- weight_sum + weight_now
+    if (".outcome" %in% names(test_data)) {
+      test_mae_lookup[[result$method]] <- mean(abs(test_data$.outcome - result$test_pred), na.rm = TRUE)
+      test_rmse_lookup[[result$method]] <- sqrt(mean((test_data$.outcome - result$test_pred)^2, na.rm = TRUE))
+    }
   }
   if (weight_sum <= 0) {
     stop("meta-policy super learner fold had no weighted refit predictions.", call. = FALSE)
@@ -9176,7 +9214,12 @@ combine_meta_policy_super_fold_tasks <- function(fold_split,
     )
   fold_seconds <- learner_timings$total_seconds
   fold_seconds <- fold_seconds[is.finite(fold_seconds)]
-  attr(out, "learner_timings") <- learner_timings
+  attr(out, "learner_timings") <- learner_timings |>
+    dplyr::mutate(
+      weight = unname(weight_lookup[.data$method]),
+      test_mae = unname(test_mae_lookup[.data$method]),
+      test_rmse = unname(test_rmse_lookup[.data$method])
+    )
   attr(out, "fold_timing") <- tibble::tibble(
     fold_id = fold_id,
     n_train = nrow(train_data),

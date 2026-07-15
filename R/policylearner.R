@@ -898,6 +898,458 @@ S7::method(crossfit, PolicyLearner) <- function(object,
   )
 }
 
+#' Build an empty learner-screening scorecard
+#'
+#' @param stage Learner stage, either `"selection"` or `"uncertainty"`.
+#' @param status Status label stored on the scorecard.
+#' @param message Human-readable status message.
+#'
+#' @return A [Scorecard] carrying learner-screening status rows.
+#' @keywords internal
+#' @noRd
+policy_learner_screen_empty_scorecard <- function(stage,
+                                                  status = "skipped",
+                                                  message = NA_character_) {
+  stage <- as.character(stage %||% NA_character_)[[1]]
+  Scorecard(
+    intervals = tibble::tibble(),
+    selected = tibble::tibble(),
+    ts_panel = tibble::tibble(),
+    recommendation_cards = tibble::tibble(),
+    surrogate_rules = tibble::tibble(),
+    consensus = tibble::tibble(),
+    anchor_summary = tibble::tibble(
+      scorecard_type = "learner_screen",
+      stage = stage,
+      status = status,
+      message = as.character(message %||% NA_character_)[[1]]
+    ),
+    anchor_audit = tibble::tibble(),
+    species_coverage = tibble::tibble(),
+    selection_diagnostics = tibble::tibble(),
+    key_missing_overall = tibble::tibble(),
+    key_missing_by_field = tibble::tibble(),
+    key_missing_by_model = tibble::tibble(),
+    anchor_missing_gate = tibble::tibble(),
+    status = tibble::tibble(
+      component = "learner_screen",
+      status = status,
+      message = as.character(message %||% NA_character_)[[1]]
+    )
+  )
+}
+
+#' Build a learner-screening scorecard
+#'
+#' @param stage Learner stage screened.
+#' @param crossfit_obj Result from `crossfit_meta_policy_learner()`.
+#' @param parent_method Parent learner method.
+#' @param parent_super_methods Configured parent Super Learner methods.
+#' @param main_n_folds Full-run outer fold count.
+#' @param screen_n_folds Screening outer fold count.
+#' @param inner_folds Inherited inner fold count.
+#' @param seed Screening seed.
+#' @param weight_tolerance Numeric tolerance below which weights are treated as
+#'   zero for the default recommendation flag.
+#'
+#' @return A [Scorecard] with fold and learner-level diagnostics.
+#' @keywords internal
+#' @noRd
+policy_learner_screen_scorecard <- function(stage,
+                                            crossfit_obj,
+                                            parent_method,
+                                            parent_super_methods,
+                                            main_n_folds,
+                                            screen_n_folds,
+                                            inner_folds,
+                                            seed,
+                                            weight_tolerance = 0) {
+  learner_timings <- tibble::as_tibble(crossfit_obj$learner_timings %||% tibble::tibble())
+  parent_super_methods <- as.character(unlist(parent_super_methods %||% character(), use.names = FALSE))
+  parent_super_methods <- parent_super_methods[!is.na(parent_super_methods) & nzchar(parent_super_methods)]
+  weight_tolerance <- suppressWarnings(as.numeric(weight_tolerance %||% 0)[[1]])
+  if (!is.finite(weight_tolerance) || weight_tolerance < 0) {
+    weight_tolerance <- 0
+  }
+
+  if (nrow(learner_timings) == 0L) {
+    return(policy_learner_screen_empty_scorecard(
+      stage = stage,
+      status = "warning",
+      message = "Learner screening completed but produced no learner timing rows."
+    ))
+  }
+
+  if (!"outer_fold" %in% names(learner_timings)) {
+    learner_timings$outer_fold <- NA_integer_
+  }
+  if (!"weight" %in% names(learner_timings)) {
+    learner_timings$weight <- NA_real_
+  }
+  if (!"test_mae" %in% names(learner_timings)) {
+    learner_timings$test_mae <- NA_real_
+  }
+  if (!"test_rmse" %in% names(learner_timings)) {
+    learner_timings$test_rmse <- NA_real_
+  }
+  if (!"error" %in% names(learner_timings)) {
+    learner_timings$error <- NA_character_
+  }
+
+  fold_rows <- learner_timings |>
+    dplyr::mutate(
+      scorecard_type = "learner_screen_fold",
+      stage = stage,
+      parent_method = parent_method,
+      screen_n_folds = as.integer(screen_n_folds),
+      main_n_folds = as.integer(main_n_folds),
+      inner_folds = as.integer(inner_folds),
+      seed = as.integer(seed %||% NA_integer_),
+      weight = dplyr::coalesce(suppressWarnings(as.numeric(.data$weight)), 0),
+      succeeded_oof = as.logical(.data$succeeded_oof),
+      succeeded_refit = as.logical(.data$succeeded_refit),
+      succeeded = .data$succeeded_oof & .data$succeeded_refit
+    )
+
+  summary_rows <- fold_rows |>
+    dplyr::group_by(.data$method) |>
+    dplyr::summarise(
+      scorecard_type = "learner_screen_summary",
+      stage = dplyr::first(.data$stage),
+      parent_method = dplyr::first(.data$parent_method),
+      screen_n_folds = dplyr::first(.data$screen_n_folds),
+      main_n_folds = dplyr::first(.data$main_n_folds),
+      inner_folds = dplyr::first(.data$inner_folds),
+      seed = dplyr::first(.data$seed),
+      n_folds_observed = dplyr::n(),
+      n_successful_folds = sum(.data$succeeded, na.rm = TRUE),
+      n_failed_folds = sum(!.data$succeeded, na.rm = TRUE),
+      mean_weight = mean(.data$weight, na.rm = TRUE),
+      max_weight = max(.data$weight, na.rm = TRUE),
+      nonzero_weight_folds = sum(.data$weight > weight_tolerance, na.rm = TRUE),
+      mean_test_mae = mean(suppressWarnings(as.numeric(.data$test_mae)), na.rm = TRUE),
+      mean_test_rmse = mean(suppressWarnings(as.numeric(.data$test_rmse)), na.rm = TRUE),
+      total_seconds = sum(suppressWarnings(as.numeric(.data$total_seconds)), na.rm = TRUE),
+      mean_total_seconds = mean(suppressWarnings(as.numeric(.data$total_seconds)), na.rm = TRUE),
+      max_total_seconds = max(suppressWarnings(as.numeric(.data$total_seconds)), na.rm = TRUE),
+      error = paste(unique(stats::na.omit(as.character(.data$error))), collapse = " | "),
+      .groups = "drop"
+    ) |>
+    dplyr::mutate(
+      original_order = match(.data$method, parent_super_methods),
+      recommended_keep = .data$n_successful_folds > 0L &
+        .data$nonzero_weight_folds > 0L,
+      drop_reason = dplyr::case_when(
+        .data$recommended_keep ~ NA_character_,
+        .data$n_successful_folds == 0L ~ "no_successful_screen_folds",
+        .data$nonzero_weight_folds == 0L ~ "zero_screen_weight",
+        TRUE ~ "not_recommended"
+      )
+    ) |>
+    dplyr::arrange(.data$original_order, .data$method)
+
+  retained <- summary_rows$method[summary_rows$recommended_keep %in% TRUE]
+  dropped <- summary_rows$method[!summary_rows$recommended_keep %in% TRUE]
+  stage_summary <- tibble::tibble(
+    scorecard_type = "learner_screen",
+    stage = stage,
+    parent_method = parent_method,
+    screen_n_folds = as.integer(screen_n_folds),
+    main_n_folds = as.integer(main_n_folds),
+    inner_folds = as.integer(inner_folds),
+    seed = as.integer(seed %||% NA_integer_),
+    n_methods = length(parent_super_methods),
+    n_recommended = length(retained),
+    n_dropped = length(dropped),
+    recommended_super_methods = paste(retained, collapse = ","),
+    dropped_super_methods = paste(dropped, collapse = ",")
+  )
+
+  Scorecard(
+    intervals = fold_rows,
+    selected = tibble::tibble(),
+    ts_panel = tibble::tibble(),
+    recommendation_cards = tibble::tibble(),
+    surrogate_rules = tibble::tibble(),
+    consensus = tibble::tibble(),
+    anchor_summary = stage_summary,
+    anchor_audit = tibble::tibble(),
+    species_coverage = tibble::tibble(),
+    selection_diagnostics = summary_rows,
+    key_missing_overall = tibble::tibble(),
+    key_missing_by_field = tibble::tibble(),
+    key_missing_by_model = tibble::tibble(),
+    anchor_missing_gate = tibble::tibble(),
+    status = tibble::tibble(
+      component = "learner_screen",
+      status = "ok",
+      message = sprintf(
+        "Learner screening complete for %s: %d retained, %d dropped by diagnostic weight rule.",
+        stage,
+        length(retained),
+        length(dropped)
+      )
+    )
+  )
+}
+
+#' Prepare uncertainty learner screening inputs
+#'
+#' Reconstructs the selected calibration rows and uncertainty-learner controls
+#' used by `calibrate_uncertainty.PolicyLearner()` so screening evaluates the
+#' same conditional-width learning target.
+#'
+#' @param object A [PolicyLearner] with stored cross-fit results.
+#' @param cfg Resolved learner config.
+#'
+#' @return A list with data, feature columns, group column, and learner controls.
+#' @keywords internal
+#' @noRd
+policy_learner_uncertainty_screen_inputs <- function(object,
+                                                     cfg) {
+  if (length(object@crossfit) == 0) {
+    stop("Uncertainty learner screening requires stored policy-learner cross-fit results.", call. = FALSE)
+  }
+  crossfit_obj <- object@crossfit
+  predictions <- tibble::as_tibble(crossfit_obj$result$predictions %||% tibble::tibble())
+  outcome_col <- policy_learner_uncertainty_outcome_col(
+    predictions = predictions,
+    cfg = cfg,
+    crossfit_obj = crossfit_obj,
+    outcome_col = crossfit_obj$uncertainty_outcome_col %||% NULL
+  )
+  if (!outcome_col %in% names(predictions) && ".outcome" %in% names(predictions)) {
+    predictions[[outcome_col]] <- predictions$.outcome
+  }
+  calibration_outcome_col <- if (".outcome_raw" %in% names(predictions)) {
+    ".outcome_raw"
+  } else if (outcome_col %in% names(predictions)) {
+    outcome_col
+  } else {
+    ".outcome"
+  }
+  max_selection_tolerance <- as.numeric(
+    policy_selector_config_value(cfg, "max_selection_tolerance", sections = c("selection", "policy_learner"))
+  )
+  one_se_multiplier <- as.numeric(
+    policy_selector_config_value(cfg, "one_se_multiplier", sections = c("selection", "policy")) %||% 1
+  )
+  if (!is.finite(one_se_multiplier)) {
+    one_se_multiplier <- 1
+  }
+  predictions <- policy_learner_prepare_context(predictions)
+  anchor_lookup <- policy_learner_anchor_lookup(predictions)
+  meta_selected <- policy_learner_select_calibration_rows(
+    tbl = predictions,
+    max_selection_tolerance = if (is.finite(max_selection_tolerance)) max_selection_tolerance else NULL,
+    one_se_multiplier = one_se_multiplier
+  )
+  if (nrow(meta_selected) == 0L) {
+    stop("Uncertainty learner screening found no selected calibration rows.", call. = FALSE)
+  }
+  meta_selected <- policy_learner_prepare_context(
+    meta_selected,
+    anchor_lookup = anchor_lookup
+  )
+  width_feature_cols <- policy_learner_uncertainty_feature_cols(cfg, meta_selected)
+  width_group_col <- crossfit_obj$group_col %||% NULL
+  if (!is.null(width_group_col) && !width_group_col %in% names(meta_selected)) {
+    width_group_col <- NULL
+  }
+  list(
+    data = meta_selected,
+    outcome_col = calibration_outcome_col,
+    feature_cols = width_feature_cols,
+    group_col = width_group_col,
+    outcome_transform = crossfit_obj$outcome_transform %||%
+      policy_selector_config_value(cfg, "outcome_transform", sections = c("uncertainty", "policy_learner")),
+    lambda_rule = crossfit_obj$lambda_rule %||%
+      policy_selector_config_value(cfg, "lambda_rule", sections = c("uncertainty", "policy_learner")),
+    alpha = crossfit_obj$alpha,
+    inner_folds = crossfit_obj$inner_folds %||%
+      policy_selector_config_value(cfg, "inner_folds", sections = c("uncertainty", "policy_learner")),
+    method_settings = policy_learner_uncertainty_method_settings(
+      cfg,
+      fallback = (object@fitted_model)$selection_method_settings %||%
+        crossfit_obj$selection_method_settings %||%
+        (object@fitted_model)$method_settings %||%
+        crossfit_obj$method_settings
+    ),
+    super_methods = policy_learner_uncertainty_super_methods(
+      cfg,
+      fallback = (object@fitted_model)$selection_super_methods %||%
+        crossfit_obj$selection_super_methods
+    )
+  )
+}
+
+#' Screen `PolicyLearner` base learners
+#'
+#' Runs a reduced-fold diagnostic screen for the configured `selection` or
+#' `uncertainty` Super Learner library and returns the results as a regular
+#' [Scorecard]. The method is intentionally explicit: it only runs when the
+#' requested parent config section contains `screen_learners` or the caller
+#' supplies a screening override such as `n_folds`.
+#'
+#' The screen inherits the parent learner's method, `super_methods`,
+#' `method_settings`, inner folds, outcome, feature columns, workers, and other
+#' fitting controls. It should not be reported as final validation evidence and
+#' should not be used to tune learner libraries after inspecting final Sentinel
+#' results. Use the returned scorecard with [update_learners()] to produce a
+#' pruned [Configurer], then run the normal full workflow with that fixed
+#' configuration.
+#'
+#' @name screen_learners.PolicyLearner
+#' @usage NULL
+#'
+#' @param object A [PolicyLearner].
+#' @param stage Parent learner section to screen: `"selection"` or
+#'   `"uncertainty"`.
+#' @param n_folds Optional explicit screening-fold override. When omitted, the
+#'   method requires `<stage>$screen_learners$n_folds`.
+#' @param seed Optional screening seed override. When omitted, the method uses
+#'   `<stage>$screen_learners$seed`, then the parent learner seed.
+#' @param progress Optional logical scalar controlling progress messages.
+#' @param weight_tolerance Numeric tolerance for treating screening weights as
+#'   nonzero in the scorecard recommendation flag.
+#' @param config Optional config override.
+#'
+#' @return A [Scorecard] with learner-screening diagnostics.
+S7::method(screen_learners, PolicyLearner) <- function(object,
+                                                       stage = c("selection", "uncertainty"),
+                                                       n_folds = NULL,
+                                                       seed = NULL,
+                                                       progress = NULL,
+                                                       weight_tolerance = 0,
+                                                       config = NULL) {
+  stage <- match.arg(stage)
+  cfg <- policy_learner_config(object, config)
+  parent_cfg <- cfg[[stage]] %||% list()
+  screen_cfg <- parent_cfg$screen_learners %||% NULL
+  explicitly_configured <- is.list(screen_cfg) || !is.null(n_folds)
+  if (!isTRUE(explicitly_configured)) {
+    msg <- sprintf(
+      "No explicit `%s$screen_learners` configuration was supplied; skipping learner screening.",
+      stage
+    )
+    warning(msg, call. = FALSE)
+    return(policy_learner_screen_empty_scorecard(stage, status = "skipped", message = msg))
+  }
+
+  parent_method <- policy_selector_config_value(cfg, "method", sections = c(stage, "policy_learner"))
+  if (!identical(as.character(parent_method %||% ""), "super_learner")) {
+    msg <- sprintf(
+      "`%s$screen_learners` requires `%s$method: super_learner`; found method '%s'. Skipping.",
+      stage,
+      stage,
+      as.character(parent_method %||% NA_character_)
+    )
+    warning(msg, call. = FALSE)
+    return(policy_learner_screen_empty_scorecard(stage, status = "skipped", message = msg))
+  }
+
+  screen_n_folds <- n_folds %||% screen_cfg$n_folds %||% NULL
+  if (is.null(screen_n_folds)) {
+    stop(sprintf("`%s$screen_learners$n_folds` is required for learner screening.", stage), call. = FALSE)
+  }
+  screen_n_folds <- as.integer(screen_n_folds)
+  if (length(screen_n_folds) != 1L || is.na(screen_n_folds) || screen_n_folds < 2L) {
+    stop(sprintf("`%s$screen_learners$n_folds` must be one integer >= 2.", stage), call. = FALSE)
+  }
+
+  main_n_folds <- as.integer(policy_selector_config_value(cfg, "n_folds", sections = c(stage, "policy_learner")) %||% 5L)
+  if (is.finite(main_n_folds) && screen_n_folds >= main_n_folds) {
+    warning("Screening folds are not reduced relative to the parent learner folds.", call. = FALSE)
+  }
+  screen_seed <- seed %||% screen_cfg$seed %||%
+    policy_selector_config_value(cfg, "seed", sections = c(stage, "policy_learner"))
+  progress <- progress %||% policy_selector_config_value(cfg, "progress", sections = c(stage, "policy_learner"))
+  workers <- policy_selector_config_value(cfg, "workers", sections = c(stage, "policy_learner")) %||% 1L
+
+  if (identical(stage, "selection")) {
+    policy_perf <- policy_learner_species_perf(object)
+    feature_cols <- policy_learner_feature_cols(cfg, policy_perf)
+    outcome_col <- policy_learner_selection_outcome_col(
+      policy_perf = policy_perf,
+      cfg = cfg,
+      outcome_col = NULL
+    )
+    method_settings <- policy_learner_selection_method_settings(cfg)
+    super_methods <- policy_learner_selection_super_methods(cfg)
+    group_col <- policy_selector_config_value(cfg, "group_col", sections = c("selection", "policy_learner"))
+    outcome_clip_quantile <- policy_selector_config_value(
+      cfg,
+      "outcome_clip_quantile",
+      sections = c("selection", "policy_learner")
+    )
+    outcome_transform <- policy_selector_config_value(cfg, "outcome_transform", sections = c("selection", "policy_learner"))
+    lambda_rule <- policy_selector_config_value(cfg, "lambda_rule", sections = c("selection", "policy_learner"))
+    alpha <- policy_selector_config_value(cfg, "alpha", sections = c("selection", "policy_learner"))
+    inner_folds <- policy_selector_config_value(cfg, "inner_folds", sections = c("selection", "policy_learner"))
+    metalearner_loss <- policy_selector_config_value(cfg, "loss", sections = c("selection", "policy_learner")) %||%
+      "squared_error"
+  } else {
+    uncertainty_inputs <- policy_learner_uncertainty_screen_inputs(object, cfg)
+    policy_perf <- uncertainty_inputs$data
+    feature_cols <- uncertainty_inputs$feature_cols
+    outcome_col <- uncertainty_inputs$outcome_col
+    method_settings <- uncertainty_inputs$method_settings
+    super_methods <- uncertainty_inputs$super_methods
+    group_col <- uncertainty_inputs$group_col
+    outcome_clip_quantile <- NULL
+    outcome_transform <- uncertainty_inputs$outcome_transform
+    lambda_rule <- uncertainty_inputs$lambda_rule
+    alpha <- uncertainty_inputs$alpha
+    inner_folds <- uncertainty_inputs$inner_folds
+    metalearner_loss <- policy_selector_config_value(cfg, "loss", sections = c("uncertainty", "policy_learner")) %||%
+      (object@crossfit)$metalearner_loss %||%
+      "squared_error"
+  }
+
+  report_progress(
+    progress,
+    sprintf(
+      "Screening %s learner library: %d folds, %d worker(s), %d method(s), %d row(s).",
+      stage,
+      screen_n_folds,
+      as.integer(workers),
+      length(super_methods),
+      nrow(policy_perf)
+    )
+  )
+  screen_result <- crossfit_meta_policy_learner(
+    policy_perf = policy_perf,
+    group_col = group_col,
+    n_folds = screen_n_folds,
+    method = "super_learner",
+    seed = screen_seed,
+    feature_cols = feature_cols,
+    outcome_col = outcome_col,
+    outcome_clip_quantile = outcome_clip_quantile,
+    outcome_transform = outcome_transform,
+    lambda_rule = lambda_rule,
+    alpha = alpha,
+    inner_folds = inner_folds,
+    super_methods = super_methods,
+    metalearner_loss = metalearner_loss,
+    method_settings = method_settings,
+    workers = workers,
+    progress = progress
+  )
+
+  policy_learner_screen_scorecard(
+    stage = stage,
+    crossfit_obj = screen_result,
+    parent_method = "super_learner",
+    parent_super_methods = super_methods,
+    main_n_folds = main_n_folds,
+    screen_n_folds = screen_n_folds,
+    inner_folds = inner_folds,
+    seed = screen_seed,
+    weight_tolerance = weight_tolerance
+  )
+}
+
 #' Fit a `PolicyLearner`
 #'
 #' Trains the final meta-policy learner on the full benchmark-derived training

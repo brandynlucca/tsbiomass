@@ -149,6 +149,44 @@ crossfit <- S7::new_generic("crossfit", "object")
 #' @export
 fit <- S7::new_generic("fit", "object")
 
+#' Screen a Super Learner library
+#'
+#' Runs an explicitly configured reduced-fold diagnostic screen for a
+#' Super Learner library. For a [PolicyLearner], the method reads
+#' `screen_learners` from the requested parent learner section (`selection` or
+#' `uncertainty`), inherits the parent learner definition, and returns a
+#' [Scorecard] containing fold-level and learner-level diagnostics.
+#'
+#' This is a screening diagnostic, not a replacement for [crossfit()],
+#' [fit()], or Sentinel validation. The returned [Scorecard] can be passed to
+#' [update_learners()] to create a new [Configurer] with pruned
+#' `super_methods`.
+#'
+#' @param object A workflow object such as [PolicyLearner].
+#' @param ... Screening controls. For [PolicyLearner], these include `stage`,
+#'   optional `n_folds`/`seed` overrides, and `progress`.
+#'
+#' @return A [Scorecard] containing learner-screening diagnostics.
+#'
+#' @export
+screen_learners <- S7::new_generic("screen_learners", "object")
+
+#' Update configured Super Learner libraries from screening scorecards
+#'
+#' Applies one or more learner-screening [Scorecard] objects to a
+#' [Configurer]. The method updates only the parent `super_methods` entries
+#' identified by the scorecards, leaving method settings and other learner
+#' controls unchanged.
+#'
+#' @param object A [Configurer].
+#' @param ... One or more [Scorecard] objects, or a `scorecards` list.
+#'
+#' @return A new [Configurer] with updated `selection$super_methods` and/or
+#'   `uncertainty$super_methods`.
+#'
+#' @export
+update_learners <- S7::new_generic("update_learners", "object")
+
 #' Learn an Alchemist distance matrix
 #'
 #' Trains the Alchemist's distance learner on pairwise acoustic differences and
