@@ -8788,15 +8788,17 @@ run_meta_policy_crossfit_method_queue_once <- function(tasks,
         error = function(e) failed_meta_policy_crossfit_method_task(task, conditionMessage(e))
       )
       completed_n <- completed_n + 1L
+      success_now <- isTRUE(result$succeeded_oof) && isTRUE(result$succeeded_refit)
       report_progress(
         progress,
         sprintf(
-          "  Method-fold task complete: %d/%d [fold=%d method=%s success=%s].",
+          "  Method-fold task complete: %d/%d [fold=%d method=%s success=%s%s].",
           completed_n,
           total_tasks,
           as.integer(result$fold_id),
           as.character(result$method),
-          isTRUE(result$succeeded_oof) && isTRUE(result$succeeded_refit)
+          success_now,
+          if (!success_now) paste0(" error=", as.character(result$error %||% "unknown")) else ""
         )
       )
       completed[[length(completed) + 1L]] <- result
@@ -8883,15 +8885,17 @@ run_meta_policy_crossfit_method_queue_once <- function(tasks,
       received$value
     }
     completed_n <- completed_n + 1L
+    success_now <- isTRUE(result$succeeded_oof) && isTRUE(result$succeeded_refit)
     report_progress(
       progress,
       sprintf(
-        "  Method-fold task complete: %d/%d [fold=%d method=%s success=%s].",
+        "  Method-fold task complete: %d/%d [fold=%d method=%s success=%s%s].",
         completed_n,
         total_tasks,
         as.integer(result$fold_id),
         as.character(result$method),
-        isTRUE(result$succeeded_oof) && isTRUE(result$succeeded_refit)
+        success_now,
+        if (!success_now) paste0(" error=", as.character(result$error %||% "unknown")) else ""
       )
     )
     completed[[length(completed) + 1L]] <- result
@@ -8978,15 +8982,17 @@ run_meta_policy_crossfit_method_tasks <- function(tasks,
           error = function(e) failed_meta_policy_crossfit_method_task(task, conditionMessage(e))
         )
         completed_n <- completed_n + 1L
+        success_now <- isTRUE(result$succeeded_oof) && isTRUE(result$succeeded_refit)
         report_progress(
           progress,
           sprintf(
-            "  Method-fold task complete: %d/%d [fold=%d method=%s success=%s].",
+            "  Method-fold task complete: %d/%d [fold=%d method=%s success=%s%s].",
             completed_n,
             total_tasks,
             as.integer(result$fold_id),
             as.character(result$method),
-            isTRUE(result$succeeded_oof) && isTRUE(result$succeeded_refit)
+            success_now,
+            if (!success_now) paste0(" error=", as.character(result$error %||% "unknown")) else ""
           )
         )
         completed_results[[length(completed_results) + 1L]] <- result
