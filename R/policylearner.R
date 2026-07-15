@@ -890,6 +890,7 @@ S7::method(crossfit, PolicyLearner) <- function(object,
       metalearner_loss = metalearner_loss,
       selection_method_settings = selection_method_settings,
       method_settings = selection_method_settings,
+      workers = as.integer(workers %||% 1L),
       n_folds = as.integer(n_folds),
       seed = as.integer(seed)
     ),
@@ -1380,6 +1381,9 @@ S7::method(screen_learners, PolicyLearner) <- function(object,
 #' @param selection_method_settings Optional selection-learner method-settings
 #'   override.
 #' @param method_settings Shared method-settings override.
+#' @param workers Optional worker count for the final Super Learner inner OOF
+#'   task grid. When omitted, the value stored by [crossfit()] or configured in
+#'   the selection stage is used.
 #' @param progress Optional logical scalar controlling progress messages.
 #' @param config Optional config override.
 #'
@@ -1398,6 +1402,7 @@ S7::method(fit, PolicyLearner) <- function(object,
                                            metalearner_loss = NULL,
                                            selection_method_settings = NULL,
                                            method_settings = NULL,
+                                           workers = NULL,
                                            progress = NULL,
                                            config = NULL) {
   cfg <- policy_learner_config(object, config)
@@ -1435,6 +1440,8 @@ S7::method(fit, PolicyLearner) <- function(object,
     method_settings %||% crossfit_obj$selection_method_settings %||%
     crossfit_obj$method_settings %||%
     policy_learner_selection_method_settings(cfg)
+  workers <- workers %||% crossfit_obj$workers %||%
+    policy_selector_config_value(cfg, "workers", sections = c("selection", "policy_learner"))
   selection_active_methods <- if (identical(selection_method, "super_learner")) {
     available_meta_policy_super_methods(
       selection_super_methods,
@@ -1511,7 +1518,12 @@ S7::method(fit, PolicyLearner) <- function(object,
   # metadata have been joined back in.
   report_progress(
     progress,
-    sprintf("Fitting final policy learner on %d rows (method=%s) ...", nrow(training_data), selection_method)
+    sprintf(
+      "Fitting final policy learner on %d rows (method=%s, workers=%d) ...",
+      nrow(training_data),
+      selection_method,
+      as.integer(workers %||% 1L)
+    )
   )
   final_model <- fit_meta_policy_learner(
     training_data = training_data,
@@ -1525,6 +1537,7 @@ S7::method(fit, PolicyLearner) <- function(object,
     super_methods = selection_super_methods,
     metalearner_loss = metalearner_loss,
     method_settings = selection_method_settings,
+    workers = workers,
     progress = isTRUE(progress)
   )
   report_progress(progress, "Completed final policy-learner fit.")
@@ -1545,7 +1558,8 @@ S7::method(fit, PolicyLearner) <- function(object,
       selection_method = selection_method,
       selection_super_methods = selection_super_methods,
       selection_method_settings = selection_method_settings,
-      method_settings = selection_method_settings
+      method_settings = selection_method_settings,
+      workers = as.integer(workers %||% 1L)
     ),
     calibration = list()
   )
@@ -1716,6 +1730,19 @@ policy_learner_select_calibration_rows <- function(tbl,
   tbl <- policy_learner_prepare_context(tbl)
   if (nrow(tbl) == 0) {
     return(tbl)
+  }
+  if (!"selection_valid" %in% names(tbl)) {
+    if ("n_valid_models" %in% names(tbl)) {
+      tbl$selection_valid <- is.finite(tbl$n_valid_models) &
+        tbl$n_valid_models > 0
+    } else if ("n_models" %in% names(tbl)) {
+      tbl$selection_valid <- is.finite(tbl$n_models) &
+        tbl$n_models > 0
+    } else if (".meta_predicted_score" %in% names(tbl)) {
+      tbl$selection_valid <- is.finite(tbl$.meta_predicted_score)
+    } else {
+      tbl$selection_valid <- FALSE
+    }
   }
 
   tbl$anchor_selection_local_distance <- dplyr::coalesce(

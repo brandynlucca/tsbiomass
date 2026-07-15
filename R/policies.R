@@ -6464,7 +6464,16 @@ meta_policy_method_arguments <- function(method,
           cp = as.numeric(rpart_cfg$cp %||% 0.01),
           minsplit = as.integer(rpart_cfg$minsplit %||% 20L),
           minbucket = as.integer(rpart_cfg$minbucket %||% 7L),
-          maxdepth = as.integer(rpart_cfg$maxdepth %||% 30L)
+          maxdepth = as.integer(rpart_cfg$maxdepth %||% 30L),
+          # `cp` is configured directly and the resulting cptable is never used
+          # for post-hoc pruning, so rpart.control's default of xval = 10 would
+          # spend ten internal cross-validations per fit building a table
+          # nothing reads. Competitor and surrogate splits are diagnostics only,
+          # and the meta-policy design matrix is complete, so surrogates never
+          # fire either.
+          xval = as.integer(rpart_cfg$xval %||% 0L),
+          maxcompete = as.integer(rpart_cfg$maxcompete %||% 0L),
+          maxsurrogate = as.integer(rpart_cfg$maxsurrogate %||% 0L)
         ))
       )
     )
@@ -6502,9 +6511,18 @@ meta_policy_method_arguments <- function(method,
       alpha = as.numeric(xgboost_cfg$alpha %||% 0),
       nthread = as.integer(xgboost_cfg$nthread %||% 1L)
     )
+    # `early_stopping_rounds` stays NULL by default, which keeps the fixed
+    # `nrounds` schedule. When set, the fitter holds out `validation_fraction`
+    # of the training rows to stop against.
     return(compact_nulls(list(
       params = params,
       nrounds = as.integer(xgboost_cfg$nrounds %||% 100L),
+      early_stopping_rounds = if (is.null(xgboost_cfg$early_stopping_rounds)) {
+        NULL
+      } else {
+        as.integer(xgboost_cfg$early_stopping_rounds)
+      },
+      validation_fraction = as.numeric(xgboost_cfg$validation_fraction %||% 0.2),
       verbose = 0
     )))
   }
@@ -6512,11 +6530,17 @@ meta_policy_method_arguments <- function(method,
     earth_cfg <- effective_method_settings()
     # Map the YAML-facing names onto earth::earth() argument names. Dropping
     # NULLs lets earth fall back to its own GCV-driven defaults (e.g. when
-    # nprune is unset the backward pass selects the term count automatically).
+    # nprune is unset the backward pass selects the term count automatically,
+    # and when nk is unset earth sizes the forward pass from the column count).
+    # `nk` caps forward-pass terms and `fast_k` caps the queue of parent terms
+    # it considers, which are the two levers on forward-pass cost; fast_k = 0
+    # disables the fast-MARS heuristic entirely.
     return(compact_nulls(list(
       degree = as.integer(earth_cfg$degree %||% 2L),
       penalty = as.numeric(earth_cfg$penalty %||% 3),
+      nk = if (is.null(earth_cfg$nk)) NULL else as.integer(earth_cfg$nk),
       nprune = if (is.null(earth_cfg$nprune)) NULL else as.integer(earth_cfg$nprune),
+      fast.k = if (is.null(earth_cfg$fast_k)) NULL else as.integer(earth_cfg$fast_k),
       pmethod = as.character(earth_cfg$pmethod %||% "backward")
     )))
   }
@@ -6669,6 +6693,54 @@ sample_meta_policy_kernel_training_rows <- function(n,
   sort(sample.int(n, max_train_rows))
 }
 
+#' Sample held-out rows for early-stopping meta-policy learners
+#'
+#' Selects a deterministic evaluation-row subset for learners that need an
+#' internal validation set (xgboost early stopping). Returns no rows whenever
+#' the split cannot leave at least one row on each side, which callers treat as
+#' "early stopping is not available for this fit".
+#'
+#' @param n Number of available training rows.
+#' @param fraction Share of rows to hold out, strictly between 0 and 1.
+#' @param seed Optional integer seed.
+#'
+#' @return Integer row indices, possibly empty.
+#' @keywords internal
+#' @noRd
+sample_meta_policy_holdout_rows <- function(n,
+                                            fraction = 0.2,
+                                            seed = NULL) {
+  n <- as.integer(n)
+  fraction <- as.numeric(fraction %||% 0.2)
+  if (length(fraction) != 1L || !is.finite(fraction) || fraction <= 0 || fraction >= 1) {
+    stop(
+      "'validation_fraction' for early-stopping learners must be one number strictly between 0 and 1.",
+      call. = FALSE
+    )
+  }
+  if (length(n) != 1L || is.na(n)) {
+    return(integer(0))
+  }
+  n_holdout <- as.integer(floor(n * fraction))
+  if (n_holdout < 1L || (n - n_holdout) < 1L) {
+    return(integer(0))
+  }
+
+  had_seed <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  old_seed <- if (had_seed) get(".Random.seed", envir = .GlobalEnv, inherits = FALSE) else NULL
+  on.exit({
+    if (had_seed) {
+      assign(".Random.seed", old_seed, envir = .GlobalEnv)
+    } else if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+      rm(".Random.seed", envir = .GlobalEnv)
+    }
+  }, add = TRUE)
+  if (!is.null(seed)) {
+    set.seed(as.integer(seed))
+  }
+  sort(sample.int(n, n_holdout))
+}
+
 #' Resolve one mixed-effects grouping column for the meta-policy learner
 #'
 #' @param training_data Prepared learner training table.
@@ -6746,9 +6818,13 @@ fit_stochtree_bart <- function(x, y, args, training_data, seed) {
   general_params <- list(
     random_seed = if (is.null(seed)) -1L else as.integer(seed),
     standardize = TRUE,
-    # keep_gfr retains the grow-from-root draws; required for xbart, where
-    # num_mcmc = 0 means the GFR sweep is the only posterior available.
-    keep_gfr = isTRUE(args$keep_gfr %||% TRUE),
+    # keep_gfr retains the grow-from-root draws alongside the MCMC draws.
+    # stochtree ignores it when num_mcmc = 0, so xbart keeps its GFR sweeps
+    # regardless (they are its only posterior). It therefore only bites on
+    # warm-start schedules that run GFR *and* MCMC, where leaving it on mixes
+    # pre-convergence sweeps into the reported posterior. Default to FALSE to
+    # match stochtree rather than inverting it.
+    keep_gfr = isTRUE(args$keep_gfr %||% FALSE),
     verbose = FALSE
   )
   mean_forest_params <- list(
@@ -6934,12 +7010,70 @@ active_meta_policy_lmm_random_intercepts <- function(methods,
   }), use.names = FALSE))
 }
 
+#' Parse a metalearner loss name for the meta-policy super learner
+#'
+#' Accepts `"squared_error"`, `"absolute_error"`, or a pinball loss written as
+#' `"pinball_q<NN>"` with two digits (`"pinball_q90"` is the 0.90 quantile),
+#' matching the `<base>_q<NN>` convention the learner variants already use.
+#' Parsing deliberately does not judge whether the combiner supports the loss,
+#' so callers that merely carry a loss name around keep working; that judgement
+#' belongs to `fit_super_learner_weights()`, which is the only place the loss is
+#' actually used.
+#'
+#' @param loss Loss name.
+#'
+#' @return A list with the normalized `name`, the `kind`
+#'   (`"squared_error"`, `"absolute_error"`, or `"pinball"`), and `tau`
+#'   (`NA_real_` for non-pinball losses).
+#'
+#' @keywords internal
+#' @noRd
+parse_super_learner_loss <- function(loss) {
+  loss <- stringr::str_squish(as.character(loss %||% "squared_error"))
+  if (length(loss) != 1L || is.na(loss[[1]]) || !nzchar(loss[[1]])) {
+    stop("'metalearner_loss' must be exactly one non-empty loss name.", call. = FALSE)
+  }
+  loss <- loss[[1]]
+  if (loss %in% c("squared_error", "absolute_error")) {
+    return(list(name = loss, kind = loss, tau = NA_real_))
+  }
+  tau_digits <- stringr::str_match(loss, "^pinball_q([0-9]{2})$")[1, 2]
+  if (!is.na(tau_digits)) {
+    tau <- as.numeric(tau_digits) / 100
+    if (tau <= 0 || tau >= 1) {
+      stop(
+        sprintf(
+          "Pinball loss '%s' implies tau = %s, which must fall strictly between 0 and 1.",
+          loss,
+          format(tau)
+        ),
+        call. = FALSE
+      )
+    }
+    return(list(name = loss, kind = "pinball", tau = tau))
+  }
+  stop(
+    sprintf(
+      paste(
+        "Unsupported 'metalearner_loss' value '%s'. Use 'squared_error',",
+        "'absolute_error', or a two-digit pinball loss such as 'pinball_q90'."
+      ),
+      loss
+    ),
+    call. = FALSE
+  )
+}
+
 #' Fit ensemble weights for the meta-policy super learner
 #'
 #' @param pred_mat Out-of-fold base-learner prediction matrix.
 #' @param y Observed outcome vector.
-#' @param loss Metalearner loss. The current NNLS combiner requires
-#'   `"squared_error"`.
+#' @param loss Metalearner loss. `"squared_error"` combines the base learners
+#'   with nonnegative least squares. A `"pinball_q<NN>"` loss combines them with
+#'   a nonnegativity-constrained quantile regression instead, which is what lets
+#'   upper-tail base learners earn weight: under squared error a q90 learner is
+#'   penalized for exactly the upward bias it was asked to produce, so it is
+#'   driven toward zero weight no matter how good it is at its own job.
 #'
 #' @return Numeric nonnegative ensemble weight vector normalized to sum to one.
 #'
@@ -6947,13 +7081,15 @@ active_meta_policy_lmm_random_intercepts <- function(methods,
 #' @noRd
 fit_super_learner_weights <- function(pred_mat,
                                       y,
-                                      loss = c("squared_error", "absolute_error")) {
-  loss <- match.arg(loss)
-  if (!identical(loss, "squared_error")) {
+                                      loss = "squared_error") {
+  loss_spec <- parse_super_learner_loss(loss)
+  if (identical(loss_spec$kind, "absolute_error")) {
     stop(
       paste(
-        "The super learner now uses a true NNLS combiner, so",
-        "'metalearner_loss' must be 'squared_error'."
+        "The super learner combines base learners with a constrained",
+        "least-squares or quantile-regression fit, so 'metalearner_loss'",
+        "cannot be 'absolute_error'. Use 'squared_error' or a pinball loss",
+        "such as 'pinball_q90'."
       ),
       call. = FALSE
     )
@@ -6970,21 +7106,51 @@ fit_super_learner_weights <- function(pred_mat,
     return(rep(1, 1))
   }
 
-  nnls_fit <- try(
-    nnls::nnls(pred_mat, y),
-    silent = TRUE
-  )
-  if (!inherits(nnls_fit, "try-error")) {
-    coef_now <- as.numeric(stats::coef(nnls_fit))
+  normalize_weights <- function(coef_now) {
+    coef_now <- as.numeric(coef_now)
     coef_now[!is.finite(coef_now) | coef_now < 0] <- 0
-    if (sum(coef_now) > 0) {
-      return(coef_now / sum(coef_now))
+    if (sum(coef_now) > 0) coef_now / sum(coef_now) else NULL
+  }
+
+  combiner_fit <- if (identical(loss_spec$kind, "pinball")) {
+    # Minimizing the pinball loss subject to nonnegative weights is a linearly
+    # constrained quantile regression, which quantreg solves directly via the
+    # constrained Frisch-Newton interior-point method (R %*% b >= r with R the
+    # identity and r zero is exactly the nonnegativity constraint).
+    if (requireNamespace("quantreg", quietly = TRUE)) {
+      try(
+        quantreg::rq.fit.fnc(
+          x = pred_mat,
+          y = y,
+          R = diag(ncol(pred_mat)),
+          r = rep(0, ncol(pred_mat)),
+          tau = loss_spec$tau
+        ),
+        silent = TRUE
+      )
+    } else {
+      NULL
+    }
+  } else {
+    try(nnls::nnls(pred_mat, y), silent = TRUE)
+  }
+  if (!is.null(combiner_fit) && !inherits(combiner_fit, "try-error")) {
+    weights_now <- normalize_weights(stats::coef(combiner_fit))
+    if (!is.null(weights_now)) {
+      return(weights_now)
     }
   }
 
+  # Fallback: inverse per-learner loss, scored on whichever loss the combiner
+  # was asked for, so tail learners are not ranked by a criterion they were
+  # never trying to minimize.
   losses <- apply(pred_mat, 2, function(pred) {
     err <- y - pred
-    mean(err^2, na.rm = TRUE)
+    if (identical(loss_spec$kind, "pinball")) {
+      mean(pmax(loss_spec$tau * err, (loss_spec$tau - 1) * err), na.rm = TRUE)
+    } else {
+      mean(err^2, na.rm = TRUE)
+    }
   })
   inv <- 1 / pmax(losses, sqrt(.Machine$double.eps))
   inv / sum(inv)
@@ -7105,12 +7271,12 @@ stream_super_learner_fold <- function(train_data,
                                       inner_folds,
                                       seed,
                                       super_methods = NULL,
-                                      metalearner_loss = c("squared_error", "absolute_error"),
+                                      metalearner_loss = "squared_error",
                                       method_settings = NULL,
                                       progress = FALSE) {
   train_data <- tibble::as_tibble(train_data)
   test_data <- tibble::as_tibble(test_data)
-  metalearner_loss <- match.arg(metalearner_loss)
+  metalearner_loss <- parse_super_learner_loss(metalearner_loss)$name
   methods <- available_meta_policy_super_methods(super_methods, method_settings = method_settings)
   n_methods <- length(methods)
   lmm_random_intercepts <- active_meta_policy_lmm_random_intercepts(
@@ -7271,6 +7437,243 @@ stream_super_learner_fold <- function(train_data,
   out
 }
 
+#' Build a failed final Super Learner OOF task result
+#'
+#' Creates the result shape used by final-fit Super Learner OOF tasks when a
+#' worker returns an error for one method-fold task.
+#'
+#' @param task List with `method` and `fold_id` entries.
+#' @param message Failure message.
+#'
+#' @return List containing task diagnostics.
+#' @keywords internal
+#' @noRd
+failed_meta_policy_super_oof_task <- function(task,
+                                              message) {
+  list(
+    method = as.character(task$method),
+    fold_id = as.integer(task$fold_id),
+    valid_idx = integer(),
+    pred = numeric(),
+    seconds = NA_real_,
+    success = FALSE,
+    error = as.character(message %||% "final Super Learner OOF task failed")
+  )
+}
+
+#' Run one final Super Learner OOF method-fold task
+#'
+#' Fits one base learner on all training rows outside one inner fold and
+#' predicts the held-out inner fold. The caller combines all method-fold task
+#' results into complete OOF prediction columns for Super Learner weight
+#' estimation.
+#'
+#' @param task List with `method` and `fold_id` entries.
+#' @param payload Named list containing training data, fold assignments, and
+#'   learner settings.
+#'
+#' @return List containing held-out row indices, predictions, timing, and
+#'   success diagnostics.
+#' @keywords internal
+#' @noRd
+run_meta_policy_super_oof_payload_task <- function(task,
+                                                   payload) {
+  method_now <- as.character(task$method)
+  fold_id <- as.integer(task$fold_id)
+  task_start <- proc.time()
+  training_data <- tibble::as_tibble(payload$training_data)
+  foldid <- as.integer(payload$foldid)
+  train_idx <- which(foldid != fold_id)
+  valid_idx <- which(foldid == fold_id)
+  if (length(train_idx) == 0L || length(valid_idx) == 0L) {
+    return(failed_meta_policy_super_oof_task(task, "empty inner train/validation split"))
+  }
+  method_spec <- meta_policy_method_spec(method_now, method_settings = payload$method_settings)
+  hard_fail <- identical(method_spec$family, "lmm")
+
+  result <- tryCatch(
+    {
+      fold_seed <- if (is.null(payload$seed)) NULL else as.integer(payload$seed) + fold_id
+      learner <- fit_meta_policy_ensemble_base(
+        training_data = training_data[train_idx, , drop = FALSE],
+        method = method_now,
+        feature_cols = payload$feature_cols,
+        outcome_transform = payload$outcome_transform,
+        lambda_rule = payload$lambda_rule,
+        inner_folds = payload$inner_folds,
+        seed = fold_seed,
+        method_settings = payload$method_settings
+      )
+      if (inherits(learner, "try-error")) {
+        stop(as.character(learner)[[1]], call. = FALSE)
+      }
+      scored <- try(
+        predict_meta_policy_score(learner, training_data[valid_idx, , drop = FALSE]),
+        silent = TRUE
+      )
+      if (inherits(scored, "try-error")) {
+        stop(as.character(scored)[[1]], call. = FALSE)
+      }
+      if (!".meta_predicted_score" %in% names(scored)) {
+        stop("missing .meta_predicted_score", call. = FALSE)
+      }
+      pred <- as.numeric(scored$.meta_predicted_score)
+      if (length(pred) != length(valid_idx) || any(!is.finite(pred))) {
+        stop("non-finite or incomplete OOF predictions", call. = FALSE)
+      }
+      list(
+        method = method_now,
+        fold_id = fold_id,
+        valid_idx = valid_idx,
+        pred = pred,
+        seconds = unname((proc.time() - task_start)[["elapsed"]]),
+        success = TRUE,
+        error = NA_character_
+      )
+    },
+    error = function(e) {
+      if (isTRUE(hard_fail)) {
+        stop(conditionMessage(e), call. = FALSE)
+      }
+      failed_meta_policy_super_oof_task(task, conditionMessage(e))
+    }
+  )
+  result
+}
+
+#' Run one inherited final Super Learner OOF task
+#'
+#' Fetches final-fit OOF task settings from the namespace-local worker payload
+#' and evaluates one method-fold task.
+#'
+#' @param task List with `method` and `fold_id` entries.
+#'
+#' @return List containing held-out predictions and diagnostics.
+#' @keywords internal
+#' @noRd
+run_meta_policy_super_oof_task <- function(task) {
+  payload <- as.list(.meta_policy_crossfit_payload)
+  run_meta_policy_super_oof_payload_task(task, payload)
+}
+
+#' Log a final Super Learner OOF task result
+#'
+#' Emits one progress line for a completed final-fit method-fold task. Failed
+#' tasks print the failure details on the following line under the same task
+#' update format used by the policy cross-fit scheduler.
+#'
+#' @param result Task result from [run_meta_policy_super_oof_payload_task()].
+#' @param completed_n Number of tasks completed so far.
+#' @param total_tasks Total number of scheduled tasks.
+#' @param progress Logical. Emit progress messages.
+#'
+#' @return Invisibly returns `NULL`.
+#' @keywords internal
+#' @noRd
+log_meta_policy_super_oof_result <- function(result,
+                                             completed_n,
+                                             total_tasks,
+                                             progress = FALSE) {
+  if (!isTRUE(progress)) {
+    return(invisible(NULL))
+  }
+  icon <- if (isTRUE(result$success)) "\u2705" else "\u274c"
+  base_msg <- sprintf(
+    "  %s Final Super Learner OOF task complete: %d/%d [fold=%d method=%s success=%s].",
+    icon,
+    as.integer(completed_n),
+    as.integer(total_tasks),
+    as.integer(result$fold_id),
+    as.character(result$method),
+    if (isTRUE(result$success)) "TRUE" else "FALSE"
+  )
+  if (isTRUE(result$success)) {
+    report_progress(TRUE, base_msg)
+  } else {
+    report_progress(
+      TRUE,
+      paste0(
+        base_msg,
+        "\n",
+        as.character(result$error %||% "Unknown final Super Learner OOF task failure.")
+      )
+    )
+  }
+  invisible(NULL)
+}
+
+#' Run final Super Learner OOF method-fold tasks
+#'
+#' Dispatches the final-fit Super Learner OOF grid across workers. The task unit
+#' is one base method and one inner fold, which keeps the OOF weight-estimation
+#' stage parallel without changing the configured learner library or tuning
+#' settings.
+#'
+#' @param tasks List of method-fold tasks.
+#' @param payload Named list containing training data and learner settings.
+#' @param workers Requested worker budget.
+#' @param progress Logical. Emit progress messages.
+#'
+#' @return List of task results.
+#' @keywords internal
+#' @noRd
+run_meta_policy_super_oof_tasks <- function(tasks,
+                                            payload,
+                                            workers,
+                                            progress = FALSE) {
+  total_tasks <- length(tasks)
+  if (total_tasks == 0L) {
+    return(list())
+  }
+  workers <- max(1L, min(as.integer(workers %||% 1L), total_tasks))
+  report_progress(
+    progress,
+    sprintf(
+      "Final Super Learner OOF scheduler: method-fold mode, %d task(s), %d worker(s).",
+      total_tasks,
+      workers
+    )
+  )
+
+  if (workers <= 1L) {
+    out <- vector("list", total_tasks)
+    for (i in seq_along(tasks)) {
+      out[[i]] <- run_meta_policy_super_oof_payload_task(tasks[[i]], payload)
+      log_meta_policy_super_oof_result(out[[i]], i, total_tasks, progress)
+    }
+    return(out)
+  }
+
+  cluster_obj <- initialize_parallel_cluster(workers = workers)
+  cluster_type <- attr(cluster_obj, "cluster_type", exact = TRUE) %||% "unknown"
+  on.exit({
+    try(parallel::stopCluster(cluster_obj), silent = TRUE)
+    clear_meta_policy_crossfit_payload()
+  }, add = TRUE)
+
+  if (identical(cluster_type, "fork")) {
+    set_meta_policy_crossfit_payload(payload)
+    out <- parallel::parLapplyLB(cluster_obj, tasks, run_meta_policy_super_oof_task)
+  } else {
+    run_super_oof_task <- function(task) {
+      run_meta_policy_super_oof_payload_task(task, payload)
+    }
+    environment(run_super_oof_task) <- list2env(
+      list(
+        payload = payload,
+        run_meta_policy_super_oof_payload_task = run_meta_policy_super_oof_payload_task
+      ),
+      parent = baseenv()
+    )
+    tsb_cluster_export(cluster_obj, c("run_super_oof_task"), envir = environment())
+    out <- parallel::parLapplyLB(cluster_obj, tasks, run_super_oof_task)
+  }
+  for (i in seq_along(out)) {
+    log_meta_policy_super_oof_result(out[[i]], i, total_tasks, progress)
+  }
+  out
+}
+
 #' Fit the meta-policy super learner
 #'
 #' @param training_data Model-ready training data.
@@ -7282,6 +7685,9 @@ stream_super_learner_fold <- function(train_data,
 #' @param super_methods Optional requested base methods.
 #' @param metalearner_loss Metalearner loss.
 #' @param method_settings Optional shared method-specific tuning settings.
+#' @param workers Number of workers used for final Super Learner OOF
+#'   method-fold tasks.
+#' @param progress Logical. Emit progress messages.
 #'
 #' @return A fitted meta-policy learner object with super-learner weights and
 #'   out-of-fold diagnostics.
@@ -7295,11 +7701,12 @@ fit_meta_policy_super_learner <- function(training_data,
                                           inner_folds,
                                           seed,
                                           super_methods = NULL,
-                                          metalearner_loss = c("squared_error", "absolute_error"),
+                                          metalearner_loss = "squared_error",
                                           method_settings = NULL,
+                                          workers = 1L,
                                           progress = FALSE) {
   training_data <- tibble::as_tibble(training_data)
-  metalearner_loss <- match.arg(metalearner_loss)
+  metalearner_loss <- parse_super_learner_loss(metalearner_loss)$name
   methods <- available_meta_policy_super_methods(super_methods, method_settings = method_settings)
   n_methods <- length(methods)
   lmm_random_intercepts <- active_meta_policy_lmm_random_intercepts(
@@ -7328,52 +7735,110 @@ fit_meta_policy_super_learner <- function(training_data,
   pred_cols <- list()
   learner_errors <- list()
   oof_seconds <- stats::setNames(rep(NA_real_, n_methods), methods)
-  for (i_method in seq_along(methods)) {
-    method_now <- methods[[i_method]]
-    timing_start <- proc.time()
-    report_progress(progress, sprintf("  [%d/%d] OOF: %s", i_method, n_methods, method_now))
-    pred_now <- rep(NA_real_, nrow(training_data))
-    ok_method <- TRUE
-    for (fold_now in sort(unique(foldid))) {
-      train_idx <- which(foldid != fold_now)
-      valid_idx <- which(foldid == fold_now)
-      if (length(train_idx) == 0 || length(valid_idx) == 0) {
-        ok_method <- FALSE
-        next
-      }
-      fold_seed <- if (is.null(seed)) NULL else as.integer(seed) + as.integer(fold_now)
-      learner <- fit_meta_policy_ensemble_base(
-        training_data = training_data[train_idx, , drop = FALSE],
-        method = method_now,
+  fold_levels <- sort(unique(foldid))
+  workers <- max(1L, as.integer(workers %||% 1L))
+  if (workers > 1L && length(methods) * length(fold_levels) > 1L) {
+    tasks <- unlist(
+      lapply(fold_levels, function(fold_now) {
+        lapply(methods, function(method_now) {
+          list(fold_id = as.integer(fold_now), method = method_now)
+        })
+      }),
+      recursive = FALSE
+    )
+    oof_results <- run_meta_policy_super_oof_tasks(
+      tasks = tasks,
+      payload = list(
+        training_data = training_data,
+        foldid = foldid,
         feature_cols = feature_cols,
         outcome_transform = outcome_transform,
         lambda_rule = lambda_rule,
         inner_folds = inner_folds,
-        seed = fold_seed,
+        seed = seed,
         method_settings = method_settings
-      )
-      if (inherits(learner, "try-error")) {
-        ok_method <- FALSE
-        learner_errors[[method_now]] <- as.character(learner)
-        break
-      }
-      scored <- try(
-        predict_meta_policy_score(learner, training_data[valid_idx, , drop = FALSE]),
-        silent = TRUE
-      )
-      if (inherits(scored, "try-error") || !".meta_predicted_score" %in% names(scored)) {
-        ok_method <- FALSE
-        learner_errors[[method_now]] <- as.character(scored)
-        break
-      }
-      pred_now[valid_idx] <- scored$.meta_predicted_score
-    }
-    if (ok_method && all(is.finite(pred_now))) {
-      pred_cols[[method_now]] <- pred_now
-    }
-    oof_seconds[[method_now]] <- unname(
-      (proc.time() - timing_start)[["elapsed"]]
+      ),
+      workers = workers,
+      progress = progress
     )
+    for (method_now in methods) {
+      method_results <- oof_results[vapply(
+        oof_results,
+        function(result) identical(as.character(result$method), method_now),
+        logical(1)
+      )]
+      pred_now <- rep(NA_real_, nrow(training_data))
+      ok_method <- length(method_results) == length(fold_levels)
+      method_seconds <- numeric()
+      method_error <- character()
+      for (result in method_results) {
+        if (isTRUE(result$success) &&
+          length(result$valid_idx) > 0L &&
+          length(result$pred) == length(result$valid_idx)) {
+          pred_now[result$valid_idx] <- result$pred
+        } else {
+          ok_method <- FALSE
+          method_error <- c(method_error, as.character(result$error %||% "OOF task failed"))
+        }
+        if (is.finite(result$seconds)) {
+          method_seconds <- c(method_seconds, result$seconds)
+        }
+      }
+      if (ok_method && all(is.finite(pred_now))) {
+        pred_cols[[method_now]] <- pred_now
+      } else {
+        learner_errors[[method_now]] <- paste(unique(method_error), collapse = "\n")
+      }
+      oof_seconds[[method_now]] <- if (length(method_seconds) > 0L) sum(method_seconds) else NA_real_
+    }
+  } else {
+    for (i_method in seq_along(methods)) {
+      method_now <- methods[[i_method]]
+      timing_start <- proc.time()
+      report_progress(progress, sprintf("  [%d/%d] OOF: %s", i_method, n_methods, method_now))
+      pred_now <- rep(NA_real_, nrow(training_data))
+      ok_method <- TRUE
+      for (fold_now in fold_levels) {
+        train_idx <- which(foldid != fold_now)
+        valid_idx <- which(foldid == fold_now)
+        if (length(train_idx) == 0 || length(valid_idx) == 0) {
+          ok_method <- FALSE
+          next
+        }
+        fold_seed <- if (is.null(seed)) NULL else as.integer(seed) + as.integer(fold_now)
+        learner <- fit_meta_policy_ensemble_base(
+          training_data = training_data[train_idx, , drop = FALSE],
+          method = method_now,
+          feature_cols = feature_cols,
+          outcome_transform = outcome_transform,
+          lambda_rule = lambda_rule,
+          inner_folds = inner_folds,
+          seed = fold_seed,
+          method_settings = method_settings
+        )
+        if (inherits(learner, "try-error")) {
+          ok_method <- FALSE
+          learner_errors[[method_now]] <- as.character(learner)
+          break
+        }
+        scored <- try(
+          predict_meta_policy_score(learner, training_data[valid_idx, , drop = FALSE]),
+          silent = TRUE
+        )
+        if (inherits(scored, "try-error") || !".meta_predicted_score" %in% names(scored)) {
+          ok_method <- FALSE
+          learner_errors[[method_now]] <- as.character(scored)
+          break
+        }
+        pred_now[valid_idx] <- scored$.meta_predicted_score
+      }
+      if (ok_method && all(is.finite(pred_now))) {
+        pred_cols[[method_now]] <- pred_now
+      }
+      oof_seconds[[method_now]] <- unname(
+        (proc.time() - timing_start)[["elapsed"]]
+      )
+    }
   }
 
   if (length(pred_cols) == 0) {
@@ -7569,6 +8034,8 @@ prepare_meta_policy_data <- function(policy_perf,
 #' @param super_methods Optional super-learner base methods.
 #' @param metalearner_loss Loss used to combine super-learner base predictions.
 #' @param method_settings Optional shared method-specific tuning settings.
+#' @param workers Number of workers used by `method = "super_learner"` for the
+#'   final inner OOF method-fold task grid.
 #' @param progress Logical. Emit `tsb_message()` progress lines when `TRUE`.
 #'   Only active for `method = "super_learner"`.
 #' @param ... Additional method-specific arguments.
@@ -7594,15 +8061,16 @@ fit_meta_policy_learner <- function(training_data,
                                     inner_folds = 5L,
                                     seed = NULL,
                                     super_methods = NULL,
-                                    metalearner_loss = c("squared_error", "absolute_error"),
+                                    metalearner_loss = "squared_error",
                                     method_settings = NULL,
+                                    workers = 1L,
                                     progress = FALSE,
                                     ...) {
   training_data <- tibble::as_tibble(training_data)
   method <- stringr::str_squish(as.character(method %||% ""))[[1]]
   outcome_transform <- match.arg(outcome_transform)
   lambda_rule <- match.arg(lambda_rule)
-  metalearner_loss <- match.arg(metalearner_loss)
+  metalearner_loss <- parse_super_learner_loss(metalearner_loss)$name
   method_catalog <- meta_policy_method_catalog(method_settings = method_settings)
   allowed_methods <- c(
     "super_learner",
@@ -7636,6 +8104,7 @@ fit_meta_policy_learner <- function(training_data,
       super_methods = super_methods,
       metalearner_loss = metalearner_loss,
       method_settings = method_settings,
+      workers = workers,
       progress = progress
     ))
   }
@@ -7769,6 +8238,61 @@ fit_meta_policy_learner <- function(training_data,
     mm <- meta_policy_model_matrix(model_frame)
     xgboost_params <- fit_arguments$params %||% list(objective = "reg:squarederror")
     xgboost_nthread <- as.integer(xgboost_params$nthread %||% 1L)
+    xgboost_nrounds <- as.integer(fit_arguments$nrounds %||% 100L)
+    xgboost_verbose <- as.integer(fit_arguments$verbose %||% 0L)
+    # Early stopping needs an evaluation set that xgboost cannot carve for
+    # itself, so hold one out deterministically. The holdout is used only to
+    # *discover* the round count: keeping the model fit on the reduced rows
+    # trades away more accuracy (via the lost training data) than the stopping
+    # buys back, so the discovered count is refit on every row. An empty split
+    # means the fit is too small to spare evaluation rows, so fall back to the
+    # fixed schedule.
+    eval_rows <- if (is.null(fit_arguments$early_stopping_rounds)) {
+      integer(0)
+    } else {
+      sample_meta_policy_holdout_rows(
+        n = nrow(mm$x),
+        fraction = fit_arguments$validation_fraction %||% 0.2,
+        seed = seed
+      )
+    }
+    if (length(eval_rows) > 0L) {
+      search_fit <- xgboost::xgb.train(
+        params = xgboost_params,
+        data = xgboost::xgb.DMatrix(
+          data = mm$x[-eval_rows, , drop = FALSE],
+          label = y[-eval_rows],
+          nthread = xgboost_nthread
+        ),
+        nrounds = xgboost_nrounds,
+        evals = list(
+          validation = xgboost::xgb.DMatrix(
+            data = mm$x[eval_rows, , drop = FALSE],
+            label = y[eval_rows],
+            nthread = xgboost_nthread
+          )
+        ),
+        early_stopping_rounds = as.integer(fit_arguments$early_stopping_rounds),
+        verbose = xgboost_verbose,
+        ...
+      )
+      # xgboost exposes the winning round under an `early_stop` R attribute
+      # (base-1). Older and newer builds have moved this around, so fall back to
+      # the C-level attribute, which is 0-based, and finally to the configured
+      # cap if neither is readable.
+      best_rounds <- suppressWarnings(as.integer(
+        (attributes(search_fit)$early_stop %||% list())$best_iteration %||% NA_integer_
+      ))
+      if (length(best_rounds) != 1L || is.na(best_rounds) || best_rounds < 1L) {
+        best_rounds <- suppressWarnings(
+          as.integer(xgboost::xgb.attr(search_fit, "best_iteration")) + 1L
+        )
+      }
+      if (length(best_rounds) != 1L || is.na(best_rounds) || best_rounds < 1L) {
+        best_rounds <- xgboost_nrounds
+      }
+      xgboost_nrounds <- min(best_rounds, xgboost_nrounds)
+    }
     dtrain <- xgboost::xgb.DMatrix(
       data = mm$x,
       label = y,
@@ -7777,8 +8301,8 @@ fit_meta_policy_learner <- function(training_data,
     fit <- xgboost::xgb.train(
       params = xgboost_params,
       data = dtrain,
-      nrounds = as.integer(fit_arguments$nrounds %||% 100L),
-      verbose = as.integer(fit_arguments$verbose %||% 0L),
+      nrounds = xgboost_nrounds,
+      verbose = xgboost_verbose,
       ...
     )
     return(structure(
@@ -8334,11 +8858,24 @@ predict_meta_policy_score <- function(object,
       fixed_matrix <- fixed_matrix[, names(fixed_coef), drop = FALSE]
       pred <- as.numeric(fixed_matrix %*% fixed_coef)
       if (nzchar(group_col)) {
+        # ranef() returns a data frame whose *rownames* carry the group levels,
+        # and extracting the intercept column drops them. The names have to be
+        # restored explicitly: without them the match() below returns NA for
+        # every row and the zeroing guard silently discards the whole random
+        # effect, for known and unknown groups alike.
         random_effects <- tryCatch(
-          lme4::ranef(object$fit)[[group_col]][, "(Intercept)"],
+          {
+            ranef_now <- lme4::ranef(object$fit)[[group_col]]
+            stats::setNames(
+              as.numeric(ranef_now[, "(Intercept)"]),
+              rownames(ranef_now)
+            )
+          },
           error = function(e) NULL
         )
         if (!is.null(random_effects)) {
+          # Groups absent from training have no fitted intercept, so they
+          # legitimately fall back to the fixed-effect mean.
           random_add <- unname(random_effects[match(group_values, names(random_effects))])
           random_add[!is.finite(random_add)] <- 0
           pred <- pred + random_add

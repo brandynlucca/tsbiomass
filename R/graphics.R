@@ -1409,6 +1409,16 @@ plot_overlap_heatmap <- function(overlap_tbl,
       mean_depth_nonoverlap_fraction = "Mean depth nonoverlap"
     )
   }
+  alias_cols <- c(
+    w_same_fao = "w_same_fao_area",
+    w_same_ocean_basin = "w_same_basin"
+  )
+  for (alias_nm in names(alias_cols)) {
+    source_nm <- alias_cols[[alias_nm]]
+    if (!alias_nm %in% names(overlap_df) && source_nm %in% names(overlap_df)) {
+      overlap_df[[alias_nm]] <- overlap_df[[source_nm]]
+    }
+  }
   if (!"mean_length_nonoverlap_fraction" %in% names(overlap_df) &&
     "mean_length_overlap_fraction" %in% names(overlap_df)) {
     overlap_df$mean_length_nonoverlap_fraction <- 1 - overlap_df$mean_length_overlap_fraction
@@ -1423,12 +1433,23 @@ plot_overlap_heatmap <- function(overlap_tbl,
     tidyr::pivot_longer(cols = !"anchor_species", names_to = "metric", values_to = "value") |>
     dplyr::mutate(
       anchor_species = factor(.data$anchor_species, levels = sort(unique(.data$anchor_species))),
-      metric = factor(dplyr::recode(.data$metric, !!!metric_labs), levels = unname(metric_labs))
+      metric = factor(dplyr::recode(.data$metric, !!!metric_labs), levels = unname(metric_labs)),
+      value = suppressWarnings(as.numeric(.data$value)),
+      value = dplyr::if_else(is.finite(.data$value), .data$value, NA_real_)
     )
 
   ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$metric, y = .data$anchor_species, fill = .data$value)) +
     ggplot2::geom_tile(colour = "white") +
-    ggplot2::scale_fill_gradient(low = "#f7fbff", high = "#08306b", na.value = "grey90") +
+    ggplot2::scale_fill_gradient(
+      low = "#f7fbff",
+      high = "#08306b",
+      limits = c(0, 1),
+      breaks = seq(0, 1, by = 0.25),
+      labels = scales::percent_format(accuracy = 1),
+      oob = scales::squish,
+      na.value = "grey90"
+    ) +
+    ggplot2::scale_y_discrete(labels = function(x) parse(text = paste0("italic('", gsub("'", "\\\\'", x, fixed = TRUE), "')"))) +
     ggplot2::labs(
       x = NULL,
       y = NULL,
@@ -1827,15 +1848,160 @@ plot_anchor_ranges <- function(range_tbl) {
     ggplot2::theme_minimal(base_size = 11)
 }
 
+#' Filter plotting rows to selected anchor species
+#'
+#' @param tbl Plotting table.
+#' @param anchor_species Optional character vector of species names. `NULL`
+#'   leaves the table unchanged.
+#' @param species_col Species column name.
+#'
+#' @return Filtered tibble.
+#' @keywords internal
+#' @noRd
+filter_plot_anchor_species <- function(tbl,
+                                       anchor_species = NULL,
+                                       species_col = "anchor_species") {
+  out <- tibble::as_tibble(tbl)
+  anchor_species <- unique(as.character(anchor_species %||% character(0)))
+  anchor_species <- anchor_species[!is.na(anchor_species) & nzchar(anchor_species)]
+  if (length(anchor_species) == 0L || !species_col %in% names(out)) {
+    return(out)
+  }
+  out |>
+    dplyr::filter(as.character(.data[[species_col]]) %in% .env$anchor_species)
+}
+
+#' Normalize a plotting policy limit
+#'
+#' @param max_policies Requested maximum policy count.
+#' @param default Default value used when `max_policies` is `NULL` or invalid.
+#'
+#' @return Integer limit, or `Inf` when all policies should be retained.
+#' @keywords internal
+#' @noRd
+normalize_plot_policy_limit <- function(max_policies,
+                                        default = 30L) {
+  if (is.null(max_policies) || length(max_policies) != 1L) {
+    return(as.integer(default))
+  }
+  max_policies <- suppressWarnings(as.numeric(max_policies))
+  if (is.na(max_policies) || max_policies <= 0) {
+    return(as.integer(default))
+  }
+  if (is.infinite(max_policies)) {
+    return(Inf)
+  }
+  as.integer(max_policies)
+}
+
+#' Select policy display levels for compact plots
+#'
+#' @param tbl Plotting table.
+#' @param policy_col Policy display column.
+#' @param value_col Numeric ranking column.
+#' @param max_policies Maximum number of policy levels to keep.
+#' @param decreasing Logical scalar. `TRUE` keeps largest values first;
+#'   `FALSE` keeps smallest values first.
+#'
+#' @return Character vector of policy levels.
+#' @keywords internal
+#' @noRd
+select_policy_levels_for_plot <- function(tbl,
+                                          policy_col = "policy",
+                                          value_col = "error_abs_log",
+                                          max_policies = 30L,
+                                          decreasing = FALSE) {
+  tbl <- tibble::as_tibble(tbl)
+  if (!all(c(policy_col, value_col) %in% names(tbl))) {
+    return(character(0))
+  }
+  max_policies <- normalize_plot_policy_limit(max_policies, default = 30L)
+  levels_tbl <- tbl |>
+    dplyr::filter(!is.na(.data[[policy_col]]), nzchar(as.character(.data[[policy_col]]))) |>
+    dplyr::group_by(.data[[policy_col]]) |>
+    dplyr::summarise(plot_rank_value = stats::median(.data[[value_col]], na.rm = TRUE), .groups = "drop") |>
+    dplyr::filter(is.finite(.data$plot_rank_value))
+  if (isTRUE(decreasing)) {
+    levels_tbl <- dplyr::arrange(levels_tbl, dplyr::desc(.data$plot_rank_value), .data[[policy_col]])
+  } else {
+    levels_tbl <- dplyr::arrange(levels_tbl, .data$plot_rank_value, .data[[policy_col]])
+  }
+  out <- as.character(levels_tbl[[policy_col]])
+  if (is.finite(max_policies)) {
+    out <- head(out, max_policies)
+  }
+  out
+}
+
+#' Cluster a heatmap axis from a long plotting table
+#'
+#' @param tbl Long heatmap table.
+#' @param row_col Row identifier column.
+#' @param col_col Column identifier column to order.
+#' @param value_col Numeric cell value column.
+#' @param fallback_levels Levels returned when clustering is not possible.
+#'
+#' @return Character vector of clustered column levels.
+#' @keywords internal
+#' @noRd
+cluster_heatmap_axis_levels <- function(tbl,
+                                        row_col,
+                                        col_col,
+                                        value_col,
+                                        fallback_levels) {
+  tbl <- tibble::as_tibble(tbl)
+  fallback_levels <- as.character(fallback_levels %||% character(0))
+  if (!all(c(row_col, col_col, value_col) %in% names(tbl))) {
+    return(fallback_levels)
+  }
+  wide <- tbl |>
+    dplyr::select(
+      row_id = dplyr::all_of(row_col),
+      col_id = dplyr::all_of(col_col),
+      value = dplyr::all_of(value_col)
+    ) |>
+    dplyr::filter(
+      !is.na(.data$row_id),
+      !is.na(.data$col_id),
+      is.finite(.data$value)
+    ) |>
+    tidyr::pivot_wider(names_from = "col_id", values_from = "value")
+  if (nrow(wide) < 2L || ncol(wide) < 3L) {
+    return(fallback_levels)
+  }
+  mat <- as.matrix(wide[, setdiff(names(wide), "row_id"), drop = FALSE])
+  if (ncol(mat) < 2L) {
+    return(fallback_levels)
+  }
+  col_medians <- apply(mat, 2L, stats::median, na.rm = TRUE)
+  for (j in seq_len(ncol(mat))) {
+    bad <- !is.finite(mat[, j])
+    if (any(bad)) {
+      mat[bad, j] <- col_medians[[j]]
+    }
+  }
+  hc <- try(stats::hclust(stats::dist(t(mat))), silent = TRUE)
+  if (inherits(hc, "try-error")) {
+    return(fallback_levels)
+  }
+  clustered <- colnames(mat)[hc$order]
+  unique(c(clustered, setdiff(fallback_levels, clustered)))
+}
+
 #' Plot pseudo-anchor policy errors
 #'
 #' @param perf_tbl Pseudo-anchor benchmark table.
+#' @param anchor_species Optional species names used to restrict rows before
+#'   summarising policies.
+#' @param max_policies Maximum number of displayed policies. `Inf` keeps all.
 #'
 #' @return A ggplot object.
 #'
 #' @keywords internal
 #' @noRd
-plot_policy_boxplot <- function(perf_tbl) {
+plot_policy_boxplot <- function(perf_tbl,
+                                anchor_species = NULL,
+                                max_policies = 30L) {
   # Restrict the boxplot to valid finite predictions before ranking policies
   # by their median error.
   plot_df <- tibble::as_tibble(perf_tbl)
@@ -1844,6 +2010,7 @@ plot_policy_boxplot <- function(perf_tbl) {
       ggplot2::labs(x = NULL, y = "|log(multiplier prediction)|") +
       ggplot2::theme_minimal(base_size = 11))
   }
+  plot_df <- filter_plot_anchor_species(plot_df, anchor_species = anchor_species)
   plot_df$policy <- resolve_policy_display_names(plot_df)
   plot_df <- plot_df |>
     dplyr::filter(.data$valid_prediction, is.finite(.data$error_abs_log)) |>
@@ -1853,10 +2020,19 @@ plot_policy_boxplot <- function(perf_tbl) {
       ggplot2::labs(x = NULL, y = "|log(multiplier prediction)|") +
       ggplot2::theme_minimal(base_size = 11))
   }
+  policy_levels <- select_policy_levels_for_plot(
+    plot_df,
+    policy_col = "policy",
+    value_col = "plot_error",
+    max_policies = max_policies,
+    decreasing = FALSE
+  )
+  plot_df <- plot_df |>
+    dplyr::filter(.data$policy %in% .env$policy_levels)
 
   ggplot2::ggplot(
     plot_df,
-    ggplot2::aes(x = stats::reorder(.data$policy, .data$plot_error, FUN = stats::median), y = .data$plot_error, fill = .data$policy)
+    ggplot2::aes(x = factor(.data$policy, levels = policy_levels), y = .data$plot_error, fill = .data$policy)
   ) +
     ggplot2::geom_boxplot(outlier.alpha = 0.18, width = 0.72) +
     ggplot2::coord_flip() +
@@ -1917,13 +2093,25 @@ plot_species_boxplot <- function(perf_tbl) {
 #'
 #' @param perf_tbl Species-block benchmark table.
 #' @param policy_labs Optional named vector mapping policy codes to labels.
+#' @param anchor_species Optional species names used to restrict held-out
+#'   species before summarising policies.
+#' @param max_policies Maximum number of displayed policies. `Inf` keeps all.
+#' @param cluster_policies Logical scalar. If `TRUE`, order policy columns by
+#'   hierarchical clustering of the displayed species-policy error matrix when
+#'   enough rows and columns are available.
+#' @param show_values Logical scalar. If `NULL`, values are shown only for
+#'   reasonably small heatmaps.
 #'
 #' @return A ggplot object.
 #'
 #' @keywords internal
 #' @noRd
 plot_policy_heatmap <- function(perf_tbl,
-                                policy_labs = NULL) {
+                                policy_labs = NULL,
+                                anchor_species = NULL,
+                                max_policies = 40L,
+                                cluster_policies = TRUE,
+                                show_values = NULL) {
   # Collapse the held-out benchmark to one median error per species-policy
   # pair before drawing the heatmap.
   plot_df <- tibble::as_tibble(perf_tbl)
@@ -1932,6 +2120,7 @@ plot_policy_heatmap <- function(perf_tbl,
       ggplot2::labs(x = NULL, y = NULL) +
       ggplot2::theme_minimal(base_size = 11))
   }
+  plot_df <- filter_plot_anchor_species(plot_df, anchor_species = anchor_species)
   plot_df$policy <- resolve_policy_display_names(plot_df)
   plot_df <- plot_df |>
     dplyr::filter(.data$valid_prediction, is.finite(.data$error_abs_log)) |>
@@ -1953,8 +2142,24 @@ plot_policy_heatmap <- function(perf_tbl,
     dplyr::summarise(global_median_abs_log = stats::median(.data$median_abs_log_error, na.rm = TRUE), .groups = "drop") |>
     dplyr::arrange(.data$global_median_abs_log, .data$policy) |>
     dplyr::pull(.data$policy)
+  max_policies <- normalize_plot_policy_limit(max_policies, default = 40L)
+  if (is.finite(max_policies)) {
+    policy_levels <- head(policy_levels, max_policies)
+    plot_df <- plot_df |>
+      dplyr::filter(.data$policy %in% .env$policy_levels)
+  }
+  if (isTRUE(cluster_policies)) {
+    policy_levels <- cluster_heatmap_axis_levels(
+      plot_df,
+      row_col = "anchor_species",
+      col_col = "policy",
+      value_col = "median_abs_log_error",
+      fallback_levels = policy_levels
+    )
+  }
+  show_values <- show_values %||% (length(unique(plot_df$anchor_species)) * length(policy_levels) <= 120L)
 
-  ggplot2::ggplot(
+  p <- ggplot2::ggplot(
     plot_df |>
       dplyr::mutate(
         policy = factor(.data$policy, levels = policy_levels),
@@ -1971,7 +2176,16 @@ plot_policy_heatmap <- function(perf_tbl,
       fill = "Median |log error|"
     ) +
     ggplot2::theme_minimal(base_size = 11) +
-    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 30, hjust = 1))
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 7))
+  if (isTRUE(show_values)) {
+    p <- p +
+      ggplot2::geom_text(
+        ggplot2::aes(label = sprintf("%.2f", .data$median_abs_log_error)),
+        size = 2.5,
+        colour = "black"
+      )
+  }
+  p
 }
 
 #' Build one `Conjurer` summary heatmap
@@ -2313,11 +2527,19 @@ summarize_species_policy_performance <- function(perf_tbl) {
 #'
 #' @param perf_tbl Species-block benchmark table or output from
 #'   `summarize_species_policy_performance()`.
+#' @param anchor_species Optional species names used to restrict held-out
+#'   species before plotting.
+#' @param max_policies Maximum number of ranked policies to show per species.
+#' @param include_invalid Logical scalar. If `TRUE`, no-valid-prediction
+#'   policies are retained at the bottom of each species facet.
 #'
 #' @return A ggplot object.
 #' @keywords internal
 #' @noRd
-plot_species_policy_ranked <- function(perf_tbl) {
+plot_species_policy_ranked <- function(perf_tbl,
+                                       anchor_species = NULL,
+                                       max_policies = 25L,
+                                       include_invalid = FALSE) {
   plot_df <- tibble::as_tibble(perf_tbl)
   if (!all(c("rank_within_species", "median_abs_log_error") %in% names(plot_df))) {
     plot_df <- summarize_species_policy_performance(plot_df)
@@ -2329,7 +2551,18 @@ plot_species_policy_ranked <- function(perf_tbl) {
       ggplot2::theme_minimal(base_size = 11))
   }
 
+  max_policies <- normalize_plot_policy_limit(max_policies, default = 25L)
   plot_df <- plot_df |>
+    filter_plot_anchor_species(anchor_species = anchor_species) |>
+    dplyr::filter(isTRUE(include_invalid) | .data$has_valid_prediction) |>
+    dplyr::group_by(.data$anchor_species) |>
+    dplyr::arrange(.data$rank_within_species, .by_group = TRUE)
+  if (is.finite(max_policies)) {
+    plot_df <- plot_df |>
+      dplyr::slice_head(n = max_policies)
+  }
+  plot_df <- plot_df |>
+    dplyr::ungroup() |>
     dplyr::arrange(.data$anchor_species, dplyr::desc(.data$rank_within_species)) |>
     dplyr::group_by(.data$anchor_species) |>
     dplyr::mutate(
@@ -2387,7 +2620,11 @@ plot_species_policy_ranked <- function(perf_tbl) {
     ) +
     ggplot2::labs(
       title = "Species-Blocked Policy Performance by Held-Out Species",
-      subtitle = "Each facet is ordered best-to-worst from top to bottom; no-valid-prediction policies are retained at the bottom.",
+      subtitle = if (isTRUE(include_invalid)) {
+        "Each facet is ordered best-to-worst from top to bottom; no-valid-prediction policies are retained at the bottom."
+      } else {
+        "Each facet shows the top valid species-blocked policies, ordered best-to-worst from top to bottom."
+      },
       x = "Median |log(multiplier prediction)|",
       y = NULL
     ) +
@@ -2473,12 +2710,19 @@ compare_selected_policy_species_rank <- function(species_policy_tbl,
 #' Plot conformal calibration by policy
 #'
 #' @param cal_tbl Policy-level conformal calibration table.
+#' @param policy_filter Optional policy display labels to retain.
+#' @param max_policies Maximum number of displayed policies. `Inf` keeps all.
+#' @param show_values Logical scalar. If `NULL`, values are shown only for
+#'   reasonably small heatmaps.
 #'
 #' @return A ggplot object.
 #'
 #' @keywords internal
 #' @noRd
-plot_conformal_scores <- function(cal_tbl) {
+plot_conformal_scores <- function(cal_tbl,
+                                  policy_filter = NULL,
+                                  max_policies = 30L,
+                                  show_values = NULL) {
   # Accept either the raw calibration tibble or the stored uncertainty bundle,
   # then draw the policy-by-branch calibration surface directly.
   if (is.list(cal_tbl) &&
@@ -2527,6 +2771,12 @@ plot_conformal_scores <- function(cal_tbl) {
       nzchar(.data$policy_display),
       is.finite(.data$q_abs_log)
     )
+  policy_filter <- unique(as.character(policy_filter %||% character(0)))
+  policy_filter <- policy_filter[!is.na(policy_filter) & nzchar(policy_filter)]
+  if (length(policy_filter) > 0L) {
+    plot_df <- plot_df |>
+      dplyr::filter(.data$policy_display %in% .env$policy_filter)
+  }
   if (nrow(plot_df) == 0) {
     return(ggplot2::ggplot() +
       ggplot2::labs(x = NULL, y = NULL) +
@@ -2538,6 +2788,12 @@ plot_conformal_scores <- function(cal_tbl) {
     dplyr::summarise(mean_q_abs_log = mean(.data$q_abs_log, na.rm = TRUE), .groups = "drop") |>
     dplyr::arrange(.data$mean_q_abs_log, .data$policy_display) |>
     dplyr::pull(.data$policy_display)
+  max_policies <- normalize_plot_policy_limit(max_policies, default = 30L)
+  if (is.finite(max_policies)) {
+    policy_levels <- head(policy_levels, max_policies)
+    plot_df <- plot_df |>
+      dplyr::filter(.data$policy_display %in% .env$policy_levels)
+  }
   branch_levels <- {
     branch_defs <- read_policy_registry()$policy_branches %||% list()
     registry_levels <- vapply(branch_defs, function(x) as.character(x$display_name %||% x$key %||% NA_character_), character(1))
@@ -2547,8 +2803,9 @@ plot_conformal_scores <- function(cal_tbl) {
   if (!is.finite(sigma_value) || sigma_value <= 0) {
     sigma_value <- 0.2
   }
+  show_values <- show_values %||% (length(policy_levels) * length(unique(plot_df$branch_display)) <= 90L)
 
-  ggplot2::ggplot(
+  p <- ggplot2::ggplot(
     plot_df |>
       dplyr::mutate(
         policy_display = factor(.data$policy_display, levels = rev(policy_levels)),
@@ -2557,14 +2814,6 @@ plot_conformal_scores <- function(cal_tbl) {
     ggplot2::aes(x = .data$branch_display, y = .data$policy_display, fill = .data$q_abs_log)
   ) +
     ggplot2::geom_tile(colour = "white", linewidth = 0.6) +
-    ggplot2::geom_text(
-      ggplot2::aes(
-        label = sprintf("%.2f", .data$q_abs_log),
-        colour = .data$label_colour
-      ),
-      size = 3.1,
-      show.legend = FALSE
-    ) +
     ggplot2::scale_colour_identity() +
     ggplot2::scale_fill_viridis_c(
       option = "C",
@@ -2583,6 +2832,18 @@ plot_conformal_scores <- function(cal_tbl) {
       axis.text.x = ggplot2::element_text(angle = 30, hjust = 1),
       axis.text.y = ggplot2::element_text(size = 9)
     )
+  if (isTRUE(show_values)) {
+    p <- p +
+      ggplot2::geom_text(
+        ggplot2::aes(
+          label = sprintf("%.2f", .data$q_abs_log),
+          colour = .data$label_colour
+        ),
+        size = 2.7,
+        show.legend = FALSE
+      )
+  }
+  p
 }
 
 #' Plot tuning component importance

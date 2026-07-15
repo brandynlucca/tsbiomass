@@ -3041,19 +3041,36 @@ validate_learner_section <- function(learner_section, section_name = "Selection"
 
   if (!is.null(learner_section$loss)) {
     loss_now <- stringr::str_squish(as.character(learner_section$loss))
-    if (length(loss_now) != 1 || !loss_now %in% c("squared_error", "absolute_error")) {
+    loss_spec <- if (length(loss_now) == 1) {
+      try(parse_super_learner_loss(loss_now), silent = TRUE)
+    } else {
+      NULL
+    }
+    if (is.null(loss_spec) || inherits(loss_spec, "try-error")) {
       stop(
-        sprintf("%s field 'loss' must be 'squared_error' or 'absolute_error'.", section_name),
+        sprintf(
+          paste(
+            "%s field 'loss' must be 'squared_error', 'absolute_error', or a",
+            "two-digit pinball loss such as 'pinball_q90'."
+          ),
+          section_name
+        ),
         call. = FALSE
       )
     }
-    if (identical(loss_now, "absolute_error") &&
+    if (identical(loss_spec$kind, "absolute_error") &&
       identical(
         stringr::str_squish(as.character(learner_section[["method", exact = TRUE]] %||% "")),
         "super_learner"
       )) {
       stop(
-        sprintf("%s field 'loss' must be 'squared_error' when 'method' is 'super_learner'.", section_name),
+        sprintf(
+          paste(
+            "%s field 'loss' must be 'squared_error' or a pinball loss such as",
+            "'pinball_q90' when 'method' is 'super_learner'."
+          ),
+          section_name
+        ),
         call. = FALSE
       )
     }

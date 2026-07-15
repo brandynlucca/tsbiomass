@@ -140,6 +140,59 @@ test_that("PolicyLearner uncertainty calibration respects uncertainty-specific l
   expect_equal(learner@calibration$uncertainty_method_settings$rf$num_trees, 7L)
 })
 
+test_that("PolicyLearner uncertainty screening infers missing selection validity", {
+  cfg <- minimal_config_data()
+  cfg$selection$method <- "super_learner"
+  cfg$selection$super_methods <- c("glm", "rpart")
+  cfg$uncertainty$method <- "super_learner"
+  cfg$uncertainty$super_methods <- c("glm", "rpart")
+  cfg$uncertainty$screen_learners <- list(n_folds = 2L, seed = 7L)
+
+  selector <- make_selector(benchmark = list(species_block_perf = minimal_policy_performance()))
+  learner <- as_policylearner(selector, config = cfg)
+  learner@crossfit <- list(
+    result = list(predictions = minimal_crossfit_predictions()),
+    outcome_col = "error_abs_log",
+    uncertainty_outcome_col = "error_abs_log",
+    outcome_transform = "identity",
+    lambda_rule = "lambda.1se",
+    alpha = 1,
+    inner_folds = 2L,
+    metalearner_loss = "squared_error",
+    group_col = NULL,
+    selection_method_settings = cfg$selection$method_settings,
+    selection_super_methods = cfg$selection$super_methods
+  )
+
+  captured <- new.env(parent = emptyenv())
+  captured$policy_perf <- NULL
+  testthat::local_mocked_bindings(
+    crossfit_meta_policy_learner = function(policy_perf, ...) {
+      captured$policy_perf <- tibble::as_tibble(policy_perf)
+      list(
+        learner_timings = tibble::tibble(
+          outer_fold = c(1L, 2L),
+          method = c("glm", "glm"),
+          succeeded_oof = TRUE,
+          succeeded_refit = TRUE,
+          weight = c(0.5, 0.5),
+          test_mae = c(0.1, 0.2),
+          test_rmse = c(0.2, 0.3),
+          total_seconds = c(0.01, 0.01),
+          error = NA_character_
+        )
+      )
+    },
+    .package = "tsbiomass"
+  )
+
+  scorecard <- screen_learners(learner, stage = "uncertainty")
+
+  expect_s7_class(scorecard, Scorecard)
+  expect_true("selection_valid" %in% names(captured$policy_perf))
+  expect_true(all(captured$policy_perf$selection_valid))
+})
+
 test_that("PolicyLearner selection fit respects selection-specific learner settings", {
   selector <- make_selector(benchmark = list(species_block_perf = minimal_policy_performance()))
   learner <- as_policylearner(selector)

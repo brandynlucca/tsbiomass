@@ -1732,6 +1732,71 @@ as_tibble_policy_predictions <- function(x, ...) {
   tibble::as_tibble(x@selections)
 }
 
+#' Extract configured PolicySelector reference species
+#'
+#' @param x A [PolicySelector] object.
+#'
+#' @return Character vector of configured reference-anchor species names.
+#' @keywords internal
+#' @noRd
+policy_selector_reference_anchor_species <- function(x) {
+  if (!is_s7_instance(x, "PolicySelector")) {
+    return(character(0))
+  }
+  anchors <- tibble::as_tibble(x@candidates@reference_anchors %||% tibble::tibble())
+  species <- if ("species_name" %in% names(anchors)) {
+    as.character(anchors$species_name)
+  } else if ("anchor_species" %in% names(anchors)) {
+    as.character(anchors$anchor_species)
+  } else {
+    character(0)
+  }
+  unique(species[!is.na(species) & nzchar(species)])
+}
+
+#' Resolve compact policy displays for PolicySelector plots
+#'
+#' @param x A [PolicySelector] object.
+#' @param anchor_species Optional species names used to restrict the
+#'   species-block benchmark before ranking policies.
+#' @param max_policies Maximum number of displayed policies.
+#'
+#' @return Character vector of policy display labels without branch suffixes.
+#' @keywords internal
+#' @noRd
+policy_selector_reference_policy_display_levels <- function(x,
+                                                            anchor_species = NULL,
+                                                            max_policies = 30L) {
+  if (!is_s7_instance(x, "PolicySelector") || length(x@benchmark) == 0L) {
+    return(character(0))
+  }
+  perf <- tibble::as_tibble((x@benchmark)$species_block_perf %||% tibble::tibble())
+  if (nrow(perf) == 0L || !all(c("valid_prediction", "error_abs_log") %in% names(perf))) {
+    return(character(0))
+  }
+  perf <- filter_plot_anchor_species(perf, anchor_species = anchor_species)
+  perf$policy_display <- stringr::str_remove(
+    resolve_policy_display_names(perf),
+    "\\s*\\[[^]]+\\]$"
+  )
+  out <- perf |>
+    dplyr::filter(
+      .data$valid_prediction,
+      is.finite(.data$error_abs_log),
+      !is.na(.data$policy_display),
+      nzchar(.data$policy_display)
+    ) |>
+    dplyr::group_by(.data$policy_display) |>
+    dplyr::summarise(median_abs_log_error = stats::median(.data$error_abs_log, na.rm = TRUE), .groups = "drop") |>
+    dplyr::arrange(.data$median_abs_log_error, .data$policy_display) |>
+    dplyr::pull(.data$policy_display)
+  max_policies <- normalize_plot_policy_limit(max_policies, default = 30L)
+  if (is.finite(max_policies)) {
+    out <- head(out, max_policies)
+  }
+  unique(out)
+}
+
 #' Plot a `PolicySelector`
 #'
 #' Uses the package's S7 method on [base::plot()] so selector-stage
@@ -1742,7 +1807,14 @@ as_tibble_policy_predictions <- function(x, ...) {
 #' @param x A [PolicySelector] object.
 #' @param y Unused.
 #' @param type Figure family to draw.
-#' @param ... Unused additional arguments.
+#' @param anchor_species Optional anchor species to plot. When omitted, the
+#'   selector's configured reference-anchor species are used when available.
+#'   Use `anchor_species = NULL` explicitly to keep all species.
+#' @param max_policies Maximum number of policies shown in dense benchmark and
+#'   uncertainty plots.
+#' @param show_values Optional logical scalar controlling cell labels in
+#'   heatmaps. `NULL` lets the plotting helper decide from grid size.
+#' @param ... Additional plotting arguments.
 #'
 #' @return A ggplot object.
 #'
@@ -1774,8 +1846,16 @@ NULL
                                     "policy_benchmark",
                                     "species_policy_ranked"
                                   ),
+                                  anchor_species,
+                                  max_policies = 30L,
+                                  show_values = NULL,
                                   ...) {
   type <- match.arg(type)
+  anchor_species <- if (missing(anchor_species)) {
+    policy_selector_reference_anchor_species(x)
+  } else {
+    anchor_species
+  }
 
   if (type %in% c("strategy_error_heatmap", "policy_benchmark", "species_policy_ranked")) {
     if (length(x@benchmark) == 0) {
@@ -1785,12 +1865,25 @@ NULL
       )
     }
     if (identical(type, "policy_benchmark")) {
-      return(plot_policy_boxplot((x@benchmark)$policy_perf %||% tibble::tibble()))
+      return(plot_policy_boxplot(
+        (x@benchmark)$policy_perf %||% tibble::tibble(),
+        anchor_species = anchor_species,
+        max_policies = max_policies
+      ))
     }
     if (identical(type, "species_policy_ranked")) {
-      return(plot_species_policy_ranked((x@benchmark)$species_block_perf %||% tibble::tibble()))
+      return(plot_species_policy_ranked(
+        (x@benchmark)$species_block_perf %||% tibble::tibble(),
+        anchor_species = anchor_species,
+        max_policies = max_policies
+      ))
     }
-    return(plot_policy_heatmap((x@benchmark)$species_block_perf %||% tibble::tibble()))
+    return(plot_policy_heatmap(
+      (x@benchmark)$species_block_perf %||% tibble::tibble(),
+      anchor_species = anchor_species,
+      max_policies = max_policies,
+      show_values = show_values
+    ))
   }
 
   if (length(x@uncertainty) == 0) {
@@ -1799,7 +1892,17 @@ NULL
       call. = FALSE
     )
   }
-  plot_conformal_scores((x@uncertainty)$conf_cal %||% tibble::tibble())
+  policy_filter <- policy_selector_reference_policy_display_levels(
+    x,
+    anchor_species = anchor_species,
+    max_policies = max_policies
+  )
+  plot_conformal_scores(
+    (x@uncertainty)$conf_cal %||% tibble::tibble(),
+    policy_filter = policy_filter,
+    max_policies = max_policies,
+    show_values = show_values
+  )
 }
 
 #' Register the `PolicySelector` plot method
