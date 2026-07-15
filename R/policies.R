@@ -8566,13 +8566,50 @@ failed_meta_policy_crossfit_method_task <- function(task,
   )
 }
 
+#' Format meta-policy method-fold task labels
+#'
+#' Produces compact fold/method labels for queue progress and failure messages.
+#'
+#' @param tasks One task or a list of method-fold tasks.
+#' @param max_labels Maximum number of labels to include.
+#'
+#' @return One comma-separated task-label string.
+#' @keywords internal
+#' @noRd
+format_meta_policy_crossfit_method_tasks <- function(tasks,
+                                                     max_labels = 12L) {
+  if (is.null(tasks) || length(tasks) == 0L) {
+    return("none")
+  }
+  if (!is.list(tasks[[1L]])) {
+    tasks <- list(tasks)
+  }
+  max_labels <- max(1L, as.integer(max_labels %||% 12L))
+  labels <- vapply(
+    tasks,
+    function(task) {
+      sprintf(
+        "fold=%d method=%s",
+        as.integer(task$fold_id),
+        as.character(task$method)
+      )
+    },
+    character(1)
+  )
+  if (length(labels) > max_labels) {
+    labels <- c(labels[seq_len(max_labels)], sprintf("... +%d more", length(labels) - max_labels))
+  }
+  paste(labels, collapse = ", ")
+}
+
 #' Run meta-policy Super Learner method-fold tasks through a worker queue
 #'
 #' Executes method-fold tasks as queue items. The scheduler submits work up to
 #' the requested worker budget, collects each task as soon as a worker returns,
 #' and immediately submits the next task to the freed worker. If a worker
-#' connection fails, completed task results are retained and only pending plus
-#' in-flight tasks are retried with fewer workers.
+#' connection fails, completed task results are retained, in-flight tasks are
+#' retried with fewer workers, and later pending work can return to the original
+#' worker budget after the retry set clears.
 #'
 #' @param tasks List of method-fold tasks.
 #' @param payload Named list containing fold splits and learner settings.
@@ -8601,21 +8638,26 @@ run_meta_policy_crossfit_method_tasks <- function(tasks,
   )
 
   completed_results <- list()
-  remaining_tasks <- tasks
-  attempt_workers <- requested_workers
+  pending_tasks <- tasks
+  retry_tasks <- list()
+  retry_workers <- requested_workers
   completed_n <- 0L
 
-  while (length(remaining_tasks) > 0L) {
-    attempt_workers <- max(1L, min(attempt_workers, length(remaining_tasks)))
+  while (length(pending_tasks) > 0L || length(retry_tasks) > 0L) {
+    retry_mode <- length(retry_tasks) > 0L
+    queue_tasks <- if (retry_mode) retry_tasks else pending_tasks
+    attempt_workers <- if (retry_mode) retry_workers else requested_workers
+    attempt_workers <- max(1L, min(attempt_workers, length(queue_tasks)))
     if (attempt_workers <= 1L) {
       report_progress(
         progress,
         sprintf(
-          "  Method-fold queue: running %d remaining task(s) sequentially.",
-          length(remaining_tasks)
+          "  Method-fold queue: running %d %stask(s) sequentially.",
+          length(queue_tasks),
+          if (retry_mode) "retry " else ""
         )
       )
-      for (task in remaining_tasks) {
+      for (task in queue_tasks) {
         result <- tryCatch(
           run_meta_policy_crossfit_method_payload_task(task, payload),
           error = function(e) failed_meta_policy_crossfit_method_task(task, conditionMessage(e))
@@ -8634,15 +8676,21 @@ run_meta_policy_crossfit_method_tasks <- function(tasks,
         )
         completed_results[[length(completed_results) + 1L]] <- result
       }
-      remaining_tasks <- list()
+      if (retry_mode) {
+        retry_tasks <- list()
+        retry_workers <- requested_workers
+      } else {
+        pending_tasks <- list()
+      }
       next
     }
 
     report_progress(
       progress,
       sprintf(
-        "  Method-fold queue: dispatching %d task(s) across %d worker(s).",
-        length(remaining_tasks),
+        "  Method-fold queue: dispatching %d %stask(s) across %d worker(s).",
+        length(queue_tasks),
+        if (retry_mode) "retry " else "",
         attempt_workers
       )
     )
@@ -8663,7 +8711,7 @@ run_meta_policy_crossfit_method_tasks <- function(tasks,
       tsb_cluster_export(cluster_obj, c("run_method_task"), envir = environment())
     }
 
-    pending <- remaining_tasks
+    pending <- queue_tasks
     active <- vector("list", length(cluster_obj))
     names(active) <- as.character(seq_along(cluster_obj))
     submit_task <- function(node_id, task) {
@@ -8683,6 +8731,11 @@ run_meta_policy_crossfit_method_tasks <- function(tasks,
       submit_task(node_id, pending[[1L]])
       pending <- pending[-1L]
     }
+    report_progress(
+      progress,
+      "  Method-fold queue active tasks: ",
+      format_meta_policy_crossfit_method_tasks(Filter(Negate(is.null), active))
+    )
 
     queue_error <- NULL
     while (length(Filter(Negate(is.null), active)) > 0L) {
@@ -8729,16 +8782,29 @@ run_meta_policy_crossfit_method_tasks <- function(tasks,
     clear_meta_policy_crossfit_payload()
 
     if (is.null(queue_error)) {
-      remaining_tasks <- list()
+      if (retry_mode) {
+        retry_tasks <- list()
+        retry_workers <- requested_workers
+      } else {
+        pending_tasks <- list()
+      }
     } else {
-      remaining_tasks <- c(in_flight, pending)
-      attempt_workers <- max(1L, floor(attempt_workers / 2L))
+      if (retry_mode) {
+        retry_tasks <- c(in_flight, pending)
+        retry_workers <- max(1L, floor(attempt_workers / 2L))
+      } else {
+        retry_tasks <- in_flight
+        pending_tasks <- pending
+        retry_workers <- max(1L, floor(attempt_workers / 2L))
+      }
       report_progress(
         progress,
         sprintf(
-          "  Method-fold queue failed; retaining completed tasks and retrying %d task(s) with %d worker(s): %s",
-          length(remaining_tasks),
-          attempt_workers,
+          "  Method-fold queue failed while active tasks were [%s]; retaining completed tasks and retrying %d in-flight task(s) with %d worker(s); %d pending task(s) remain at full worker budget: %s",
+          format_meta_policy_crossfit_method_tasks(in_flight),
+          length(retry_tasks),
+          retry_workers,
+          length(pending_tasks),
           queue_error
         )
       )
