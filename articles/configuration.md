@@ -705,8 +705,24 @@ Parameters
 
 `loss`: combiner loss
 
-*string*: Super-learner combiner loss. Must be `"squared_error"` with
-NNLS.
+*string*: Super-learner combiner loss. `"squared_error"` (the default)
+combines the base learners with nonnegative least squares. A pinball
+loss named `"pinball_q<NN>"`, with two digits for the quantile
+(`"pinball_q90"` targets the 0.90 quantile), combines them with a
+nonnegativity-constrained quantile regression instead.
+`"absolute_error"` is accepted by the config layer for non-ensemble
+methods but cannot be used with `method: super_learner`.
+
+Under squared error an upper-quantile learner is penalized for exactly
+the upward bias it was asked to produce, so it is driven toward zero
+weight regardless of how well it does its job; a pinball loss is what
+lets those members earn weight. Before reaching for it in the
+`uncertainty` stage, note that the width model is already rescaled
+downstream by a conformal factor, so the absolute level of its
+prediction is absorbed and a pinball loss will not change coverage much.
+It changes the *shape* of the width surface, which is a real but
+second-order hypothesis worth validating against empirical coverage
+rather than adopting on theory.
 
 `method_settings`: per-method overrides
 
@@ -806,8 +822,17 @@ one-SE screen.
 
 `loss`: combiner loss
 
-*string*: Meta-learner combiner loss. Must be `"squared_error"` with
-NNLS.
+*string*: Meta-learner combiner loss. `"squared_error"` (the default)
+combines the base learners with nonnegative least squares. A pinball
+loss named `"pinball_q<NN>"`, with two digits for the quantile
+(`"pinball_q90"` targets the 0.90 quantile), combines them with a
+nonnegativity-constrained quantile regression instead.
+`"absolute_error"` is accepted by the config layer for non-ensemble
+methods but cannot be used with `method: super_learner`.
+
+The selection stage predicts replacement error and wants a conditional
+mean, so `"squared_error"` is the appropriate choice here and a pinball
+loss would be targeting the wrong quantity.
 
 `method_settings`: per-method overrides
 
@@ -1049,6 +1074,9 @@ uncertainty:
       minsplit: 20
       minbucket: 7
       maxdepth: 30
+      xval: 0
+      maxcompete: 0
+      maxsurrogate: 0
     rf:
       num_trees: 500
       mtry: ~
@@ -1067,10 +1095,14 @@ uncertainty:
       lambda: 1
       alpha: 0
       nthread: 1
+      early_stopping_rounds: ~
+      validation_fraction: 0.2
     mars:
       degree: 2
       penalty: 3
+      nk: ~
       nprune: ~
+      fast_k: ~
       pmethod: backward
     bart:
       num_trees: 75
@@ -1078,7 +1110,7 @@ uncertainty:
       beta: 2
       min_samples_leaf: 5
       max_depth: 10
-      keep_gfr: true
+      keep_gfr: false
       variance_forest_num_trees: 50
       random_effects_group: .split_group
       num_gfr: 0
@@ -1092,7 +1124,7 @@ uncertainty:
       beta: 2
       min_samples_leaf: 5
       max_depth: 10
-      keep_gfr: true
+      keep_gfr: false
       variance_forest_num_trees: 50
       random_effects_group: .split_group
       num_gfr: 40
@@ -1106,7 +1138,7 @@ uncertainty:
       beta: 2
       min_samples_leaf: 5
       max_depth: 10
-      keep_gfr: true
+      keep_gfr: false
       variance_forest_num_trees: 50
       random_effects_group: .split_group
       num_gfr: 20
@@ -1120,7 +1152,7 @@ uncertainty:
       beta: 2
       min_samples_leaf: 5
       max_depth: 10
-      keep_gfr: true
+      keep_gfr: false
       variance_forest_num_trees: 50
       random_effects_group: .split_group
       num_gfr: 0
@@ -1134,7 +1166,7 @@ uncertainty:
       beta: 2
       min_samples_leaf: 5
       max_depth: 10
-      keep_gfr: true
+      keep_gfr: false
       variance_forest_num_trees: 50
       random_effects_group: .split_group
       num_gfr: 0
@@ -1219,6 +1251,9 @@ selection:
       minsplit: 20
       minbucket: 7
       maxdepth: 30
+      xval: 0
+      maxcompete: 0
+      maxsurrogate: 0
     rf:
       num_trees: 500
       mtry: ~
@@ -1237,10 +1272,14 @@ selection:
       lambda: 1
       alpha: 0
       nthread: 1
+      early_stopping_rounds: ~
+      validation_fraction: 0.2
     mars:
       degree: 2
       penalty: 3
+      nk: ~
       nprune: ~
+      fast_k: ~
       pmethod: backward
     bart:
       num_trees: 75
@@ -1248,7 +1287,7 @@ selection:
       beta: 2
       min_samples_leaf: 5
       max_depth: 10
-      keep_gfr: true
+      keep_gfr: false
       variance_forest_num_trees: 50
       random_effects_group: .split_group
       num_gfr: 0
@@ -1262,7 +1301,7 @@ selection:
       beta: 2
       min_samples_leaf: 5
       max_depth: 10
-      keep_gfr: true
+      keep_gfr: false
       variance_forest_num_trees: 50
       random_effects_group: .split_group
       num_gfr: 40
@@ -1276,7 +1315,7 @@ selection:
       beta: 2
       min_samples_leaf: 5
       max_depth: 10
-      keep_gfr: true
+      keep_gfr: false
       variance_forest_num_trees: 50
       random_effects_group: .split_group
       num_gfr: 20
@@ -1290,7 +1329,7 @@ selection:
       beta: 2
       min_samples_leaf: 5
       max_depth: 10
-      keep_gfr: true
+      keep_gfr: false
       variance_forest_num_trees: 50
       random_effects_group: .split_group
       num_gfr: 0
@@ -1304,7 +1343,7 @@ selection:
       beta: 2
       min_samples_leaf: 5
       max_depth: 10
-      keep_gfr: true
+      keep_gfr: false
       variance_forest_num_trees: 50
       random_effects_group: .split_group
       num_gfr: 0
@@ -1504,7 +1543,10 @@ list(
         cp = 0.01,
         minsplit = 20,
         minbucket = 7,
-        maxdepth = 30
+        maxdepth = 30,
+        xval = 0,
+        maxcompete = 0,
+        maxsurrogate = 0
       ),
       rf = list(
         num_trees = 500,
@@ -1524,12 +1566,16 @@ list(
         colsample_bytree = 1,
         lambda = 1,
         alpha = 0,
-        nthread = 1
+        nthread = 1,
+        early_stopping_rounds = NULL,
+        validation_fraction = 0.2
       ),
       mars = list(
         degree = 2,
         penalty = 3,
+        nk = NULL,
         nprune = NULL,
+        fast_k = NULL,
         pmethod = "backward"
       ),
       bart = list(
@@ -1538,7 +1584,7 @@ list(
         beta = 2,
         min_samples_leaf = 5,
         max_depth = 10,
-        keep_gfr = TRUE,
+        keep_gfr = FALSE,
         variance_forest_num_trees = 50,
         random_effects_group = ".split_group",
         num_gfr = 0,
@@ -1553,7 +1599,7 @@ list(
         beta = 2,
         min_samples_leaf = 5,
         max_depth = 10,
-        keep_gfr = TRUE,
+        keep_gfr = FALSE,
         variance_forest_num_trees = 50,
         random_effects_group = ".split_group",
         num_gfr = 40,
@@ -1568,7 +1614,7 @@ list(
         beta = 2,
         min_samples_leaf = 5,
         max_depth = 10,
-        keep_gfr = TRUE,
+        keep_gfr = FALSE,
         variance_forest_num_trees = 50,
         random_effects_group = ".split_group",
         num_gfr = 20,
@@ -1583,7 +1629,7 @@ list(
         beta = 2,
         min_samples_leaf = 5,
         max_depth = 10,
-        keep_gfr = TRUE,
+        keep_gfr = FALSE,
         variance_forest_num_trees = 50,
         random_effects_group = ".split_group",
         num_gfr = 0,
@@ -1598,7 +1644,7 @@ list(
         beta = 2,
         min_samples_leaf = 5,
         max_depth = 10,
-        keep_gfr = TRUE,
+        keep_gfr = FALSE,
         variance_forest_num_trees = 50,
         random_effects_group = ".split_group",
         num_gfr = 0,
@@ -1693,7 +1739,10 @@ list(
         cp = 0.01,
         minsplit = 20,
         minbucket = 7,
-        maxdepth = 30
+        maxdepth = 30,
+        xval = 0,
+        maxcompete = 0,
+        maxsurrogate = 0
       ),
       rf = list(
         num_trees = 500,
@@ -1713,12 +1762,16 @@ list(
         colsample_bytree = 1,
         lambda = 1,
         alpha = 0,
-        nthread = 1
+        nthread = 1,
+        early_stopping_rounds = NULL,
+        validation_fraction = 0.2
       ),
       mars = list(
         degree = 2,
         penalty = 3,
+        nk = NULL,
         nprune = NULL,
+        fast_k = NULL,
         pmethod = "backward"
       ),
       bart = list(
@@ -1727,7 +1780,7 @@ list(
         beta = 2,
         min_samples_leaf = 5,
         max_depth = 10,
-        keep_gfr = TRUE,
+        keep_gfr = FALSE,
         variance_forest_num_trees = 50,
         random_effects_group = ".split_group",
         num_gfr = 0,
@@ -1742,7 +1795,7 @@ list(
         beta = 2,
         min_samples_leaf = 5,
         max_depth = 10,
-        keep_gfr = TRUE,
+        keep_gfr = FALSE,
         variance_forest_num_trees = 50,
         random_effects_group = ".split_group",
         num_gfr = 40,
@@ -1757,7 +1810,7 @@ list(
         beta = 2,
         min_samples_leaf = 5,
         max_depth = 10,
-        keep_gfr = TRUE,
+        keep_gfr = FALSE,
         variance_forest_num_trees = 50,
         random_effects_group = ".split_group",
         num_gfr = 20,
@@ -1772,7 +1825,7 @@ list(
         beta = 2,
         min_samples_leaf = 5,
         max_depth = 10,
-        keep_gfr = TRUE,
+        keep_gfr = FALSE,
         variance_forest_num_trees = 50,
         random_effects_group = ".split_group",
         num_gfr = 0,
@@ -1787,7 +1840,7 @@ list(
         beta = 2,
         min_samples_leaf = 5,
         max_depth = 10,
-        keep_gfr = TRUE,
+        keep_gfr = FALSE,
         variance_forest_num_trees = 50,
         random_effects_group = ".split_group",
         num_gfr = 0,

@@ -679,8 +679,21 @@ pruning path is too permissive.</p>
 <code>degree</code> is the primary complexity lever,
 <code>penalty</code> and <code>pmethod</code> shape how aggressively
 candidate hinges are removed, and <code>nprune</code> is a practical
-safeguard when pair counts are too small to justify long hinge
-paths.</p>
+safeguard when pair counts are too small to justify long hinge paths.
+<code>nk</code> and <code>fast_k</code> bound the forward pass rather
+than the pruned result: <code>nk</code> caps how many terms may be built
+before pruning begins, and <code>fast_k</code> caps the queue of parent
+terms considered at each step. Both default to unset, letting
+<code>earth</code> size the search from the feature count
+(<code>nk</code> resolves to
+<code>min(200, max(20, 2 * ncol(x))) + 1</code>, <code>fast_k</code> to
+20). Because the forward pass dominates MARS runtime and grows with the
+feature set, <code>nk</code> is the effective cost lever once
+<code>degree</code> allows interactions. Choose it against evidence
+rather than by feel: fit once, inspect how many terms the backward pass
+actually retains, and set <code>nk</code> comfortably above that. A cap
+the pruner is pressing against is suppressing real structure, not saving
+time.</p>
 <details class="code-drop"><summary>
 💻 Default configuration for mars
 </summary><div class="panel-tabset">
@@ -725,6 +738,15 @@ cost-complexity pruning, <code>minsplit</code> and
 <code>minbucket</code> control how much data must support a split or
 terminal node, and <code>maxdepth</code> caps tree depth. Substantial
 NNLS weight flags hard thresholds in the distance surface.</p>
+<p><code>xval</code>, <code>maxcompete</code>, and
+<code>maxsurrogate</code> all default to 0, which departs from
+<code>rpart</code>’s own defaults of 10, 4, and 5. Nothing here consumes
+their output: <code>cp</code> is configured directly rather than read
+off a cross-validated cost-complexity table, and the design matrix is
+complete, so surrogate splits never fire. Leaving <code>rpart</code>’s
+defaults in place would spend roughly ten internal cross-validations per
+fit building a table nothing reads. Raise <code>xval</code> if you want
+the cptable for manual inspection and accept the cost.</p>
 <p>Treat this as an interpretability and structure-detection member, not
 a pure accuracy engine. If <code>rpart</code> receives real ensemble
 weight, it usually indicates a genuine rule boundary in trait-distance
@@ -873,6 +895,16 @@ contributes boosted interaction structure. <code>nrounds</code> and
 <code>lambda</code>/<code>alpha</code> add regularization. Small pair
 tables need conservative values because boosting can memorize sparse
 donor-anchor patterns.</p>
+<p><code>early_stopping_rounds</code> is unset by default, which runs
+the full <code>nrounds</code> schedule exactly as configured. Setting it
+turns <code>nrounds</code> into a ceiling: the fit holds out
+<code>validation_fraction</code> (0.2 by default) to find the round at
+which held-out error stops improving, then refits on the complete
+training data at that count. The refit is essential rather than
+cosmetic, because on small pair tables the data surrendered to the
+held-out share costs more than the stopping recovers. With it in place,
+a lower <code>eta</code> becomes the better setting, since the round
+count is discovered rather than guessed.</p>
 <details class="code-drop"><summary>
 💻 Default configuration for xgboost
 </summary><div class="panel-tabset">
@@ -1716,7 +1748,16 @@ from inflating variance in stacked settings.</p>
 MARS contributes hinge-based nonlinearities. <code>degree</code>
 controls additive versus interaction hinges, <code>penalty</code>
 controls GCV complexity, <code>pmethod</code> chooses the pruning
-strategy, and <code>nprune</code> can cap retained terms.</p>
+strategy, and <code>nprune</code> can cap retained terms.
+<code>nk</code> and <code>fast_k</code> bound the forward pass instead
+of the pruned result: <code>nk</code> caps how many terms may be built
+before pruning begins, and <code>fast_k</code> caps the queue of parent
+terms considered at each step. Both are left unset by default, which
+lets <code>earth</code> size the search itself (<code>nk</code> resolves
+to <code>min(200, max(20, 2 * ncol(x))) + 1</code>, <code>fast_k</code>
+to 20). They are the levers to reach for when <code>degree</code> allows
+interactions across a wide feature set, since the forward pass is where
+the time goes.</p>
 <details class="code-drop"><summary>
 💻 Default configuration for mars
 </summary><div class="panel-tabset">
@@ -1797,8 +1838,14 @@ calibration.</p>
 </summary><p><a href="https://CRAN.R-project.org/package=rpart" class="external-link"><code>rpart</code></a>
 contributes a single diagnostic tree. <code>cp</code>,
 <code>minsplit</code>, <code>minbucket</code>, and <code>maxdepth</code>
-determine how aggressively the tree splits the benchmark feature
-space.</p>
+determine how aggressively the tree splits the benchmark feature space.
+<code>xval</code>, <code>maxcompete</code>, and
+<code>maxsurrogate</code> default to 0 rather than <code>rpart</code>’s
+own 10, 4, and 5: <code>cp</code> is configured directly instead of
+being read off a cross-validated cost-complexity table, and the design
+matrix is complete, so surrogate splits never fire. Raise
+<code>xval</code> only if you want the cptable for inspection, which
+costs roughly ten internal cross-validations per fit.</p>
 <p>This tree is included for interpretable stratification of error
 regimes. The complexity parameters are intentionally explicit so you can
 control whether the model acts as a coarse rule extractor or a deeper
@@ -1941,6 +1988,18 @@ contributes boosted interactions to the error model.
 <code>max_depth</code> and <code>min_child_weight</code> control tree
 complexity, and <code>lambda</code>/<code>alpha</code> add
 regularization.</p>
+<p><code>early_stopping_rounds</code> is unset by default, which runs
+the full <code>nrounds</code> schedule exactly as configured. Setting it
+changes what <code>nrounds</code> means: it becomes a ceiling rather
+than a schedule. The fit then holds out <code>validation_fraction</code>
+(0.2 by default) to find the round at which held-out error stops
+improving, and refits on the complete training data at that round count.
+The refit is the part that matters. Keeping the model fit on the reduced
+training data loses more accuracy through the discarded data than the
+stopping recovers, which makes the naive one-stage version actively
+worse than no early stopping at all. With the refit, a lower
+<code>eta</code> becomes the better choice, because the round count no
+longer has to be guessed in advance.</p>
 <p>The defaults are conservative on purpose because uncertainty training
 sets are often smaller than they look after splitting. Use this when
 interaction signal is real and data support is sufficient; otherwise
@@ -2057,13 +2116,21 @@ rather than just point prediction.</p>
 </div>
 </details></details><details><summary><code>xbart</code>
 </summary><p>Accelerated BART: sampler <code>num_gfr = 40</code>,
-<code>num_mcmc = 0</code> (grow-from-root only,
-<code>keep_gfr = TRUE</code>). Point estimate only, so pair with
-<code>qreg</code>/<code>qrf</code> for the tail.</p>
+<code>num_mcmc = 0</code> (grow-from-root only). Point estimate only, so
+pair with <code>qreg</code>/<code>qrf</code> for the tail.</p>
 <p>This is the speed-first BART variant. Grow-from-root proposals
 discover structure quickly, but skipping MCMC means no posterior
 uncertainty propagation; keep quantile learners in the stack to retain
 tail coverage behavior.</p>
+<p>Note that <code>stochtree</code> ignores <code>keep_gfr</code>
+whenever <code>num_mcmc = 0</code>, so every grow-from-root sweep is
+retained here no matter how the setting reads. That has a consequence
+for <code>num_gfr</code>: the early sweeps are warm-up, and there is no
+option to discard them, so they stay in the reported posterior.
+Grow-from-root is more forgiving about this than MCMC would be, because
+its first sweep already yields a sensible greedy ensemble rather than
+noise, but the tension is real. Speed-first argues for fewer sweeps and
+posterior cleanliness for more.</p>
 <details class="code-drop"><summary>
 💻 Default configuration for xbart
 </summary><div class="panel-tabset">
@@ -2118,6 +2185,17 @@ tail coverage behavior.</p>
 </details></details><details><summary><code>wsbart</code>
 </summary><p>Warm-start BART: sampler <code>num_gfr = 20</code>,
 <code>num_mcmc = 200</code>. Shares the BART priors above.</p>
+<p><code>keep_gfr</code> matters here and nowhere else in the BART
+family. It defaults to <code>FALSE</code>, matching
+<code>stochtree</code>: the grow-from-root sweeps exist to warm-start
+the chain and are not part of the reported posterior. Setting it
+<code>TRUE</code> mixes those pre-convergence sweeps in alongside the
+MCMC draws, which defeats the point of the variant. The setting is inert
+for <code>bart</code>, <code>vfbart</code>, and <code>rebart</code> (no
+grow-from-root sweeps are run at <code>num_gfr = 0</code>) and inert for
+<code>xbart</code> (ignored at <code>num_mcmc = 0</code>), so a
+warm-start schedule that runs grow-from-root <em>and</em> MCMC is the
+only place it changes anything.</p>
 <p>Warm-start BART balances runtime and posterior quality by using fast
 initialization before full sampling. It is often a pragmatic choice when
 full <code>bart</code> is too slow but deterministic <code>xbart</code>
@@ -3532,7 +3610,16 @@ inflating variance in moderate-size benchmark tables.</p>
 MARS contributes hinge-based nonlinearities. <code>degree</code>
 controls additive versus interaction hinges, <code>penalty</code>
 controls GCV complexity, <code>pmethod</code> chooses the pruning
-strategy, and <code>nprune</code> can cap retained terms.</p>
+strategy, and <code>nprune</code> can cap retained terms.
+<code>nk</code> and <code>fast_k</code> bound the forward pass instead
+of the pruned result: <code>nk</code> caps how many terms may be built
+before pruning begins, and <code>fast_k</code> caps the queue of parent
+terms considered at each step. Both are left unset by default, which
+lets <code>earth</code> size the search itself (<code>nk</code> resolves
+to <code>min(200, max(20, 2 * ncol(x))) + 1</code>, <code>fast_k</code>
+to 20). They are the levers to reach for when <code>degree</code> allows
+interactions across a wide feature set, since the forward pass is where
+the time goes.</p>
 <details class="code-drop"><summary>
 💻 Default configuration for mars
 </summary><div class="panel-tabset">
@@ -3617,7 +3704,13 @@ highly unstable with fewer than about 20 species.</p>
 contributes a single interpretable policy-selection tree.
 <code>cp</code>, <code>minsplit</code>, <code>minbucket</code>, and
 <code>maxdepth</code> determine how aggressively it partitions target
-contexts.</p>
+contexts. <code>xval</code>, <code>maxcompete</code>, and
+<code>maxsurrogate</code> default to 0 rather than <code>rpart</code>’s
+own 10, 4, and 5: <code>cp</code> is configured directly instead of
+being read off a cross-validated cost-complexity table, and the design
+matrix is complete, so surrogate splits never fire. Raise
+<code>xval</code> only if you want the cptable for inspection, which
+costs roughly ten internal cross-validations per fit.</p>
 <p>This method is mainly a rule extractor for selection boundaries.
 Strong weight on <code>rpart</code> suggests policy ranking is driven by
 discrete thresholds rather than smooth gradients.</p>
@@ -3726,6 +3819,17 @@ and <code>min_child_weight</code> control tree complexity, and
 <code>eta</code> and <code>nrounds</code> are coupled, depth and
 child-weight govern local partition complexity, and regularization terms
 keep fold-level policy flips from becoming unstable noise.</p>
+<p><code>early_stopping_rounds</code> is unset by default, which runs
+the full <code>nrounds</code> schedule exactly as configured. Setting it
+turns <code>nrounds</code> into a ceiling: the fit holds out
+<code>validation_fraction</code> (0.2 by default) to find the round at
+which held-out error stops improving, then refits on the complete
+training data at that count. The refit is what makes this worth doing,
+since a model left fitted on the reduced training data loses more to the
+discarded data than the stopping recovers. It also loosens the coupling
+noted above: with the round count discovered rather than guessed, a
+lower <code>eta</code> becomes the better setting instead of a more
+expensive one.</p>
 <details class="code-drop"><summary>
 💻 Default configuration for xgboost
 </summary><div class="panel-tabset">
@@ -3842,6 +3946,14 @@ estimate of policy scores.</p>
 <p>This is the throughput-oriented BART option: fast structure search
 with no posterior sampling. It is useful when runtime dominates and you
 keep other members for robustness.</p>
+<p>Note that <code>stochtree</code> ignores <code>keep_gfr</code>
+whenever <code>num_mcmc = 0</code>, so every grow-from-root sweep is
+retained here regardless of the setting. <code>num_gfr</code> therefore
+governs both runtime and posterior composition at once: the early sweeps
+are warm-up and there is no option to drop them. Grow-from-root
+tolerates this better than MCMC would, since its first sweep already
+produces a sensible greedy ensemble rather than noise, but fewer sweeps
+still means a larger warm-up share of what is reported.</p>
 <details class="code-drop"><summary>
 💻 Default configuration for xbart
 </summary><div class="panel-tabset">
@@ -3896,6 +4008,17 @@ keep other members for robustness.</p>
 </details></details><details><summary><code>wsbart</code>
 </summary><p>Warm-start BART: sampler <code>num_gfr = 20</code>,
 <code>num_mcmc = 200</code>. Shares the BART priors above.</p>
+<p><code>keep_gfr</code> matters here and nowhere else in the BART
+family. It defaults to <code>FALSE</code>, matching
+<code>stochtree</code>: the grow-from-root sweeps exist to warm-start
+the chain and are not part of the reported posterior. Setting it
+<code>TRUE</code> mixes those pre-convergence sweeps in alongside the
+MCMC draws, which defeats the point of the variant. The setting is inert
+for <code>bart</code>, <code>vfbart</code>, and <code>rebart</code> (no
+grow-from-root sweeps are run at <code>num_gfr = 0</code>) and inert for
+<code>xbart</code> (ignored at <code>num_mcmc = 0</code>), so a
+warm-start schedule that runs grow-from-root <em>and</em> MCMC is the
+only place it changes anything.</p>
 <p>Warm-start BART keeps posterior inference while reducing startup cost
 through grow-from-root initialization. It is often a practical
 compromise between <code>bart</code> and <code>xbart</code>.</p>
