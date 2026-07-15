@@ -6566,7 +6566,10 @@ meta_policy_method_arguments <- function(method,
     svr_cfg <- effective_method_settings()
     return(compact_nulls(list(
       C = as.numeric(svr_cfg$C %||% 1),
-      epsilon = as.numeric(svr_cfg$epsilon %||% 0.1)
+      epsilon = as.numeric(svr_cfg$epsilon %||% 0.1),
+      kernel = svr_cfg$kernel %||% NULL,
+      sigma = if (is.null(svr_cfg$sigma)) NULL else as.numeric(svr_cfg$sigma),
+      max_train_rows = if (is.null(svr_cfg$max_train_rows)) NULL else as.integer(svr_cfg$max_train_rows)
     )))
   }
   if (identical(method_spec$family, "qrf")) {
@@ -6584,12 +6587,86 @@ meta_policy_method_arguments <- function(method,
   if (identical(method_spec$family, "gpr")) {
     gpr_cfg <- effective_method_settings()
     return(compact_nulls(list(
-      var = as.numeric(gpr_cfg$var %||% 0.001)
+      var = as.numeric(gpr_cfg$var %||% 0.001),
+      kernel = gpr_cfg$kernel %||% NULL,
+      sigma = if (is.null(gpr_cfg$sigma)) NULL else as.numeric(gpr_cfg$sigma),
+      max_train_rows = if (is.null(gpr_cfg$max_train_rows)) NULL else as.integer(gpr_cfg$max_train_rows)
     )))
   }
   # The "mean" family (and any family without explicit arguments) falls through
   # to an empty argument list; its fit needs nothing beyond the outcome column.
   list()
+}
+
+#' Resolve kernlab kernel settings for meta-policy learners
+#'
+#' Converts configured kernel learner arguments into the `kernel` and `kpar`
+#' values expected by kernlab. A configured `sigma` disables kernlab's automatic
+#' `sigest` path for RBF kernels.
+#'
+#' @param fit_arguments Method-specific argument list.
+#'
+#' @return List with `kernel` and `kpar` entries.
+#' @keywords internal
+#' @noRd
+resolve_meta_policy_kernlab_settings <- function(fit_arguments) {
+  kernel <- stringr::str_squish(as.character(fit_arguments$kernel %||% "rbfdot"))[[1]]
+  kernel <- tolower(kernel)
+  if (kernel %in% c("rdfbot", "rbf", "gaussian")) {
+    kernel <- "rbfdot"
+  }
+  sigma <- fit_arguments$sigma %||% NULL
+  if (!is.null(sigma)) {
+    sigma <- as.numeric(sigma)
+    if (length(sigma) != 1L || !is.finite(sigma) || sigma <= 0) {
+      stop("'sigma' for kernlab learners must be one finite positive number.", call. = FALSE)
+    }
+    return(list(kernel = kernel, kpar = list(sigma = sigma)))
+  }
+  list(kernel = kernel, kpar = "automatic")
+}
+
+#' Sample training rows for exact kernel meta-policy learners
+#'
+#' Selects a deterministic row subset when `max_train_rows` is configured. This
+#' bounds exact kernel memory use while still predicting every validation/test
+#' row downstream.
+#'
+#' @param n Number of available training rows.
+#' @param max_train_rows Optional maximum number of rows to retain.
+#' @param seed Optional integer seed.
+#'
+#' @return Integer row indices.
+#' @keywords internal
+#' @noRd
+sample_meta_policy_kernel_training_rows <- function(n,
+                                                    max_train_rows = NULL,
+                                                    seed = NULL) {
+  n <- as.integer(n)
+  if (is.null(max_train_rows)) {
+    return(seq_len(n))
+  }
+  max_train_rows <- as.integer(max_train_rows)
+  if (length(max_train_rows) != 1L || is.na(max_train_rows) || max_train_rows < 1L) {
+    stop("'max_train_rows' for kernlab learners must be one positive integer.", call. = FALSE)
+  }
+  if (n <= max_train_rows) {
+    return(seq_len(n))
+  }
+
+  had_seed <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  old_seed <- if (had_seed) get(".Random.seed", envir = .GlobalEnv, inherits = FALSE) else NULL
+  on.exit({
+    if (had_seed) {
+      assign(".Random.seed", old_seed, envir = .GlobalEnv)
+    } else if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+      rm(".Random.seed", envir = .GlobalEnv)
+    }
+  }, add = TRUE)
+  if (!is.null(seed)) {
+    set.seed(as.integer(seed))
+  }
+  sort(sample.int(n, max_train_rows))
 }
 
 #' Resolve one mixed-effects grouping column for the meta-policy learner
@@ -7793,17 +7870,36 @@ fit_meta_policy_learner <- function(training_data,
         call. = FALSE
       )
     }
+    kernel_settings <- resolve_meta_policy_kernlab_settings(fit_arguments)
+    kernel_rows <- sample_meta_policy_kernel_training_rows(
+      n = nrow(model_frame),
+      max_train_rows = fit_arguments$max_train_rows %||% NULL,
+      seed = seed
+    )
+    model_frame_fit <- model_frame[kernel_rows, , drop = FALSE]
+    y_fit <- y[kernel_rows]
+    if (length(kernel_rows) < nrow(model_frame)) {
+      report_progress(
+        progress,
+        sprintf(
+          "  Meta-policy %s: fitting kernlab learner on %d/%d training rows.",
+          method,
+          length(kernel_rows),
+          nrow(model_frame)
+        )
+      )
+    }
     # Both kernlab learners take a numeric matrix (built via the shared
-    # model-matrix path) and scale it internally; the RBF width is auto-estimated
-    # by kernlab's sigest heuristic (kpar = "automatic").
-    mm <- meta_policy_model_matrix(model_frame)
+    # model-matrix path) and scale it internally. A configured sigma is passed
+    # through kpar; otherwise kernlab uses its automatic sigest heuristic.
+    mm <- meta_policy_model_matrix(model_frame_fit)
     fit <- if (identical(method_spec$family, "svr")) {
       kernlab::ksvm(
         x = mm$x,
-        y = as.numeric(y),
+        y = as.numeric(y_fit),
         type = "eps-svr",
-        kernel = "rbfdot",
-        kpar = "automatic",
+        kernel = kernel_settings$kernel,
+        kpar = kernel_settings$kpar,
         C = as.numeric(fit_arguments$C %||% 1),
         epsilon = as.numeric(fit_arguments$epsilon %||% 0.1),
         scaled = TRUE
@@ -7811,10 +7907,10 @@ fit_meta_policy_learner <- function(training_data,
     } else {
       kernlab::gausspr(
         x = mm$x,
-        y = as.numeric(y),
+        y = as.numeric(y_fit),
         type = "regression",
-        kernel = "rbfdot",
-        kpar = "automatic",
+        kernel = kernel_settings$kernel,
+        kpar = kernel_settings$kpar,
         var = as.numeric(fit_arguments$var %||% 0.001),
         scaled = TRUE
       )
@@ -7834,7 +7930,9 @@ fit_meta_policy_learner <- function(training_data,
         x_columns = colnames(mm$x),
         outcome_transform = outcome_transform,
         prediction_cap = meta_policy_prediction_cap(training_data$.outcome),
-        training_n = nrow(model_frame),
+        training_n = nrow(model_frame_fit),
+        source_training_n = nrow(model_frame),
+        training_row_index = kernel_rows,
         model_matrix_ncol = ncol(mm$x)
       ),
       class = "tsb_meta_policy_learner"
@@ -8381,6 +8479,17 @@ run_meta_policy_crossfit_method_payload_task <- function(task,
   task_start <- proc.time()
   oof_seconds <- NA_real_
   refit_seconds <- NA_real_
+  report_progress(
+    isTRUE(payload$progress),
+    sprintf(
+      "  Method-fold task started: fold=%d method=%s pid=%d train=%d test=%d.",
+      fold_id,
+      method_now,
+      Sys.getpid(),
+      nrow(train_data),
+      nrow(test_data)
+    )
+  )
 
   if (nrow(train_data) == 0L || nrow(test_data) == 0L) {
     return(list(
@@ -9239,7 +9348,8 @@ crossfit_meta_policy_learner <- function(policy_perf,
     super_methods = super_methods,
     metalearner_loss = metalearner_loss,
     method_settings = method_settings,
-    seed = seed
+    seed = seed,
+    progress = progress
   )
   run_fold_split <- function(fold_split) {
     run_meta_policy_crossfit_payload_fold(fold_split, fold_payload)
