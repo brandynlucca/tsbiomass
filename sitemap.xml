@@ -84,6 +84,7 @@
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/run_ordination.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/run_sentinel.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/screen_admissibility.html</loc></url>
+<url><loc>https://brandynlucca.github.io/tsbiomass/reference/screen_learners.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/select_policies.PolicySelector.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/select_policies.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/sentinel_apply_scenario.html</loc></url>
@@ -94,5 +95,6 @@
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/tsb_message.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/tsbiomass-package.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/tune_similarities.html</loc></url>
+<url><loc>https://brandynlucca.github.io/tsbiomass/reference/update_learners.html</loc></url>
 </urlset>
 

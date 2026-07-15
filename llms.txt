@@ -282,6 +282,12 @@ Fit context-aware meta-learners for policy recommendation.
 
   Fit a `PolicyLearner`
 
+- [`screen_learners()`](https://brandynlucca.github.io/tsbiomass/reference/screen_learners.md)
+  : Screen a Super Learner library
+
+- [`update_learners()`](https://brandynlucca.github.io/tsbiomass/reference/update_learners.md)
+  : Update configured Super Learner libraries from screening scorecards
+
 - [`calibrate_uncertainty.PolicyLearner`](https://brandynlucca.github.io/tsbiomass/reference/calibrate_uncertainty.PolicyLearner.md)
   :
 
