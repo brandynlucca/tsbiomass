@@ -99,6 +99,13 @@ alchemist_config_from_config <- function(source) {
     method_settings,
     method_defaults_path
   )
+  cache_dir <- alch$cache_dir %||%
+    (cfg$paths %||% list())$cache_dir %||%
+    (cfg$cache %||% list())$folder %||%
+    NULL
+  refresh <- alch$refresh %||%
+    (cfg$cache %||% list())$refresh %||%
+    FALSE
 
   list(
     species_traits = alch$species_traits %||% sim$species_traits %||% list(),
@@ -128,6 +135,8 @@ alchemist_config_from_config <- function(source) {
     distill_workers = as.integer(alch$distill_workers %||% 1L),
     registry_path = alch$registry_path %||% cfg$registry_path %||% NULL,
     progress = (cfg$execution %||% list())$progress %||% FALSE,
+    cache_dir = cache_dir,
+    refresh = isTRUE(refresh),
     config_data = cfg
   )
 }
@@ -185,6 +194,7 @@ normalize_alchemist_config <- function(config, candidates = NULL) {
   config$learner$workers <- as.integer(config$learner$workers %||% 1L)
   config$distill_workers <- as.integer(config$distill_workers %||% 1L)
   config$feature_type <- config$feature_type %||% "gower"
+  config$refresh <- isTRUE(config$refresh %||% FALSE)
 
   config
 }
@@ -317,6 +327,39 @@ as_alchemist <- function(candidates, config = NULL, ...) {
     trait_importance = list(),
     ordination = list(),
     admissibility = list()
+  )
+}
+
+#' Build an Alchemist stage cache path
+#'
+#' Resolves an object-level cache path from the normalized Alchemist config.
+#' Returns `NULL` when no cache directory is configured.
+#'
+#' @param config Normalized Alchemist config list.
+#' @param stage Cache stage name.
+#' @param suffix Optional suffix used to distinguish stage variants.
+#'
+#' @return Cache file path, or `NULL`.
+#' @keywords internal
+#' @noRd
+alchemist_stage_cache_path <- function(config,
+                                       stage,
+                                       suffix = NULL) {
+  cache_dir <- config$cache_dir %||% NULL
+  if (is.null(cache_dir) || !nzchar(as.character(cache_dir))) {
+    return(NULL)
+  }
+  stage <- gsub("[^A-Za-z0-9_]+", "_", as.character(stage %||% "stage"))
+  suffix <- if (is.null(suffix) || !nzchar(as.character(suffix))) {
+    NULL
+  } else {
+    gsub("[^A-Za-z0-9_]+", "_", as.character(suffix))
+  }
+  cache_root <- file.path(as.character(cache_dir), "alchemist")
+  dir.create(cache_root, recursive = TRUE, showWarnings = FALSE)
+  file.path(
+    cache_root,
+    paste0(stage, if (!is.null(suffix)) paste0("_", suffix) else "", ".rds")
   )
 }
 
@@ -2230,6 +2273,11 @@ fit_mahalanobis <- function(training_data, feature_cols,
 #' @param feature_type Optional pairwise feature representation. Supported
 #'   values include the configured default, `"gower"`, `"difference"`, and
 #'   `"mahalanobis"`.
+#' @param cache_path Optional cache file path. When `NULL`, the method derives
+#'   the cache path from the Alchemist object config inherited from the
+#'   Configurer.
+#' @param refresh Optional logical scalar. When `NULL`, the method inherits the
+#'   refresh setting from the Alchemist object config.
 #' @param ... Additional learner-specific controls forwarded to the distance
 #'   fitting stage.
 #'
@@ -2238,9 +2286,33 @@ fit_mahalanobis <- function(training_data, feature_cols,
 S7::method(forge_distances, Alchemist) <- function(object,
                                                    progress = NULL,
                                                    feature_type = NULL,
+                                                   cache_path = NULL,
+                                                   refresh = NULL,
                                                    ...) {
   config <- object@config
   progress <- progress %||% config$progress %||% FALSE
+  feature_type <- feature_type %||% config$feature_type %||% "gower"
+  cache_path <- cache_path %||% alchemist_stage_cache_path(
+    config,
+    stage = "forge_distances",
+    suffix = feature_type
+  )
+  refresh <- if (is.null(refresh)) {
+    isTRUE(config$refresh %||% FALSE)
+  } else {
+    if (!is.logical(refresh) || length(refresh) != 1L || is.na(refresh)) {
+      stop("'refresh' must be TRUE or FALSE.", call. = FALSE)
+    }
+    isTRUE(refresh)
+  }
+  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
+    report_progress(progress, "[Alchemist] Loading cached forged distances: ", cache_path)
+    cached <- readRDS(cache_path)
+    if (.is_alchemist(cached)) {
+      return(cached)
+    }
+    report_progress(progress, "[Alchemist] Cached forged distances were not an Alchemist object; rebuilding.")
+  }
 
   models_df <- tibble::as_tibble(object@candidates@candidate_models)
   n_models <- nrow(models_df)
@@ -2262,7 +2334,6 @@ S7::method(forge_distances, Alchemist) <- function(object,
 
   coherence_cfg <- config$coherence %||% list()
   taxonomic_distance <- isTRUE(config$taxonomic_distance)
-  feature_type <- feature_type %||% config$feature_type %||% "gower"
 
   report_progress(
     progress,
@@ -2415,7 +2486,12 @@ S7::method(forge_distances, Alchemist) <- function(object,
     ordination = list(),
     admissibility = list()
   )
-  alchemist_rebuild(object, learner = sl_fit)
+  out <- alchemist_rebuild(object, learner = sl_fit)
+  if (!is.null(cache_path)) {
+    saveRDS(out, cache_path)
+    report_progress(progress, "[Alchemist] Saved forged distances cache: ", cache_path)
+  }
+  out
 }
 
 # - distill_traits helpers -
