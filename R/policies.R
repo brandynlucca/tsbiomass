@@ -6810,10 +6810,8 @@ fit_stochtree_bart <- function(x, y, args, training_data, seed) {
 #' Predict from a fitted stochtree BART variant
 #'
 #' Localizes stochtree's `predict()` call and normalizes its return value to a
-#' single posterior-mean vector. Handles rebart's group ids, mapping unseen
-#' groups (e.g. a held-out species under `species_holdout`) to the population
-#' mean so cold-start prediction degrades to the mean-forest fit rather than
-#' erroring.
+#' single posterior-mean vector. Handles rebart's group ids and fails explicitly
+#' when prediction contains random-effect levels not observed during training.
 #'
 #' @param object Fitted `tsb_meta_policy_learner` (BART family).
 #' @param x Numeric prediction model matrix aligned to training columns.
@@ -6825,7 +6823,6 @@ fit_stochtree_bart <- function(x, y, args, training_data, seed) {
 #' @noRd
 predict_stochtree_bart <- function(object, x, prediction_tbl) {
   x <- as.matrix(x)
-  n_pred <- nrow(x)
   rfx_group_ids <- NULL
   seen_group <- NULL
   rfx_group_col <- as.character(object$rfx_group_col %||% NA_character_)[[1]]
@@ -6838,6 +6835,24 @@ predict_stochtree_bart <- function(object, x, prediction_tbl) {
     }
     ids <- match(group_values, rfx_levels)
     seen_group <- !is.na(ids)
+    if (any(!seen_group)) {
+      unseen_values <- unique(group_values[!seen_group])
+      unseen_values <- unseen_values[!is.na(unseen_values) & nzchar(unseen_values)]
+      example_values <- head(unseen_values, 5L)
+      stop(
+        sprintf(
+          paste(
+            "RE-BART prediction encountered %d row(s) with random-effect group levels",
+            "not present during training for column '%s'. A true random-effects",
+            "prediction cannot estimate held-out group effects. Unseen level example(s): %s"
+          ),
+          sum(!seen_group),
+          rfx_group_col,
+          if (length(example_values) > 0L) paste(example_values, collapse = ", ") else "<missing>"
+        ),
+        call. = FALSE
+      )
+    }
     rfx_group_ids <- as.integer(ids)
   }
 
@@ -6854,21 +6869,11 @@ predict_stochtree_bart <- function(object, x, prediction_tbl) {
     return(reduce_draws(stats::predict(object$fit, x)))
   }
 
-  pred <- rep(NA_real_, n_pred)
-  if (any(seen_group)) {
-    pred[seen_group] <- reduce_draws(stats::predict(
-      object$fit,
-      x[seen_group, , drop = FALSE],
-      rfx_group_ids = rfx_group_ids[seen_group]
-    ))
-  }
-  if (any(!seen_group)) {
-    pred[!seen_group] <- reduce_draws(stats::predict(
-      object$fit,
-      x[!seen_group, , drop = FALSE]
-    ))
-  }
-  pred
+  reduce_draws(stats::predict(
+    object$fit,
+    x,
+    rfx_group_ids = rfx_group_ids
+  ))
 }
 
 #' Predict from a fitted KNN-regression meta-policy learner
@@ -8755,7 +8760,7 @@ log_meta_policy_crossfit_method_result <- function(result,
   success_now <- isTRUE(result$succeeded_oof) && isTRUE(result$succeeded_refit)
   summary <- sprintf(
     "  %s Method-fold task complete: %d/%d [fold=%d method=%s success=%s].",
-    if (success_now) "✅" else "❌",
+    if (success_now) "\u2705" else "\u274c",
     completed_n,
     total_tasks,
     as.integer(result$fold_id),
@@ -8892,11 +8897,13 @@ run_meta_policy_crossfit_method_queue_once <- function(tasks,
   pending <- tasks
   active <- vector("list", length(cluster_obj))
   names(active) <- as.character(seq_along(cluster_obj))
+  parallel_send_call <- utils::getFromNamespace("sendCall", "parallel")
+  parallel_recv_one_result <- utils::getFromNamespace("recvOneResult", "parallel")
   submit_task <- function(node_id, task) {
     if (identical(cluster_type, "fork")) {
-      parallel:::sendCall(cluster_obj[[node_id]], run_meta_policy_crossfit_method_task, list(task))
+      parallel_send_call(cluster_obj[[node_id]], run_meta_policy_crossfit_method_task, list(task))
     } else {
-      parallel:::sendCall(cluster_obj[[node_id]], run_method_task, list(task))
+      parallel_send_call(cluster_obj[[node_id]], run_method_task, list(task))
     }
     active[[as.character(node_id)]] <<- task
     invisible(NULL)
@@ -8920,7 +8927,7 @@ run_meta_policy_crossfit_method_queue_once <- function(tasks,
   queue_error <- NULL
   while (length(Filter(Negate(is.null), active)) > 0L) {
     received <- tryCatch(
-      parallel:::recvOneResult(cluster_obj),
+      parallel_recv_one_result(cluster_obj),
       error = function(e) e
     )
     if (inherits(received, "error")) {
@@ -9068,7 +9075,7 @@ run_meta_policy_crossfit_method_tasks <- function(tasks,
         report_progress(
           progress,
           sprintf(
-            "  ❌ Method-fold task isolated after socket failure: %d/%d [fold=%d method=%s success=FALSE].",
+            "  \u274c Method-fold task isolated after socket failure: %d/%d [fold=%d method=%s success=FALSE].",
             completed_n,
             total_tasks,
             as.integer(result$fold_id),
@@ -9090,7 +9097,7 @@ run_meta_policy_crossfit_method_tasks <- function(tasks,
         report_progress(
         progress,
         sprintf(
-          "  ⚠️ Method-fold queue failed while active tasks were [%s]; retaining completed tasks and splitting suspect set into %d group(s); %d pending task(s) remain at full worker budget: %s",
+            "  \u26a0 Method-fold queue failed while active tasks were [%s]; retaining completed tasks and splitting suspect set into %d group(s); %d pending task(s) remain at full worker budget: %s",
           format_meta_policy_crossfit_method_tasks(queue_result$failed_active),
           length(suspect_groups),
           length(pending_tasks),
