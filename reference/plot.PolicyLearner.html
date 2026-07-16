@@ -83,6 +83,7 @@ code.</p>
 <span>  outcome <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"modeled"</span>, <span class="st">"raw"</span><span class="op">)</span>,</span>
 <span>  rows <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"all"</span>, <span class="st">"selected"</span><span class="op">)</span>,</span>
 <span>  n_bins <span class="op">=</span> <span class="fl">10L</span>,</span>
+<span>  anchor_species <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  <span class="va">...</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
@@ -124,6 +125,11 @@ retained during post-selection calibration.</p></dd>
 <dt id="arg-n-bins">n_bins<a class="anchor" aria-label="anchor" href="#arg-n-bins"></a></dt>
 <dd><p>Number of quantile bins used for
 <code>type = "calibration_curve"</code>.</p></dd>
+
+
+<dt id="arg-anchor-species">anchor_species<a class="anchor" aria-label="anchor" href="#arg-anchor-species"></a></dt>
+<dd><p>Optional anchor species to plot. When supplied, learner
+diagnostics are restricted to those species.</p></dd>
 
 
 <dt id="arg--">...<a class="anchor" aria-label="anchor" href="#arg--"></a></dt>

@@ -12,6 +12,7 @@ plot(
   x,
   y = NULL,
   type = c("ordination", "trait_importance", "admissibility"),
+  dissimilarity = c("combined", "species"),
   view = NULL,
   include_hulls = TRUE,
   ...
@@ -39,12 +40,18 @@ plot(
   `"admissibility"` requires
   [`screen_admissibility()`](https://brandynlucca.github.io/tsbiomass/reference/screen_admissibility.md).
 
+- dissimilarity:
+
+  Ordination dissimilarity view. `"combined"` plots the model-level
+  ordination; `"species"` plots the species-level ordination.
+
 - view:
 
   Secondary plot selector for `type = "ordination"` or
   `type = "admissibility"`. One of `"clusters"`, `"cluster_hulls"`,
-  `"vectors"`, or `"centers"` for ordination; one of
-  `"gate_composition"` or `"overlap_profile"` for admissibility.
+  `"vectors"`, or `"centers"` for combined ordination; species
+  ordination also accepts `"overview"`. For admissibility, one of
+  `"gate_composition"` or `"overlap_profile"`.
 
 - include_hulls:
 

@@ -26,6 +26,7 @@ plot(
   outcome = c("modeled", "raw"),
   rows = c("all", "selected"),
   n_bins = 10L,
+  anchor_species = NULL,
   ...
 )
 ```
@@ -67,6 +68,11 @@ plot(
 - n_bins:
 
   Number of quantile bins used for `type = "calibration_curve"`.
+
+- anchor_species:
+
+  Optional anchor species to plot. When supplied, learner diagnostics
+  are restricted to those species.
 
 - ...:
 
