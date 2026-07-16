@@ -17,7 +17,7 @@ A new \link{Configurer} with updated \code{selection$super_methods} and/or
 }
 \description{
 Applies one or more learner-screening \link{Scorecard} objects to a
-\link{Configurer}. The method updates only the parent \code{super_methods}
-entries identified by the scorecards, leaving method settings and other
-learner controls unchanged.
+\link{Configurer}. The method updates only the parent \code{super_methods} entries
+identified by the scorecards, leaving method settings and other learner
+controls unchanged.
 }

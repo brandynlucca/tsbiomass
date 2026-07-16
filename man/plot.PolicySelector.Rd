@@ -13,6 +13,9 @@
     "policy_benchmark",
     "species_policy_ranked"
   ),
+  anchor_species,
+  max_policies = 30L,
+  show_values = NULL,
   ...
 )
 }
@@ -23,7 +26,17 @@
 
 \item{type}{Figure family to draw.}
 
-\item{...}{Unused additional arguments.}
+\item{anchor_species}{Optional anchor species to plot. When omitted, the
+selector's configured reference-anchor species are used when available.
+Use \code{anchor_species = NULL} explicitly to keep all species.}
+
+\item{max_policies}{Maximum number of policies shown in dense benchmark and
+uncertainty plots.}
+
+\item{show_values}{Optional logical scalar controlling cell labels in
+heatmaps. \code{NULL} lets the plotting helper decide from grid size.}
+
+\item{...}{Additional plotting arguments.}
 }
 \value{
 A ggplot object.

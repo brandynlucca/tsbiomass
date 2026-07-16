@@ -72,3 +72,45 @@ test_that("quantile regression forest meta-policy learner fits and predicts", {
   testthat::skip_if_not_installed("ranger")
   expect_new_learner_fits("qrf")
 })
+
+test_that("method-fold socket isolation logs the stored failure message", {
+  tasks <- list(
+    list(fold_id = 1L, method = "cubist"),
+    list(fold_id = 1L, method = "gpr")
+  )
+
+  testthat::local_mocked_bindings(
+    run_meta_policy_crossfit_method_queue_once = function(tasks,
+                                                          payload,
+                                                          workers,
+                                                          progress = FALSE,
+                                                          completed_start = 0L,
+                                                          total_tasks = length(tasks),
+                                                          retry_mode = FALSE) {
+      list(
+        completed = list(),
+        completed_n = completed_start,
+        failed_active = tasks,
+        unstarted = list(),
+        error = "error reading from connection"
+      )
+    },
+    .package = "tsbiomass"
+  )
+
+  output <- utils::capture.output(
+    result <- tsbiomass:::run_meta_policy_crossfit_method_tasks(
+      tasks = tasks,
+      payload = list(),
+      workers = 2L,
+      progress = TRUE
+    ),
+    type = "message"
+  )
+
+  expect_length(result, 2L)
+  expect_true(all(!vapply(result, function(x) isTRUE(x$succeeded_oof), logical(1))))
+  expect_true(any(grepl("isolated after socket failure", output, fixed = TRUE)))
+  expect_true(any(grepl("socket failure isolated to this method-fold task", output, fixed = TRUE)))
+  expect_true(any(grepl("error reading from connection", output, fixed = TRUE)))
+})

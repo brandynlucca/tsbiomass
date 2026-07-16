@@ -9,9 +9,8 @@ screen_learners(object, ...)
 \arguments{
 \item{object}{A workflow object such as \link{PolicyLearner}.}
 
-\item{...}{Screening controls. For \link{PolicyLearner}, these include
-\code{stage}, optional \code{n_folds}/\code{seed} overrides, and
-\code{progress}.}
+\item{...}{Screening controls. For \link{PolicyLearner}, these include \code{stage},
+optional \code{n_folds}/\code{seed} overrides, and \code{progress}.}
 }
 \value{
 A \link{Scorecard} containing learner-screening diagnostics.
@@ -19,14 +18,13 @@ A \link{Scorecard} containing learner-screening diagnostics.
 \description{
 Runs an explicitly configured reduced-fold diagnostic screen for a
 Super Learner library. For a \link{PolicyLearner}, the method reads
-\code{screen_learners} from the requested parent learner section
-(\code{selection} or \code{uncertainty}), inherits the parent learner
-definition, and returns a \link{Scorecard} containing fold-level and
-learner-level diagnostics.
+\code{screen_learners} from the requested parent learner section (\code{selection} or
+\code{uncertainty}), inherits the parent learner definition, and returns a
+\link{Scorecard} containing fold-level and learner-level diagnostics.
 }
 \details{
 This is a screening diagnostic, not a replacement for \code{\link[=crossfit]{crossfit()}},
-\code{\link[=fit]{fit()}}, or Sentinel validation. The returned \link{Scorecard}
-can be passed to \code{\link[=update_learners]{update_learners()}} to create a
-new \link{Configurer} with pruned \code{super_methods}.
+\code{\link[=fit]{fit()}}, or Sentinel validation. The returned \link{Scorecard} can be passed to
+\code{\link[=update_learners]{update_learners()}} to create a new \link{Configurer} with pruned
+\code{super_methods}.
 }

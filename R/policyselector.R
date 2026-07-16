@@ -1834,6 +1834,9 @@ policy_selector_reference_policy_display_levels <- function(x,
 #'     "policy_benchmark",
 #'     "species_policy_ranked"
 #'   ),
+#'   anchor_species,
+#'   max_policies = 30L,
+#'   show_values = NULL,
 #'   ...
 #' )
 NULL

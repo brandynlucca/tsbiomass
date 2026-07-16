@@ -21,7 +21,10 @@
       "cp": 0.01,
       "minsplit": 20,
       "minbucket": 7,
-      "maxdepth": 30
+      "maxdepth": 30,
+      "xval": 0,
+      "maxcompete": 0,
+      "maxsurrogate": 0
     },
     "rf": {
       "num_trees": 500,
@@ -41,12 +44,16 @@
       "colsample_bytree": 1,
       "lambda": 1,
       "alpha": 0,
-      "nthread": 1
+      "nthread": 1,
+      "early_stopping_rounds": null,
+      "validation_fraction": 0.2
     },
     "mars": {
       "degree": 2,
       "penalty": 3,
+      "nk": null,
       "nprune": null,
+      "fast_k": null,
       "pmethod": "backward"
     },
     "bart": {
@@ -55,7 +62,7 @@
       "beta": 2,
       "min_samples_leaf": 5,
       "max_depth": 10,
-      "keep_gfr": true
+      "keep_gfr": false
     },
     "knn": {
       "k": 10

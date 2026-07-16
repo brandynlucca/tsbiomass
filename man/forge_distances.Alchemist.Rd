@@ -13,6 +13,13 @@ species/study traits.}
 values include the configured default, \code{"gower"}, \code{"difference"}, and
 \code{"mahalanobis"}.}
 
+\item{cache_path}{Optional cache file path. When \code{NULL}, the method derives
+the cache path from the Alchemist object config inherited from the
+Configurer.}
+
+\item{refresh}{Optional logical scalar. When \code{NULL}, the method inherits the
+refresh setting from the Alchemist object config.}
+
 \item{...}{Additional learner-specific controls forwarded to the distance
 fitting stage.}
 }

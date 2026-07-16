@@ -9615,12 +9615,16 @@ run_meta_policy_crossfit_method_tasks <- function(tasks,
         completed_results[[length(completed_results) + 1L]] <- result
         report_progress(
           progress,
-          sprintf(
-            "  \u274c Method-fold task isolated after socket failure: %d/%d [fold=%d method=%s success=FALSE].",
-            completed_n,
-            total_tasks,
-            as.integer(result$fold_id),
-            as.character(result$method)
+          paste0(
+            sprintf(
+              "  \u274c Method-fold task isolated after socket failure: %d/%d [fold=%d method=%s success=FALSE].",
+              completed_n,
+              total_tasks,
+              as.integer(result$fold_id),
+              as.character(result$method)
+            ),
+            "\n",
+            as.character(result$error %||% "Unknown method-fold task failure.")
           )
         )
       } else {
