@@ -391,6 +391,11 @@ test_that("Referee consumes PolicyPredictions after selector prediction", {
   )
 
   predictions <- predict(selector)
+  predictions <- PolicyPredictions(
+    intervals = predictions@intervals,
+    selections = dplyr::select(predictions@selections, -dplyr::any_of("policy")),
+    consensus = predictions@consensus
+  )
   referee <- as_referee(selector, predictions = predictions)
   scorecard <- predict(referee)
 

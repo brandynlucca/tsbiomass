@@ -367,9 +367,9 @@ validate_referee_provenance <- function(selector,
   }
 
   anchor_tbl <- tibble::as_tibble(selector@candidates@reference_anchors)
-  selected_tbl <- tibble::as_tibble(predictions)
-  intervals_tbl <- tibble::as_tibble(predictions)
-  consensus_tbl <- tibble::as_tibble(predictions)
+  selected_tbl <- tibble::as_tibble(predictions@selections)
+  intervals_tbl <- tibble::as_tibble(predictions@intervals)
+  consensus_tbl <- tibble::as_tibble(predictions@consensus)
 
   if (!all(c("anchor_model_id", "anchor_species") %in% names(selected_tbl))) {
     stop("`predictions` must contain 'anchor_model_id' and 'anchor_species'.", call. = FALSE)
