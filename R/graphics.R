@@ -4787,7 +4787,7 @@ plot_tuning_variation <- function(plot_tbl,
   ) +
     ggplot2::geom_linerange(ggplot2::aes(xmin = .data$q05_multiplier, xmax = .data$q95_multiplier), linewidth = 1.1, colour = "#6baed6") +
     ggplot2::geom_point(size = 3, colour = "#08519c") +
-    ggplot2::geom_text(ggplot2::aes(label = .data$sprintf("sd=%.2f", .data$sd_multiplier)), nudge_y = 0.22, size = 3, colour = "#444444") +
+    ggplot2::geom_text(ggplot2::aes(label = sprintf("sd=%.2f", .data$sd_multiplier)), nudge_y = 0.22, size = 3, colour = "#444444") +
     ggplot2::labs(
       title = "Tuning Block Multipliers Across Resamples",
       x = "Block multiplier",

@@ -639,6 +639,22 @@ test_that("plot.PolicyLearner exposes calibration and residual diagnostics", {
   expect_s3_class(p_counts, "ggplot")
   expect_s3_class(p_counts_anchor, "ggplot")
   expect_s3_class(p_stability, "ggplot")
+  expect_silent(ggplot2::ggplot_build(p_stability))
+})
+
+test_that("plot_tuning_variation builds resample labels", {
+  p <- plot_tuning_variation(
+    tibble::tibble(
+      block = c("length", "depth"),
+      mean_multiplier = c(1.10, 0.85),
+      q05_multiplier = c(0.90, 0.70),
+      q95_multiplier = c(1.25, 1.05),
+      sd_multiplier = c(0.12, 0.08)
+    )
+  )
+
+  expect_s3_class(p, "ggplot")
+  expect_silent(ggplot2::ggplot_build(p))
 })
 
 test_that("plot.PolicySimulator exposes sensitivity summaries", {

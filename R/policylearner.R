@@ -3809,7 +3809,7 @@ NULL
     ggplot2::geom_linerange(linewidth = 1, colour = "#9ecae1") +
     ggplot2::geom_point(size = 2.8, colour = "#08519c") +
     ggplot2::geom_text(
-      ggplot2::aes(label = .data$sprintf("%s (%.0f%%)", .data$top_policy, 100 * .data$top_win_fraction)),
+      ggplot2::aes(label = sprintf("%s (%.0f%%)", .data$top_policy, 100 * .data$top_win_fraction)),
       nudge_x = 0.02,
       hjust = 0,
       size = 3
