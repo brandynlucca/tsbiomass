@@ -40,6 +40,22 @@ snake_lower_dash <- function(x) {
   )
 }
 
+#' Detect unusable display labels
+#'
+#' @param x Character vector of display labels.
+#'
+#' @return Logical vector indicating labels that should be rebuilt.
+#' @keywords internal
+#' @noRd
+policy_display_value_missing <- function(x) {
+  x <- as.character(x)
+  clean <- stringr::str_squish(x)
+  clean_no_branch <- stringr::str_squish(stringr::str_remove(clean, "\\s*\\[[^]]*\\]$"))
+  is.na(clean) |
+    !nzchar(clean) |
+    stringr::str_to_lower(clean_no_branch) %in% c("na", "nan", "null", "none", "na na")
+}
+
 #' Build a policy-branch display-tag map
 #'
 #' @param branch_definitions Policy branch definitions.
@@ -79,8 +95,9 @@ policy_branch_tag_map <- function(branch_definitions) {
 policy_branch_labels <- function(branch_values,
                                  branch_tags) {
   labels <- unname(branch_tags[branch_values])
-  missing_labels <- is.na(labels) | !nzchar(labels)
+  missing_labels <- policy_display_value_missing(labels)
   labels[missing_labels] <- branch_values[missing_labels]
+  labels[policy_display_value_missing(labels)] <- "All slopes"
   labels
 }
 
@@ -195,13 +212,8 @@ resolve_selected_policy_values <- function(policy_data) {
 resolve_policy_display_names <- function(policy_data) {
   # Build human-readable policy labels from explicit displays or policy fields.
   policy_data <- tibble::as_tibble(policy_data)
-  if ("policy_display" %in% names(policy_data)) {
-    display_values <- as.character(policy_data$policy_display)
-    if (all(!is.na(display_values) & nzchar(display_values))) {
-      return(display_values)
-    }
-  }
   branch_values <- resolve_policy_branch_filters(policy_data)
+  fallback_values <- rep(NA_character_, nrow(policy_data))
 
   if (all(c("candidate_pool", "aggregation_method") %in% names(policy_data))) {
     branch_definitions <- read_policy_registry()$policy_branches %||% list()
@@ -242,19 +254,26 @@ resolve_policy_display_names <- function(policy_data) {
       branch_labels,
       "]"
     )
-    if (all(!is.na(alias_values) & nzchar(alias_values))) {
-      return(alias_values)
-    }
+    fallback_values <- alias_values
   }
 
   if ("policy" %in% names(policy_data)) {
-    return(policy_display_label(
+    policy_fallback <- policy_display_label(
       canonical_policy_name(as.character(policy_data$policy)),
       branch_values
-    ))
+    )
+    missing_fallback <- policy_display_value_missing(fallback_values)
+    fallback_values[missing_fallback] <- policy_fallback[missing_fallback]
   }
 
-  rep(NA_character_, nrow(policy_data))
+  if ("policy_display" %in% names(policy_data)) {
+    display_values <- as.character(policy_data$policy_display)
+    missing_display <- policy_display_value_missing(display_values)
+    display_values[missing_display] <- fallback_values[missing_display]
+    return(display_values)
+  }
+
+  fallback_values
 }
 
 #' Resolve displayed selected policy names from policy data
@@ -279,16 +298,7 @@ resolve_selected_policy_names <- function(policy_data) {
   branch_definitions <- read_policy_registry()$policy_branches %||% list()
   branch_tags <- policy_branch_tag_map(branch_definitions)
   branch_labels <- policy_branch_labels(branch_values, branch_tags)
-  if ("selected_policy_display" %in% names(policy_data)) {
-    display_values <- as.character(policy_data$selected_policy_display)
-    if (all(!is.na(display_values) & nzchar(display_values))) {
-      needs_branch <- !grepl("\\s*\\[[^]]+\\]$", display_values)
-      if (any(needs_branch, na.rm = TRUE)) {
-        display_values[needs_branch] <- paste0(display_values[needs_branch], " [", branch_labels[needs_branch], "]")
-      }
-      return(display_values)
-    }
-  }
+  fallback_values <- rep(NA_character_, nrow(policy_data))
   if (all(c("candidate_pool", "aggregation_method") %in% names(policy_data))) {
     pool_values <- dplyr::recode(
       as.character(policy_data$candidate_pool),
@@ -326,19 +336,31 @@ resolve_selected_policy_names <- function(policy_data) {
       branch_labels,
       "]"
     )
-    if (all(!is.na(alias_values) & nzchar(alias_values))) {
-      return(alias_values)
-    }
+    fallback_values <- alias_values
   }
 
   if ("selected_policy" %in% names(policy_data)) {
-    return(policy_display_label(
+    policy_fallback <- policy_display_label(
       canonical_policy_name(as.character(policy_data$selected_policy)),
       branch_values
-    ))
+    )
+    missing_fallback <- policy_display_value_missing(fallback_values)
+    fallback_values[missing_fallback] <- policy_fallback[missing_fallback]
   }
 
-  rep(NA_character_, nrow(policy_data))
+  if ("selected_policy_display" %in% names(policy_data)) {
+    display_values <- as.character(policy_data$selected_policy_display)
+    missing_display <- policy_display_value_missing(display_values)
+    display_values[missing_display] <- fallback_values[missing_display]
+    needs_branch <- !policy_display_value_missing(display_values) &
+      !grepl("\\s*\\[[^]]+\\]$", display_values)
+    if (any(needs_branch, na.rm = TRUE)) {
+      display_values[needs_branch] <- paste0(display_values[needs_branch], " [", branch_labels[needs_branch], "]")
+    }
+    return(display_values)
+  }
+
+  fallback_values
 }
 
 #' Resolve equivalent policy-set labels from policy data
@@ -1805,6 +1827,12 @@ policy_display_label <- function(policy_name,
   vapply(seq_len(n_out), function(i) {
     policy_now <- policy_vals[[i]]
     branch_now <- branch_vals[[i]]
+    if (policy_display_value_missing(policy_now)) {
+      return(NA_character_)
+    }
+    if (policy_display_value_missing(branch_now)) {
+      branch_now <- "all"
+    }
     policy_def <- policy_lookup_table()[[policy_now]] %||%
       build_policy_definition_from_name(policy_now) %||%
       NULL

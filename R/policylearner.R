@@ -3275,6 +3275,8 @@ S7::method(predict_generic, PolicyLearner) <- .predict_policy_learner
 #'   retained during post-selection calibration.
 #' @param n_bins Number of quantile bins used for
 #'   `type = "calibration_curve"`.
+#' @param anchor_species Optional anchor species to plot. When supplied, learner
+#'   diagnostics are restricted to those species.
 #' @param ... Unused additional arguments.
 #'
 #' @return A ggplot object.
@@ -3306,9 +3308,27 @@ S7::method(predict_generic, PolicyLearner) <- .predict_policy_learner
 #'   outcome = c("modeled", "raw"),
 #'   rows = c("all", "selected"),
 #'   n_bins = 10L,
+#'   anchor_species = NULL,
 #'   ...
 #' )
 NULL
+
+#' Resolve configured reference species for a `PolicyLearner`
+#'
+#' @param x A [PolicyLearner] object.
+#'
+#' @return Character vector of reference-anchor species when available.
+#' @keywords internal
+#' @noRd
+policy_learner_reference_anchor_species <- function(x) {
+  if (!is_s7_instance(x, "PolicyLearner")) {
+    return(character(0))
+  }
+  if (!is.null(x@selector) && is_s7_instance(x@selector, "PolicySelector")) {
+    return(policy_selector_reference_anchor_species(x@selector))
+  }
+  character(0)
+}
 
 .plot_policy_learner <- function(x,
                                  y = NULL,
@@ -3325,10 +3345,12 @@ NULL
                                  outcome = c("modeled", "raw"),
                                  rows = c("all", "selected"),
                                  n_bins = 10L,
+                                 anchor_species = NULL,
                                  ...) {
   type <- match.arg(type)
   outcome <- match.arg(outcome)
   rows <- match.arg(rows)
+  anchor_species <- anchor_species %||% policy_learner_reference_anchor_species(x)
 
   all_predictions <- tibble::as_tibble(
     x@calibration$predictions %||%
@@ -3353,6 +3375,8 @@ NULL
   if (!outcome_col %in% names(selected_predictions) && ".outcome" %in% names(selected_predictions)) {
     selected_predictions[[outcome_col]] <- selected_predictions$.outcome
   }
+  all_predictions <- filter_plot_anchor_species(all_predictions, anchor_species = anchor_species)
+  selected_predictions <- filter_plot_anchor_species(selected_predictions, anchor_species = anchor_species)
 
   plot_tbl <- if (identical(rows, "selected")) selected_predictions else all_predictions
   if (nrow(plot_tbl) == 0) {
@@ -3618,6 +3642,12 @@ NULL
   }
 
   if (identical(type, "support_bin_error")) {
+    if (!isTRUE(x@calibration$use_support_bin_intervals)) {
+      stop(
+        "Support-bin intervals are not enabled for this `PolicyLearner`; no support-bin plot is available.",
+        call. = FALSE
+      )
+    }
     support_col <- if ("post_selection_support_label" %in% names(plot_tbl)) {
       "post_selection_support_label"
     } else if ("post_selection_support_bin" %in% names(plot_tbl)) {
@@ -3762,9 +3792,11 @@ NULL
   # the plot can show both the dominant recommendation and its margin over the
   # next-most-frequent competitor.
   selected_tbl$policy_display <- resolve_selected_policy_names(selected_tbl)
-  selected_tbl$branch_display <- dplyr::coalesce(
-    if ("selected_equation_branch_filter" %in% names(selected_tbl)) as.character(selected_tbl$selected_equation_branch_filter) else rep(NA_character_, nrow(selected_tbl)),
-    if ("equation_branch_filter" %in% names(selected_tbl)) as.character(selected_tbl$equation_branch_filter) else rep(NA_character_, nrow(selected_tbl))
+  branch_definitions <- read_policy_registry()$policy_branches %||% list()
+  branch_tags <- policy_branch_tag_map(branch_definitions)
+  selected_tbl$branch_display <- policy_branch_labels(
+    resolve_selected_policy_branches(selected_tbl),
+    branch_tags
   )
   stability_summary <- selected_tbl |>
     dplyr::count(.data$anchor_species, .data$policy_display, .data$branch_display, name = "n_selected") |>

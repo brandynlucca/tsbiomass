@@ -20,6 +20,7 @@
   outcome = c("modeled", "raw"),
   rows = c("all", "selected"),
   n_bins = 10L,
+  anchor_species = NULL,
   ...
 )
 }
@@ -44,6 +45,9 @@ retained during post-selection calibration.}
 
 \item{n_bins}{Number of quantile bins used for
 \code{type = "calibration_curve"}.}
+
+\item{anchor_species}{Optional anchor species to plot. When supplied, learner
+diagnostics are restricted to those species.}
 
 \item{...}{Unused additional arguments.}
 }

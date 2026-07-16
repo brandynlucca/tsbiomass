@@ -2016,6 +2016,7 @@ NULL
       view %||% if (identical(dissimilarity, "species")) "overview" else if (isTRUE(include_hulls)) "cluster_hulls" else "clusters",
       c("overview", "clusters", "cluster_hulls", "vectors", "centers")
     )
+    reference_species <- ordination_reference_species(x@reference_anchors)
 
     if (identical(dissimilarity, "combined")) {
       if (length(x@ordination) == 0) {
@@ -2025,7 +2026,10 @@ NULL
         )
       }
       model_obj <- (x@ordination)$model %||% list()
-      point_tbl <- tibble::as_tibble(model_obj$points %||% tibble::tibble())
+      point_tbl <- mark_ordination_reference_species(
+        model_obj$points %||% tibble::tibble(),
+        reference_species = reference_species
+      )
       hull_tbl <- tibble::as_tibble(model_obj$hulls %||% tibble::tibble())
 
       if (identical(ordination_view, "vectors")) {
@@ -2061,7 +2065,10 @@ NULL
         )
       }
       species_obj <- (x@ordination)$species %||% list()
-      species_points <- tibble::as_tibble(species_obj$points %||% tibble::tibble())
+      species_points <- mark_ordination_reference_species(
+        species_obj$points %||% tibble::tibble(),
+        reference_species = reference_species
+      )
       if (identical(ordination_view, "overview")) {
         return(plot_species_ordination(
           points_tbl = species_points
@@ -2141,7 +2148,8 @@ NULL
         model_id_col = if ("model_id" %in% names(x@candidate_models)) "model_id" else "model_id_chr",
         join_cols = c("species_name", "citation", "regional_body", "frequency", "fao_area"),
         cluster_args = list(cluster_col = "study_cluster_id")
-      )
+      ) |>
+      mark_ordination_reference_species(reference_species = reference_species)
     if (identical(ordination_view, "vectors")) {
       return(plot_ordination_vectors(
         vec_tbl = study_ordination$loadings %||% tibble::tibble(),

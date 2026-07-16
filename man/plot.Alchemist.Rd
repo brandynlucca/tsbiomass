@@ -8,6 +8,7 @@
   x,
   y = NULL,
   type = c("ordination", "trait_importance", "admissibility"),
+  dissimilarity = c("combined", "species"),
   view = NULL,
   include_hulls = TRUE,
   ...
@@ -22,10 +23,14 @@
 \code{\link[=run_ordination]{run_ordination()}}; \code{"trait_importance"} requires \code{\link[=distill_traits]{distill_traits()}};
 \code{"admissibility"} requires \code{\link[=screen_admissibility]{screen_admissibility()}}.}
 
+\item{dissimilarity}{Ordination dissimilarity view. \code{"combined"} plots the
+model-level ordination; \code{"species"} plots the species-level ordination.}
+
 \item{view}{Secondary plot selector for \code{type = "ordination"} or
 \code{type = "admissibility"}. One of \code{"clusters"}, \code{"cluster_hulls"},
-\code{"vectors"}, or \code{"centers"} for ordination; one of \code{"gate_composition"}
-or \code{"overlap_profile"} for admissibility.}
+\code{"vectors"}, or \code{"centers"} for combined ordination; species ordination
+also accepts \code{"overview"}. For admissibility, one of \code{"gate_composition"} or
+\code{"overlap_profile"}.}
 
 \item{include_hulls}{Logical. When \code{TRUE} (default) and hull data are
 available, \code{view = NULL} defaults to \code{"cluster_hulls"} for \code{type = "ordination"}.}

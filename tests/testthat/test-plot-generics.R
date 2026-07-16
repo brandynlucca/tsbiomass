@@ -108,7 +108,23 @@ test_that("plot.Candidates renders admissibility and anchor-review plots", {
   expect_s3_class(p_weights, "ggplot")
   expect_s3_class(p_similarity, "ggplot")
   expect_null(p_gate$labels$title)
-  expect_null(p_overlap$labels$title)
+  expect_equal(p_overlap$labels$title, "Admissibility Overlap Profile")
+})
+
+test_that("overlap heatmap discovers available summary metrics", {
+  overlap_tbl <- tibble::tibble(
+    anchor_species = "Alpha alpha",
+    w_same_custom_trait = 0.75,
+    mean_pressure_coherence = 0.50
+  )
+
+  p <- plot_overlap_heatmap(overlap_tbl)
+
+  expect_s3_class(p, "ggplot")
+  expect_setequal(
+    as.character(unique(p$data$metric)),
+    c("Same Custom Trait", "Mean Pressure Coherence")
+  )
 })
 
 test_that("plot.Candidates exposes ordination, tuning, and slope diagnostics", {
@@ -286,6 +302,37 @@ test_that("plot.Alchemist exposes admissibility summaries", {
   expect_s3_class(p_overlap, "ggplot")
 })
 
+test_that("plot.Alchemist supports species ordination and reference-species highlighting", {
+  candidates <- set_reference_anchors(make_candidates(), selector = list(regional_body = "SWFSC"))
+  species_points <- tibble::tibble(
+    species_name = c("Alpha alpha", "Beta beta", "Gamma gamma"),
+    MDS1 = c(-0.3, 0.1, 0.4),
+    MDS2 = c(0.4, -0.1, -0.4),
+    species_cluster_id = c("species_1", "species_1", "species_2"),
+    is_reference = FALSE
+  )
+  alchemist <- Alchemist(
+    candidates = candidates,
+    config = list(),
+    learner = list(),
+    distance_matrix = list(),
+    trait_importance = list(),
+    ordination = list(species = list(points = species_points)),
+    admissibility = list()
+  )
+
+  marked <- mark_ordination_reference_species(
+    species_points,
+    reference_species = ordination_reference_species(candidates@reference_anchors)
+  )
+  p_species <- plot(alchemist, type = "ordination", dissimilarity = "species")
+
+  expect_true(any(marked$is_reference))
+  expect_setequal(marked$species_name[marked$is_reference], candidates@reference_anchors$species_name)
+  expect_s3_class(p_species, "ggplot")
+  expect_silent(ggplot2::ggplot_build(p_species))
+})
+
 test_that("plot.PolicySelector dispatches benchmark and uncertainty summaries", {
   selector <- make_selector(
     benchmark = list(
@@ -297,13 +344,72 @@ test_that("plot.PolicySelector dispatches benchmark and uncertainty summaries", 
 
   p_policy <- plot(selector, type = "policy_benchmark")
   p_heat <- plot(selector, type = "strategy_error_heatmap")
-  p_ranked <- plot(selector, type = "species_policy_ranked")
   p_conf <- plot(selector, type = "conformal_scores")
 
   expect_s3_class(p_policy, "ggplot")
   expect_s3_class(p_heat, "ggplot")
-  expect_s3_class(p_ranked, "ggplot")
   expect_s3_class(p_conf, "ggplot")
+})
+
+test_that("policy heatmap keeps requested anchors and missing policy cells", {
+  perf <- minimal_policy_performance() |>
+    dplyr::mutate(
+      policy_display = dplyr::if_else(
+        .data$policy == "weighted_mean_within_genus",
+        "NA NA",
+        NA_character_
+      )
+    ) |>
+    dplyr::bind_rows(
+      tibble::tibble(
+        anchor_model_id = "7",
+        anchor_species = "Unused species",
+        policy = "closest_within_species",
+        policy_display = NA_character_,
+        equation_branch_filter = "all",
+        error_abs_log = 0.01,
+        multiplier_pred = 1.01,
+        valid_prediction = TRUE,
+        n_valid_models = 1L,
+        local_weighted_mean_combined_distance = 0.01,
+        local_effective_support = 1,
+        local_structural_q_abs_log = 0.01
+      )
+    )
+
+  p_heat <- plot_policy_heatmap(
+    perf,
+    anchor_species = c("Alpha alpha", "Gamma gamma", "Missing missing"),
+    max_policies = Inf,
+    show_values = TRUE
+  )
+
+  expect_s3_class(p_heat, "ggplot")
+  expect_false(any(grepl("^NA NA", as.character(p_heat$data$policy))))
+  expect_setequal(
+    as.character(unique(p_heat$data$anchor_species)),
+    c("Alpha alpha", "Gamma gamma", "Missing missing")
+  )
+  expect_true(any(is.na(p_heat$data$median_abs_log_error)))
+  expect_false("Unused species" %in% as.character(p_heat$data$anchor_species))
+})
+
+test_that("policy display resolvers rebuild unusable NA labels", {
+  display <- resolve_policy_display_names(tibble::tibble(
+    policy_display = "NA NA",
+    policy = "closest_within_species",
+    equation_branch_filter = "all"
+  ))
+  selected_display <- resolve_selected_policy_names(tibble::tibble(
+    selected_policy_display = "NA NA",
+    selected_policy = "closest_within_species",
+    selected_equation_branch_filter = "all"
+  ))
+
+  expect_false(any(grepl("^NA NA", display)))
+  expect_false(any(grepl("^NA NA", selected_display)))
+  expect_true(grepl("species", display[[1]], ignore.case = TRUE))
+  expect_true(grepl("species", selected_display[[1]], ignore.case = TRUE))
 })
 
 test_that("plot.PolicyPredictions dispatches selected intervals and policy competition", {
@@ -523,6 +629,36 @@ test_that("plot_selected_intervals prefers learner post-selection interval colum
   expect_equal(errorbar_data$ymax[[1]], log10(2.2), tolerance = 1e-8)
 })
 
+test_that("reference length-density plots display stored empirical PDFs as densities", {
+  raw_lengths <- c(10, 10, 11, 12, 12, 12, 22, 22, 24, 25)
+  support_tbl <- normalize_anchor_pdf_input(raw_lengths) |>
+    dplyr::mutate(anchor_species = "Alpha alpha")
+
+  p <- plot_length_density_panel(support_tbl)
+  built <- ggplot2::ggplot_build(p)
+  line_data <- built[["data"]][[1]]
+
+  expect_s3_class(p, "ggplot")
+  expect_equal(p$labels$title, "Reference Anchor Length Density")
+  expect_gt(nrow(line_data), length(unique(raw_lengths)))
+  expect_true(all(is.finite(line_data$x)))
+  expect_true(all(is.finite(line_data$y)))
+})
+
+test_that("scorecard plots expose unavailable inputs instead of blank canvases", {
+  p_selected <- plot_selected_intervals(tibble::tibble())
+  p_coef <- plot_policy_coefficients(tibble::tibble())
+  p_ts <- plot_ts_panel(tibble::tibble())
+  p_multiplier <- plot_multiplier_length_spectrum(tibble::tibble())
+  p_competition <- plot_interval_panel(tibble::tibble())
+
+  expect_equal(p_selected$labels$title, "Selected Biomass Multiplier Intervals")
+  expect_equal(p_coef$labels$title, "Selected Policy Coefficient Uncertainty")
+  expect_equal(p_ts$labels$title, "TS Length Conformal Bands")
+  expect_equal(p_multiplier$labels$title, "Length-Specific Biomass Multiplier")
+  expect_equal(p_competition$labels$title, "Strategy Competition")
+})
+
 test_that("plot.Referee uses stored predictions when scorecards are not yet stored", {
   candidates <- set_reference_anchors(
     make_candidates(
@@ -612,7 +748,8 @@ test_that("plot.PolicyLearner exposes calibration and residual diagnostics", {
     calibration = list(
       predictions = all_rows,
       selected = selected_rows,
-      outcome_col = "error_abs_log"
+      outcome_col = "error_abs_log",
+      use_support_bin_intervals = TRUE
     )
   )
 
@@ -640,6 +777,56 @@ test_that("plot.PolicyLearner exposes calibration and residual diagnostics", {
   expect_s3_class(p_counts_anchor, "ggplot")
   expect_s3_class(p_stability, "ggplot")
   expect_silent(ggplot2::ggplot_build(p_stability))
+})
+
+test_that("plot.PolicyLearner filters to reference anchors and repairs NA labels", {
+  all_rows <- minimal_crossfit_predictions() |>
+    dplyr::mutate(
+      .outcome = error_abs_log,
+      .outcome_raw = error_abs_log,
+      policy_display = "NA NA"
+    )
+  selected_rows <- all_rows |>
+    dplyr::group_by(anchor_model_id, anchor_species) |>
+    dplyr::slice_min(.meta_predicted_score, with_ties = FALSE) |>
+    dplyr::ungroup() |>
+    dplyr::mutate(
+      selected_policy = policy,
+      selected_policy_display = "NA NA",
+      selected_equation_branch_filter = NA_character_
+    )
+  candidates <- set_reference_anchors(make_candidates(), selector = list(regional_body = "SWFSC"))
+  learner <- PolicyLearner(
+    selector = make_selector(
+      candidates = candidates,
+      benchmark = list(species_block_perf = minimal_policy_performance())
+    ),
+    config = list(),
+    training_data = tibble::as_tibble(all_rows),
+    crossfit = list(result = list(predictions = all_rows), outcome_col = "error_abs_log"),
+    fitted_model = list(method = "glm"),
+    calibration = list(
+      predictions = all_rows,
+      selected = selected_rows,
+      outcome_col = "error_abs_log",
+      use_support_bin_intervals = FALSE
+    )
+  )
+
+  p_counts <- plot(learner, type = "selected_policy_counts")
+  p_stability <- plot(learner, type = "recommendation_stability")
+
+  expect_setequal(
+    as.character(unique(p_stability$data$anchor_species)),
+    policy_learner_reference_anchor_species(learner)
+  )
+  expect_false(any(grepl("^NA NA", as.character(p_counts$data$selected_policy_display))))
+  expect_false(any(grepl("^NA NA", as.character(p_stability$data$top_policy))))
+  expect_error(
+    plot(learner, type = "support_bin_error"),
+    "Support-bin intervals are not enabled",
+    fixed = TRUE
+  )
 })
 
 test_that("plot_tuning_variation builds resample labels", {

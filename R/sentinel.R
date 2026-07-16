@@ -2851,6 +2851,307 @@ sentinel_run_one_fold <- function(object,
   )
 }
 
+#' Format Sentinel fold tasks for progress messages
+#'
+#' @param tasks List of one-row Sentinel manifest tables.
+#' @param max_tasks Maximum number of task labels to print before truncating.
+#'
+#' @return Single character string.
+#' @keywords internal
+#' @noRd
+format_sentinel_fold_tasks <- function(tasks,
+                                       max_tasks = 12L) {
+  tasks <- Filter(Negate(is.null), tasks)
+  if (length(tasks) == 0L) {
+    return("none")
+  }
+  max_tasks <- max(1L, as.integer(max_tasks %||% 12L))
+  shown <- head(tasks, max_tasks)
+  labels <- vapply(shown, function(task) {
+    row_now <- tibble::as_tibble(task)
+    sprintf(
+      "fold=%s scenario=%s holdout=%s",
+      as.character(row_now$fold_id[[1]] %||% NA_character_),
+      as.character(row_now$scenario[[1]] %||% NA_character_),
+      as.character(row_now$holdout_id[[1]] %||% NA_character_)
+    )
+  }, character(1))
+  if (length(tasks) > length(shown)) {
+    labels <- c(labels, sprintf("... +%d more", length(tasks) - length(shown)))
+  }
+  paste(labels, collapse = ", ")
+}
+
+#' Split a Sentinel socket-failure suspect set
+#'
+#' @param tasks List of in-flight Sentinel tasks.
+#'
+#' @return List of one or two task groups.
+#' @keywords internal
+#' @noRd
+split_sentinel_suspect_group <- function(tasks) {
+  tasks <- Filter(Negate(is.null), tasks)
+  n_tasks <- length(tasks)
+  if (n_tasks <= 1L) {
+    return(list(tasks))
+  }
+  cut <- floor(n_tasks / 2L)
+  list(tasks[seq_len(cut)], tasks[(cut + 1L):n_tasks])
+}
+
+#' Run one Sentinel fold queue attempt
+#'
+#' @param tasks List of Sentinel manifest rows to dispatch.
+#' @param workers Number of workers for this attempt.
+#' @param run_task Fold task function.
+#' @param progress Logical. Emit progress messages.
+#' @param retry_mode Logical. Whether this attempt is isolating a suspect set.
+#'
+#' @return List with completed outputs, failed active tasks, unstarted tasks,
+#'   and an optional socket error message.
+#' @keywords internal
+#' @noRd
+run_sentinel_fold_queue_once <- function(tasks,
+                                         workers,
+                                         run_task,
+                                         progress = FALSE,
+                                         retry_mode = FALSE) {
+  tasks <- Filter(Negate(is.null), tasks)
+  if (length(tasks) == 0L) {
+    return(list(completed = list(), failed_active = list(), unstarted = list(), error = NULL))
+  }
+  workers <- max(1L, min(as.integer(workers %||% 1L), length(tasks)))
+  report_progress(
+    progress,
+    sprintf(
+      "Sentinel outer-fold queue: dispatching %d %sfold(s) across %d worker(s).",
+      length(tasks),
+      if (retry_mode) "retry " else "",
+      workers
+    )
+  )
+
+  if (workers <= 1L && .Platform$OS.type != "unix") {
+    completed <- lapply(tasks, run_task)
+    return(list(completed = completed, failed_active = list(), unstarted = list(), error = NULL))
+  }
+
+  cluster_obj <- if (workers <= 1L && .Platform$OS.type == "unix") {
+    cl <- parallel::makeForkCluster(1L)
+    attr(cl, "cluster_type") <- "fork"
+    cl
+  } else {
+    initialize_parallel_cluster(workers = workers, worker_output = progress)
+  }
+  on.exit(try(parallel::stopCluster(cluster_obj), silent = TRUE), add = TRUE)
+
+  pending <- tasks
+  active <- vector("list", length(cluster_obj))
+  names(active) <- as.character(seq_along(cluster_obj))
+  parallel_send_call <- utils::getFromNamespace("sendCall", "parallel")
+  parallel_recv_one_result <- utils::getFromNamespace("recvOneResult", "parallel")
+
+  submit_task <- function(node_id, task) {
+    parallel_send_call(cluster_obj[[node_id]], run_task, list(task))
+    active[[as.character(node_id)]] <<- task
+    invisible(NULL)
+  }
+
+  for (node_id in seq_along(cluster_obj)) {
+    if (length(pending) == 0L) {
+      break
+    }
+    submit_task(node_id, pending[[1L]])
+    pending <- pending[-1L]
+  }
+  report_progress(
+    progress,
+    "Sentinel outer-fold queue active folds: ",
+    format_sentinel_fold_tasks(Filter(Negate(is.null), active))
+  )
+
+  completed <- list()
+  queue_error <- NULL
+  while (length(Filter(Negate(is.null), active)) > 0L) {
+    received <- tryCatch(
+      parallel_recv_one_result(cluster_obj),
+      error = function(e) e
+    )
+    if (inherits(received, "error")) {
+      queue_error <- conditionMessage(received)
+      break
+    }
+    node_id <- as.character(received$node)
+    task_done <- active[[node_id]]
+    active[node_id] <- list(NULL)
+    result <- if (inherits(received$value, "try-error") || inherits(received$value, "snow-try-error")) {
+      row_now <- tibble::as_tibble(task_done)
+      list(
+        ok = FALSE,
+        fold_id = as.integer(row_now$fold_id[[1]]),
+        row = row_now,
+        error_message = as.character(received$value %||% "worker returned an error")
+      )
+    } else {
+      received$value
+    }
+    completed[[length(completed) + 1L]] <- result
+    if (length(pending) > 0L) {
+      submit_task(as.integer(node_id), pending[[1L]])
+      pending <- pending[-1L]
+    }
+  }
+
+  list(
+    completed = completed,
+    failed_active = Filter(Negate(is.null), active),
+    unstarted = pending,
+    error = queue_error
+  )
+}
+
+#' Run Sentinel outer folds through a socket-failure-aware queue
+#'
+#' @param tasks List of one-row Sentinel manifest tables.
+#' @param workers Requested worker budget.
+#' @param run_task Fold task function.
+#' @param progress Logical. Emit progress messages.
+#'
+#' @return List of Sentinel fold task outputs.
+#' @keywords internal
+#' @noRd
+run_sentinel_fold_tasks <- function(tasks,
+                                    workers,
+                                    run_task,
+                                    progress = FALSE) {
+  total_tasks <- length(tasks)
+  if (total_tasks == 0L) {
+    return(list())
+  }
+  requested_workers <- max(1L, min(as.integer(workers %||% 1L), total_tasks))
+  if (requested_workers <= 1L) {
+    report_progress(progress, "Running Sentinel outer folds sequentially.")
+    return(lapply(tasks, run_task))
+  }
+
+  report_progress(
+    progress,
+    "Running Sentinel outer folds in parallel with ",
+    requested_workers,
+    " workers."
+  )
+  report_progress(
+    progress,
+    "Sentinel outer-fold scheduler: queue mode, ",
+    total_tasks,
+    " total fold(s), up to ",
+    requested_workers,
+    " worker(s)."
+  )
+
+  completed_outputs <- list()
+  pending_tasks <- tasks
+  retry_groups <- list()
+
+  while (length(pending_tasks) > 0L || length(retry_groups) > 0L) {
+    retry_mode <- length(retry_groups) > 0L
+    if (retry_mode) {
+      queue_tasks <- retry_groups[[1L]]
+      retry_groups <- retry_groups[-1L]
+    } else {
+      queue_tasks <- pending_tasks
+    }
+    attempt_workers <- min(requested_workers, length(queue_tasks))
+
+    queue_result <- run_sentinel_fold_queue_once(
+      tasks = queue_tasks,
+      workers = attempt_workers,
+      run_task = run_task,
+      progress = progress,
+      retry_mode = retry_mode
+    )
+    completed_outputs <- c(completed_outputs, queue_result$completed)
+
+    if (is.null(queue_result$error)) {
+      if (retry_mode) {
+        if (length(queue_result$unstarted) > 0L) {
+          retry_groups <- c(retry_groups, list(queue_result$unstarted))
+        }
+      } else {
+        pending_tasks <- list()
+      }
+      next
+    }
+
+    if (length(queue_result$failed_active) == 0L) {
+      if (length(queue_result$unstarted) > 0L) {
+        if (retry_mode) {
+          retry_groups <- c(list(queue_result$unstarted), retry_groups)
+        } else {
+          pending_tasks <- queue_result$unstarted
+        }
+        next
+      }
+      stop(
+        paste(
+          "Sentinel outer-fold queue failed without an active fold to isolate:",
+          queue_result$error
+        ),
+        call. = FALSE
+      )
+    }
+
+    isolated_failure <- retry_mode &&
+      length(queue_result$failed_active) == 1L &&
+      length(queue_tasks) == 1L
+    if (isolated_failure) {
+      row_now <- tibble::as_tibble(queue_result$failed_active[[1L]])
+      fold_id_now <- as.integer(row_now$fold_id[[1]])
+      error_message <- paste("socket failure isolated to this Sentinel fold:", queue_result$error)
+      completed_outputs[[length(completed_outputs) + 1L]] <- list(
+        ok = FALSE,
+        fold_id = fold_id_now,
+        row = row_now,
+        error_message = error_message
+      )
+      report_progress(
+        progress,
+        sprintf(
+          "Sentinel outer-fold task isolated after socket failure [fold=%d scenario=%s holdout=%s].\n%s",
+          fold_id_now,
+          as.character(row_now$scenario[[1]] %||% NA_character_),
+          as.character(row_now$holdout_id[[1]] %||% NA_character_),
+          error_message
+        )
+      )
+    } else {
+      suspect_groups <- split_sentinel_suspect_group(queue_result$failed_active)
+      if (retry_mode) {
+        retry_groups <- c(
+          suspect_groups,
+          if (length(queue_result$unstarted) > 0L) list(queue_result$unstarted) else list(),
+          retry_groups
+        )
+      } else {
+        retry_groups <- c(suspect_groups, retry_groups)
+        pending_tasks <- queue_result$unstarted
+      }
+      report_progress(
+        progress,
+        sprintf(
+          "Sentinel outer-fold queue failed while active folds were [%s]; retaining completed folds and splitting suspect set into %d group(s); %d pending fold(s) remain at full worker budget: %s",
+          format_sentinel_fold_tasks(queue_result$failed_active),
+          length(suspect_groups),
+          length(queue_result$unstarted),
+          queue_result$error
+        )
+      )
+    }
+  }
+
+  completed_outputs
+}
+
 #' Run Sentinel outer-loop validation
 #'
 #' @param object A [Sentinel] object.
@@ -3044,33 +3345,12 @@ run_sentinel <- function(object,
     )
   }
 
-  fold_outputs <- if (workers > 1L && length(task_rows) > 1L) {
-    report_progress(
-      progress,
-      "Running Sentinel outer folds in parallel with ",
-      min(workers, length(task_rows)),
-      " workers."
-    )
-    cluster_obj <- initialize_parallel_cluster(
-      workers = min(workers, length(task_rows)),
-      worker_output = progress
-    )
-    report_progress(
-      progress,
-      "Sentinel outer-fold worker backend: ",
-      parallel_cluster_description(cluster_obj),
-      "."
-    )
-    on.exit(parallel::stopCluster(cluster_obj), add = TRUE)
-    tsb_cluster_export(
-      cluster_obj,
-      c("worker_object", "workflow_fn", "progress", "logging", "split_plan"),
-      envir = environment()
-    )
-    parallel::parLapplyLB(cluster_obj, task_rows, run_task)
-  } else {
-    lapply(task_rows, run_task)
-  }
+  fold_outputs <- run_sentinel_fold_tasks(
+    tasks = task_rows,
+    workers = min(workers, length(task_rows)),
+    run_task = run_task,
+    progress = progress
+  )
 
   for (task_out in fold_outputs) {
     row_now <- tibble::as_tibble(task_out$row)

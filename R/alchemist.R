@@ -3211,10 +3211,13 @@ S7::method(show_generic, Alchemist) <- function(object) {
 #' @param type Figure family to draw. `"ordination"` requires a prior call to
 #'   [run_ordination()]; `"trait_importance"` requires [distill_traits()];
 #'   `"admissibility"` requires [screen_admissibility()].
+#' @param dissimilarity Ordination dissimilarity view. `"combined"` plots the
+#'   model-level ordination; `"species"` plots the species-level ordination.
 #' @param view Secondary plot selector for `type = "ordination"` or
 #'   `type = "admissibility"`. One of `"clusters"`, `"cluster_hulls"`,
-#'   `"vectors"`, or `"centers"` for ordination; one of `"gate_composition"`
-#'   or `"overlap_profile"` for admissibility.
+#'   `"vectors"`, or `"centers"` for combined ordination; species ordination
+#'   also accepts `"overview"`. For admissibility, one of
+#'   `"gate_composition"` or `"overlap_profile"`.
 #' @param include_hulls Logical. When `TRUE` (default) and hull data are
 #'   available, `view = NULL` defaults to `"cluster_hulls"` for `type =
 #'   "ordination"`.
@@ -3235,6 +3238,7 @@ S7::method(show_generic, Alchemist) <- function(object) {
 #'   x,
 #'   y = NULL,
 #'   type = c("ordination", "trait_importance", "admissibility"),
+#'   dissimilarity = c("combined", "species"),
 #'   view = NULL,
 #'   include_hulls = TRUE,
 #'   ...
@@ -3244,10 +3248,12 @@ NULL
 .plot_alchemist <- function(x,
                             y = NULL,
                             type = c("ordination", "trait_importance", "admissibility"),
+                            dissimilarity = c("combined", "species"),
                             view = NULL,
                             include_hulls = TRUE,
                             ...) {
   type <- match.arg(type)
+  dissimilarity <- match.arg(dissimilarity)
 
   if (identical(type, "ordination")) {
     if (length(x@ordination) == 0L) {
@@ -3256,8 +3262,56 @@ NULL
         call. = FALSE
       )
     }
+    reference_species <- ordination_reference_species(x@candidates@reference_anchors)
+
+    if (identical(dissimilarity, "species")) {
+      species_obj <- x@ordination$species %||% list()
+      species_points <- mark_ordination_reference_species(
+        species_obj$points %||% tibble::tibble(),
+        reference_species = reference_species
+      )
+      ord_view <- match.arg(
+        view %||% "overview",
+        c("overview", "clusters", "cluster_hulls", "vectors", "centers")
+      )
+      if (identical(ord_view, "overview")) {
+        return(plot_species_ordination(points_tbl = species_points))
+      }
+      if (identical(ord_view, "vectors")) {
+        return(plot_ordination_vectors(
+          vec_tbl = species_obj$loadings %||% tibble::tibble(),
+          points_tbl = species_points
+        ))
+      }
+      if (identical(ord_view, "centers")) {
+        return(plot_ordination_centers(
+          fac_tbl = species_obj$centroids %||% tibble::tibble(),
+          points_tbl = species_points
+        ))
+      }
+      if (identical(ord_view, "cluster_hulls")) {
+        hull_tbl <- tryCatch(
+          build_ordination_hulls(species_points, cluster_col = "species_cluster_id"),
+          error = function(e) tibble::tibble()
+        )
+        return(plot_ordination_cluster_hulls(
+          points_tbl = species_points,
+          hull_tbl = hull_tbl,
+          cluster_col = "species_cluster_id"
+        ))
+      }
+      return(plot_ordination_clusters(
+        points_tbl = species_points,
+        cluster_col = "species_cluster_id",
+        colorbar_name = "Species cluster"
+      ))
+    }
+
     model_obj <- x@ordination$model %||% list()
-    point_tbl <- tibble::as_tibble(model_obj$points %||% tibble::tibble())
+    point_tbl <- mark_ordination_reference_species(
+      model_obj$points %||% tibble::tibble(),
+      reference_species = reference_species
+    )
     hull_tbl <- tibble::as_tibble(model_obj$hulls %||% tibble::tibble())
     loading_tbl <- tibble::as_tibble(model_obj$loadings %||% tibble::tibble())
     centroid_tbl <- tibble::as_tibble(model_obj$centroids %||% tibble::tibble())
@@ -4537,42 +4591,61 @@ apply_anchor_gates <- function(candidate_models,
 #' @keywords internal
 #' @noRd
 summarize_anchor_overlap <- function(admissible_df) {
-  # Ensure the overlap flags exist and are logical before computing the weighted
-  # overlap mix summaries.
   out <- tibble::as_tibble(admissible_df)
-  for (nm in c(
-    "overlap_same_species", "overlap_same_family", "overlap_same_swimbladder",
-    "overlap_same_fao_area", "overlap_same_ocean_basin"
-  )) {
-    if (!nm %in% names(out)) {
-      out[[nm]] <- FALSE
-    }
-    out[[nm]][is.na(out[[nm]])] <- FALSE
-  }
+  overlap_cols <- names(out)[startsWith(names(out), "overlap_same_")]
+  overlap_cols <- overlap_cols[vapply(out[overlap_cols], function(x) {
+    is.logical(x) || is.numeric(x) || is.integer(x)
+  }, logical(1))]
+  overlap_names <- paste0("w_same_", sub("^overlap_same_", "", overlap_cols))
+  overlap_names <- make.unique(overlap_names, sep = "_")
+  coherence_cols <- names(out)[endsWith(names(out), "_coherence_distance")]
+  coherence_names <- paste0("mean_", sub("_coherence_distance$", "_coherence", coherence_cols))
+  overlap_fraction_cols <- names(out)[endsWith(names(out), "_overlap_fraction")]
+  overlap_fraction_names <- paste0("mean_", overlap_fraction_cols)
 
   if (nrow(out) == 0) {
-    return(tibble::tibble(
-      n_admissible = 0,
-      w_same_species = NA_real_,
-      w_same_family = NA_real_,
-      w_same_swimbladder = NA_real_,
-      w_same_fao = NA_real_,
-      w_same_ocean_basin = NA_real_,
-      mean_length_overlap_fraction = NA_real_,
-      mean_depth_overlap_fraction = NA_real_
-    ))
+    summary_values <- c(
+      stats::setNames(rep(NA_real_, length(overlap_names)), overlap_names),
+      stats::setNames(rep(NA_real_, length(coherence_names)), coherence_names),
+      stats::setNames(rep(NA_real_, length(overlap_fraction_names)), overlap_fraction_names)
+    )
+    return(tibble::as_tibble(c(list(n_admissible = 0L), as.list(summary_values))))
   }
 
-  tibble::tibble(
-    n_admissible = nrow(out),
-    w_same_species = sum(out$w_adm[out$overlap_same_species], na.rm = TRUE),
-    w_same_family = sum(out$w_adm[out$overlap_same_family], na.rm = TRUE),
-    w_same_swimbladder = sum(out$w_adm[out$overlap_same_swimbladder], na.rm = TRUE),
-    w_same_fao = sum(out$w_adm[out$overlap_same_fao_area], na.rm = TRUE),
-    w_same_ocean_basin = sum(out$w_adm[out$overlap_same_ocean_basin], na.rm = TRUE),
-    mean_length_overlap_fraction = stats::weighted.mean(out$length_overlap_fraction, out$w_adm, na.rm = TRUE),
-    mean_depth_overlap_fraction = stats::weighted.mean(out$depth_overlap_fraction, out$w_adm, na.rm = TRUE)
-  )
+  weights <- if ("w_adm" %in% names(out)) {
+    suppressWarnings(as.numeric(out$w_adm))
+  } else {
+    rep(1, nrow(out))
+  }
+  weights[!is.finite(weights) | weights < 0] <- 0
+  weighted_mean_or_na <- function(x) {
+    x <- suppressWarnings(as.numeric(x))
+    keep <- is.finite(x) & is.finite(weights) & weights > 0
+    if (!any(keep)) {
+      return(NA_real_)
+    }
+    stats::weighted.mean(x[keep], weights[keep], na.rm = TRUE)
+  }
+  overlap_values <- vapply(overlap_cols, function(nm) {
+    flag <- dplyr::coalesce(as.logical(out[[nm]]), FALSE)
+    sum(weights[flag], na.rm = TRUE)
+  }, numeric(1))
+  names(overlap_values) <- overlap_names
+  coherence_values <- vapply(coherence_cols, function(nm) {
+    weighted_mean_or_na(pmax(0, 1 - suppressWarnings(as.numeric(out[[nm]]))))
+  }, numeric(1))
+  names(coherence_values) <- coherence_names
+  overlap_fraction_values <- vapply(overlap_fraction_cols, function(nm) {
+    weighted_mean_or_na(out[[nm]])
+  }, numeric(1))
+  names(overlap_fraction_values) <- overlap_fraction_names
+
+  tibble::as_tibble(c(
+    list(n_admissible = nrow(out)),
+    as.list(overlap_values),
+    as.list(coherence_values),
+    as.list(overlap_fraction_values)
+  ))
 }
 
 #' Rank anchor matches

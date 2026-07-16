@@ -665,8 +665,12 @@ test_that("reference anchor PDFs can be set from raw empirical lengths", {
 
   row_one <- dplyr::filter(anchors_after, .data$model_id_chr == "1")
   pdf_one <- tsbiomass:::build_anchor_density(row_one, tsbiomass:::default_anchor_config())
-  expect_equal(pdf_one$length_cm, c(10, 20, 30))
-  expect_equal(pdf_one$f_len, c(0.5, 0.25, 0.25))
+  expect_gt(nrow(pdf_one), 3L)
+  expect_true(all(c("length_cm", "f_len", "pdf_density") %in% names(pdf_one)))
+  expect_equal(min(pdf_one$length_cm), 10, tolerance = 1e-8)
+  expect_equal(max(pdf_one$length_cm), 30, tolerance = 1e-8)
+  expect_equal(sum(pdf_one$f_len), 1, tolerance = 1e-8)
+  expect_true(any(pdf_one$pdf_density > 0))
 })
 
 test_that("candidate trimming removes unused configured traits", {

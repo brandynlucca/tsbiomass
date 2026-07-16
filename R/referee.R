@@ -2433,7 +2433,7 @@ NULL
       c("panel", "single")
     )
     candidate_models <- tibble::as_tibble(x@selector@candidates@candidate_models)
-    id_col <- if ("model_id" %in% names(candidate_models)) "model_id" else "model_id"
+    id_col <- reference_anchor_id_column(candidate_models)
     if (identical(density_view, "panel")) {
       panel_tbl <- purrr::map_dfr(unique(as.character(selected_tbl$anchor_model_id)), function(anchor_id_now) {
         one_selected <- selected_tbl |>

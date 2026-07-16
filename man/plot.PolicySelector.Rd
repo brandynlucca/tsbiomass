@@ -10,8 +10,7 @@
   type = c(
     "strategy_error_heatmap",
     "conformal_scores",
-    "policy_benchmark",
-    "species_policy_ranked"
+    "policy_benchmark"
   ),
   anchor_species,
   max_policies = 30L,

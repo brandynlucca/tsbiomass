@@ -64,6 +64,76 @@ is_s7_instance <- function(object, class_name) {
   )
 }
 
+#' Compute grid-cell widths for length-density integration
+#'
+#' @param x Numeric grid locations.
+#'
+#' @return Numeric vector of positive cell widths aligned to `x`.
+#' @keywords internal
+#' @noRd
+length_pdf_cell_widths <- function(x) {
+  x <- suppressWarnings(as.numeric(x))
+  n <- length(x)
+  if (n == 0L) {
+    return(numeric())
+  }
+  if (n == 1L) {
+    return(1)
+  }
+  ord <- order(x)
+  xs <- x[ord]
+  widths <- numeric(n)
+  widths[ord[1]] <- max((xs[2] - xs[1]) / 2, .Machine$double.eps)
+  widths[ord[n]] <- max((xs[n] - xs[n - 1]) / 2, .Machine$double.eps)
+  if (n > 2L) {
+    mids <- (xs[3:n] - xs[1:(n - 2)]) / 2
+    widths[ord[2:(n - 1)]] <- pmax(mids, .Machine$double.eps)
+  }
+  widths
+}
+
+#' Estimate an empirical length PDF on a regular grid
+#'
+#' @param length_cm Positive empirical lengths in centimeters.
+#' @param n Number of grid points in the estimated density.
+#'
+#' @return Tibble with `length_cm`, integration weights `f_len`, and
+#'   pointwise `pdf_density`.
+#' @keywords internal
+#' @noRd
+estimate_length_pdf_grid <- function(length_cm,
+                                     n = 512L) {
+  length_cm <- suppressWarnings(as.numeric(length_cm))
+  length_cm <- length_cm[is.finite(length_cm) & length_cm > 0]
+  if (length(length_cm) == 0L) {
+    return(tibble::tibble(length_cm = numeric(), f_len = numeric(), pdf_density = numeric()))
+  }
+  if (length(unique(length_cm)) < 2L) {
+    return(tibble::tibble(length_cm = length_cm[[1]], f_len = 1, pdf_density = NA_real_))
+  }
+  dens <- stats::density(
+    x = length_cm,
+    n = as.integer(n),
+    from = min(length_cm, na.rm = TRUE),
+    to = max(length_cm, na.rm = TRUE),
+    na.rm = TRUE
+  )
+  density_y <- pmax(as.numeric(dens$y), 0)
+  grid_x <- as.numeric(dens$x)
+  cell_widths <- length_pdf_cell_widths(grid_x)
+  f_len <- density_y * cell_widths
+  if (sum(f_len, na.rm = TRUE) <= 0) {
+    f_len <- rep(1 / length(grid_x), length(grid_x))
+  } else {
+    f_len <- f_len / sum(f_len, na.rm = TRUE)
+  }
+  tibble::tibble(
+    length_cm = grid_x,
+    f_len = f_len,
+    pdf_density = density_y
+  )
+}
+
 #' Normalize one anchor length PDF input
 #'
 #' @param x Raw empirical lengths or an explicit PDF-like table.
@@ -82,10 +152,7 @@ normalize_anchor_pdf_input <- function(x) {
     if (length(length_cm) == 0) {
       stop("Raw reference length distributions must contain positive numeric lengths.", call. = FALSE)
     }
-    out <- tibble::tibble(length_cm = length_cm) |>
-      dplyr::count(.data$length_cm, name = "f_len") |>
-      dplyr::mutate(f_len = .data$f_len / sum(.data$f_len, na.rm = TRUE))
-    return(out)
+    return(estimate_length_pdf_grid(length_cm))
   }
 
   if (is.data.frame(x)) {
@@ -94,12 +161,20 @@ normalize_anchor_pdf_input <- function(x) {
       stop("Reference PDF tables must contain a 'length_cm' column.", call. = FALSE)
     }
     length_cm <- suppressWarnings(as.numeric(x$length_cm))
+    density_col <- intersect(c("pdf_density", "density"), names(x))
+    pdf_density <- if (length(density_col) > 0L) {
+      suppressWarnings(as.numeric(x[[density_col[[1]]]]))
+    } else {
+      rep(NA_real_, length(length_cm))
+    }
     if ("f_len" %in% names(x)) {
       f_len <- suppressWarnings(as.numeric(x$f_len))
+    } else if (any(is.finite(pdf_density) & pdf_density > 0)) {
+      f_len <- pmax(pdf_density, 0) * length_pdf_cell_widths(length_cm)
     } else {
       f_len <- rep(1, length(length_cm))
     }
-    out <- tibble::tibble(length_cm = length_cm, f_len = f_len) |>
+    out <- tibble::tibble(length_cm = length_cm, f_len = f_len, pdf_density = pdf_density) |>
       dplyr::filter(
         is.finite(.data$length_cm),
         .data$length_cm > 0,
@@ -107,7 +182,19 @@ normalize_anchor_pdf_input <- function(x) {
         .data$f_len >= 0
       ) |>
       dplyr::group_by(.data$length_cm) |>
-      dplyr::summarise(f_len = sum(.data$f_len), .groups = "drop")
+      dplyr::summarise(
+        f_len = sum(.data$f_len),
+        pdf_density = if (any(is.finite(.data$pdf_density))) {
+          stats::weighted.mean(
+            .data$pdf_density,
+            w = pmax(.data$f_len, 0),
+            na.rm = TRUE
+          )
+        } else {
+          NA_real_
+        },
+        .groups = "drop"
+      )
     if (nrow(out) == 0 || sum(out$f_len, na.rm = TRUE) <= 0) {
       stop("Reference PDF tables must contain positive finite support.", call. = FALSE)
     }

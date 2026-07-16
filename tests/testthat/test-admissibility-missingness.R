@@ -195,6 +195,27 @@ test_that("anchor overlap tolerates dropped taxonomy columns", {
   expect_identical(out$overlap_same_order, c(FALSE, FALSE))
 })
 
+test_that("anchor overlap summary is driven by available overlap fields", {
+  overlap <- tsbiomass:::summarize_anchor_overlap(tibble::tibble(
+    w_adm = c(0.25, 0.75),
+    overlap_same_species = c(TRUE, FALSE),
+    overlap_same_custom_trait = c(FALSE, TRUE),
+    pressure_coherence_distance = c(0.20, 0.60),
+    custom_overlap_fraction = c(0.30, 0.90)
+  ))
+
+  expect_equal(overlap$n_admissible, 2L)
+  expect_equal(overlap$w_same_species, 0.25)
+  expect_equal(overlap$w_same_custom_trait, 0.75)
+  expect_equal(overlap$mean_pressure_coherence, 0.5)
+  expect_equal(overlap$mean_custom_overlap_fraction, 0.75)
+  expect_false("w_same_family" %in% names(overlap))
+  expect_false("w_same_swimbladder" %in% names(overlap))
+  expect_false("w_same_ocean_basin" %in% names(overlap))
+  expect_false("mean_length_overlap_fraction" %in% names(overlap))
+  expect_false("mean_depth_overlap_fraction" %in% names(overlap))
+})
+
 test_that("admissibility gates reuse precomputed overlap columns when available", {
   cfg <- tsbiomass:::default_anchor_config(list(
     admissibility = list(

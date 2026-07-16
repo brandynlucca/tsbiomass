@@ -1831,8 +1831,7 @@ policy_selector_reference_policy_display_levels <- function(x,
 #'   type = c(
 #'     "strategy_error_heatmap",
 #'     "conformal_scores",
-#'     "policy_benchmark",
-#'     "species_policy_ranked"
+#'     "policy_benchmark"
 #'   ),
 #'   anchor_species,
 #'   max_policies = 30L,
@@ -1846,8 +1845,7 @@ NULL
                                   type = c(
                                     "strategy_error_heatmap",
                                     "conformal_scores",
-                                    "policy_benchmark",
-                                    "species_policy_ranked"
+                                    "policy_benchmark"
                                   ),
                                   anchor_species,
                                   max_policies = 30L,
@@ -1860,7 +1858,7 @@ NULL
     anchor_species
   }
 
-  if (type %in% c("strategy_error_heatmap", "policy_benchmark", "species_policy_ranked")) {
+  if (type %in% c("strategy_error_heatmap", "policy_benchmark")) {
     if (length(x@benchmark) == 0) {
       stop(
         "No benchmark results are stored on this `PolicySelector`. Run `benchmark()` first.",
@@ -1870,13 +1868,6 @@ NULL
     if (identical(type, "policy_benchmark")) {
       return(plot_policy_boxplot(
         (x@benchmark)$policy_perf %||% tibble::tibble(),
-        anchor_species = anchor_species,
-        max_policies = max_policies
-      ))
-    }
-    if (identical(type, "species_policy_ranked")) {
-      return(plot_species_policy_ranked(
-        (x@benchmark)$species_block_perf %||% tibble::tibble(),
         anchor_species = anchor_species,
         max_policies = max_policies
       ))

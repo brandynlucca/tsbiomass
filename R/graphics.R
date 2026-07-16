@@ -1377,6 +1377,27 @@ plot_ordination_centers <- function(fac_tbl,
     ggplot2::theme_minimal(base_size = 11)
 }
 
+#' Format an overlap metric label
+#'
+#' @param metric Metric column name.
+#'
+#' @return Display label for an overlap metric.
+#'
+#' @keywords internal
+#' @noRd
+overlap_metric_label <- function(metric) {
+  metric <- as.character(metric[[1]])
+  label <- metric
+  if (startsWith(label, "w_same_")) {
+    label <- paste("Same", sub("^w_same_", "", label))
+  } else if (startsWith(label, "mean_")) {
+    label <- paste("Mean", sub("^mean_", "", label))
+  }
+  label <- gsub("_fraction$", "", label)
+  label <- gsub("_", " ", label, fixed = TRUE)
+  tools::toTitleCase(label)
+}
+
 #' Plot overlap heatmap
 #'
 #' @param overlap_tbl Overlap-summary table.
@@ -1393,40 +1414,25 @@ plot_overlap_heatmap <- function(overlap_tbl,
   overlap_df <- tibble::as_tibble(overlap_tbl)
   if (nrow(overlap_df) == 0 || !"anchor_species" %in% names(overlap_df)) {
     return(ggplot2::ggplot() +
-      ggplot2::labs(x = NULL, y = NULL) +
+      ggplot2::labs(
+        title = "Admissibility Overlap Profile",
+        subtitle = "No anchor overlap summary rows were stored.",
+        x = NULL,
+        y = NULL
+      ) +
       ggplot2::theme_minimal(base_size = 11))
   }
   if (is.null(metric_labs)) {
-    metric_labs <- c(
-      w_same_species = "Same species",
-      w_same_family = "Same family",
-      w_same_swimbladder = "Same swimbladder",
-      w_same_fao = "Same FAO area",
-      w_same_ocean_basin = "Same ocean basin",
-      mean_length_overlap_fraction = "Mean length overlap",
-      mean_length_nonoverlap_fraction = "Mean length nonoverlap",
-      mean_depth_overlap_fraction = "Mean depth overlap",
-      mean_depth_nonoverlap_fraction = "Mean depth nonoverlap"
+    metric_cols <- setdiff(names(overlap_df), c("anchor_species", "anchor_model_id", "n_admissible"))
+    metric_cols <- metric_cols[vapply(overlap_df[metric_cols], function(x) {
+      any(is.finite(suppressWarnings(as.numeric(x))))
+    }, logical(1))]
+    metric_labs <- stats::setNames(
+      vapply(metric_cols, overlap_metric_label, character(1)),
+      metric_cols
     )
   }
-  alias_cols <- c(
-    w_same_fao = "w_same_fao_area",
-    w_same_ocean_basin = "w_same_basin"
-  )
-  for (alias_nm in names(alias_cols)) {
-    source_nm <- alias_cols[[alias_nm]]
-    if (!alias_nm %in% names(overlap_df) && source_nm %in% names(overlap_df)) {
-      overlap_df[[alias_nm]] <- overlap_df[[source_nm]]
-    }
-  }
-  if (!"mean_length_nonoverlap_fraction" %in% names(overlap_df) &&
-    "mean_length_overlap_fraction" %in% names(overlap_df)) {
-    overlap_df$mean_length_nonoverlap_fraction <- 1 - overlap_df$mean_length_overlap_fraction
-  }
-  if (!"mean_depth_nonoverlap_fraction" %in% names(overlap_df) &&
-    "mean_depth_overlap_fraction" %in% names(overlap_df)) {
-    overlap_df$mean_depth_nonoverlap_fraction <- 1 - overlap_df$mean_depth_overlap_fraction
-  }
+  metric_labs <- metric_labs[names(metric_labs) %in% names(overlap_df)]
 
   plot_df <- overlap_df |>
     dplyr::select("anchor_species", dplyr::any_of(names(metric_labs))) |>
@@ -1437,9 +1443,28 @@ plot_overlap_heatmap <- function(overlap_tbl,
       value = suppressWarnings(as.numeric(.data$value)),
       value = dplyr::if_else(is.finite(.data$value), .data$value, NA_real_)
     )
+  if (nrow(plot_df) == 0 || !any(is.finite(plot_df$value))) {
+    return(ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$metric, y = .data$anchor_species)) +
+      ggplot2::geom_tile(fill = "grey90", colour = "white") +
+      ggplot2::geom_text(label = "NA", size = 3, colour = "grey35") +
+      ggplot2::scale_y_discrete(labels = function(x) parse(text = paste0("italic('", gsub("'", "\\\\'", x, fixed = TRUE), "')"))) +
+      ggplot2::labs(
+        title = "Admissibility Overlap Profile",
+        subtitle = "No finite overlap values were stored for the displayed anchors.",
+        x = NULL,
+        y = NULL
+      ) +
+      ggplot2::theme_minimal(base_size = 11) +
+      ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 30, hjust = 1)))
+  }
 
   ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$metric, y = .data$anchor_species, fill = .data$value)) +
     ggplot2::geom_tile(colour = "white") +
+    ggplot2::geom_text(
+      ggplot2::aes(label = dplyr::if_else(is.finite(.data$value), scales::percent(.data$value, accuracy = 1), "NA")),
+      size = 2.8,
+      colour = "black"
+    ) +
     ggplot2::scale_fill_gradient(
       low = "#f7fbff",
       high = "#08306b",
@@ -1453,6 +1478,7 @@ plot_overlap_heatmap <- function(overlap_tbl,
     ggplot2::labs(
       x = NULL,
       y = NULL,
+      title = "Admissibility Overlap Profile",
       fill = "Weighted overlap"
     ) +
     ggplot2::theme_minimal(base_size = 11) +
@@ -1871,6 +1897,54 @@ filter_plot_anchor_species <- function(tbl,
     dplyr::filter(as.character(.data[[species_col]]) %in% .env$anchor_species)
 }
 
+#' Extract reference species from an anchor table
+#'
+#' @param reference_tbl Reference-anchor table.
+#'
+#' @return Character vector of unique reference species names.
+#' @keywords internal
+#' @noRd
+ordination_reference_species <- function(reference_tbl) {
+  reference_tbl <- tibble::as_tibble(reference_tbl %||% tibble::tibble())
+  species <- if ("species_name" %in% names(reference_tbl)) {
+    as.character(reference_tbl$species_name)
+  } else if ("anchor_species" %in% names(reference_tbl)) {
+    as.character(reference_tbl$anchor_species)
+  } else {
+    character(0)
+  }
+  unique(species[!is.na(species) & nzchar(species)])
+}
+
+#' Mark ordination points for configured reference species
+#'
+#' @param points_tbl Ordination point table.
+#' @param reference_species Character vector of reference species names.
+#' @param species_col Species-name column.
+#' @param reference_col Reference-flag column.
+#'
+#' @return Tibble with an updated reference flag.
+#' @keywords internal
+#' @noRd
+mark_ordination_reference_species <- function(points_tbl,
+                                              reference_species = NULL,
+                                              species_col = "species_name",
+                                              reference_col = "is_reference") {
+  out <- tibble::as_tibble(points_tbl)
+  reference_species <- unique(as.character(reference_species %||% character(0)))
+  reference_species <- reference_species[!is.na(reference_species) & nzchar(reference_species)]
+  if (nrow(out) == 0L || length(reference_species) == 0L || !species_col %in% names(out)) {
+    return(out)
+  }
+  existing <- if (reference_col %in% names(out)) {
+    dplyr::coalesce(as.logical(out[[reference_col]]), FALSE)
+  } else {
+    rep(FALSE, nrow(out))
+  }
+  out[[reference_col]] <- existing | as.character(out[[species_col]]) %in% reference_species
+  out
+}
+
 #' Normalize a plotting policy limit
 #'
 #' @param max_policies Requested maximum policy count.
@@ -2122,11 +2196,18 @@ plot_policy_heatmap <- function(perf_tbl,
   }
   plot_df <- filter_plot_anchor_species(plot_df, anchor_species = anchor_species)
   plot_df$policy <- resolve_policy_display_names(plot_df)
+  anchor_levels <- unique(c(
+    as.character(anchor_species %||% character(0)),
+    sort(unique(as.character(plot_df$anchor_species)))
+  ))
+  anchor_levels <- anchor_levels[!is.na(anchor_levels) & nzchar(anchor_levels)]
+  all_policy_levels <- sort(unique(as.character(plot_df$policy)))
+  all_policy_levels <- all_policy_levels[!is.na(all_policy_levels) & nzchar(all_policy_levels)]
   plot_df <- plot_df |>
     dplyr::filter(.data$valid_prediction, is.finite(.data$error_abs_log)) |>
     dplyr::group_by(.data$anchor_species, .data$policy) |>
     dplyr::summarise(median_abs_log_error = stats::median(.data$error_abs_log, na.rm = TRUE), .groups = "drop")
-  if (nrow(plot_df) == 0 || !all(c("anchor_species", "policy", "median_abs_log_error") %in% names(plot_df))) {
+  if (length(anchor_levels) == 0L || length(all_policy_levels) == 0L) {
     return(ggplot2::ggplot() +
       ggplot2::labs(x = NULL, y = NULL) +
       ggplot2::theme_minimal(base_size = 11))
@@ -2142,12 +2223,16 @@ plot_policy_heatmap <- function(perf_tbl,
     dplyr::summarise(global_median_abs_log = stats::median(.data$median_abs_log_error, na.rm = TRUE), .groups = "drop") |>
     dplyr::arrange(.data$global_median_abs_log, .data$policy) |>
     dplyr::pull(.data$policy)
+  policy_levels <- unique(c(policy_levels, setdiff(all_policy_levels, policy_levels)))
   max_policies <- normalize_plot_policy_limit(max_policies, default = 40L)
   if (is.finite(max_policies)) {
     policy_levels <- head(policy_levels, max_policies)
-    plot_df <- plot_df |>
-      dplyr::filter(.data$policy %in% .env$policy_levels)
   }
+  plot_df <- tidyr::expand_grid(
+    anchor_species = anchor_levels,
+    policy = policy_levels
+  ) |>
+    dplyr::left_join(plot_df, by = c("anchor_species", "policy"))
   if (isTRUE(cluster_policies)) {
     policy_levels <- cluster_heatmap_axis_levels(
       plot_df,
@@ -2163,12 +2248,12 @@ plot_policy_heatmap <- function(perf_tbl,
     plot_df |>
       dplyr::mutate(
         policy = factor(.data$policy, levels = policy_levels),
-        anchor_species = factor(.data$anchor_species, levels = sort(unique(.data$anchor_species)))
+        anchor_species = factor(.data$anchor_species, levels = anchor_levels)
       ),
     ggplot2::aes(x = .data$policy, y = .data$anchor_species, fill = .data$median_abs_log_error)
   ) +
     ggplot2::geom_tile(colour = "white") +
-    ggplot2::scale_fill_viridis_c(option = "C", direction = -1) +
+    ggplot2::scale_fill_viridis_c(option = "C", direction = -1, na.value = "grey90") +
     ggplot2::scale_y_discrete(labels = function(x) parse(text = paste0("italic('", x, "')"))) +
     ggplot2::labs(
       x = NULL,
@@ -2180,7 +2265,7 @@ plot_policy_heatmap <- function(perf_tbl,
   if (isTRUE(show_values)) {
     p <- p +
       ggplot2::geom_text(
-        ggplot2::aes(label = sprintf("%.2f", .data$median_abs_log_error)),
+        ggplot2::aes(label = dplyr::if_else(is.finite(.data$median_abs_log_error), sprintf("%.2f", .data$median_abs_log_error), "")),
         size = 2.5,
         colour = "black"
       )
@@ -2521,120 +2606,6 @@ summarize_species_policy_performance <- function(perf_tbl) {
     dplyr::mutate(global_median_abs_log_error = stats::median(.data$median_abs_log_error, na.rm = TRUE)) |>
     dplyr::ungroup() |>
     dplyr::arrange(.data$anchor_species, .data$rank_within_species)
-}
-
-#' Plot every species-policy benchmark rank
-#'
-#' @param perf_tbl Species-block benchmark table or output from
-#'   `summarize_species_policy_performance()`.
-#' @param anchor_species Optional species names used to restrict held-out
-#'   species before plotting.
-#' @param max_policies Maximum number of ranked policies to show per species.
-#' @param include_invalid Logical scalar. If `TRUE`, no-valid-prediction
-#'   policies are retained at the bottom of each species facet.
-#'
-#' @return A ggplot object.
-#' @keywords internal
-#' @noRd
-plot_species_policy_ranked <- function(perf_tbl,
-                                       anchor_species = NULL,
-                                       max_policies = 25L,
-                                       include_invalid = FALSE) {
-  plot_df <- tibble::as_tibble(perf_tbl)
-  if (!all(c("rank_within_species", "median_abs_log_error") %in% names(plot_df))) {
-    plot_df <- summarize_species_policy_performance(plot_df)
-  }
-  if (nrow(plot_df) == 0 ||
-    !all(c("anchor_species", "policy", "rank_within_species", "median_abs_log_error") %in% names(plot_df))) {
-    return(ggplot2::ggplot() +
-      ggplot2::labs(title = "Species-Blocked Policy Performance by Held-Out Species", subtitle = "Required plotting fields were not available.", x = "Median |log multiplier error|", y = "Policy") +
-      ggplot2::theme_minimal(base_size = 11))
-  }
-
-  max_policies <- normalize_plot_policy_limit(max_policies, default = 25L)
-  plot_df <- plot_df |>
-    filter_plot_anchor_species(anchor_species = anchor_species) |>
-    dplyr::filter(isTRUE(include_invalid) | .data$has_valid_prediction) |>
-    dplyr::group_by(.data$anchor_species) |>
-    dplyr::arrange(.data$rank_within_species, .by_group = TRUE)
-  if (is.finite(max_policies)) {
-    plot_df <- plot_df |>
-      dplyr::slice_head(n = max_policies)
-  }
-  plot_df <- plot_df |>
-    dplyr::ungroup() |>
-    dplyr::arrange(.data$anchor_species, dplyr::desc(.data$rank_within_species)) |>
-    dplyr::group_by(.data$anchor_species) |>
-    dplyr::mutate(
-      invalid_x_position = {
-        finite_x <- .data$median_abs_log_error[is.finite(.data$median_abs_log_error)]
-        if (length(finite_x) == 0) 1 else max(finite_x, na.rm = TRUE) * 1.08
-      },
-      plot_abs_log_error = dplyr::if_else(
-        is.finite(.data$median_abs_log_error),
-        .data$median_abs_log_error,
-        .data$invalid_x_position
-      )
-    ) |>
-    dplyr::ungroup() |>
-    dplyr::mutate(
-      policy_species_key = paste(.data$policy, .data$anchor_species, sep = "__"),
-      policy_species_key = factor(.data$policy_species_key, levels = unique(.data$policy_species_key))
-    ) |>
-    dplyr::filter(
-      !is.na(.data$anchor_species),
-      !is.na(.data$policy),
-      !is.na(.data$has_valid_prediction),
-      is.finite(.data$plot_abs_log_error),
-      is.finite(.data$n_anchor_models)
-    )
-  if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() +
-      ggplot2::labs(title = "Species-Blocked Policy Performance by Held-Out Species", subtitle = "Required plotting fields were not available.", x = "Median |log multiplier error|", y = "Policy") +
-      ggplot2::theme_minimal(base_size = 11))
-  }
-
-  ggplot2::ggplot(
-    plot_df,
-    ggplot2::aes(
-      x = .data$plot_abs_log_error,
-      y = .data$policy_species_key,
-      color = .data$median_structural_q_abs_log,
-      size = .data$n_anchor_models,
-      shape = .data$has_valid_prediction
-    )
-  ) +
-    ggplot2::geom_point(alpha = 0.88) +
-    ggplot2::facet_wrap(~anchor_species, scales = "free_y", ncol = 4) +
-    ggplot2::scale_y_discrete(labels = function(x) sub("__.*$", "", x)) +
-    ggplot2::scale_color_viridis_c(
-      option = "C",
-      na.value = "grey55",
-      name = "Median structural\nq_abs_log"
-    ) +
-    ggplot2::scale_size_continuous(range = c(1.2, 3.2), name = "Anchor rows") +
-    ggplot2::scale_shape_manual(
-      values = c("TRUE" = 16, "FALSE" = 4),
-      labels = c("FALSE" = "No valid prediction", "TRUE" = "Valid prediction"),
-      name = "Benchmark row"
-    ) +
-    ggplot2::labs(
-      title = "Species-Blocked Policy Performance by Held-Out Species",
-      subtitle = if (isTRUE(include_invalid)) {
-        "Each facet is ordered best-to-worst from top to bottom; no-valid-prediction policies are retained at the bottom."
-      } else {
-        "Each facet shows the top valid species-blocked policies, ordered best-to-worst from top to bottom."
-      },
-      x = "Median |log(multiplier prediction)|",
-      y = NULL
-    ) +
-    ggplot2::theme_minimal(base_size = 8) +
-    ggplot2::theme(
-      strip.text = ggplot2::element_text(face = "bold", size = 8),
-      axis.text.y = ggplot2::element_text(size = 5.5),
-      panel.grid.major.y = ggplot2::element_blank(),
-      legend.position = "bottom"
-    )
 }
 
 #' Compare selected policies against species-block oracle ranks
@@ -3025,6 +2996,31 @@ plot_uncertainty_heat <- function(dropout_tbl,
     ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 30, hjust = 1))
 }
 
+#' Build a visible placeholder plot for unavailable report data
+#'
+#' @param title Plot title.
+#' @param subtitle Plot subtitle describing why no data were drawn.
+#' @param x X-axis label.
+#' @param y Y-axis label.
+#'
+#' @return A ggplot object.
+#'
+#' @keywords internal
+#' @noRd
+plot_report_placeholder <- function(title,
+                                    subtitle = "Required plotting fields were not available.",
+                                    x = NULL,
+                                    y = NULL) {
+  ggplot2::ggplot() +
+    ggplot2::labs(
+      title = title,
+      subtitle = subtitle,
+      x = x,
+      y = y
+    ) +
+    ggplot2::theme_minimal(base_size = 11)
+}
+
 #' Plot selected policy intervals
 #'
 #' @param sel_tbl Selected-policy interval table.
@@ -3104,9 +3100,11 @@ plot_selected_intervals <- function(sel_tbl,
     is.finite(q_log) & q_log > 0
   plot_df$multiplier_hi[derive_hi] <- multiplier_pred[derive_hi] * exp(q_log[derive_hi])
   if (nrow(plot_df) == 0 || !all(c("anchor_species", "multiplier_pred", "multiplier_lo", "multiplier_hi", "selected_policy_display") %in% names(plot_df))) {
-    return(ggplot2::ggplot() +
-      ggplot2::labs(x = NULL, y = "Biomass multiplier") +
-      ggplot2::theme_minimal(base_size = 11))
+    return(plot_report_placeholder(
+      title = "Selected Biomass Multiplier Intervals",
+      x = NULL,
+      y = "Biomass multiplier"
+    ))
   }
   plot_df <- plot_df |>
     dplyr::filter(
@@ -3119,9 +3117,12 @@ plot_selected_intervals <- function(sel_tbl,
       .data$multiplier_hi > 0
     )
   if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() +
-      ggplot2::labs(x = NULL, y = "Biomass multiplier") +
-      ggplot2::theme_minimal(base_size = 11))
+    return(plot_report_placeholder(
+      title = "Selected Biomass Multiplier Intervals",
+      subtitle = "No finite positive multiplier intervals were available.",
+      x = NULL,
+      y = "Biomass multiplier"
+    ))
   }
   plot_df <- plot_df |>
     dplyr::mutate(
@@ -3688,19 +3689,21 @@ plot_ts_panel <- function(curve_tbl,
   # were available, rather than failing during the final summary stage.
   if (nrow(curve_tbl) == 0 || !reference_col %in% names(curve_tbl)) {
     return(
-      ggplot2::ggplot() +
-        ggplot2::labs(
-          x = "Length (cm)",
-          y = "TS (dB re 1 m^2)"
-        ) +
-        ggplot2::theme_minimal(base_size = 11)
+      plot_report_placeholder(
+        title = "TS Length Conformal Bands",
+        subtitle = "No TS panel rows were available.",
+        x = "Length (cm)",
+        y = "TS (dB re 1 m^2)"
+      )
     )
   }
   if (!all(c("length_cm", "ts_pred", "ts_anchor", "ts_lo_99", "ts_hi_99", "ts_lo_95", "ts_hi_95", "ts_lo_90", "ts_hi_90", "ts_lo_80", "ts_hi_80") %in% names(curve_tbl))) {
     return(
-      ggplot2::ggplot() +
-        ggplot2::labs(x = "Length (cm)", y = "TS (dB re 1 m^2)") +
-        ggplot2::theme_minimal(base_size = 11)
+      plot_report_placeholder(
+        title = "TS Length Conformal Bands",
+        x = "Length (cm)",
+        y = "TS (dB re 1 m^2)"
+      )
     )
   }
   curve_tbl$ts_panel_center <- dplyr::coalesce(
@@ -3923,9 +3926,11 @@ plot_policy_coefficients <- function(coefficient_tbl) {
     rep(NA_real_, nrow(df))
   }
   if (nrow(plot_df) == 0 || !"anchor_species" %in% names(plot_df)) {
-    return(ggplot2::ggplot() +
-      ggplot2::labs(x = NULL, y = NULL) +
-      ggplot2::theme_minimal(base_size = 11))
+    return(plot_report_placeholder(
+      title = "Selected Policy Coefficient Uncertainty",
+      x = NULL,
+      y = NULL
+    ))
   }
   plot_df$estimate_slope <- resolve_one(plot_df, c("policy_slope_len"))
   plot_df$estimate_intercept <- resolve_one(plot_df, c("policy_intercept_len"))
@@ -4056,9 +4061,12 @@ plot_policy_coefficients <- function(coefficient_tbl) {
       parameter = factor(.data$parameter, levels = c("Slope", "Intercept"))
     )
   if (nrow(long_df) == 0) {
-    return(ggplot2::ggplot() +
-      ggplot2::labs(x = NULL, y = NULL) +
-      ggplot2::theme_minimal(base_size = 11))
+    return(plot_report_placeholder(
+      title = "Selected Policy Coefficient Uncertainty",
+      subtitle = "No finite selected-strategy coefficient intervals were available.",
+      x = NULL,
+      y = NULL
+    ))
   }
 
   species_levels <- levels(long_df$anchor_species)
@@ -4293,9 +4301,11 @@ plot_multiplier_length_spectrum <- function(curve_tbl,
   }
   needed <- c(reference_col, "length_cm", "ts_anchor", "ts_pred", "ts_lo_95", "ts_hi_95")
   if (nrow(curve_tbl) == 0 || !all(needed %in% names(curve_tbl))) {
-    return(ggplot2::ggplot() +
-      ggplot2::labs(x = "Length (cm)", y = "Biomass multiplier") +
-      ggplot2::theme_minimal(base_size = 11))
+    return(plot_report_placeholder(
+      title = "Length-Specific Biomass Multiplier",
+      x = "Length (cm)",
+      y = "Biomass multiplier"
+    ))
   }
   plot_df <- curve_tbl |>
     dplyr::mutate(
@@ -4312,9 +4322,12 @@ plot_multiplier_length_spectrum <- function(curve_tbl,
       .data$multiplier_hi_95 > 0
     )
   if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() +
-      ggplot2::labs(x = "Length (cm)", y = "Biomass multiplier") +
-      ggplot2::theme_minimal(base_size = 11))
+    return(plot_report_placeholder(
+      title = "Length-Specific Biomass Multiplier",
+      subtitle = "No finite positive multiplier curves were available.",
+      x = "Length (cm)",
+      y = "Biomass multiplier"
+    ))
   }
 
   ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$length_cm, y = .data$multiplier_at_length)) +
@@ -4372,9 +4385,11 @@ plot_all_intervals <- function(interval_tbl,
   )
   plot_df$policy_display <- resolve_policy_display_names(plot_df)
   if (nrow(plot_df) == 0 || !all(c("policy_display", "multiplier_pred", "multiplier_lo", "multiplier_hi", "is_selected") %in% names(plot_df))) {
-    return(ggplot2::ggplot() +
-      ggplot2::labs(x = NULL, y = "Biomass multiplier") +
-      ggplot2::theme_minimal(base_size = 11))
+    return(plot_report_placeholder(
+      title = "Strategy Competition",
+      x = NULL,
+      y = "Biomass multiplier"
+    ))
   }
   plot_df <- plot_df |>
     dplyr::filter(
@@ -4387,9 +4402,12 @@ plot_all_intervals <- function(interval_tbl,
     ) |>
     dplyr::arrange(.data$multiplier_pred, .data$policy_display)
   if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() +
-      ggplot2::labs(x = NULL, y = "Biomass multiplier") +
-      ggplot2::theme_minimal(base_size = 11))
+    return(plot_report_placeholder(
+      title = "Strategy Competition",
+      subtitle = "No finite positive strategy intervals were available.",
+      x = NULL,
+      y = "Biomass multiplier"
+    ))
   }
   policy_levels <- unique(plot_df$policy_display)
   plot_df$policy_display <- factor(plot_df$policy_display, levels = rev(policy_levels))
@@ -4481,9 +4499,11 @@ plot_interval_panel <- function(interval_tbl) {
   )
   plot_df$policy_display <- resolve_policy_display_names(plot_df)
   if (nrow(plot_df) == 0 || !all(c("anchor_species", "policy_display", "multiplier_pred", "multiplier_lo", "multiplier_hi", "is_selected") %in% names(plot_df))) {
-    return(ggplot2::ggplot() +
-      ggplot2::labs(x = NULL, y = "Biomass multiplier") +
-      ggplot2::theme_minimal(base_size = 11))
+    return(plot_report_placeholder(
+      title = "Strategy Competition",
+      x = NULL,
+      y = "Biomass multiplier"
+    ))
   }
   plot_df <- plot_df |>
     dplyr::filter(
@@ -4497,9 +4517,12 @@ plot_interval_panel <- function(interval_tbl) {
     ) |>
     dplyr::ungroup()
   if (nrow(plot_df) == 0) {
-    return(ggplot2::ggplot() +
-      ggplot2::labs(x = NULL, y = "Biomass multiplier") +
-      ggplot2::theme_minimal(base_size = 11))
+    return(plot_report_placeholder(
+      title = "Strategy Competition",
+      subtitle = "No finite positive strategy intervals were available.",
+      x = NULL,
+      y = "Biomass multiplier"
+    ))
   }
   policy_levels <- plot_df |>
     dplyr::group_by(.data$policy_display) |>
@@ -5025,6 +5048,65 @@ plot_ordination_cluster_hulls <- function(points_tbl,
     ggplot2::theme_minimal(base_size = 11)
 }
 
+#' Convert stored length support to a display density
+#'
+#' @param length_tbl Stored length support with `length_cm` and `f_len`.
+#' @param n Number of points in the displayed density curve.
+#'
+#' @return Tibble with `length_cm` and `f_len` columns for plotting.
+#'
+#' @keywords internal
+#' @noRd
+length_pdf_display_density <- function(length_tbl,
+                                       n = 512L) {
+  support_df <- tibble::as_tibble(length_tbl)
+  if (nrow(support_df) == 0 || !all(c("length_cm", "f_len") %in% names(support_df))) {
+    return(tibble::tibble(length_cm = numeric(), f_len = numeric()))
+  }
+  if ("pdf_density" %in% names(support_df)) {
+    density_df <- support_df |>
+      dplyr::transmute(
+        length_cm = suppressWarnings(as.numeric(.data$length_cm)),
+        f_len = suppressWarnings(as.numeric(.data$pdf_density))
+      ) |>
+      dplyr::filter(
+        is.finite(.data$length_cm),
+        .data$length_cm > 0,
+        is.finite(.data$f_len),
+        .data$f_len >= 0
+      ) |>
+      dplyr::arrange(.data$length_cm)
+    if (nrow(density_df) > 0 && any(density_df$f_len > 0)) {
+      return(density_df)
+    }
+  }
+  support_df <- support_df |>
+    dplyr::transmute(
+      length_cm = suppressWarnings(as.numeric(.data$length_cm)),
+      f_len = suppressWarnings(as.numeric(.data$f_len))
+    ) |>
+    dplyr::filter(
+      is.finite(.data$length_cm),
+      .data$length_cm > 0,
+      is.finite(.data$f_len),
+      .data$f_len >= 0
+    ) |>
+    dplyr::group_by(.data$length_cm) |>
+    dplyr::summarise(f_len = sum(.data$f_len), .groups = "drop") |>
+    dplyr::arrange(.data$length_cm)
+  if (nrow(support_df) == 0 || sum(support_df$f_len, na.rm = TRUE) <= 0) {
+    return(tibble::tibble(length_cm = numeric(), f_len = numeric()))
+  }
+  support_df$f_len <- support_df$f_len / sum(support_df$f_len, na.rm = TRUE)
+  if (length(unique(support_df$length_cm)) < 2L) {
+    return(support_df)
+  }
+  support_df |>
+    dplyr::mutate(
+      f_len = .data$f_len / length_pdf_cell_widths(.data$length_cm)
+    )
+}
+
 #' Plot a length-density curve
 #'
 #' @param length_tbl Length-density table with `length_cm` and `f_len`.
@@ -5036,17 +5118,18 @@ plot_ordination_cluster_hulls <- function(points_tbl,
 #' @noRd
 plot_length_density <- function(length_tbl,
                                 anchor_label) {
-  # Draw the supplied length-density support directly so the function remains a
-  # pure plotting helper.
-  plot_df <- tibble::as_tibble(length_tbl)
+  plot_df <- length_pdf_display_density(length_tbl)
   if (nrow(plot_df) == 0 || !all(c("length_cm", "f_len") %in% names(plot_df))) {
-    return(ggplot2::ggplot() +
-      ggplot2::labs(x = "Length (cm)", y = "f(L)") +
-      ggplot2::theme_minimal(base_size = 11))
+    return(plot_report_placeholder(
+      title = paste("Reference Anchor Length Density:", anchor_label),
+      x = "Length (cm)",
+      y = "f(L)"
+    ))
   }
   ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$length_cm, y = .data$f_len)) +
     ggplot2::geom_line(linewidth = 0.8, colour = "#3182bd") +
     ggplot2::labs(
+      title = paste("Reference Anchor Length Density:", anchor_label),
       x = "Length (cm)",
       y = "f(L)"
     ) +
@@ -5064,17 +5147,39 @@ plot_length_density <- function(length_tbl,
 #' @noRd
 plot_length_density_panel <- function(length_tbl,
                                       reference_col = "anchor_species") {
-  plot_df <- tibble::as_tibble(length_tbl)
-  if (nrow(plot_df) == 0 || !all(c(reference_col, "length_cm", "f_len") %in% names(plot_df))) {
-    return(ggplot2::ggplot() +
-      ggplot2::labs(x = "Length (cm)", y = "f(L)") +
-      ggplot2::theme_minimal(base_size = 11))
+  support_df <- tibble::as_tibble(length_tbl)
+  if (nrow(support_df) == 0 || !all(c(reference_col, "length_cm", "f_len") %in% names(support_df))) {
+    return(plot_report_placeholder(
+      title = "Reference Anchor Length Density",
+      x = "Length (cm)",
+      y = "f(L)"
+    ))
+  }
+  plot_df <- purrr::map_dfr(
+    split(support_df, as.character(support_df[[reference_col]])),
+    function(one_tbl) {
+      density_tbl <- length_pdf_display_density(one_tbl)
+      if (nrow(density_tbl) == 0) {
+        return(tibble::tibble())
+      }
+      density_tbl[[reference_col]] <- as.character(one_tbl[[reference_col]][[1]])
+      density_tbl
+    }
+  )
+  if (nrow(plot_df) == 0) {
+    return(plot_report_placeholder(
+      title = "Reference Anchor Length Density",
+      subtitle = "No finite positive reference length densities were available.",
+      x = "Length (cm)",
+      y = "f(L)"
+    ))
   }
 
   ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$length_cm, y = .data$f_len)) +
     ggplot2::geom_line(linewidth = 0.8, colour = "#3182bd") +
     ggplot2::facet_wrap(stats::as.formula(paste("~", reference_col)), ncol = 2, scales = "free_x") +
     ggplot2::labs(
+      title = "Reference Anchor Length Density",
       x = "Length (cm)",
       y = "f(L)"
     ) +
