@@ -7704,15 +7704,20 @@ run_meta_policy_super_oof_tasks <- function(tasks,
     return(out)
   }
 
-  cluster_obj <- initialize_parallel_cluster(workers = workers)
-  cluster_type <- attr(cluster_obj, "cluster_type", exact = TRUE) %||% "unknown"
+  # Fork workers inherit namespace-local payloads at cluster creation time, so
+  # the payload must be populated before makeForkCluster() is called.
+  set_meta_policy_crossfit_payload(payload)
+  cluster_obj <- NULL
   on.exit({
-    try(parallel::stopCluster(cluster_obj), silent = TRUE)
+    if (!is.null(cluster_obj)) {
+      try(parallel::stopCluster(cluster_obj), silent = TRUE)
+    }
     clear_meta_policy_crossfit_payload()
   }, add = TRUE)
+  cluster_obj <- initialize_parallel_cluster(workers = workers)
+  cluster_type <- attr(cluster_obj, "cluster_type", exact = TRUE) %||% "unknown"
 
   if (identical(cluster_type, "fork")) {
-    set_meta_policy_crossfit_payload(payload)
     out <- parallel::parLapplyLB(cluster_obj, tasks, run_meta_policy_super_oof_task)
   } else {
     run_super_oof_task <- function(task) {
