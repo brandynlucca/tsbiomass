@@ -6741,6 +6741,66 @@ sample_meta_policy_holdout_rows <- function(n,
   sort(sample.int(n, n_holdout))
 }
 
+#' Make categorical levels safe for Cubist's names file
+#'
+#' Cubist writes each predictor's levels into a Quinlan-format names file, where
+#' `:`, `;`, `|`, and `,` are structural delimiters. The package escapes column
+#' names (`escapes(names(varData))`) and outcome levels (`escapes(levels(y))`),
+#' but `Cubist:::QuinlanAttributes.factor()` renders predictor levels with a
+#' plain `paste()` and never calls `escapes()`. A level carrying a delimiter
+#' therefore truncates the attribute definition, after which the data file no
+#' longer agrees with the declared levels and Cubist's C parser reads past its
+#' line buffer. On Linux glibc catches that and aborts the whole process
+#' (`*** buffer overflow detected ***`), taking the worker with it; on Windows it
+#' surfaces as an opaque `exit(1)`.
+#'
+#' This matters because multi-label trait fields are ordinary here: basin sets
+#' arrive as `"Mediterranean Sea;Atlantic Ocean"`, survey bodies as
+#' `"A; B"`. Substituting the delimiters keeps the levels legible in
+#' Cubist's rules, which is the reason to prefer it over opaque surrogate labels.
+#' Both the training and prediction frames must pass through this, or their
+#' levels will not agree.
+#'
+#' @param x Character vector of levels.
+#'
+#' @return Character vector of the same length, delimiter-free and still unique.
+#' @keywords internal
+#' @noRd
+sanitize_cubist_levels <- function(x) {
+  clean <- gsub("[;:|,]", "_", as.character(x))
+  # Substitution can collide two distinct levels ("a;b" and "a:b" both become
+  # "a_b"); assigning duplicated levels back onto a factor would silently merge
+  # them into one, so keep them distinct.
+  if (anyDuplicated(clean)) {
+    clean <- make.unique(clean, sep = "_")
+  }
+  clean
+}
+
+#' Make a data frame safe for Cubist
+#'
+#' Applies [sanitize_cubist_levels()] to every categorical column. Character
+#' columns are converted to factors first so the level set is explicit and the
+#' training and prediction frames sanitize identically.
+#'
+#' @param df Data frame of predictors.
+#'
+#' @return The data frame with delimiter-free categorical levels.
+#' @keywords internal
+#' @noRd
+sanitize_cubist_frame <- function(df) {
+  df <- as.data.frame(df)
+  for (nm in names(df)) {
+    if (is.character(df[[nm]]) || is.logical(df[[nm]])) {
+      df[[nm]] <- factor(df[[nm]])
+    }
+    if (is.factor(df[[nm]])) {
+      levels(df[[nm]]) <- sanitize_cubist_levels(levels(df[[nm]]))
+    }
+  }
+  df
+}
+
 #' Resolve one mixed-effects grouping column for the meta-policy learner
 #'
 #' @param training_data Prepared learner training table.
@@ -8627,7 +8687,7 @@ fit_meta_policy_learner <- function(training_data,
       # Cubist uses an x/y interface (data frame of predictors); `neighbors` is a
       # predict-time correction, carried in method_arguments to the predict path.
       Cubist::cubist(
-        x = as.data.frame(model_frame),
+        x = sanitize_cubist_frame(as.data.frame(model_frame)),
         y = y,
         committees = as.integer(fit_arguments$committees %||% 1L)
       )
@@ -8886,10 +8946,12 @@ predict_meta_policy_score <- function(object,
       pred <- as.numeric(earth_predict(object$fit, newdata = pred_frame))
     } else if (identical(method_family, "cubist")) {
       # `neighbors` (0-9) applies Cubist's instance-based prediction correction.
+      # The prediction frame must be sanitized exactly as the training frame was,
+      # or its levels will not match the fitted model's.
       cubist_predict <- utils::getFromNamespace("predict.cubist", "Cubist")
       pred <- as.numeric(cubist_predict(
         object$fit,
-        pred_frame,
+        sanitize_cubist_frame(as.data.frame(pred_frame)),
         neighbors = as.integer(object$method_arguments$neighbors %||% 0L)
       ))
     } else {

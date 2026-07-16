@@ -144,7 +144,9 @@ reference:
       - fit
       - fit.PolicyLearner
       - screen_learners
+      - screen_learners.PolicyLearner
       - update_learners
+      - update_learners.Configurer
       - calibrate_uncertainty.PolicyLearner
 
   - title: "Predictions and Scoring"
