@@ -711,8 +711,10 @@ time.</p>
 <span id="cb16-3"><a href="#cb16-3" tabindex="-1"></a><span class="at">  </span><span class="fu">mars</span><span class="kw">:</span></span>
 <span id="cb16-4"><a href="#cb16-4" tabindex="-1"></a><span class="at">    </span><span class="fu">degree</span><span class="kw">:</span><span class="at"> </span><span class="dv">2</span></span>
 <span id="cb16-5"><a href="#cb16-5" tabindex="-1"></a><span class="at">    </span><span class="fu">penalty</span><span class="kw">:</span><span class="at"> </span><span class="dv">3</span></span>
-<span id="cb16-6"><a href="#cb16-6" tabindex="-1"></a><span class="at">    </span><span class="fu">nprune</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span></span>
-<span id="cb16-7"><a href="#cb16-7" tabindex="-1"></a><span class="at">    </span><span class="fu">pmethod</span><span class="kw">:</span><span class="at"> backward</span></span></code></pre></div>
+<span id="cb16-6"><a href="#cb16-6" tabindex="-1"></a><span class="at">    </span><span class="fu">nk</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span></span>
+<span id="cb16-7"><a href="#cb16-7" tabindex="-1"></a><span class="at">    </span><span class="fu">nprune</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span></span>
+<span id="cb16-8"><a href="#cb16-8" tabindex="-1"></a><span class="at">    </span><span class="fu">fast_k</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span></span>
+<span id="cb16-9"><a href="#cb16-9" tabindex="-1"></a><span class="at">    </span><span class="fu">pmethod</span><span class="kw">:</span><span class="at"> backward</span></span></code></pre></div>
 </div>
 <div class="tab-pane" id="r-list-7" role="tabpanel" aria-labelledby="r-list-7-tab">
 
@@ -723,7 +725,9 @@ time.</p>
 <span>    mars <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
 <span>      degree <span class="op">=</span> <span class="fl">2</span>,</span>
 <span>      penalty <span class="op">=</span> <span class="fl">3</span>,</span>
+<span>      nk <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>      nprune <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>      fast_k <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>      pmethod <span class="op">=</span> <span class="st">"backward"</span></span>
 <span>    <span class="op">)</span></span>
 <span>  <span class="op">)</span></span>
@@ -769,7 +773,10 @@ space that smoother models are averaging away.</p>
 <span id="cb18-4"><a href="#cb18-4" tabindex="-1"></a><span class="at">    </span><span class="fu">cp</span><span class="kw">:</span><span class="at"> </span><span class="fl">0.01</span></span>
 <span id="cb18-5"><a href="#cb18-5" tabindex="-1"></a><span class="at">    </span><span class="fu">minsplit</span><span class="kw">:</span><span class="at"> </span><span class="dv">20</span></span>
 <span id="cb18-6"><a href="#cb18-6" tabindex="-1"></a><span class="at">    </span><span class="fu">minbucket</span><span class="kw">:</span><span class="at"> </span><span class="dv">7</span></span>
-<span id="cb18-7"><a href="#cb18-7" tabindex="-1"></a><span class="at">    </span><span class="fu">maxdepth</span><span class="kw">:</span><span class="at"> </span><span class="dv">30</span></span></code></pre></div>
+<span id="cb18-7"><a href="#cb18-7" tabindex="-1"></a><span class="at">    </span><span class="fu">maxdepth</span><span class="kw">:</span><span class="at"> </span><span class="dv">30</span></span>
+<span id="cb18-8"><a href="#cb18-8" tabindex="-1"></a><span class="at">    </span><span class="fu">xval</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
+<span id="cb18-9"><a href="#cb18-9" tabindex="-1"></a><span class="at">    </span><span class="fu">maxcompete</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
+<span id="cb18-10"><a href="#cb18-10" tabindex="-1"></a><span class="at">    </span><span class="fu">maxsurrogate</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span></code></pre></div>
 </div>
 <div class="tab-pane" id="r-list-8" role="tabpanel" aria-labelledby="r-list-8-tab">
 
@@ -781,7 +788,10 @@ space that smoother models are averaging away.</p>
 <span>      cp <span class="op">=</span> <span class="fl">0.01</span>,</span>
 <span>      minsplit <span class="op">=</span> <span class="fl">20</span>,</span>
 <span>      minbucket <span class="op">=</span> <span class="fl">7</span>,</span>
-<span>      maxdepth <span class="op">=</span> <span class="fl">30</span></span>
+<span>      maxdepth <span class="op">=</span> <span class="fl">30</span>,</span>
+<span>      xval <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>      maxcompete <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>      maxsurrogate <span class="op">=</span> <span class="fl">0</span></span>
 <span>    <span class="op">)</span></span>
 <span>  <span class="op">)</span></span>
 <span><span class="op">)</span></span></code></pre></div>
@@ -928,7 +938,9 @@ count is discovered rather than guessed.</p>
 <span id="cb24-9"><a href="#cb24-9" tabindex="-1"></a><span class="at">    </span><span class="fu">colsample_bytree</span><span class="kw">:</span><span class="at"> </span><span class="dv">1</span></span>
 <span id="cb24-10"><a href="#cb24-10" tabindex="-1"></a><span class="at">    </span><span class="fu">lambda</span><span class="kw">:</span><span class="at"> </span><span class="dv">1</span></span>
 <span id="cb24-11"><a href="#cb24-11" tabindex="-1"></a><span class="at">    </span><span class="fu">alpha</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
-<span id="cb24-12"><a href="#cb24-12" tabindex="-1"></a><span class="at">    </span><span class="fu">nthread</span><span class="kw">:</span><span class="at"> </span><span class="dv">1</span></span></code></pre></div>
+<span id="cb24-12"><a href="#cb24-12" tabindex="-1"></a><span class="at">    </span><span class="fu">nthread</span><span class="kw">:</span><span class="at"> </span><span class="dv">1</span></span>
+<span id="cb24-13"><a href="#cb24-13" tabindex="-1"></a><span class="at">    </span><span class="fu">early_stopping_rounds</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span></span>
+<span id="cb24-14"><a href="#cb24-14" tabindex="-1"></a><span class="at">    </span><span class="fu">validation_fraction</span><span class="kw">:</span><span class="at"> </span><span class="fl">0.2</span></span></code></pre></div>
 </div>
 <div class="tab-pane" id="r-list-11" role="tabpanel" aria-labelledby="r-list-11-tab">
 
@@ -945,7 +957,9 @@ count is discovered rather than guessed.</p>
 <span>      colsample_bytree <span class="op">=</span> <span class="fl">1</span>,</span>
 <span>      lambda <span class="op">=</span> <span class="fl">1</span>,</span>
 <span>      alpha <span class="op">=</span> <span class="fl">0</span>,</span>
-<span>      nthread <span class="op">=</span> <span class="fl">1</span></span>
+<span>      nthread <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>      early_stopping_rounds <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>      validation_fraction <span class="op">=</span> <span class="fl">0.2</span></span>
 <span>    <span class="op">)</span></span>
 <span>  <span class="op">)</span></span>
 <span><span class="op">)</span></span></code></pre></div>
@@ -1775,8 +1789,10 @@ the time goes.</p>
 <span id="cb42-3"><a href="#cb42-3" tabindex="-1"></a><span class="at">  </span><span class="fu">mars</span><span class="kw">:</span></span>
 <span id="cb42-4"><a href="#cb42-4" tabindex="-1"></a><span class="at">    </span><span class="fu">degree</span><span class="kw">:</span><span class="at"> </span><span class="dv">2</span></span>
 <span id="cb42-5"><a href="#cb42-5" tabindex="-1"></a><span class="at">    </span><span class="fu">penalty</span><span class="kw">:</span><span class="at"> </span><span class="dv">3</span></span>
-<span id="cb42-6"><a href="#cb42-6" tabindex="-1"></a><span class="at">    </span><span class="fu">nprune</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span></span>
-<span id="cb42-7"><a href="#cb42-7" tabindex="-1"></a><span class="at">    </span><span class="fu">pmethod</span><span class="kw">:</span><span class="at"> backward</span></span></code></pre></div>
+<span id="cb42-6"><a href="#cb42-6" tabindex="-1"></a><span class="at">    </span><span class="fu">nk</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span></span>
+<span id="cb42-7"><a href="#cb42-7" tabindex="-1"></a><span class="at">    </span><span class="fu">nprune</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span></span>
+<span id="cb42-8"><a href="#cb42-8" tabindex="-1"></a><span class="at">    </span><span class="fu">fast_k</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span></span>
+<span id="cb42-9"><a href="#cb42-9" tabindex="-1"></a><span class="at">    </span><span class="fu">pmethod</span><span class="kw">:</span><span class="at"> backward</span></span></code></pre></div>
 </div>
 <div class="tab-pane" id="r-list-20" role="tabpanel" aria-labelledby="r-list-20-tab">
 
@@ -1787,7 +1803,9 @@ the time goes.</p>
 <span>    mars <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
 <span>      degree <span class="op">=</span> <span class="fl">2</span>,</span>
 <span>      penalty <span class="op">=</span> <span class="fl">3</span>,</span>
+<span>      nk <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>      nprune <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>      fast_k <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>      pmethod <span class="op">=</span> <span class="st">"backward"</span></span>
 <span>    <span class="op">)</span></span>
 <span>  <span class="op">)</span></span>
@@ -1868,7 +1886,10 @@ partitioner.</p>
 <span id="cb46-4"><a href="#cb46-4" tabindex="-1"></a><span class="at">    </span><span class="fu">cp</span><span class="kw">:</span><span class="at"> </span><span class="fl">0.01</span></span>
 <span id="cb46-5"><a href="#cb46-5" tabindex="-1"></a><span class="at">    </span><span class="fu">minsplit</span><span class="kw">:</span><span class="at"> </span><span class="dv">20</span></span>
 <span id="cb46-6"><a href="#cb46-6" tabindex="-1"></a><span class="at">    </span><span class="fu">minbucket</span><span class="kw">:</span><span class="at"> </span><span class="dv">7</span></span>
-<span id="cb46-7"><a href="#cb46-7" tabindex="-1"></a><span class="at">    </span><span class="fu">maxdepth</span><span class="kw">:</span><span class="at"> </span><span class="dv">30</span></span></code></pre></div>
+<span id="cb46-7"><a href="#cb46-7" tabindex="-1"></a><span class="at">    </span><span class="fu">maxdepth</span><span class="kw">:</span><span class="at"> </span><span class="dv">30</span></span>
+<span id="cb46-8"><a href="#cb46-8" tabindex="-1"></a><span class="at">    </span><span class="fu">xval</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
+<span id="cb46-9"><a href="#cb46-9" tabindex="-1"></a><span class="at">    </span><span class="fu">maxcompete</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
+<span id="cb46-10"><a href="#cb46-10" tabindex="-1"></a><span class="at">    </span><span class="fu">maxsurrogate</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span></code></pre></div>
 </div>
 <div class="tab-pane" id="r-list-22" role="tabpanel" aria-labelledby="r-list-22-tab">
 
@@ -1880,7 +1901,10 @@ partitioner.</p>
 <span>      cp <span class="op">=</span> <span class="fl">0.01</span>,</span>
 <span>      minsplit <span class="op">=</span> <span class="fl">20</span>,</span>
 <span>      minbucket <span class="op">=</span> <span class="fl">7</span>,</span>
-<span>      maxdepth <span class="op">=</span> <span class="fl">30</span></span>
+<span>      maxdepth <span class="op">=</span> <span class="fl">30</span>,</span>
+<span>      xval <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>      maxcompete <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>      maxsurrogate <span class="op">=</span> <span class="fl">0</span></span>
 <span>    <span class="op">)</span></span>
 <span>  <span class="op">)</span></span>
 <span><span class="op">)</span></span></code></pre></div>
@@ -2028,7 +2052,9 @@ the method.</p>
 <span id="cb52-9"><a href="#cb52-9" tabindex="-1"></a><span class="at">    </span><span class="fu">colsample_bytree</span><span class="kw">:</span><span class="at"> </span><span class="dv">1</span></span>
 <span id="cb52-10"><a href="#cb52-10" tabindex="-1"></a><span class="at">    </span><span class="fu">lambda</span><span class="kw">:</span><span class="at"> </span><span class="dv">1</span></span>
 <span id="cb52-11"><a href="#cb52-11" tabindex="-1"></a><span class="at">    </span><span class="fu">alpha</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
-<span id="cb52-12"><a href="#cb52-12" tabindex="-1"></a><span class="at">    </span><span class="fu">nthread</span><span class="kw">:</span><span class="at"> </span><span class="dv">1</span></span></code></pre></div>
+<span id="cb52-12"><a href="#cb52-12" tabindex="-1"></a><span class="at">    </span><span class="fu">nthread</span><span class="kw">:</span><span class="at"> </span><span class="dv">1</span></span>
+<span id="cb52-13"><a href="#cb52-13" tabindex="-1"></a><span class="at">    </span><span class="fu">early_stopping_rounds</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span></span>
+<span id="cb52-14"><a href="#cb52-14" tabindex="-1"></a><span class="at">    </span><span class="fu">validation_fraction</span><span class="kw">:</span><span class="at"> </span><span class="fl">0.2</span></span></code></pre></div>
 </div>
 <div class="tab-pane" id="r-list-25" role="tabpanel" aria-labelledby="r-list-25-tab">
 
@@ -2045,7 +2071,9 @@ the method.</p>
 <span>      colsample_bytree <span class="op">=</span> <span class="fl">1</span>,</span>
 <span>      lambda <span class="op">=</span> <span class="fl">1</span>,</span>
 <span>      alpha <span class="op">=</span> <span class="fl">0</span>,</span>
-<span>      nthread <span class="op">=</span> <span class="fl">1</span></span>
+<span>      nthread <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>      early_stopping_rounds <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>      validation_fraction <span class="op">=</span> <span class="fl">0.2</span></span>
 <span>    <span class="op">)</span></span>
 <span>  <span class="op">)</span></span>
 <span><span class="op">)</span></span></code></pre></div>
@@ -2083,7 +2111,7 @@ rather than just point prediction.</p>
 <span id="cb54-6"><a href="#cb54-6" tabindex="-1"></a><span class="at">    </span><span class="fu">beta</span><span class="kw">:</span><span class="at"> </span><span class="dv">2</span></span>
 <span id="cb54-7"><a href="#cb54-7" tabindex="-1"></a><span class="at">    </span><span class="fu">min_samples_leaf</span><span class="kw">:</span><span class="at"> </span><span class="dv">5</span></span>
 <span id="cb54-8"><a href="#cb54-8" tabindex="-1"></a><span class="at">    </span><span class="fu">max_depth</span><span class="kw">:</span><span class="at"> </span><span class="dv">10</span></span>
-<span id="cb54-9"><a href="#cb54-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
+<span id="cb54-9"><a href="#cb54-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
 <span id="cb54-10"><a href="#cb54-10" tabindex="-1"></a><span class="at">    </span><span class="fu">num_gfr</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
 <span id="cb54-11"><a href="#cb54-11" tabindex="-1"></a><span class="at">    </span><span class="fu">num_burnin</span><span class="kw">:</span><span class="at"> </span><span class="dv">100</span></span>
 <span id="cb54-12"><a href="#cb54-12" tabindex="-1"></a><span class="at">    </span><span class="fu">num_mcmc</span><span class="kw">:</span><span class="at"> </span><span class="dv">200</span></span>
@@ -2102,7 +2130,7 @@ rather than just point prediction.</p>
 <span>      beta <span class="op">=</span> <span class="fl">2</span>,</span>
 <span>      min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
 <span>      max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
-<span>      keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>      keep_gfr <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>      num_gfr <span class="op">=</span> <span class="fl">0</span>,</span>
 <span>      num_burnin <span class="op">=</span> <span class="fl">100</span>,</span>
 <span>      num_mcmc <span class="op">=</span> <span class="fl">200</span>,</span>
@@ -2151,7 +2179,7 @@ posterior cleanliness for more.</p>
 <span id="cb56-6"><a href="#cb56-6" tabindex="-1"></a><span class="at">    </span><span class="fu">beta</span><span class="kw">:</span><span class="at"> </span><span class="dv">2</span></span>
 <span id="cb56-7"><a href="#cb56-7" tabindex="-1"></a><span class="at">    </span><span class="fu">min_samples_leaf</span><span class="kw">:</span><span class="at"> </span><span class="dv">5</span></span>
 <span id="cb56-8"><a href="#cb56-8" tabindex="-1"></a><span class="at">    </span><span class="fu">max_depth</span><span class="kw">:</span><span class="at"> </span><span class="dv">10</span></span>
-<span id="cb56-9"><a href="#cb56-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
+<span id="cb56-9"><a href="#cb56-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
 <span id="cb56-10"><a href="#cb56-10" tabindex="-1"></a><span class="at">    </span><span class="fu">num_gfr</span><span class="kw">:</span><span class="at"> </span><span class="dv">40</span></span>
 <span id="cb56-11"><a href="#cb56-11" tabindex="-1"></a><span class="at">    </span><span class="fu">num_burnin</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
 <span id="cb56-12"><a href="#cb56-12" tabindex="-1"></a><span class="at">    </span><span class="fu">num_mcmc</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
@@ -2170,7 +2198,7 @@ posterior cleanliness for more.</p>
 <span>      beta <span class="op">=</span> <span class="fl">2</span>,</span>
 <span>      min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
 <span>      max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
-<span>      keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>      keep_gfr <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>      num_gfr <span class="op">=</span> <span class="fl">40</span>,</span>
 <span>      num_burnin <span class="op">=</span> <span class="fl">0</span>,</span>
 <span>      num_mcmc <span class="op">=</span> <span class="fl">0</span>,</span>
@@ -2220,7 +2248,7 @@ is too narrow.</p>
 <span id="cb58-6"><a href="#cb58-6" tabindex="-1"></a><span class="at">    </span><span class="fu">beta</span><span class="kw">:</span><span class="at"> </span><span class="dv">2</span></span>
 <span id="cb58-7"><a href="#cb58-7" tabindex="-1"></a><span class="at">    </span><span class="fu">min_samples_leaf</span><span class="kw">:</span><span class="at"> </span><span class="dv">5</span></span>
 <span id="cb58-8"><a href="#cb58-8" tabindex="-1"></a><span class="at">    </span><span class="fu">max_depth</span><span class="kw">:</span><span class="at"> </span><span class="dv">10</span></span>
-<span id="cb58-9"><a href="#cb58-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
+<span id="cb58-9"><a href="#cb58-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
 <span id="cb58-10"><a href="#cb58-10" tabindex="-1"></a><span class="at">    </span><span class="fu">num_gfr</span><span class="kw">:</span><span class="at"> </span><span class="dv">20</span></span>
 <span id="cb58-11"><a href="#cb58-11" tabindex="-1"></a><span class="at">    </span><span class="fu">num_burnin</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
 <span id="cb58-12"><a href="#cb58-12" tabindex="-1"></a><span class="at">    </span><span class="fu">num_mcmc</span><span class="kw">:</span><span class="at"> </span><span class="dv">200</span></span>
@@ -2239,7 +2267,7 @@ is too narrow.</p>
 <span>      beta <span class="op">=</span> <span class="fl">2</span>,</span>
 <span>      min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
 <span>      max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
-<span>      keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>      keep_gfr <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>      num_gfr <span class="op">=</span> <span class="fl">20</span>,</span>
 <span>      num_burnin <span class="op">=</span> <span class="fl">0</span>,</span>
 <span>      num_mcmc <span class="op">=</span> <span class="fl">200</span>,</span>
@@ -2282,7 +2310,7 @@ become unstable.</p>
 <span id="cb60-6"><a href="#cb60-6" tabindex="-1"></a><span class="at">    </span><span class="fu">beta</span><span class="kw">:</span><span class="at"> </span><span class="dv">2</span></span>
 <span id="cb60-7"><a href="#cb60-7" tabindex="-1"></a><span class="at">    </span><span class="fu">min_samples_leaf</span><span class="kw">:</span><span class="at"> </span><span class="dv">5</span></span>
 <span id="cb60-8"><a href="#cb60-8" tabindex="-1"></a><span class="at">    </span><span class="fu">max_depth</span><span class="kw">:</span><span class="at"> </span><span class="dv">10</span></span>
-<span id="cb60-9"><a href="#cb60-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
+<span id="cb60-9"><a href="#cb60-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
 <span id="cb60-10"><a href="#cb60-10" tabindex="-1"></a><span class="at">    </span><span class="fu">num_gfr</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
 <span id="cb60-11"><a href="#cb60-11" tabindex="-1"></a><span class="at">    </span><span class="fu">num_burnin</span><span class="kw">:</span><span class="at"> </span><span class="dv">100</span></span>
 <span id="cb60-12"><a href="#cb60-12" tabindex="-1"></a><span class="at">    </span><span class="fu">num_mcmc</span><span class="kw">:</span><span class="at"> </span><span class="dv">200</span></span>
@@ -2302,7 +2330,7 @@ become unstable.</p>
 <span>      beta <span class="op">=</span> <span class="fl">2</span>,</span>
 <span>      min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
 <span>      max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
-<span>      keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>      keep_gfr <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>      num_gfr <span class="op">=</span> <span class="fl">0</span>,</span>
 <span>      num_burnin <span class="op">=</span> <span class="fl">100</span>,</span>
 <span>      num_mcmc <span class="op">=</span> <span class="fl">200</span>,</span>
@@ -2389,7 +2417,7 @@ variable and keep split-safe random effects explicit.</p>
 <span id="cb64-6"><a href="#cb64-6" tabindex="-1"></a><span class="at">    </span><span class="fu">beta</span><span class="kw">:</span><span class="at"> </span><span class="dv">2</span></span>
 <span id="cb64-7"><a href="#cb64-7" tabindex="-1"></a><span class="at">    </span><span class="fu">min_samples_leaf</span><span class="kw">:</span><span class="at"> </span><span class="dv">5</span></span>
 <span id="cb64-8"><a href="#cb64-8" tabindex="-1"></a><span class="at">    </span><span class="fu">max_depth</span><span class="kw">:</span><span class="at"> </span><span class="dv">10</span></span>
-<span id="cb64-9"><a href="#cb64-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
+<span id="cb64-9"><a href="#cb64-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
 <span id="cb64-10"><a href="#cb64-10" tabindex="-1"></a><span class="at">    </span><span class="fu">num_gfr</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
 <span id="cb64-11"><a href="#cb64-11" tabindex="-1"></a><span class="at">    </span><span class="fu">num_burnin</span><span class="kw">:</span><span class="at"> </span><span class="dv">100</span></span>
 <span id="cb64-12"><a href="#cb64-12" tabindex="-1"></a><span class="at">    </span><span class="fu">num_mcmc</span><span class="kw">:</span><span class="at"> </span><span class="dv">200</span></span>
@@ -2409,7 +2437,7 @@ variable and keep split-safe random effects explicit.</p>
 <span>      beta <span class="op">=</span> <span class="fl">2</span>,</span>
 <span>      min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
 <span>      max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
-<span>      keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>      keep_gfr <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>      num_gfr <span class="op">=</span> <span class="fl">0</span>,</span>
 <span>      num_burnin <span class="op">=</span> <span class="fl">100</span>,</span>
 <span>      num_mcmc <span class="op">=</span> <span class="fl">200</span>,</span>
@@ -3637,8 +3665,10 @@ the time goes.</p>
 <span id="cb102-3"><a href="#cb102-3" tabindex="-1"></a><span class="at">  </span><span class="fu">mars</span><span class="kw">:</span></span>
 <span id="cb102-4"><a href="#cb102-4" tabindex="-1"></a><span class="at">    </span><span class="fu">degree</span><span class="kw">:</span><span class="at"> </span><span class="dv">2</span></span>
 <span id="cb102-5"><a href="#cb102-5" tabindex="-1"></a><span class="at">    </span><span class="fu">penalty</span><span class="kw">:</span><span class="at"> </span><span class="dv">3</span></span>
-<span id="cb102-6"><a href="#cb102-6" tabindex="-1"></a><span class="at">    </span><span class="fu">nprune</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span></span>
-<span id="cb102-7"><a href="#cb102-7" tabindex="-1"></a><span class="at">    </span><span class="fu">pmethod</span><span class="kw">:</span><span class="at"> backward</span></span></code></pre></div>
+<span id="cb102-6"><a href="#cb102-6" tabindex="-1"></a><span class="at">    </span><span class="fu">nk</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span></span>
+<span id="cb102-7"><a href="#cb102-7" tabindex="-1"></a><span class="at">    </span><span class="fu">nprune</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span></span>
+<span id="cb102-8"><a href="#cb102-8" tabindex="-1"></a><span class="at">    </span><span class="fu">fast_k</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span></span>
+<span id="cb102-9"><a href="#cb102-9" tabindex="-1"></a><span class="at">    </span><span class="fu">pmethod</span><span class="kw">:</span><span class="at"> backward</span></span></code></pre></div>
 </div>
 <div class="tab-pane" id="r-list-50" role="tabpanel" aria-labelledby="r-list-50-tab">
 
@@ -3649,7 +3679,9 @@ the time goes.</p>
 <span>    mars <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
 <span>      degree <span class="op">=</span> <span class="fl">2</span>,</span>
 <span>      penalty <span class="op">=</span> <span class="fl">3</span>,</span>
+<span>      nk <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>      nprune <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>      fast_k <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>      pmethod <span class="op">=</span> <span class="st">"backward"</span></span>
 <span>    <span class="op">)</span></span>
 <span>  <span class="op">)</span></span>
@@ -3732,7 +3764,10 @@ discrete thresholds rather than smooth gradients.</p>
 <span id="cb106-4"><a href="#cb106-4" tabindex="-1"></a><span class="at">    </span><span class="fu">cp</span><span class="kw">:</span><span class="at"> </span><span class="fl">0.01</span></span>
 <span id="cb106-5"><a href="#cb106-5" tabindex="-1"></a><span class="at">    </span><span class="fu">minsplit</span><span class="kw">:</span><span class="at"> </span><span class="dv">20</span></span>
 <span id="cb106-6"><a href="#cb106-6" tabindex="-1"></a><span class="at">    </span><span class="fu">minbucket</span><span class="kw">:</span><span class="at"> </span><span class="dv">7</span></span>
-<span id="cb106-7"><a href="#cb106-7" tabindex="-1"></a><span class="at">    </span><span class="fu">maxdepth</span><span class="kw">:</span><span class="at"> </span><span class="dv">30</span></span></code></pre></div>
+<span id="cb106-7"><a href="#cb106-7" tabindex="-1"></a><span class="at">    </span><span class="fu">maxdepth</span><span class="kw">:</span><span class="at"> </span><span class="dv">30</span></span>
+<span id="cb106-8"><a href="#cb106-8" tabindex="-1"></a><span class="at">    </span><span class="fu">xval</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
+<span id="cb106-9"><a href="#cb106-9" tabindex="-1"></a><span class="at">    </span><span class="fu">maxcompete</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
+<span id="cb106-10"><a href="#cb106-10" tabindex="-1"></a><span class="at">    </span><span class="fu">maxsurrogate</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span></code></pre></div>
 </div>
 <div class="tab-pane" id="r-list-52" role="tabpanel" aria-labelledby="r-list-52-tab">
 
@@ -3744,7 +3779,10 @@ discrete thresholds rather than smooth gradients.</p>
 <span>      cp <span class="op">=</span> <span class="fl">0.01</span>,</span>
 <span>      minsplit <span class="op">=</span> <span class="fl">20</span>,</span>
 <span>      minbucket <span class="op">=</span> <span class="fl">7</span>,</span>
-<span>      maxdepth <span class="op">=</span> <span class="fl">30</span></span>
+<span>      maxdepth <span class="op">=</span> <span class="fl">30</span>,</span>
+<span>      xval <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>      maxcompete <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>      maxsurrogate <span class="op">=</span> <span class="fl">0</span></span>
 <span>    <span class="op">)</span></span>
 <span>  <span class="op">)</span></span>
 <span><span class="op">)</span></span></code></pre></div>
@@ -3853,7 +3891,9 @@ expensive one.</p>
 <span id="cb110-9"><a href="#cb110-9" tabindex="-1"></a><span class="at">    </span><span class="fu">colsample_bytree</span><span class="kw">:</span><span class="at"> </span><span class="dv">1</span></span>
 <span id="cb110-10"><a href="#cb110-10" tabindex="-1"></a><span class="at">    </span><span class="fu">lambda</span><span class="kw">:</span><span class="at"> </span><span class="dv">1</span></span>
 <span id="cb110-11"><a href="#cb110-11" tabindex="-1"></a><span class="at">    </span><span class="fu">alpha</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
-<span id="cb110-12"><a href="#cb110-12" tabindex="-1"></a><span class="at">    </span><span class="fu">nthread</span><span class="kw">:</span><span class="at"> </span><span class="dv">1</span></span></code></pre></div>
+<span id="cb110-12"><a href="#cb110-12" tabindex="-1"></a><span class="at">    </span><span class="fu">nthread</span><span class="kw">:</span><span class="at"> </span><span class="dv">1</span></span>
+<span id="cb110-13"><a href="#cb110-13" tabindex="-1"></a><span class="at">    </span><span class="fu">early_stopping_rounds</span><span class="kw">:</span><span class="at"> </span><span class="ch">null</span></span>
+<span id="cb110-14"><a href="#cb110-14" tabindex="-1"></a><span class="at">    </span><span class="fu">validation_fraction</span><span class="kw">:</span><span class="at"> </span><span class="fl">0.2</span></span></code></pre></div>
 </div>
 <div class="tab-pane" id="r-list-54" role="tabpanel" aria-labelledby="r-list-54-tab">
 
@@ -3870,7 +3910,9 @@ expensive one.</p>
 <span>      colsample_bytree <span class="op">=</span> <span class="fl">1</span>,</span>
 <span>      lambda <span class="op">=</span> <span class="fl">1</span>,</span>
 <span>      alpha <span class="op">=</span> <span class="fl">0</span>,</span>
-<span>      nthread <span class="op">=</span> <span class="fl">1</span></span>
+<span>      nthread <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>      early_stopping_rounds <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>      validation_fraction <span class="op">=</span> <span class="fl">0.2</span></span>
 <span>    <span class="op">)</span></span>
 <span>  <span class="op">)</span></span>
 <span><span class="op">)</span></span></code></pre></div>
@@ -3908,7 +3950,7 @@ close.</p>
 <span id="cb112-6"><a href="#cb112-6" tabindex="-1"></a><span class="at">    </span><span class="fu">beta</span><span class="kw">:</span><span class="at"> </span><span class="dv">2</span></span>
 <span id="cb112-7"><a href="#cb112-7" tabindex="-1"></a><span class="at">    </span><span class="fu">min_samples_leaf</span><span class="kw">:</span><span class="at"> </span><span class="dv">5</span></span>
 <span id="cb112-8"><a href="#cb112-8" tabindex="-1"></a><span class="at">    </span><span class="fu">max_depth</span><span class="kw">:</span><span class="at"> </span><span class="dv">10</span></span>
-<span id="cb112-9"><a href="#cb112-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
+<span id="cb112-9"><a href="#cb112-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
 <span id="cb112-10"><a href="#cb112-10" tabindex="-1"></a><span class="at">    </span><span class="fu">num_gfr</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
 <span id="cb112-11"><a href="#cb112-11" tabindex="-1"></a><span class="at">    </span><span class="fu">num_burnin</span><span class="kw">:</span><span class="at"> </span><span class="dv">100</span></span>
 <span id="cb112-12"><a href="#cb112-12" tabindex="-1"></a><span class="at">    </span><span class="fu">num_mcmc</span><span class="kw">:</span><span class="at"> </span><span class="dv">200</span></span>
@@ -3927,7 +3969,7 @@ close.</p>
 <span>      beta <span class="op">=</span> <span class="fl">2</span>,</span>
 <span>      min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
 <span>      max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
-<span>      keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>      keep_gfr <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>      num_gfr <span class="op">=</span> <span class="fl">0</span>,</span>
 <span>      num_burnin <span class="op">=</span> <span class="fl">100</span>,</span>
 <span>      num_mcmc <span class="op">=</span> <span class="fl">200</span>,</span>
@@ -3974,7 +4016,7 @@ still means a larger warm-up share of what is reported.</p>
 <span id="cb114-6"><a href="#cb114-6" tabindex="-1"></a><span class="at">    </span><span class="fu">beta</span><span class="kw">:</span><span class="at"> </span><span class="dv">2</span></span>
 <span id="cb114-7"><a href="#cb114-7" tabindex="-1"></a><span class="at">    </span><span class="fu">min_samples_leaf</span><span class="kw">:</span><span class="at"> </span><span class="dv">5</span></span>
 <span id="cb114-8"><a href="#cb114-8" tabindex="-1"></a><span class="at">    </span><span class="fu">max_depth</span><span class="kw">:</span><span class="at"> </span><span class="dv">10</span></span>
-<span id="cb114-9"><a href="#cb114-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
+<span id="cb114-9"><a href="#cb114-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
 <span id="cb114-10"><a href="#cb114-10" tabindex="-1"></a><span class="at">    </span><span class="fu">num_gfr</span><span class="kw">:</span><span class="at"> </span><span class="dv">40</span></span>
 <span id="cb114-11"><a href="#cb114-11" tabindex="-1"></a><span class="at">    </span><span class="fu">num_burnin</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
 <span id="cb114-12"><a href="#cb114-12" tabindex="-1"></a><span class="at">    </span><span class="fu">num_mcmc</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
@@ -3993,7 +4035,7 @@ still means a larger warm-up share of what is reported.</p>
 <span>      beta <span class="op">=</span> <span class="fl">2</span>,</span>
 <span>      min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
 <span>      max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
-<span>      keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>      keep_gfr <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>      num_gfr <span class="op">=</span> <span class="fl">40</span>,</span>
 <span>      num_burnin <span class="op">=</span> <span class="fl">0</span>,</span>
 <span>      num_mcmc <span class="op">=</span> <span class="fl">0</span>,</span>
@@ -4042,7 +4084,7 @@ compromise between <code>bart</code> and <code>xbart</code>.</p>
 <span id="cb116-6"><a href="#cb116-6" tabindex="-1"></a><span class="at">    </span><span class="fu">beta</span><span class="kw">:</span><span class="at"> </span><span class="dv">2</span></span>
 <span id="cb116-7"><a href="#cb116-7" tabindex="-1"></a><span class="at">    </span><span class="fu">min_samples_leaf</span><span class="kw">:</span><span class="at"> </span><span class="dv">5</span></span>
 <span id="cb116-8"><a href="#cb116-8" tabindex="-1"></a><span class="at">    </span><span class="fu">max_depth</span><span class="kw">:</span><span class="at"> </span><span class="dv">10</span></span>
-<span id="cb116-9"><a href="#cb116-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
+<span id="cb116-9"><a href="#cb116-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
 <span id="cb116-10"><a href="#cb116-10" tabindex="-1"></a><span class="at">    </span><span class="fu">num_gfr</span><span class="kw">:</span><span class="at"> </span><span class="dv">20</span></span>
 <span id="cb116-11"><a href="#cb116-11" tabindex="-1"></a><span class="at">    </span><span class="fu">num_burnin</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
 <span id="cb116-12"><a href="#cb116-12" tabindex="-1"></a><span class="at">    </span><span class="fu">num_mcmc</span><span class="kw">:</span><span class="at"> </span><span class="dv">200</span></span>
@@ -4061,7 +4103,7 @@ compromise between <code>bart</code> and <code>xbart</code>.</p>
 <span>      beta <span class="op">=</span> <span class="fl">2</span>,</span>
 <span>      min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
 <span>      max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
-<span>      keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>      keep_gfr <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>      num_gfr <span class="op">=</span> <span class="fl">20</span>,</span>
 <span>      num_burnin <span class="op">=</span> <span class="fl">0</span>,</span>
 <span>      num_mcmc <span class="op">=</span> <span class="fl">200</span>,</span>
@@ -4101,7 +4143,7 @@ variance-forest complexity moderate unless anchor coverage is large.</p>
 <span id="cb118-6"><a href="#cb118-6" tabindex="-1"></a><span class="at">    </span><span class="fu">beta</span><span class="kw">:</span><span class="at"> </span><span class="dv">2</span></span>
 <span id="cb118-7"><a href="#cb118-7" tabindex="-1"></a><span class="at">    </span><span class="fu">min_samples_leaf</span><span class="kw">:</span><span class="at"> </span><span class="dv">5</span></span>
 <span id="cb118-8"><a href="#cb118-8" tabindex="-1"></a><span class="at">    </span><span class="fu">max_depth</span><span class="kw">:</span><span class="at"> </span><span class="dv">10</span></span>
-<span id="cb118-9"><a href="#cb118-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
+<span id="cb118-9"><a href="#cb118-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
 <span id="cb118-10"><a href="#cb118-10" tabindex="-1"></a><span class="at">    </span><span class="fu">num_gfr</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
 <span id="cb118-11"><a href="#cb118-11" tabindex="-1"></a><span class="at">    </span><span class="fu">num_burnin</span><span class="kw">:</span><span class="at"> </span><span class="dv">100</span></span>
 <span id="cb118-12"><a href="#cb118-12" tabindex="-1"></a><span class="at">    </span><span class="fu">num_mcmc</span><span class="kw">:</span><span class="at"> </span><span class="dv">200</span></span>
@@ -4121,7 +4163,7 @@ variance-forest complexity moderate unless anchor coverage is large.</p>
 <span>      beta <span class="op">=</span> <span class="fl">2</span>,</span>
 <span>      min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
 <span>      max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
-<span>      keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>      keep_gfr <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>      num_gfr <span class="op">=</span> <span class="fl">0</span>,</span>
 <span>      num_burnin <span class="op">=</span> <span class="fl">100</span>,</span>
 <span>      num_mcmc <span class="op">=</span> <span class="fl">200</span>,</span>
@@ -4163,7 +4205,7 @@ enough observations per level.</p>
 <span id="cb120-6"><a href="#cb120-6" tabindex="-1"></a><span class="at">    </span><span class="fu">beta</span><span class="kw">:</span><span class="at"> </span><span class="dv">2</span></span>
 <span id="cb120-7"><a href="#cb120-7" tabindex="-1"></a><span class="at">    </span><span class="fu">min_samples_leaf</span><span class="kw">:</span><span class="at"> </span><span class="dv">5</span></span>
 <span id="cb120-8"><a href="#cb120-8" tabindex="-1"></a><span class="at">    </span><span class="fu">max_depth</span><span class="kw">:</span><span class="at"> </span><span class="dv">10</span></span>
-<span id="cb120-9"><a href="#cb120-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">true</span></span>
+<span id="cb120-9"><a href="#cb120-9" tabindex="-1"></a><span class="at">    </span><span class="fu">keep_gfr</span><span class="kw">:</span><span class="at"> </span><span class="ch">false</span></span>
 <span id="cb120-10"><a href="#cb120-10" tabindex="-1"></a><span class="at">    </span><span class="fu">num_gfr</span><span class="kw">:</span><span class="at"> </span><span class="dv">0</span></span>
 <span id="cb120-11"><a href="#cb120-11" tabindex="-1"></a><span class="at">    </span><span class="fu">num_burnin</span><span class="kw">:</span><span class="at"> </span><span class="dv">100</span></span>
 <span id="cb120-12"><a href="#cb120-12" tabindex="-1"></a><span class="at">    </span><span class="fu">num_mcmc</span><span class="kw">:</span><span class="at"> </span><span class="dv">200</span></span>
@@ -4183,7 +4225,7 @@ enough observations per level.</p>
 <span>      beta <span class="op">=</span> <span class="fl">2</span>,</span>
 <span>      min_samples_leaf <span class="op">=</span> <span class="fl">5</span>,</span>
 <span>      max_depth <span class="op">=</span> <span class="fl">10</span>,</span>
-<span>      keep_gfr <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>      keep_gfr <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>      num_gfr <span class="op">=</span> <span class="fl">0</span>,</span>
 <span>      num_burnin <span class="op">=</span> <span class="fl">100</span>,</span>
 <span>      num_mcmc <span class="op">=</span> <span class="fl">200</span>,</span>

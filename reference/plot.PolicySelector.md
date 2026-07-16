@@ -17,6 +17,9 @@ plot(
     "policy_benchmark",
     "species_policy_ranked"
   ),
+  anchor_species,
+  max_policies = 30L,
+  show_values = NULL,
   ...
 )
 ```
@@ -37,9 +40,25 @@ plot(
 
   Figure family to draw.
 
+- anchor_species:
+
+  Optional anchor species to plot. When omitted, the selector's
+  configured reference-anchor species are used when available. Use
+  `anchor_species = NULL` explicitly to keep all species.
+
+- max_policies:
+
+  Maximum number of policies shown in dense benchmark and uncertainty
+  plots.
+
+- show_values:
+
+  Optional logical scalar controlling cell labels in heatmaps. `NULL`
+  lets the plotting helper decide from grid size.
+
 - ...:
 
-  Unused additional arguments.
+  Additional plotting arguments.
 
 ## Value
 

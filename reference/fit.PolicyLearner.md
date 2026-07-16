@@ -65,6 +65,13 @@ anchors.
 
   Shared method-settings override.
 
+- workers:
+
+  Optional worker count for the final Super Learner inner OOF task grid.
+  When omitted, the value stored by
+  [`crossfit()`](https://brandynlucca.github.io/tsbiomass/reference/crossfit.md)
+  or configured in the selection stage is used.
+
 - progress:
 
   Optional logical scalar controlling progress messages.

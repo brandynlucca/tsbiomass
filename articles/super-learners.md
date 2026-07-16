@@ -412,7 +412,9 @@ method_settings:
   mars:
     degree: 2
     penalty: 3
+    nk: null
     nprune: null
+    fast_k: null
     pmethod: backward
 ```
 
@@ -424,7 +426,9 @@ list(
     mars = list(
       degree = 2,
       penalty = 3,
+      nk = NULL,
       nprune = NULL,
+      fast_k = NULL,
       pmethod = "backward"
     )
   )
@@ -466,6 +470,9 @@ method_settings:
     minsplit: 20
     minbucket: 7
     maxdepth: 30
+    xval: 0
+    maxcompete: 0
+    maxsurrogate: 0
 ```
 
 ``` r
@@ -477,7 +484,10 @@ list(
       cp = 0.01,
       minsplit = 20,
       minbucket = 7,
-      maxdepth = 30
+      maxdepth = 30,
+      xval = 0,
+      maxcompete = 0,
+      maxsurrogate = 0
     )
   )
 )
@@ -602,6 +612,8 @@ method_settings:
     lambda: 1
     alpha: 0
     nthread: 1
+    early_stopping_rounds: null
+    validation_fraction: 0.2
 ```
 
 ``` r
@@ -618,7 +630,9 @@ list(
       colsample_bytree = 1,
       lambda = 1,
       alpha = 0,
-      nthread = 1
+      nthread = 1,
+      early_stopping_rounds = NULL,
+      validation_fraction = 0.2
     )
   )
 )
@@ -1065,7 +1079,9 @@ method_settings:
   mars:
     degree: 2
     penalty: 3
+    nk: null
     nprune: null
+    fast_k: null
     pmethod: backward
 ```
 
@@ -1077,7 +1093,9 @@ list(
     mars = list(
       degree = 2,
       penalty = 3,
+      nk = NULL,
       nprune = NULL,
+      fast_k = NULL,
       pmethod = "backward"
     )
   )
@@ -1143,6 +1161,9 @@ method_settings:
     minsplit: 20
     minbucket: 7
     maxdepth: 30
+    xval: 0
+    maxcompete: 0
+    maxsurrogate: 0
 ```
 
 ``` r
@@ -1154,7 +1175,10 @@ list(
       cp = 0.01,
       minsplit = 20,
       minbucket = 7,
-      maxdepth = 30
+      maxdepth = 30,
+      xval = 0,
+      maxcompete = 0,
+      maxsurrogate = 0
     )
   )
 )
@@ -1281,6 +1305,8 @@ method_settings:
     lambda: 1
     alpha: 0
     nthread: 1
+    early_stopping_rounds: null
+    validation_fraction: 0.2
 ```
 
 ``` r
@@ -1297,7 +1323,9 @@ list(
       colsample_bytree = 1,
       lambda = 1,
       alpha = 0,
-      nthread = 1
+      nthread = 1,
+      early_stopping_rounds = NULL,
+      validation_fraction = 0.2
     )
   )
 )
@@ -1328,7 +1356,7 @@ method_settings:
     beta: 2
     min_samples_leaf: 5
     max_depth: 10
-    keep_gfr: true
+    keep_gfr: false
     num_gfr: 0
     num_burnin: 100
     num_mcmc: 200
@@ -1347,7 +1375,7 @@ list(
       beta = 2,
       min_samples_leaf = 5,
       max_depth = 10,
-      keep_gfr = TRUE,
+      keep_gfr = FALSE,
       num_gfr = 0,
       num_burnin = 100,
       num_mcmc = 200,
@@ -1391,7 +1419,7 @@ method_settings:
     beta: 2
     min_samples_leaf: 5
     max_depth: 10
-    keep_gfr: true
+    keep_gfr: false
     num_gfr: 40
     num_burnin: 0
     num_mcmc: 0
@@ -1410,7 +1438,7 @@ list(
       beta = 2,
       min_samples_leaf = 5,
       max_depth = 10,
-      keep_gfr = TRUE,
+      keep_gfr = FALSE,
       num_gfr = 40,
       num_burnin = 0,
       num_mcmc = 0,
@@ -1454,7 +1482,7 @@ method_settings:
     beta: 2
     min_samples_leaf: 5
     max_depth: 10
-    keep_gfr: true
+    keep_gfr: false
     num_gfr: 20
     num_burnin: 0
     num_mcmc: 200
@@ -1473,7 +1501,7 @@ list(
       beta = 2,
       min_samples_leaf = 5,
       max_depth = 10,
-      keep_gfr = TRUE,
+      keep_gfr = FALSE,
       num_gfr = 20,
       num_burnin = 0,
       num_mcmc = 200,
@@ -1511,7 +1539,7 @@ method_settings:
     beta: 2
     min_samples_leaf: 5
     max_depth: 10
-    keep_gfr: true
+    keep_gfr: false
     num_gfr: 0
     num_burnin: 100
     num_mcmc: 200
@@ -1531,7 +1559,7 @@ list(
       beta = 2,
       min_samples_leaf = 5,
       max_depth = 10,
-      keep_gfr = TRUE,
+      keep_gfr = FALSE,
       num_gfr = 0,
       num_burnin = 100,
       num_mcmc = 200,
@@ -1605,7 +1633,7 @@ method_settings:
     beta: 2
     min_samples_leaf: 5
     max_depth: 10
-    keep_gfr: true
+    keep_gfr: false
     num_gfr: 0
     num_burnin: 100
     num_mcmc: 200
@@ -1625,7 +1653,7 @@ list(
       beta = 2,
       min_samples_leaf = 5,
       max_depth = 10,
-      keep_gfr = TRUE,
+      keep_gfr = FALSE,
       num_gfr = 0,
       num_burnin = 100,
       num_mcmc = 200,
@@ -2411,7 +2439,9 @@ method_settings:
   mars:
     degree: 2
     penalty: 3
+    nk: null
     nprune: null
+    fast_k: null
     pmethod: backward
 ```
 
@@ -2423,7 +2453,9 @@ list(
     mars = list(
       degree = 2,
       penalty = 3,
+      nk = NULL,
       nprune = NULL,
+      fast_k = NULL,
       pmethod = "backward"
     )
   )
@@ -2492,6 +2524,9 @@ method_settings:
     minsplit: 20
     minbucket: 7
     maxdepth: 30
+    xval: 0
+    maxcompete: 0
+    maxsurrogate: 0
 ```
 
 ``` r
@@ -2503,7 +2538,10 @@ list(
       cp = 0.01,
       minsplit = 20,
       minbucket = 7,
-      maxdepth = 30
+      maxdepth = 30,
+      xval = 0,
+      maxcompete = 0,
+      maxsurrogate = 0
     )
   )
 )
@@ -2602,6 +2640,8 @@ method_settings:
     lambda: 1
     alpha: 0
     nthread: 1
+    early_stopping_rounds: null
+    validation_fraction: 0.2
 ```
 
 ``` r
@@ -2618,7 +2658,9 @@ list(
       colsample_bytree = 1,
       lambda = 1,
       alpha = 0,
-      nthread = 1
+      nthread = 1,
+      early_stopping_rounds = NULL,
+      validation_fraction = 0.2
     )
   )
 )
@@ -2649,7 +2691,7 @@ method_settings:
     beta: 2
     min_samples_leaf: 5
     max_depth: 10
-    keep_gfr: true
+    keep_gfr: false
     num_gfr: 0
     num_burnin: 100
     num_mcmc: 200
@@ -2668,7 +2710,7 @@ list(
       beta = 2,
       min_samples_leaf = 5,
       max_depth = 10,
-      keep_gfr = TRUE,
+      keep_gfr = FALSE,
       num_gfr = 0,
       num_burnin = 100,
       num_mcmc = 200,
@@ -2710,7 +2752,7 @@ method_settings:
     beta: 2
     min_samples_leaf: 5
     max_depth: 10
-    keep_gfr: true
+    keep_gfr: false
     num_gfr: 40
     num_burnin: 0
     num_mcmc: 0
@@ -2729,7 +2771,7 @@ list(
       beta = 2,
       min_samples_leaf = 5,
       max_depth = 10,
-      keep_gfr = TRUE,
+      keep_gfr = FALSE,
       num_gfr = 40,
       num_burnin = 0,
       num_mcmc = 0,
@@ -2773,7 +2815,7 @@ method_settings:
     beta: 2
     min_samples_leaf: 5
     max_depth: 10
-    keep_gfr: true
+    keep_gfr: false
     num_gfr: 20
     num_burnin: 0
     num_mcmc: 200
@@ -2792,7 +2834,7 @@ list(
       beta = 2,
       min_samples_leaf = 5,
       max_depth = 10,
-      keep_gfr = TRUE,
+      keep_gfr = FALSE,
       num_gfr = 20,
       num_burnin = 0,
       num_mcmc = 200,
@@ -2828,7 +2870,7 @@ method_settings:
     beta: 2
     min_samples_leaf: 5
     max_depth: 10
-    keep_gfr: true
+    keep_gfr: false
     num_gfr: 0
     num_burnin: 100
     num_mcmc: 200
@@ -2848,7 +2890,7 @@ list(
       beta = 2,
       min_samples_leaf = 5,
       max_depth = 10,
-      keep_gfr = TRUE,
+      keep_gfr = FALSE,
       num_gfr = 0,
       num_burnin = 100,
       num_mcmc = 200,
@@ -2886,7 +2928,7 @@ method_settings:
     beta: 2
     min_samples_leaf: 5
     max_depth: 10
-    keep_gfr: true
+    keep_gfr: false
     num_gfr: 0
     num_burnin: 100
     num_mcmc: 200
@@ -2906,7 +2948,7 @@ list(
       beta = 2,
       min_samples_leaf = 5,
       max_depth = 10,
-      keep_gfr = TRUE,
+      keep_gfr = FALSE,
       num_gfr = 0,
       num_burnin = 100,
       num_mcmc = 200,

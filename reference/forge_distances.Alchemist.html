@@ -87,6 +87,17 @@ values include the configured default, <code>"gower"</code>, <code>"difference"<
 <code>"mahalanobis"</code>.</p></dd>
 
 
+<dt id="arg-cache-path">cache_path<a class="anchor" aria-label="anchor" href="#arg-cache-path"></a></dt>
+<dd><p>Optional cache file path. When <code>NULL</code>, the method derives
+the cache path from the Alchemist object config inherited from the
+Configurer.</p></dd>
+
+
+<dt id="arg-refresh">refresh<a class="anchor" aria-label="anchor" href="#arg-refresh"></a></dt>
+<dd><p>Optional logical scalar. When <code>NULL</code>, the method inherits the
+refresh setting from the Alchemist object config.</p></dd>
+
+
 <dt id="arg--">...<a class="anchor" aria-label="anchor" href="#arg--"></a></dt>
 <dd><p>Additional learner-specific controls forwarded to the distance
 fitting stage.</p></dd>

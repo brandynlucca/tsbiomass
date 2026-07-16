@@ -70,6 +70,9 @@ summaries can be drawn directly from the package object.</p>
 <span>    <span class="st">"policy_benchmark"</span>,</span>
 <span>    <span class="st">"species_policy_ranked"</span></span>
 <span>  <span class="op">)</span>,</span>
+<span>  <span class="va">anchor_species</span>,</span>
+<span>  max_policies <span class="op">=</span> <span class="fl">30L</span>,</span>
+<span>  show_values <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  <span class="va">...</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
@@ -90,8 +93,24 @@ summaries can be drawn directly from the package object.</p>
 <dd><p>Figure family to draw.</p></dd>
 
 
+<dt id="arg-anchor-species">anchor_species<a class="anchor" aria-label="anchor" href="#arg-anchor-species"></a></dt>
+<dd><p>Optional anchor species to plot. When omitted, the
+selector's configured reference-anchor species are used when available.
+Use <code>anchor_species = NULL</code> explicitly to keep all species.</p></dd>
+
+
+<dt id="arg-max-policies">max_policies<a class="anchor" aria-label="anchor" href="#arg-max-policies"></a></dt>
+<dd><p>Maximum number of policies shown in dense benchmark and
+uncertainty plots.</p></dd>
+
+
+<dt id="arg-show-values">show_values<a class="anchor" aria-label="anchor" href="#arg-show-values"></a></dt>
+<dd><p>Optional logical scalar controlling cell labels in
+heatmaps. <code>NULL</code> lets the plotting helper decide from grid size.</p></dd>
+
+
 <dt id="arg--">...<a class="anchor" aria-label="anchor" href="#arg--"></a></dt>
-<dd><p>Unused additional arguments.</p></dd>
+<dd><p>Additional plotting arguments.</p></dd>
 
 </dl></div>
     <div class="section level2">
