@@ -114,3 +114,48 @@ test_that("method-fold socket isolation logs the stored failure message", {
   expect_true(any(grepl("socket failure isolated to this method-fold task", output, fixed = TRUE)))
   expect_true(any(grepl("error reading from connection", output, fixed = TRUE)))
 })
+
+test_that("final Super Learner OOF scheduler sets fork payload before cluster creation", {
+  on.exit(tsbiomass:::clear_meta_policy_crossfit_payload(), add = TRUE)
+  tasks <- list(
+    list(fold_id = 1L, method = "glm"),
+    list(fold_id = 2L, method = "glm")
+  )
+  payload <- list(
+    training_data = tibble::tibble(
+      .outcome = c(0.1, 0.2, 0.3, 0.4),
+      feature_a = c(1, 2, 3, 4)
+    ),
+    foldid = c(1L, 1L, 2L, 2L),
+    feature_cols = "feature_a",
+    outcome_transform = "identity",
+    lambda_rule = "lambda.min",
+    inner_folds = 2L,
+    seed = 1L,
+    method_settings = list()
+  )
+
+  testthat::local_mocked_bindings(
+    initialize_parallel_cluster = function(workers) {
+      testthat::expect_true(
+        exists("foldid", envir = tsbiomass:::.meta_policy_crossfit_payload, inherits = FALSE)
+      )
+      testthat::expect_equal(
+        get("foldid", envir = tsbiomass:::.meta_policy_crossfit_payload, inherits = FALSE),
+        payload$foldid
+      )
+      stop("payload ordering check", call. = FALSE)
+    },
+    .package = "tsbiomass"
+  )
+
+  expect_error(
+    tsbiomass:::run_meta_policy_super_oof_tasks(
+      tasks = tasks,
+      payload = payload,
+      workers = 2L,
+      progress = FALSE
+    ),
+    "payload ordering check"
+  )
+})
