@@ -775,7 +775,7 @@ plot_ordination_clusters <- function(points_tbl,
   } else {
     species_col
   }
-  plot_df$anchor_label <- as.character(plot_df[[species_col_]])
+  plot_df$anchor_label <- ordination_species_label(plot_df[[species_col_]])
 
   # Process references
   if (reference_col %in% names(plot_df)) {
@@ -786,6 +786,7 @@ plot_ordination_clusters <- function(points_tbl,
   scale_ref <- max(abs(c(plot_df$MDS1, plot_df$MDS2)), na.rm = TRUE)
   if (!is.finite(scale_ref) || scale_ref <= 0) scale_ref <- 1
   cluster_limits <- sort(unique(as.character(plot_df[[cluster_name]])))
+  cluster_cols <- ordination_discrete_palette(cluster_limits, palette = "batlow")
 
   # Create base layer with the grid setup
   p <- ggplot2::ggplot(
@@ -834,14 +835,14 @@ plot_ordination_clusters <- function(points_tbl,
       min.segment.length = 0,
       show.legend = FALSE
     ) +
-    ggplot2::scale_color_brewer(
-      palette = "Dark2",
+    ggplot2::scale_colour_manual(
+      values = cluster_cols,
       name = "Cluster",
       limits = cluster_limits,
       labels = snake_title
     ) +
-    ggplot2::scale_fill_brewer(
-      palette = "Dark2",
+    ggplot2::scale_fill_manual(
+      values = cluster_cols,
       guide = "none",
       limits = cluster_limits
     )
@@ -849,6 +850,239 @@ plot_ordination_clusters <- function(points_tbl,
   # Format axis labels
   p +
     ggplot2::labs(x = "NMDS1", y = "NMDS2")
+}
+
+#' Build ordination trait display metadata
+#'
+#' @return A tibble with coded trait names, display names, and data types.
+#'
+#' @keywords internal
+#' @noRd
+ordination_trait_registry_table <- function() {
+  registry <- read_trait_registry()
+  species_defs <- registry$species_traits %||% list()
+  study_defs <- registry$study_traits %||% list()
+  defs <- c(species_defs, study_defs)
+  scopes <- c(rep("Species trait", length(species_defs)), rep("Survey trait", length(study_defs)))
+  if (length(defs) == 0L) {
+    return(tibble::tibble(coded_name = character(), display_name = character(), data_type = character(), trait_scope = character()))
+  }
+  tibble::tibble(
+    coded_name = vapply(defs, function(x) as.character(x$coded_name %||% NA_character_)[[1]], character(1)),
+    display_name = vapply(defs, function(x) as.character(x$display_name %||% x$coded_name %||% NA_character_)[[1]], character(1)),
+    data_type = vapply(defs, function(x) as.character(x$data_type %||% NA_character_)[[1]], character(1)),
+    trait_scope = scopes
+  ) |>
+    dplyr::filter(!is.na(.data$coded_name), nzchar(.data$coded_name))
+}
+
+#' Clean an ordination trait display label
+#'
+#' @param label Raw trait display label.
+#'
+#' @return Display label with redundant scope words removed.
+#'
+#' @keywords internal
+#' @noRd
+ordination_clean_trait_display <- function(label) {
+  label <- stringr::str_squish(as.character(label %||% ""))
+  label <- stringr::str_replace(label, "^Taxonomic\\s+", "")
+  label <- stringr::str_replace(label, "^Study\\s+", "")
+  label <- stringr::str_replace(label, stringr::regex("\\bstudy\\b\\s*", ignore_case = TRUE), "")
+  label <- stringr::str_replace(label, "^FAO major fishing area$", "FAO area")
+  label <- stringr::str_squish(label)
+  lower_start <- grepl("^[[:lower:]]", label)
+  label[lower_start] <- paste0(toupper(substr(label[lower_start], 1L, 1L)), substring(label[lower_start], 2L))
+  label <- stringr::str_replace(label, "^Fao\\b", "FAO")
+  label
+}
+
+#' Resolve ordination trait scope
+#'
+#' @param trait Trait code.
+#'
+#' @return Scope label.
+#'
+#' @keywords internal
+#' @noRd
+ordination_trait_scope <- function(trait) {
+  trait <- as.character(trait %||% "")
+  registry <- ordination_trait_registry_table()
+  out <- rep("Trait", length(trait))
+  out[grepl("^species_", trait)] <- "Species trait"
+  out[grepl("^(study|survey)_", trait)] <- "Survey trait"
+  unresolved <- out == "Trait"
+  if (any(unresolved) && nrow(registry) > 0L) {
+    for (i in which(unresolved)) {
+      hits <- registry[registry$coded_name == trait[[i]], , drop = FALSE]
+      if (nrow(hits) == 1L) {
+        out[[i]] <- hits$trait_scope[[1L]]
+      }
+    }
+  }
+  out
+}
+
+#' Resolve an ordination trait base code
+#'
+#' @param trait Trait code.
+#'
+#' @return Base trait code with ordination-only scope prefixes removed.
+#'
+#' @keywords internal
+#' @noRd
+ordination_trait_base <- function(trait) {
+  trait <- as.character(trait %||% "")
+  base <- stringr::str_remove(trait, "^(species|study|survey)_")
+  base <- dplyr::recode(
+    base,
+    depth_minimum = "depth_min",
+    depth_maximum = "depth_max",
+    length_minimum = "length_min",
+    length_maximum = "length_max",
+    .default = base
+  )
+  base
+}
+
+#' Format scientific species labels for plotting
+#'
+#' @param x Species labels.
+#'
+#' @return Labels with genus title-cased and epithets lower-cased.
+#'
+#' @keywords internal
+#' @noRd
+ordination_species_label <- function(x) {
+  x <- stringr::str_squish(as.character(x %||% ""))
+  vapply(
+    x,
+    function(label) {
+      if (is.na(label) || !nzchar(label) || label %in% c("NA", "NA NA", "Generic")) {
+        return(label)
+      }
+      parts <- unlist(strsplit(label, "\\s+", perl = TRUE), use.names = FALSE)
+      if (length(parts) < 2L) {
+        return(label)
+      }
+      paste(c(stringr::str_to_title(parts[[1L]]), stringr::str_to_lower(parts[-1L])), collapse = " ")
+    },
+    character(1)
+  )
+}
+
+#' Format an ordination trait label
+#'
+#' @param trait Trait code.
+#'
+#' @return Display label.
+#'
+#' @keywords internal
+#' @noRd
+ordination_trait_label <- function(trait) {
+  trait <- as.character(trait %||% "")
+  registry <- ordination_trait_registry_table()
+  base <- ordination_trait_base(trait)
+  out <- vapply(
+    seq_along(trait),
+    function(i) {
+      hits <- registry[registry$coded_name == base[[i]], , drop = FALSE]
+      if (nrow(hits) == 0L) {
+        hits <- registry[registry$coded_name == trait[[i]], , drop = FALSE]
+      }
+      if (nrow(hits) > 0L) {
+        return(ordination_clean_trait_display(hits$display_name[[1L]]))
+      }
+      ordination_clean_trait_display(snake_title(base[[i]]))
+    },
+    character(1)
+  )
+  out
+}
+
+#' Format an ordination factor level label
+#'
+#' @param trait Trait code.
+#' @param level Raw factor level.
+#'
+#' @return Display label.
+#'
+#' @keywords internal
+#' @noRd
+ordination_level_label <- function(trait,
+                                   level) {
+  trait <- as.character(trait %||% "")
+  base_trait <- ordination_trait_base(trait)
+  level_chr <- stringr::str_squish(as.character(level %||% ""))
+  trait_label <- stringr::str_squish(as.character(ordination_trait_label(trait)))
+  if (!nzchar(level_chr) || is.na(level_chr)) {
+    return(NA_character_)
+  }
+  trait_esc <- gsub("([][{}()+*^$|\\\\?.])", "\\\\\\1", trait[[1]])
+  base_trait_esc <- gsub("([][{}()+*^$|\\\\?.])", "\\\\\\1", base_trait[[1]])
+  trait_label_esc <- gsub("([][{}()+*^$|\\\\?.])", "\\\\\\1", trait_label[[1]])
+  level_chr <- stringr::str_remove(level_chr, paste0("(?i)^", trait_esc, "\\s*[:_-]?\\s*"))
+  level_chr <- stringr::str_remove(level_chr, paste0("(?i)^", base_trait_esc, "\\s*[:_-]?\\s*"))
+  level_chr <- stringr::str_remove(level_chr, paste0("(?i)^", trait_label_esc, "\\s*[:_-]?\\s*"))
+  level_low <- stringr::str_to_lower(level_chr)
+  if (identical(base_trait[[1]], "species")) {
+    return(ordination_species_label(level_chr))
+  }
+  if (identical(base_trait[[1]], "genus")) {
+    return(stringr::str_to_title(level_low))
+  }
+  if (level_low %in% c("true", "t", "1", "yes", "y")) {
+    return("Yes")
+  }
+  if (level_low %in% c("false", "f", "0", "no", "n")) {
+    return("No")
+  }
+  if (identical(base_trait[[1]], "body_shape")) {
+    return(dplyr::case_when(
+      stringr::str_detect(level_low, "eel") ~ "Eel-like",
+      stringr::str_detect(level_low, "elong") ~ "Elongated",
+      stringr::str_detect(level_low, "fusiform|normal|torpedo|streamline") ~ "Fusiform",
+      stringr::str_detect(level_low, "compress|deep|glob|short") ~ "Short/deep",
+      TRUE ~ "Other"
+    ))
+  }
+  if (identical(base_trait[[1]], "ocean_basin")) {
+    basin_map <- c(
+      atlantic = "Atlantic Ocean",
+      pacific = "Pacific Ocean",
+      indian = "Indian Ocean",
+      mediterranean = "Mediterranean Sea",
+      southern = "Southern Ocean",
+      arctic = "Arctic Ocean",
+      inland = "Inland waters"
+    )
+    parts <- unlist(strsplit(level_low, "[;,/]", perl = TRUE), use.names = FALSE)
+    parts <- stringr::str_squish(parts)
+    parts <- parts[nzchar(parts)]
+    if (length(parts) > 0L && all(parts %in% names(basin_map))) {
+      return(paste(unname(basin_map[parts]), collapse = "; "))
+    }
+  }
+  tools::toTitleCase(gsub("_", " ", level_chr, fixed = TRUE))
+}
+
+#' Build an ordination discrete color scale
+#'
+#' @param values Discrete values to color.
+#' @param palette scico palette name.
+#'
+#' @return Named character vector.
+#'
+#' @keywords internal
+#' @noRd
+ordination_discrete_palette <- function(values,
+                                        palette = "batlow") {
+  values <- unique(as.character(values))
+  values <- values[!is.na(values) & nzchar(values)]
+  if (length(values) == 0L) {
+    return(character(0))
+  }
+  stats::setNames(scico::scico(length(values), palette = palette), values)
 }
 
 #' Plot NMDS variable vectors
@@ -876,8 +1110,17 @@ plot_ordination_vectors <- function(vec_tbl,
     !all(c("trait", "MDS1", "MDS2") %in% names(vec_df)) ||
     !all(c("MDS1", "MDS2") %in% names(point_df))) {
     return(ggplot2::ggplot() +
-      ggplot2::labs(title = "Global NMDS Variable Loadings", subtitle = "Required plotting fields were not available.", x = "NMDS1", y = "NMDS2") +
-      ggplot2::theme_minimal(base_size = 11))
+      ggplot2::labs(subtitle = "Required plotting fields were not available.", x = "NMDS1", y = "NMDS2") +
+      ggplot2::theme_bw(base_size = 11))
+  }
+  if ("p_value" %in% names(vec_df)) {
+    vec_df <- vec_df |>
+      dplyr::filter(!is.na(.data$p_value), is.finite(.data$p_value), .data$p_value < 0.05)
+  }
+  if (nrow(vec_df) == 0L) {
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = "NMDS1", y = "NMDS2") +
+      ggplot2::theme_bw(base_size = 11))
   }
   species_col_ <- if (!(species_col %in% names(point_df))) {
     sc <- "model_id"
@@ -888,7 +1131,7 @@ plot_ordination_vectors <- function(vec_tbl,
   } else {
     species_col
   }
-  point_df$anchor_label <- as.character(point_df[[species_col_]])
+  point_df$anchor_label <- ordination_species_label(point_df[[species_col_]])
   if (reference_col %in% names(point_df)) {
     ref_flag <- dplyr::coalesce(as.logical(point_df[[reference_col]]), FALSE)
   } else {
@@ -896,10 +1139,18 @@ plot_ordination_vectors <- function(vec_tbl,
   }
   scale_ref <- max(abs(c(point_df$MDS1, point_df$MDS2)), na.rm = TRUE)
   if (!is.finite(scale_ref) || scale_ref <= 0) scale_ref <- 1
+  vec_df <- vec_df |>
+    dplyr::mutate(
+      trait_label = ordination_trait_label(.data$trait),
+      trait_scope = ordination_trait_scope(.data$trait),
+      trait_fontface = dplyr::if_else(ordination_trait_base(.data$trait) %in% c("genus", "species"), "italic", "plain"),
+      label_x = .data$MDS1 * 1.18,
+      label_y = .data$MDS2 * 1.18
+    )
+  scope_cols <- ordination_discrete_palette(unique(vec_df$trait_scope), palette = "batlow")
 
   ggplot2::ggplot(
-    vec_df |>
-      dplyr::mutate(trait_label = stringr::str_replace_all(.data$trait, "_", " ")),
+    vec_df,
     ggplot2::aes(x = 0, y = 0)
   ) +
     ggplot2::geom_hline(yintercept = 0, linetype = "dashed", colour = "grey80") +
@@ -915,36 +1166,46 @@ plot_ordination_vectors <- function(vec_tbl,
       fill = "#fdd0a2",
       colour = "black"
     ) +
-    ggplot2::geom_text(
+    ggrepel::geom_label_repel(
       data = point_df[ref_flag, , drop = FALSE],
       ggplot2::aes(x = .data$MDS1, y = .data$MDS2, label = .data$anchor_label),
       inherit.aes = FALSE,
       size = 2.8,
       fontface = "italic",
-      nudge_y = 0.03 * scale_ref,
-      check_overlap = TRUE
+      box.padding = 0.5,
+      point.padding = 0.35,
+      min.segment.length = 0,
+      max.overlaps = Inf,
+      label.size = 0.2,
+      fill = "white"
     ) +
     ggplot2::geom_segment(
-      ggplot2::aes(xend = .data$MDS1, yend = .data$MDS2, linewidth = .data$r2, colour = .data$p_value),
+      ggplot2::aes(xend = .data$MDS1, yend = .data$MDS2, linewidth = .data$r2, colour = .data$trait_scope),
       arrow = grid::arrow(length = grid::unit(0.18, "cm")),
       alpha = 0.9
     ) +
     ggplot2::geom_point(ggplot2::aes(x = .data$MDS1, y = .data$MDS2), size = 2.2, colour = "black") +
-    ggrepel::geom_text_repel(
-      ggplot2::aes(x = .data$MDS1, y = .data$MDS2, label = .data$trait_label),
-      size = 3.2,
-      box.padding = 0.25,
-      point.padding = 0.2,
-      max.overlaps = Inf
+    ggrepel::geom_label_repel(
+      ggplot2::aes(x = .data$label_x, y = .data$label_y, label = .data$trait_label, fontface = .data$trait_fontface, colour = .data$trait_scope),
+      size = 2.35,
+      box.padding = 0.55,
+      point.padding = 0.35,
+      min.segment.length = 0,
+      segment.size = 0.25,
+      force = 2,
+      force_pull = 0.15,
+      max.overlaps = Inf,
+      label.size = 0.2,
+      fill = "white"
     ) +
-    ggplot2::scale_linewidth_continuous(range = c(0.5, 1.4), name = expression(R^2)) +
-    ggplot2::scale_colour_gradient(low = "#cb181d", high = "#2171b5", trans = "reverse", name = "p-value") +
+    ggplot2::scale_colour_manual(values = scope_cols, breaks = names(scope_cols), name = "Trait scope") +
+    ggplot2::scale_linewidth_continuous(range = c(0.5, 1.4), name = expression(italic(R)^2)) +
+    ggplot2::scale_discrete_identity(aesthetic = "fontface") +
     ggplot2::labs(
-      title = "Global NMDS Variable Loadings",
       x = "NMDS1",
       y = "NMDS2"
     ) +
-    ggplot2::theme_minimal(base_size = 11)
+    ggplot2::theme_bw(base_size = 11)
 }
 
 #' Plot species-level NMDS ordination
@@ -1017,6 +1278,7 @@ plot_species_ordination <- function(points_tbl,
         TRUE ~ .data[[species_col_]]
       )
     ) |>
+    dplyr::mutate(plot_label = ordination_species_label(.data$plot_label)) |>
     dplyr::filter(
       !is.na(.data$plot_label),
       nzchar(.data$plot_label)
@@ -1157,7 +1419,15 @@ plot_species_ordination <- function(points_tbl,
   if (!is.null(vec_tbl) && nrow(vec_tbl) > 0) {
     sig_vec <- drop_ordination_synthetic_overlap_traits(vec_tbl, trait_col = "trait") |>
       dplyr::filter(is.finite(.data$MDS1), is.finite(.data$MDS2), !is.na(.data$p_value), .data$p_value < 0.05) |>
-      dplyr::mutate(xend = .data$MDS1 * scale_ref, yend = .data$MDS2 * scale_ref)
+      dplyr::mutate(
+        xend = .data$MDS1 * scale_ref,
+        yend = .data$MDS2 * scale_ref,
+        label_x = .data$xend * 1.18,
+        label_y = .data$yend * 1.18,
+        trait_label = ordination_trait_label(.data$trait),
+        trait_scope = ordination_trait_scope(.data$trait),
+        trait_fontface = dplyr::if_else(ordination_trait_base(.data$trait) %in% c("genus", "species"), "italic", "plain")
+      )
 
     if (nrow(sig_vec) > 0) {
       p <- p +
@@ -1169,13 +1439,21 @@ plot_species_ordination <- function(points_tbl,
           colour = "#333333",
           linewidth = 0.55
         ) +
-        ggplot2::geom_text(
+        ggrepel::geom_label_repel(
           data = sig_vec,
-          ggplot2::aes(x = .data$xend * 1.08, y = .data$yend * 1.08, label = .data$trait),
+          ggplot2::aes(x = .data$label_x, y = .data$label_y, label = .data$trait_label, fontface = .data$trait_fontface),
           inherit.aes = FALSE,
-          size = 2.8,
+          size = 2.3,
           colour = "#333333",
-          check_overlap = TRUE
+          box.padding = 0.55,
+          point.padding = 0.35,
+          min.segment.length = 0,
+          segment.size = 0.25,
+          force = 2,
+          force_pull = 0.15,
+          max.overlaps = Inf,
+          label.size = 0.2,
+          fill = "white"
         )
     }
   }
@@ -1185,7 +1463,15 @@ plot_species_ordination <- function(points_tbl,
   if (!is.null(fac_tbl) && nrow(fac_tbl) > 0) {
     sig_fac <- drop_ordination_synthetic_overlap_traits(fac_tbl, trait_col = "trait") |>
       dplyr::filter(is.finite(.data$MDS1), is.finite(.data$MDS2), !is.na(.data$p_value), .data$p_value < 0.05) |>
-      dplyr::mutate(fac_label = paste0(.data$trait, ": ", .data$level))
+      dplyr::mutate(
+        fac_label = mapply(
+          ordination_level_label,
+          as.character(.data$trait),
+          as.character(.data$level),
+          USE.NAMES = FALSE
+        ),
+        fac_fontface = dplyr::if_else(ordination_trait_base(.data$trait) %in% c("genus", "species"), "italic", "plain")
+      )
 
     if (nrow(sig_fac) > 0) {
       p <- p +
@@ -1198,14 +1484,18 @@ plot_species_ordination <- function(points_tbl,
           stroke = 1,
           colour = "#7f2704"
         ) +
-        ggplot2::geom_text(
+        ggrepel::geom_label_repel(
           data = sig_fac,
-          ggplot2::aes(x = .data$MDS1, y = .data$MDS2, label = .data$fac_label),
+          ggplot2::aes(x = .data$MDS1, y = .data$MDS2, label = .data$fac_label, fontface = .data$fac_fontface),
           inherit.aes = FALSE,
           size = 2.5,
           colour = "#7f2704",
-          nudge_y = 0.02 * scale_ref,
-          check_overlap = TRUE
+          box.padding = 0.3,
+          point.padding = 0.2,
+          min.segment.length = 0,
+          max.overlaps = Inf,
+          label.size = 0.2,
+          fill = "white"
         )
     }
   }
@@ -1301,10 +1591,28 @@ plot_ordination_centers <- function(fac_tbl,
   if (!"n" %in% names(fac_df)) {
     fac_df$n <- 1
   }
+  if ("p_value" %in% names(fac_df)) {
+    fac_df <- fac_df |>
+      dplyr::filter(!is.na(.data$p_value), is.finite(.data$p_value), .data$p_value < 0.05)
+  }
+  if (nrow(fac_df) == 0L) {
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = "NMDS1", y = "NMDS2") +
+      ggplot2::theme_bw(base_size = 11))
+  }
   fac_df <- fac_df |>
     dplyr::mutate(
+      trait_label = ordination_trait_label(.data$trait),
+      level_label = mapply(
+        ordination_level_label,
+        as.character(.data$trait),
+        as.character(.data$level),
+        USE.NAMES = FALSE
+      ),
       trait = factor(.data$trait, levels = unique(.data$trait)),
-      centroid_label = paste0(stringr::str_replace_all(.data$trait, "_", " "), ": ", .data$level)
+      trait_label = factor(.data$trait_label, levels = unique(.data$trait_label)),
+      centroid_label = .data$level_label,
+      centroid_fontface = dplyr::if_else(ordination_trait_base(as.character(.data$trait)) %in% c("genus", "species"), "italic", "plain")
     )
   species_col_ <- if (!(species_col %in% names(point_df))) {
     sc <- "model_id"
@@ -1315,11 +1623,7 @@ plot_ordination_centers <- function(fac_tbl,
   } else {
     species_col
   }
-  if (common_col %in% names(point_df)) {
-    point_df$anchor_label <- dplyr::coalesce(as.character(point_df[[common_col]]), as.character(point_df[[species_col_]]))
-  } else {
-    point_df$anchor_label <- as.character(point_df[[species_col_]])
-  }
+  point_df$anchor_label <- ordination_species_label(point_df[[species_col_]])
   if (reference_col %in% names(point_df)) {
     ref_flag <- dplyr::coalesce(as.logical(point_df[[reference_col]]), FALSE)
   } else {
@@ -1328,7 +1632,9 @@ plot_ordination_centers <- function(fac_tbl,
   scale_ref <- max(abs(c(point_df$MDS1, point_df$MDS2)), na.rm = TRUE)
   if (!is.finite(scale_ref) || scale_ref <= 0) scale_ref <- 1
 
-  ggplot2::ggplot(fac_df, ggplot2::aes(x = .data$MDS1, y = .data$MDS2, colour = .data$trait)) +
+  centroid_cols <- ordination_discrete_palette(levels(fac_df$trait_label), palette = "batlow")
+
+  ggplot2::ggplot(fac_df, ggplot2::aes(x = .data$MDS1, y = .data$MDS2, colour = .data$trait_label)) +
     ggplot2::geom_hline(yintercept = 0, linetype = "dashed", colour = "grey80") +
     ggplot2::geom_vline(xintercept = 0, linetype = "dashed", colour = "grey80") +
     ggplot2::geom_point(data = point_df, ggplot2::aes(x = .data$MDS1, y = .data$MDS2), inherit.aes = FALSE, colour = "grey75", alpha = 0.35, size = 1.8) +
@@ -1337,36 +1643,43 @@ plot_ordination_centers <- function(fac_tbl,
       ggplot2::aes(x = .data$MDS1, y = .data$MDS2),
       inherit.aes = FALSE,
       shape = 23,
-      size = 4.2,
-      stroke = 1,
-      fill = "#fdd0a2",
+      size = 5.4,
+      stroke = 1.4,
+      fill = "#ffd166",
       colour = "black"
     ) +
-    ggplot2::geom_text(
+    ggrepel::geom_label_repel(
       data = point_df[ref_flag, , drop = FALSE],
       ggplot2::aes(x = .data$MDS1, y = .data$MDS2, label = .data$anchor_label),
       inherit.aes = FALSE,
-      size = 2.8,
-      fontface = "italic",
-      nudge_y = 0.03 * scale_ref,
-      check_overlap = TRUE
-    ) +
-    ggplot2::geom_point(ggplot2::aes(size = .data$n), alpha = 0.9) +
-    ggrepel::geom_text_repel(
-      ggplot2::aes(label = .data$centroid_label),
-      size = 3,
-      box.padding = 0.25,
-      point.padding = 0.2,
+      size = 3.15,
+      fontface = "bold.italic",
+      box.padding = 0.65,
+      point.padding = 0.45,
+      min.segment.length = 0,
       max.overlaps = Inf,
+      label.size = 0.2,
+      fill = "white"
+    ) +
+    ggplot2::geom_point(size = 3.1, alpha = 0.9) +
+    ggrepel::geom_label_repel(
+      ggplot2::aes(label = .data$centroid_label, fontface = .data$centroid_fontface),
+      size = 3,
+      box.padding = 0.35,
+      point.padding = 0.25,
+      min.segment.length = 0,
+      max.overlaps = Inf,
+      label.size = 0.2,
+      fill = "white",
       show.legend = FALSE
     ) +
-    ggplot2::scale_size_continuous(range = c(2.2, 5), name = "n") +
+    ggplot2::scale_colour_manual(values = centroid_cols, name = "Trait") +
+    ggplot2::scale_discrete_identity(aesthetic = "fontface") +
     ggplot2::labs(
       x = "NMDS1",
-      y = "NMDS2",
-      colour = "Trait"
+      y = "NMDS2"
     ) +
-    ggplot2::theme_minimal(base_size = 11)
+    ggplot2::theme_bw(base_size = 11)
 }
 
 #' Format an overlap metric label
@@ -1486,12 +1799,15 @@ plot_overlap_heatmap <- function(overlap_tbl,
   if (nrow(overlap_df) == 0 || !"anchor_species" %in% names(overlap_df)) {
     return(ggplot2::ggplot() +
       ggplot2::labs(
-        title = "Admissibility Overlap Profile",
         subtitle = "No anchor overlap summary rows were stored.",
         x = NULL,
         y = NULL
       ) +
-      ggplot2::theme_minimal(base_size = 11))
+      ggplot2::theme_bw(base_size = 11) +
+      ggplot2::theme(
+        text = ggplot2::element_text(colour = "black"),
+        axis.text = ggplot2::element_text(colour = "black")
+      ))
   }
   if (is.null(metric_labs)) {
     metric_labs <- configured_overlap_metric_labels(overlap_df, config = config)
@@ -1500,12 +1816,15 @@ plot_overlap_heatmap <- function(overlap_tbl,
   if (length(metric_labs) == 0L) {
     return(ggplot2::ggplot() +
       ggplot2::labs(
-        title = "Admissibility Overlap Profile",
         subtitle = "Anchor overlap rows were stored, but no finite overlap metrics were available to plot.",
         x = NULL,
         y = NULL
       ) +
-      ggplot2::theme_minimal(base_size = 11))
+      ggplot2::theme_bw(base_size = 11) +
+      ggplot2::theme(
+        text = ggplot2::element_text(colour = "black"),
+        axis.text = ggplot2::element_text(colour = "black")
+      ))
   }
 
   plot_df <- overlap_df |>
@@ -1519,44 +1838,60 @@ plot_overlap_heatmap <- function(overlap_tbl,
     )
   if (nrow(plot_df) == 0 || !any(is.finite(plot_df$value))) {
     return(ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$metric, y = .data$anchor_species)) +
-      ggplot2::geom_tile(fill = "grey90", colour = "white") +
-      ggplot2::geom_text(label = "NA", size = 3, colour = "grey35") +
-      ggplot2::scale_y_discrete(labels = function(x) parse(text = paste0("italic('", gsub("'", "\\\\'", x, fixed = TRUE), "')"))) +
+      ggplot2::geom_tile(fill = "grey90", colour = "black", linewidth = 0.25) +
+      ggplot2::geom_label(label = "NA", size = 3, colour = "black", fill = "white", linewidth = 0.15) +
+      ggplot2::scale_x_discrete(expand = ggplot2::expansion(add = 0)) +
+      ggplot2::scale_y_discrete(
+        labels = function(x) parse(text = paste0("italic('", gsub("'", "\\\\'", x, fixed = TRUE), "')")),
+        expand = ggplot2::expansion(add = 0)
+      ) +
       ggplot2::labs(
-        title = "Admissibility Overlap Profile",
         subtitle = "No finite overlap values were stored for the displayed anchors.",
         x = NULL,
         y = NULL
       ) +
-      ggplot2::theme_minimal(base_size = 11) +
-      ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 30, hjust = 1)))
+      ggplot2::theme_bw(base_size = 11) +
+      ggplot2::theme(
+        axis.text.x = ggplot2::element_text(angle = 30, hjust = 1, colour = "black"),
+        axis.text.y = ggplot2::element_text(colour = "black"),
+        panel.grid = ggplot2::element_blank()
+      ))
   }
 
   ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$metric, y = .data$anchor_species, fill = .data$value)) +
-    ggplot2::geom_tile(colour = "white") +
-    ggplot2::geom_text(
+    ggplot2::geom_tile(colour = "black", linewidth = 0.25) +
+    ggplot2::geom_label(
       ggplot2::aes(label = dplyr::if_else(is.finite(.data$value), scales::percent(.data$value, accuracy = 1), "NA")),
       size = 2.8,
-      colour = "black"
+      colour = "black",
+      fill = "white",
+      linewidth = 0.15
     ) +
-    ggplot2::scale_fill_gradient(
-      low = "#f7fbff",
-      high = "#08306b",
+    scico::scale_fill_scico(
+      palette = "batlow",
+      direction = -1,
       limits = c(0, 1),
       breaks = seq(0, 1, by = 0.25),
       labels = scales::percent_format(accuracy = 1),
       oob = scales::squish,
       na.value = "grey90"
     ) +
-    ggplot2::scale_y_discrete(labels = function(x) parse(text = paste0("italic('", gsub("'", "\\\\'", x, fixed = TRUE), "')"))) +
+    ggplot2::scale_x_discrete(expand = ggplot2::expansion(add = 0)) +
+    ggplot2::scale_y_discrete(
+      labels = function(x) parse(text = paste0("italic('", gsub("'", "\\\\'", x, fixed = TRUE), "')")),
+      expand = ggplot2::expansion(add = 0)
+    ) +
     ggplot2::labs(
       x = NULL,
       y = NULL,
-      title = "Admissibility Overlap Profile",
       fill = "Weighted overlap"
     ) +
-    ggplot2::theme_minimal(base_size = 11) +
-    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 30, hjust = 1))
+    ggplot2::theme_bw(base_size = 11) +
+    ggplot2::theme(
+      axis.text.x = ggplot2::element_text(angle = 30, hjust = 1, colour = "black"),
+      axis.text.y = ggplot2::element_text(colour = "black"),
+      panel.grid = ggplot2::element_blank()
+    )
 }
 
 #' Resolve raw admissibility plotting config
@@ -5111,6 +5446,9 @@ plot_ordination_cluster_hulls <- function(points_tbl,
   if (!(label_col %in% names(point_df))) {
     label_col <- "species_name"
   }
+  point_df$.ordination_label <- ordination_species_label(point_df[[label_col]])
+  cluster_limits <- sort(unique(as.character(point_df[[cluster_name]])))
+  cluster_cols <- ordination_discrete_palette(cluster_limits, palette = "batlow")
 
   ggplot2::ggplot(point_df, ggplot2::aes(x = .data$MDS1, y = .data$MDS2, colour = .data[[cluster_name]])) +
     ggplot2::geom_hline(yintercept = 0, linetype = "dashed", colour = "grey70") +
@@ -5122,12 +5460,13 @@ plot_ordination_cluster_hulls <- function(points_tbl,
       alpha = 0.12,
       colour = NA
     ) +
-    ggplot2::geom_path(
+    ggplot2::geom_polygon(
       data = hull_df,
       ggplot2::aes(x = .data$MDS1, y = .data$MDS2, colour = .data[[cluster_name]], group = .data[[cluster_name]]),
       inherit.aes = FALSE,
-      linewidth = 0.8,
-      alpha = 0.7
+      fill = NA,
+      linewidth = 0.85,
+      alpha = 0.9
     ) +
     ggplot2::geom_point(data = point_df[!ref_flag, , drop = FALSE], alpha = 0.40, size = 2.1) +
     ggplot2::geom_point(
@@ -5138,19 +5477,23 @@ plot_ordination_cluster_hulls <- function(points_tbl,
       stroke = 1.2,
       colour = "black"
     ) +
-    ggplot2::geom_text(
+    ggrepel::geom_label_repel(
       data = point_df[ref_flag, , drop = FALSE],
-      ggplot2::aes(x = .data$MDS1, y = .data$MDS2, label = .data[[label_col]]),
+      ggplot2::aes(x = .data$MDS1, y = .data$MDS2, label = .data$.ordination_label),
       inherit.aes = FALSE,
       size = 3,
       fontface = "italic",
-      nudge_y = 0.03 * scale_ref,
-      check_overlap = TRUE
+      box.padding = 0.5,
+      point.padding = 0.35,
+      min.segment.length = 0,
+      max.overlaps = Inf,
+      label.size = 0.2,
+      fill = "white"
     ) +
-    ggplot2::scale_colour_brewer(palette = "Dark2", name = "Cluster") +
-    ggplot2::scale_fill_brewer(palette = "Dark2", name = "Cluster") +
+    ggplot2::scale_colour_manual(values = cluster_cols, limits = cluster_limits, name = "Cluster") +
+    ggplot2::scale_fill_manual(values = cluster_cols, limits = cluster_limits, name = "Cluster") +
     ggplot2::labs(x = "NMDS1", y = "NMDS2") +
-    ggplot2::theme_minimal(base_size = 11)
+    ggplot2::theme_bw(base_size = 11)
 }
 
 #' Convert stored length support to a display density

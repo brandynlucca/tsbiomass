@@ -111,7 +111,7 @@ test_that("plot.Candidates renders admissibility and anchor-review plots", {
   expect_s3_class(p_weights, "ggplot")
   expect_s3_class(p_similarity, "ggplot")
   expect_null(p_gate$labels$title)
-  expect_equal(p_overlap$labels$title, "Admissibility Overlap Profile")
+  expect_null(p_overlap$labels$title)
 })
 
 test_that("overlap heatmap discovers available summary metrics", {
@@ -124,6 +124,9 @@ test_that("overlap heatmap discovers available summary metrics", {
   p <- plot_overlap_heatmap(overlap_tbl)
 
   expect_s3_class(p, "ggplot")
+  built <- ggplot2::ggplot_build(p)
+  expect_equal(built$layout$panel_params[[1]]$x.range, c(0.5, 2.5))
+  expect_equal(built$layout$panel_params[[1]]$y.range, c(0.5, 1.5))
   expect_setequal(
     as.character(unique(p$data$metric)),
     c("Same Custom Trait", "Mean Pressure Coherence")
@@ -176,7 +179,7 @@ test_that("overlap heatmap handles rows without finite metric columns", {
   p <- plot_overlap_heatmap(overlap_tbl)
 
   expect_s3_class(p, "ggplot")
-  expect_equal(p$labels$title, "Admissibility Overlap Profile")
+  expect_null(p$labels$title)
   expect_match(p$labels$subtitle, "no finite overlap metrics", ignore.case = TRUE)
 })
 
@@ -404,7 +407,7 @@ test_that("plot.Alchemist overlap profile handles overlap rows without metric co
   p_overlap <- plot(alchemist, type = "admissibility", view = "overlap_profile")
 
   expect_s3_class(p_overlap, "ggplot")
-  expect_equal(p_overlap$labels$title, "Admissibility Overlap Profile")
+  expect_null(p_overlap$labels$title)
   expect_match(p_overlap$labels$subtitle, "no finite overlap metrics", ignore.case = TRUE)
 })
 
@@ -477,24 +480,86 @@ test_that("ordination reference marking can add one plotting representative per 
 test_that("ordination vector labels use reference species names", {
   points <- tibble::tibble(
     model_id = c("11", "21"),
-    species_name = c("Alpha alpha", "Beta beta"),
+    species_name = c("Scomber Scombrus", "Beta beta"),
     common = c("Alpha common", "Beta common"),
     MDS1 = c(0, 1),
     MDS2 = c(0, 1),
     is_reference = c(TRUE, FALSE)
   )
   vectors <- tibble::tibble(
-    trait = "frequency",
-    MDS1 = 0.5,
-    MDS2 = 0.25,
-    r2 = 0.5,
-    p_value = 0.01
+    trait = c("species_depth_min", "study_depth_min"),
+    MDS1 = c(0.5, -0.35),
+    MDS2 = c(0.25, 0.4),
+    r2 = c(0.5, 0.4),
+    p_value = c(0.01, 0.02)
   )
 
   p <- plot_ordination_vectors(vectors, points)
 
   expect_s3_class(p, "ggplot")
-  expect_equal(p$layers[[4]]$data$anchor_label, "Alpha alpha")
+  expect_equal(p$data$trait_label, c("Minimum depth", "Minimum depth"))
+  expect_equal(p$data$trait_scope, c("Species trait", "Survey trait"))
+  label_layers <- Filter(function(layer) {
+    "anchor_label" %in% names(layer$data %||% data.frame())
+  }, p$layers)
+  expect_true(length(label_layers) > 0L)
+  expect_true(any(vapply(
+    label_layers,
+    function(layer) "Scomber scombrus" %in% layer$data$anchor_label,
+    logical(1)
+  )))
+})
+
+test_that("ordination centroid labels use registry display values without duplicated trait prefixes", {
+  points <- tibble::tibble(
+    model_id = c("11", "21"),
+    species_name = c("Alpha alpha", "Beta beta"),
+    MDS1 = c(0, 1),
+    MDS2 = c(0, 1),
+    is_reference = c(TRUE, FALSE)
+  )
+  centers <- tibble::tibble(
+    trait = c("ocean_basin", "pressure_corrected", "body_shape", "species", "family"),
+    level = c("ocean basin Indian Ocean", "TRUE", "fusiform / normal", "Scomber Scombrus", "scombridae"),
+    MDS1 = c(0.2, 0.3, 0.4, 0.5, 0.6),
+    MDS2 = c(0.2, 0.3, 0.4, 0.5, 0.6),
+    n = c(1L, 1L, 1L, 1L, 1L),
+    p_value = c(0.01, 0.02, 0.03, 0.04, 0.50)
+  )
+
+  p <- plot_ordination_centers(centers, points)
+
+  expect_s3_class(p, "ggplot")
+  expect_true("Indian Ocean" %in% p$data$centroid_label)
+  expect_true("Yes" %in% p$data$centroid_label)
+  expect_true("Fusiform" %in% p$data$centroid_label)
+  expect_true("Scomber scombrus" %in% p$data$centroid_label)
+  expect_false("scombridae" %in% p$data$centroid_label)
+  expect_true(all(c("Ocean basin", "Pressure corrected", "Body shape", "Species") %in% as.character(p$data$trait_label)))
+  expect_false("family" %in% as.character(p$data$trait_label))
+  expect_false(any(grepl("ocean basin ocean basin", p$data$centroid_label, ignore.case = TRUE)))
+})
+
+test_that("ordination hull plot uses closed polygon outlines", {
+  points <- tibble::tibble(
+    model_id = as.character(seq_len(4)),
+    species_name = c("Alpha alpha", "Beta beta", "Gamma gamma", "Delta delta"),
+    MDS1 = c(0, 1, 1, 0),
+    MDS2 = c(0, 0, 1, 1),
+    nmds_cluster_id = "cluster_1",
+    is_reference = c(TRUE, FALSE, FALSE, FALSE)
+  )
+  hull <- tibble::tibble(
+    MDS1 = c(0, 1, 1, 0),
+    MDS2 = c(0, 0, 1, 1),
+    nmds_cluster_id = "cluster_1"
+  )
+
+  p <- plot_ordination_cluster_hulls(points, hull, cluster_col = "nmds_cluster_id")
+
+  expect_s3_class(p, "ggplot")
+  expect_true(any(vapply(p$layers, function(layer) inherits(layer$geom, "GeomPolygon"), logical(1))))
+  expect_false(any(vapply(p$layers, function(layer) inherits(layer$geom, "GeomPath"), logical(1))))
 })
 
 test_that("plot.PolicySelector dispatches benchmark and uncertainty summaries", {

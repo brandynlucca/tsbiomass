@@ -43,6 +43,18 @@ test_that("candidate source ids infer built-in adapters without type or engine",
   expect_equal(spec$enrich$precedence, c("pelagic", "azorestraits", "fishbase", "worms"))
 })
 
+test_that("candidate body-shape labels are normalized to canonical categories", {
+  models <- minimal_candidate_models()
+  models$body_shape <- c("fusiform / normal", "short and/or deep", "eel-like", "elongated")
+
+  standardized <- tsbiomass:::standardize_candidate_columns(models)
+
+  expect_equal(
+    standardized$body_shape,
+    c("fusiform", "short_deep", "eel_like", "elongated")
+  )
+})
+
 test_that("prepare_similarities stores prepared state on Candidates", {
   candidates <- make_candidates(seed_similarity_tuning = FALSE)
 
@@ -343,6 +355,21 @@ test_that("assign_ordination_groups can use a fixed cluster count", {
 
   expect_equal(unique(clustered$nmds_cluster_k), 3L)
   expect_equal(dplyr::n_distinct(clustered$nmds_cluster_id), 3L)
+})
+
+test_that("ordination hulls are explicitly closed by cluster", {
+  points <- tibble::tibble(
+    model_id = as.character(seq_len(4)),
+    nmds_cluster_id = "cluster_1",
+    MDS1 = c(0, 1, 1, 0),
+    MDS2 = c(0, 0, 1, 1)
+  )
+
+  hull <- tsbiomass:::build_ordination_hulls(points)
+
+  expect_equal(nrow(hull), 5L)
+  expect_equal(hull$MDS1[[1]], hull$MDS1[[nrow(hull)]])
+  expect_equal(hull$MDS2[[1]], hull$MDS2[[nrow(hull)]])
 })
 
 test_that("Alchemist learner methods resolve through the Alchemist method catalog", {

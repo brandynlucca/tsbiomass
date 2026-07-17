@@ -624,7 +624,7 @@ run_ordination <- function(dist_mat,
         is_expanded <- grepl("__", centroids$trait, fixed = TRUE)
         centroids$level[is_expanded] <- gsub(
           "_", " ",
-          sub("^[^_]*__", "", centroids$trait[is_expanded])
+          sub("^.*__", "", centroids$trait[is_expanded])
         )
         centroids$trait[is_expanded] <- sub("__.*$", "", centroids$trait[is_expanded])
       }
@@ -997,6 +997,9 @@ build_ordination_hulls <- function(points_df,
     dplyr::group_by(.data[[cluster_col]]) |>
     dplyr::filter(dplyr::n() >= as.integer(min_points)) |>
     dplyr::slice(chull(.data$MDS1, .data$MDS2)) |>
+    dplyr::ungroup() |>
+    dplyr::group_by(.data[[cluster_col]]) |>
+    dplyr::group_modify(~ dplyr::bind_rows(.x, .x[1L, , drop = FALSE])) |>
     dplyr::ungroup()
 }
 

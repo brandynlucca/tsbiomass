@@ -1012,7 +1012,16 @@ standardize_candidate_columns <- function(data_table) {
 
   body_shape <- candidate_coalesce_column(out, c("body_shape", "body_shape_norm"))
   if (!is.null(body_shape)) {
-    out$body_shape <- as.character(body_shape)
+    body_shape_chr <- stringr::str_to_lower(stringr::str_squish(as.character(body_shape)))
+    out$body_shape <- dplyr::case_when(
+      is.na(body_shape_chr) | !nzchar(body_shape_chr) ~ NA_character_,
+      stringr::str_detect(body_shape_chr, "eel") ~ "eel_like",
+      stringr::str_detect(body_shape_chr, "elong") ~ "elongated",
+      stringr::str_detect(body_shape_chr, "fusiform|normal|torpedo|streamline") ~ "fusiform",
+      stringr::str_detect(body_shape_chr, "compress|deep|glob|short") ~ "short_deep",
+      body_shape_chr %in% c("eel_like", "elongated", "fusiform", "short_deep", "other") ~ body_shape_chr,
+      TRUE ~ "other"
+    )
   }
 
   trophic <- candidate_coalesce_column(out, c("trophic", "troph"))
