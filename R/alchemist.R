@@ -1254,9 +1254,50 @@ feature_matrix <- function(data, feature_cols) {
 #'
 #' @keywords internal
 #' @noRd
+alchemist_method_spec <- function(method,
+                                  method_settings = NULL) {
+  method <- stringr::str_squish(as.character(method %||% ""))[[1]]
+  catalog <- meta_policy_method_catalog(method_settings = method_settings)
+  spec <- catalog$specs[[method]] %||% NULL
+  if (!is.list(spec)) {
+    family_map <- meta_policy_method_family_map()
+    family <- family_map[[method]] %||% NULL
+    if (!is.null(family)) {
+      spec <- list(family = family, base = method, variant = NULL)
+    }
+  }
+  supported_families <- c(
+    "glm",
+    "glm_penalized",
+    "gam",
+    "mars",
+    "rpart",
+    "rf",
+    "xgboost",
+    "qreg"
+  )
+  if (!is.list(spec) || !spec$family %in% supported_families) {
+    stop(sprintf("Unknown Alchemist base learner method: %s", method), call. = FALSE)
+  }
+  c(list(name = method), spec)
+}
+
+#' Derive per-method settings from a shared settings list
+#'
+#' Extracts the settings block for one public learner method name.
+#'
+#' @param family Character. One of `"glm"`, `"glm_penalized"`, `"gam"`,
+#'   `"rpart"`, `"rf"`, `"xgboost"`, `"mars"`, or `"qreg"`.
+#' @param method Character. Full method name, e.g. `"glm_elastic"`.
+#' @param method_settings Named list of per-method settings from config.
+#'
+#' @return Named list of resolved settings for this method.
+#'
+#' @keywords internal
+#' @noRd
 learner_method_settings <- function(family, method, method_settings) {
   method_settings <- normalize_meta_policy_method_settings(method_settings)
-  method_spec <- meta_policy_method_spec(method, method_settings = method_settings)
+  method_spec <- alchemist_method_spec(method, method_settings = method_settings)
   family_cfg <- method_settings[[method_spec$family]] %||% list()
   base_cfg <- method_settings[[method_spec$base]] %||% list()
   variant_cfg <- if (!is.null(method_spec$variant)) {
@@ -1336,10 +1377,10 @@ fit_base_learner <- function(x_train, y_train, method,
   if (!is.null(seed)) {
     set.seed(as.integer(seed))
   }
-  family <- meta_policy_method_spec(method, method_settings = method_settings)$family
+  method_spec <- alchemist_method_spec(method, method_settings = method_settings)
+  family <- method_spec$family
 
   ms <- learner_method_settings(family, method, method_settings %||% list())
-  method_spec <- meta_policy_method_spec(method, method_settings = method_settings)
   method_defaults <- meta_policy_method_default_arguments(
     method_spec$base,
     defaults_path = meta_policy_method_settings_defaults_path(method_settings)
@@ -3288,7 +3329,8 @@ alchemist_plot_types <- function() {
       species_obj <- x@ordination$species %||% list()
       species_points <- mark_ordination_reference_species(
         species_obj$points %||% tibble::tibble(),
-        reference_species = reference_species
+        reference_species = reference_species,
+        preserve_existing = FALSE
       )
       ord_view <- match.arg(
         view %||% "overview",
@@ -3330,7 +3372,8 @@ alchemist_plot_types <- function() {
     model_obj <- x@ordination$model %||% list()
     point_tbl <- mark_ordination_reference_species(
       model_obj$points %||% tibble::tibble(),
-      reference_species = reference_species
+      reference_species = reference_species,
+      preserve_existing = FALSE
     )
     hull_tbl <- tibble::as_tibble(model_obj$hulls %||% tibble::tibble())
     loading_tbl <- tibble::as_tibble(model_obj$loadings %||% tibble::tibble())
@@ -3384,7 +3427,10 @@ alchemist_plot_types <- function() {
       )
       )
     }
-    return(plot_overlap_heatmap(x@admissibility$all_overlap %||% tibble::tibble()))
+    return(plot_overlap_heatmap(
+      x@admissibility$all_overlap %||% tibble::tibble(),
+      config = x@config$config_data %||% x@config %||% NULL
+    ))
   }
 
   if (identical(type, "trait_importance")) {
@@ -4638,27 +4684,195 @@ apply_anchor_gates <- function(candidate_models,
   out
 }
 
+#' Extract configured trait names from an anchor trait specification
+#'
+#' @param x Trait specification from an anchor, admissibility, or similarity
+#'   config section.
+#'
+#' @return Character vector of trait names.
+#'
+#' @keywords internal
+#' @noRd
+anchor_overlap_trait_names <- function(x) {
+  if (is.null(x)) {
+    return(character(0))
+  }
+  x_names <- names(x)
+  if (length(x_names) > 0L && any(nzchar(x_names))) {
+    out <- as.character(x_names)
+  } else {
+    out <- as.character(unlist(x, recursive = FALSE, use.names = FALSE))
+  }
+  out <- out[!is.na(out) & nzchar(out)]
+  unique(out)
+}
+
+#' Resolve overlap-column suffix candidates for one trait
+#'
+#' @param trait Configured trait name or public alias.
+#' @param config Anchor config list.
+#'
+#' @return Character vector of candidate overlap suffixes in preference order.
+#'
+#' @keywords internal
+#' @noRd
+anchor_overlap_suffix_candidates <- function(trait,
+                                             config) {
+  trait <- as.character(trait %||% "")[[1]]
+  trait <- stringr::str_squish(trait)
+  if (!nzchar(trait)) {
+    return(character(0))
+  }
+  alias_map <- c(
+    fao = "fao_area",
+    swimbladder = "swimbladder_type",
+    derivation = "derivation_type",
+    species_name = "species"
+  )
+  trait_key <- if (trait %in% names(alias_map)) unname(alias_map[[trait]]) else trait
+  field_key <- switch(
+    trait_key,
+    species = "species_name",
+    species_name = "species_name",
+    genus = "genus",
+    family = "family",
+    order = "order",
+    swimbladder_type = "swimbladder",
+    fao_area = "fao_area",
+    ocean_basin = "ocean_basin",
+    equation_form = "equation_form",
+    derivation_type = "derivation_type",
+    study_cell = "study_cell",
+    trait_key
+  )
+  field_name <- tryCatch(
+    if (field_key %in% names(config$fields %||% list())) build_anchor_field(config, field_key) else trait_key,
+    error = function(e) trait_key
+  )
+  candidates <- unique(c(
+    switch(
+      trait_key,
+      species = "species",
+      species_name = "species",
+      swimbladder_type = c("swimbladder", "swimbladder_type"),
+      derivation_type = c("derivation", "derivation_type"),
+      fao_area = c("fao_area", "fao"),
+      trait_key
+    ),
+    trait_key,
+    field_name
+  ))
+  candidates[!is.na(candidates) & nzchar(candidates)]
+}
+
+#' Select configured overlap columns from an anchor table
+#'
+#' @param tbl Anchor-scored candidate table.
+#' @param config Raw or defaulted anchor config. When `NULL`, all available
+#'   overlap columns are retained for backwards-compatible direct use.
+#'
+#' @return Character vector of overlap columns to summarize.
+#'
+#' @keywords internal
+#' @noRd
+configured_anchor_overlap_columns <- function(tbl,
+                                              config = NULL) {
+  out <- tibble::as_tibble(tbl)
+  available <- names(out)[startsWith(names(out), "overlap_same_")]
+  available <- available[vapply(out[available], function(x) {
+    is.logical(x) || is.numeric(x) || is.integer(x)
+  }, logical(1))]
+  if (length(available) == 0L || is.null(config)) {
+    return(available)
+  }
+  cfg <- tryCatch(default_anchor_config(config), error = function(e) list())
+  traits <- unique(c(
+    anchor_overlap_trait_names(cfg$species_traits),
+    anchor_overlap_trait_names(cfg$study_traits),
+    anchor_overlap_trait_names(cfg$similarity_species_traits),
+    anchor_overlap_trait_names(cfg$similarity_study_traits)
+  ))
+  if (length(traits) == 0L) {
+    return(character(0))
+  }
+  selected <- character(0)
+  for (trait in traits) {
+    candidates <- paste0("overlap_same_", anchor_overlap_suffix_candidates(trait, cfg))
+    hit <- candidates[candidates %in% available]
+    if (length(hit) > 0L) {
+      selected <- c(selected, hit[[1L]])
+    }
+  }
+  unique(selected)
+}
+
+#' Select configured coherence columns from an anchor table
+#'
+#' @param tbl Anchor-scored candidate table.
+#' @param config Raw or defaulted anchor config. When `NULL`, all available
+#'   coherence columns are retained for backwards-compatible direct use.
+#'
+#' @return A named list with coherence-distance and overlap-fraction columns.
+#'
+#' @keywords internal
+#' @noRd
+configured_anchor_coherence_columns <- function(tbl,
+                                                config = NULL) {
+  out <- tibble::as_tibble(tbl)
+  all_distance <- names(out)[endsWith(names(out), "_coherence_distance")]
+  all_fraction <- names(out)[endsWith(names(out), "_overlap_fraction")]
+  if (is.null(config)) {
+    return(list(distance = all_distance, fraction = all_fraction))
+  }
+  raw_cfg <- admissibility_plot_config_data(config)
+  adm <- raw_cfg$admissibility %||% raw_cfg
+  sim <- raw_cfg$similarity %||% list()
+  active <- character(0)
+  for (dimension in c("length", "depth", "frequency")) {
+    adm_block <- (adm$coherence %||% list())[[dimension]] %||% list()
+    sim_block <- (sim$coherence %||% list())[[dimension]] %||% list()
+    mode <- adm_block$mode %||% sim_block$mode %||% NULL
+    min_value <- adm_block$min %||% NULL
+    if (identical(dimension, "length")) {
+      min_value <- min_value %||% adm$length_overlap_min %||% NULL
+    }
+    if (identical(dimension, "depth")) {
+      min_value <- min_value %||% adm$depth_overlap_min %||% NULL
+    }
+    mode <- stringr::str_to_lower(stringr::str_squish(as.character(mode %||% "")))[[1]]
+    if ((nzchar(mode) && !identical(mode, "none")) ||
+      is.finite(suppressWarnings(as.numeric(min_value %||% NA_real_)))) {
+      active <- c(active, dimension)
+    }
+  }
+  list(
+    distance = intersect(paste0(active, "_coherence_distance"), all_distance),
+    fraction = intersect(paste0(active, "_overlap_fraction"), all_fraction)
+  )
+}
+
 #' Summarize anchor overlap structure
 #'
 #' Collapses one anchor's admissible weighted set to a compact overlap summary.
 #'
 #' @param admissible_df Admissible weighted candidate table.
+#' @param config Optional raw or defaulted anchor config used to restrict the
+#'   summary to configured admissibility and similarity traits.
 #'
 #' @return A one-row tibble.
 #'
 #' @keywords internal
 #' @noRd
-summarize_anchor_overlap <- function(admissible_df) {
+summarize_anchor_overlap <- function(admissible_df,
+                                     config = NULL) {
   out <- tibble::as_tibble(admissible_df)
-  overlap_cols <- names(out)[startsWith(names(out), "overlap_same_")]
-  overlap_cols <- overlap_cols[vapply(out[overlap_cols], function(x) {
-    is.logical(x) || is.numeric(x) || is.integer(x)
-  }, logical(1))]
+  overlap_cols <- configured_anchor_overlap_columns(out, config = config)
   overlap_names <- paste0("w_same_", sub("^overlap_same_", "", overlap_cols))
   overlap_names <- make.unique(overlap_names, sep = "_")
-  coherence_cols <- names(out)[endsWith(names(out), "_coherence_distance")]
+  coherence_config <- configured_anchor_coherence_columns(out, config = config)
+  coherence_cols <- coherence_config$distance
   coherence_names <- paste0("mean_", sub("_coherence_distance$", "_coherence", coherence_cols))
-  overlap_fraction_cols <- names(out)[endsWith(names(out), "_overlap_fraction")]
+  overlap_fraction_cols <- coherence_config$fraction
   overlap_fraction_names <- paste0("mean_", overlap_fraction_cols)
 
   if (nrow(out) == 0) {
@@ -4684,19 +4898,34 @@ summarize_anchor_overlap <- function(admissible_df) {
     }
     stats::weighted.mean(x[keep], weights[keep], na.rm = TRUE)
   }
-  overlap_values <- vapply(overlap_cols, function(nm) {
-    flag <- dplyr::coalesce(as.logical(out[[nm]]), FALSE)
-    sum(weights[flag], na.rm = TRUE)
-  }, numeric(1))
-  names(overlap_values) <- overlap_names
-  coherence_values <- vapply(coherence_cols, function(nm) {
-    weighted_mean_or_na(pmax(0, 1 - suppressWarnings(as.numeric(out[[nm]]))))
-  }, numeric(1))
-  names(coherence_values) <- coherence_names
-  overlap_fraction_values <- vapply(overlap_fraction_cols, function(nm) {
-    weighted_mean_or_na(out[[nm]])
-  }, numeric(1))
-  names(overlap_fraction_values) <- overlap_fraction_names
+  overlap_values <- if (length(overlap_cols) == 0L) {
+    stats::setNames(numeric(0), character(0))
+  } else {
+    values <- vapply(overlap_cols, function(nm) {
+      flag <- dplyr::coalesce(as.logical(out[[nm]]), FALSE)
+      sum(weights[flag], na.rm = TRUE)
+    }, numeric(1))
+    names(values) <- overlap_names[seq_along(values)]
+    values
+  }
+  coherence_values <- if (length(coherence_cols) == 0L) {
+    stats::setNames(numeric(0), character(0))
+  } else {
+    values <- vapply(coherence_cols, function(nm) {
+      weighted_mean_or_na(pmax(0, 1 - suppressWarnings(as.numeric(out[[nm]]))))
+    }, numeric(1))
+    names(values) <- coherence_names[seq_along(values)]
+    values
+  }
+  overlap_fraction_values <- if (length(overlap_fraction_cols) == 0L) {
+    stats::setNames(numeric(0), character(0))
+  } else {
+    values <- vapply(overlap_fraction_cols, function(nm) {
+      weighted_mean_or_na(out[[nm]])
+    }, numeric(1))
+    names(values) <- overlap_fraction_names[seq_along(values)]
+    values
+  }
 
   tibble::as_tibble(c(
     list(n_admissible = nrow(out)),
@@ -5630,7 +5859,7 @@ screen_admissibility <- function(reference_anchors = NULL,
     ranked <- rank_anchor_models(eval_obj)
     overlap <- scored |>
       dplyr::filter(.data$admissible) |>
-      summarize_anchor_overlap() |>
+      summarize_anchor_overlap(config = config_) |>
       dplyr::mutate(anchor_model_id = anchor_id, anchor_species = anchor_species)
     gates <- summarize_gate_counts(scored, anchor_row, cfg)
     summary <- summarize_anchor_pool(scored)

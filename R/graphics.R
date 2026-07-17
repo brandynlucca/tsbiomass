@@ -775,11 +775,7 @@ plot_ordination_clusters <- function(points_tbl,
   } else {
     species_col
   }
-  if (common_col %in% names(plot_df)) {
-    plot_df$anchor_label <- dplyr::coalesce(as.character(plot_df[[common_col]]), as.character(plot_df[[species_col_]]))
-  } else {
-    plot_df$anchor_label <- as.character(plot_df[[species_col_]])
-  }
+  plot_df$anchor_label <- as.character(plot_df[[species_col_]])
 
   # Process references
   if (reference_col %in% names(plot_df)) {
@@ -826,7 +822,7 @@ plot_ordination_clusters <- function(points_tbl,
     ggrepel::geom_label_repel(
       data = plot_df[ref_flag, , drop = FALSE],
       ggplot2::aes(
-        label = .data[[species_col]],
+        label = .data$anchor_label,
         fontface = "bold.italic"
       ),
       color = "black",
@@ -1394,17 +1390,96 @@ overlap_metric_label <- function(metric) {
   tools::toTitleCase(label)
 }
 
+#' Resolve configured overlap-summary metric labels
+#'
+#' @param overlap_df Stored overlap-summary table.
+#' @param config Raw config or package object carrying admissibility/similarity
+#'   settings. When `NULL`, finite numeric summary columns are discovered.
+#'
+#' @return Named character vector mapping metric columns to display labels.
+#'
+#' @keywords internal
+#' @noRd
+configured_overlap_metric_labels <- function(overlap_df,
+                                             config = NULL) {
+  overlap_df <- tibble::as_tibble(overlap_df)
+  if (is.null(config)) {
+    metric_cols <- setdiff(names(overlap_df), c("anchor_species", "anchor_model_id", "n_admissible"))
+    metric_cols <- metric_cols[vapply(overlap_df[metric_cols], function(x) {
+      any(is.finite(suppressWarnings(as.numeric(x))))
+    }, logical(1))]
+    return(stats::setNames(
+      vapply(metric_cols, overlap_metric_label, character(1)),
+      metric_cols
+    ))
+  }
+
+  cfg <- tryCatch(default_anchor_config(config), error = function(e) list())
+  traits <- unique(c(
+    anchor_overlap_trait_names(cfg$species_traits),
+    anchor_overlap_trait_names(cfg$study_traits),
+    anchor_overlap_trait_names(cfg$similarity_species_traits),
+    anchor_overlap_trait_names(cfg$similarity_study_traits)
+  ))
+  metric_cols <- character(0)
+  for (trait in traits) {
+    candidates <- paste0("w_same_", anchor_overlap_suffix_candidates(trait, cfg))
+    hit <- candidates[candidates %in% names(overlap_df)]
+    if (length(hit) > 0L) {
+      metric_cols <- c(metric_cols, hit[[1L]])
+    }
+  }
+
+  raw_cfg <- admissibility_plot_config_data(config)
+  adm <- raw_cfg$admissibility %||% raw_cfg
+  sim <- raw_cfg$similarity %||% list()
+  for (dimension in c("length", "depth", "frequency")) {
+    adm_block <- (adm$coherence %||% list())[[dimension]] %||% list()
+    sim_block <- (sim$coherence %||% list())[[dimension]] %||% list()
+    mode <- adm_block$mode %||% sim_block$mode %||% NULL
+    min_value <- adm_block$min %||% NULL
+    if (identical(dimension, "length")) {
+      min_value <- min_value %||% adm$length_overlap_min %||% NULL
+    }
+    if (identical(dimension, "depth")) {
+      min_value <- min_value %||% adm$depth_overlap_min %||% NULL
+    }
+    mode <- stringr::str_to_lower(stringr::str_squish(as.character(mode %||% "")))[[1]]
+    active <- (nzchar(mode) && !identical(mode, "none")) ||
+      is.finite(suppressWarnings(as.numeric(min_value %||% NA_real_)))
+    if (isTRUE(active)) {
+      candidates <- c(
+        paste0("mean_", dimension, "_overlap_fraction"),
+        paste0("mean_", dimension, "_coherence")
+      )
+      metric_cols <- c(metric_cols, intersect(candidates, names(overlap_df)))
+    }
+  }
+
+  metric_cols <- unique(metric_cols)
+  metric_cols <- metric_cols[vapply(overlap_df[metric_cols], function(x) {
+    any(is.finite(suppressWarnings(as.numeric(x))))
+  }, logical(1))]
+  stats::setNames(
+    vapply(metric_cols, overlap_metric_label, character(1)),
+    metric_cols
+  )
+}
+
 #' Plot overlap heatmap
 #'
 #' @param overlap_tbl Overlap-summary table.
 #' @param metric_labs Optional named vector mapping metric codes to labels.
+#' @param config Optional config used to restrict displayed metrics to active
+#'   admissibility and similarity traits.
 #'
 #' @return A ggplot object.
 #'
 #' @keywords internal
 #' @noRd
 plot_overlap_heatmap <- function(overlap_tbl,
-                                 metric_labs = NULL) {
+                                 metric_labs = NULL,
+                                 config = NULL) {
   # Reshape the overlap summary to a long heatmap table so all overlap metrics
   # can be compared across anchors on one scale.
   overlap_df <- tibble::as_tibble(overlap_tbl)
@@ -1419,14 +1494,7 @@ plot_overlap_heatmap <- function(overlap_tbl,
       ggplot2::theme_minimal(base_size = 11))
   }
   if (is.null(metric_labs)) {
-    metric_cols <- setdiff(names(overlap_df), c("anchor_species", "anchor_model_id", "n_admissible"))
-    metric_cols <- metric_cols[vapply(overlap_df[metric_cols], function(x) {
-      any(is.finite(suppressWarnings(as.numeric(x))))
-    }, logical(1))]
-    metric_labs <- stats::setNames(
-      vapply(metric_cols, overlap_metric_label, character(1)),
-      metric_cols
-    )
+    metric_labs <- configured_overlap_metric_labels(overlap_df, config = config)
   }
   metric_labs <- metric_labs[names(metric_labs) %in% names(overlap_df)]
   if (length(metric_labs) == 0L) {
@@ -1928,6 +1996,8 @@ ordination_reference_species <- function(reference_tbl) {
 #' @param reference_species Character vector of reference species names.
 #' @param species_col Species-name column.
 #' @param reference_col Reference-flag column.
+#' @param preserve_existing Logical scalar. If `TRUE`, existing reference flags
+#'   are kept when any row is already marked.
 #'
 #' @return Tibble with an updated reference flag.
 #' @keywords internal
@@ -1935,7 +2005,8 @@ ordination_reference_species <- function(reference_tbl) {
 mark_ordination_reference_species <- function(points_tbl,
                                               reference_species = NULL,
                                               species_col = "species_name",
-                                              reference_col = "is_reference") {
+                                              reference_col = "is_reference",
+                                              preserve_existing = TRUE) {
   out <- tibble::as_tibble(points_tbl)
   reference_species <- unique(as.character(reference_species %||% character(0)))
   reference_species <- reference_species[!is.na(reference_species) & nzchar(reference_species)]
@@ -1947,11 +2018,22 @@ mark_ordination_reference_species <- function(points_tbl,
   } else {
     rep(FALSE, nrow(out))
   }
-  if (any(existing, na.rm = TRUE)) {
+  if (isTRUE(preserve_existing) && any(existing, na.rm = TRUE)) {
     out[[reference_col]] <- existing
     return(out)
   }
-  out[[reference_col]] <- existing | as.character(out[[species_col]]) %in% reference_species
+  flag <- existing
+  species_values <- as.character(out[[species_col]])
+  represented <- unique(species_values[flag])
+  represented <- represented[!is.na(represented) & nzchar(represented)]
+  missing_species <- setdiff(reference_species, represented)
+  for (species in missing_species) {
+    idx <- which(!is.na(species_values) & species_values == species)
+    if (length(idx) > 0L) {
+      flag[idx[[1L]]] <- TRUE
+    }
+  }
+  out[[reference_col]] <- flag
   out
 }
 
@@ -2206,6 +2288,10 @@ plot_policy_heatmap <- function(perf_tbl,
   }
   plot_df <- filter_plot_anchor_species(plot_df, anchor_species = anchor_species)
   plot_df$policy <- resolve_policy_display_names(plot_df)
+  if (!is.null(policy_labs)) {
+    plot_df <- plot_df |>
+      dplyr::mutate(policy = dplyr::recode(.data$policy, !!!policy_labs))
+  }
   anchor_levels <- unique(c(
     as.character(anchor_species %||% character(0)),
     sort(unique(as.character(plot_df$anchor_species)))
@@ -2223,20 +2309,29 @@ plot_policy_heatmap <- function(perf_tbl,
       ggplot2::theme_minimal(base_size = 11))
   }
 
-  if (!is.null(policy_labs)) {
-    plot_df <- plot_df |>
-      dplyr::mutate(policy = dplyr::recode(.data$policy, !!!policy_labs))
-  }
-
-  policy_levels <- plot_df |>
+  global_policy_levels <- plot_df |>
     dplyr::group_by(.data$policy) |>
     dplyr::summarise(global_median_abs_log = stats::median(.data$median_abs_log_error, na.rm = TRUE), .groups = "drop") |>
     dplyr::arrange(.data$global_median_abs_log, .data$policy) |>
     dplyr::pull(.data$policy)
-  policy_levels <- unique(c(policy_levels, setdiff(all_policy_levels, policy_levels)))
+  species_best_levels <- plot_df |>
+    dplyr::group_by(.data$anchor_species) |>
+    dplyr::arrange(.data$median_abs_log_error, .data$policy, .by_group = TRUE) |>
+    dplyr::slice(1L) |>
+    dplyr::ungroup() |>
+    dplyr::pull(.data$policy)
+  policy_levels <- unique(c(species_best_levels, global_policy_levels, setdiff(all_policy_levels, global_policy_levels)))
   max_policies <- normalize_plot_policy_limit(max_policies, default = 40L)
   if (is.finite(max_policies)) {
-    policy_levels <- head(policy_levels, max_policies)
+    covered_levels <- unique(species_best_levels)
+    if (length(covered_levels) >= max_policies) {
+      policy_levels <- head(covered_levels, max_policies)
+    } else {
+      policy_levels <- c(
+        covered_levels,
+        head(setdiff(policy_levels, covered_levels), max_policies - length(covered_levels))
+      )
+    }
   }
   plot_df <- tidyr::expand_grid(
     anchor_species = anchor_levels,

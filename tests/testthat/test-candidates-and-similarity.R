@@ -345,6 +345,16 @@ test_that("assign_ordination_groups can use a fixed cluster count", {
   expect_equal(dplyr::n_distinct(clustered$nmds_cluster_id), 3L)
 })
 
+test_that("Alchemist learner methods resolve through the Alchemist method catalog", {
+  expect_equal(tsbiomass:::alchemist_method_spec("glm_elastic")$family, "glm_penalized")
+  expect_equal(tsbiomass:::alchemist_method_spec("mars")$family, "mars")
+  expect_equal(tsbiomass:::alchemist_method_spec("rf")$family, "rf")
+  expect_error(
+    tsbiomass:::alchemist_method_spec("rebart"),
+    "Unknown Alchemist base learner method"
+  )
+})
+
 test_that("automatic ordination cluster selection can prefer granular near-optimal silhouettes", {
   scores <- tibble::tibble(
     k = c(2L, 3L, 4L),

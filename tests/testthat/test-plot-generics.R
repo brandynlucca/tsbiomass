@@ -130,6 +130,42 @@ test_that("overlap heatmap discovers available summary metrics", {
   )
 })
 
+test_that("overlap heatmap restricts stale wide summaries to configured metrics", {
+  overlap_tbl <- tibble::tibble(
+    anchor_species = "Alpha alpha",
+    w_same_family = 0.75,
+    w_same_order = 0,
+    w_same_derivation = 0,
+    w_same_diel = 0,
+    w_same_swimbladder = 0.25,
+    w_same_swimbladder_type = 0.25,
+    mean_length_overlap_fraction = 0.50
+  )
+  cfg <- list(
+    similarity = list(
+      species_traits = c("family"),
+      study_traits = character(0),
+      coherence = list(length = list(mode = "overlap"))
+    ),
+    admissibility = list(
+      species_traits = c("swimbladder_type"),
+      study_traits = character(0),
+      coherence = list(length = list(mode = "overlap", min = 0.01))
+    )
+  )
+
+  p <- plot_overlap_heatmap(overlap_tbl, config = cfg)
+
+  expect_s3_class(p, "ggplot")
+  expect_setequal(
+    as.character(unique(p$data$metric)),
+    c("Same Family", "Same Swimbladder", "Mean Length Overlap")
+  )
+  expect_false("Same Order" %in% as.character(unique(p$data$metric)))
+  expect_false("Same Derivation" %in% as.character(unique(p$data$metric)))
+  expect_false("Same Diel" %in% as.character(unique(p$data$metric)))
+})
+
 test_that("overlap heatmap handles rows without finite metric columns", {
   overlap_tbl <- tibble::tibble(
     anchor_species = "Alpha alpha",
@@ -420,6 +456,24 @@ test_that("ordination reference marking preserves model-id reference flags", {
   expect_identical(marked$is_reference, c(TRUE, FALSE, FALSE))
 })
 
+test_that("ordination reference marking can add one plotting representative per missing reference species", {
+  points <- tibble::tibble(
+    model_id = c("11", "12", "21", "31", "41"),
+    species_name = c("Alpha alpha", "Alpha alpha", "Beta beta", "Gamma gamma", "Delta delta"),
+    MDS1 = seq_len(5),
+    MDS2 = seq_len(5),
+    is_reference = c(TRUE, FALSE, FALSE, FALSE, FALSE)
+  )
+
+  marked <- mark_ordination_reference_species(
+    points,
+    reference_species = c("Alpha alpha", "Beta beta", "Gamma gamma"),
+    preserve_existing = FALSE
+  )
+
+  expect_identical(marked$is_reference, c(TRUE, FALSE, TRUE, TRUE, FALSE))
+})
+
 test_that("ordination vector labels use reference species names", {
   points <- tibble::tibble(
     model_id = c("11", "21"),
@@ -518,6 +572,34 @@ test_that("policy heatmap keeps requested anchors and missing policy cells", {
   )
   expect_true(any(is.na(p_heat$data$median_abs_log_error)))
   expect_false("Unused species" %in% as.character(p_heat$data$anchor_species))
+})
+
+test_that("policy heatmap includes each displayed species best policy under policy limits", {
+  perf <- tibble::tibble(
+    anchor_model_id = c("1", "1", "2", "2", "3"),
+    anchor_species = c("Alpha alpha", "Alpha alpha", "Beta beta", "Beta beta", "Gamma gamma"),
+    policy = c("policy_a", "policy_b", "policy_a", "policy_b", "policy_c"),
+    equation_branch_filter = "all",
+    error_abs_log = c(0.10, 0.11, 0.10, 0.11, 0.90),
+    multiplier_pred = c(1.1, 1.2, 1.1, 1.2, 2.0),
+    valid_prediction = TRUE,
+    n_valid_models = 1L,
+    local_weighted_mean_combined_distance = 0.1,
+    local_effective_support = 1,
+    local_structural_q_abs_log = 0.1
+  )
+
+  p_heat <- plot_policy_heatmap(
+    perf,
+    anchor_species = c("Alpha alpha", "Beta beta", "Gamma gamma"),
+    max_policies = 2L,
+    show_values = TRUE
+  )
+
+  gamma_cells <- p_heat$data |>
+    dplyr::filter(as.character(.data$anchor_species) == "Gamma gamma")
+
+  expect_true(any(is.finite(gamma_cells$median_abs_log_error)))
 })
 
 test_that("policy display resolvers rebuild unusable NA labels", {

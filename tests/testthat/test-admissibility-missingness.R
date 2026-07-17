@@ -216,6 +216,39 @@ test_that("anchor overlap summary is driven by available overlap fields", {
   expect_false("mean_depth_overlap_fraction" %in% names(overlap))
 })
 
+test_that("anchor overlap summary is restricted to configured traits", {
+  scored <- tibble::tibble(
+    w_adm = c(0.25, 0.75),
+    overlap_same_family = c(TRUE, TRUE),
+    overlap_same_order = c(TRUE, TRUE),
+    overlap_same_swimbladder = c(TRUE, FALSE),
+    overlap_same_swimbladder_type = c(TRUE, FALSE),
+    overlap_same_derivation = c(TRUE, TRUE),
+    length_overlap_fraction = c(0.50, 0.75)
+  )
+  cfg <- list(
+    similarity = list(
+      species_traits = c("family"),
+      study_traits = character(0),
+      coherence = list(length = list(mode = "overlap"))
+    ),
+    admissibility = list(
+      species_traits = c("swimbladder_type"),
+      study_traits = character(0),
+      coherence = list(length = list(mode = "overlap", min = 0.01))
+    )
+  )
+
+  overlap <- tsbiomass:::summarize_anchor_overlap(scored, config = cfg)
+
+  expect_true("w_same_family" %in% names(overlap))
+  expect_true("w_same_swimbladder" %in% names(overlap))
+  expect_true("mean_length_overlap_fraction" %in% names(overlap))
+  expect_false("w_same_order" %in% names(overlap))
+  expect_false("w_same_derivation" %in% names(overlap))
+  expect_false("w_same_swimbladder_type" %in% names(overlap))
+})
+
 test_that("admissibility cache currentness requires overlap summary metrics", {
   cfg <- list(
     admissibility = list(

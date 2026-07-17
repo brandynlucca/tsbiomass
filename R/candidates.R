@@ -2062,7 +2062,8 @@ candidates_plot_types <- function() {
       model_obj <- (x@ordination)$model %||% list()
       point_tbl <- mark_ordination_reference_species(
         model_obj$points %||% tibble::tibble(),
-        reference_species = reference_species
+        reference_species = reference_species,
+        preserve_existing = FALSE
       )
       hull_tbl <- tibble::as_tibble(model_obj$hulls %||% tibble::tibble())
 
@@ -2101,7 +2102,8 @@ candidates_plot_types <- function() {
       species_obj <- (x@ordination)$species %||% list()
       species_points <- mark_ordination_reference_species(
         species_obj$points %||% tibble::tibble(),
-        reference_species = reference_species
+        reference_species = reference_species,
+        preserve_existing = FALSE
       )
       if (identical(ordination_view, "overview")) {
         return(plot_species_ordination(
@@ -2183,7 +2185,10 @@ candidates_plot_types <- function() {
         join_cols = c("species_name", "citation", "regional_body", "frequency", "fao_area"),
         cluster_args = list(cluster_col = "study_cluster_id")
       ) |>
-      mark_ordination_reference_species(reference_species = reference_species)
+      mark_ordination_reference_species(
+        reference_species = reference_species,
+        preserve_existing = FALSE
+      )
     if (identical(ordination_view, "vectors")) {
       return(plot_ordination_vectors(
         vec_tbl = study_ordination$loadings %||% tibble::tibble(),
@@ -2243,7 +2248,10 @@ candidates_plot_types <- function() {
         config = x
       ))
     }
-    return(plot_overlap_heatmap((x@admissibility)$all_overlap %||% tibble::tibble()))
+    return(plot_overlap_heatmap(
+      (x@admissibility)$all_overlap %||% tibble::tibble(),
+      config = x
+    ))
   }
 
   # The anchor-specific candidate review plots all depend on the same stored
