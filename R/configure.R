@@ -1335,6 +1335,9 @@ apply_cache_defaults <- function(config) {
   if (is.null(config$selection$cache_path)) {
     config$selection$cache_path <- cache_file("policy_selection")
   }
+  if (is.null(config$selection$prediction_cache_path)) {
+    config$selection$prediction_cache_path <- cache_file("policy_predictions")
+  }
   if (is.null(config$selection$refresh)) {
     config$selection$refresh <- cache_refresh
   }

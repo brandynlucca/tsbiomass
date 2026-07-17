@@ -4823,6 +4823,7 @@ run_policy_benchmark <- function(candidate_models,
   # Reuse the cached benchmark object when available unless the caller asked
   # for a refresh.
   if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
+    report_progress(progress, "Loading cached policy benchmark from ", cache_path, ".")
     return(readRDS(cache_path))
   }
 

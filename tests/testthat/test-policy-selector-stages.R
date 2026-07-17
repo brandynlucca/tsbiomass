@@ -167,6 +167,66 @@ test_that("predict returns PolicyPredictions and summary helpers use selector st
   expect_true(all(c("anchor_model_id", "selected_policy", "bootstrap_median_rank") %in% names(audit)))
 })
 
+test_that("PolicySelector prediction bundles are cached and reused", {
+  cache_base <- tempfile(fileext = ".rds")
+  candidates <- set_reference_anchors(make_candidates(), selector = list(regional_body = "SWFSC"))
+  selector <- make_selector(
+    candidates = candidates,
+    benchmark = list(policy_perf = minimal_policy_performance()),
+    uncertainty = minimal_uncertainty(),
+    selection = list(final_ref = minimal_selection_ref()),
+    config = list(
+      selection = list(
+        prediction_cache_path = cache_base,
+        refresh = FALSE
+      ),
+      policies = list(
+        active = c("closest_within_species", "weighted_mean_within_genus")
+      )
+    )
+  )
+
+  testthat::local_mocked_bindings(
+    screen_one_anchor_admissibility = function(...) list(),
+    evaluate_policies = function(...) {
+      tibble::tibble(
+        policy = c("closest_within_species", "weighted_mean_within_genus"),
+        multiplier_pred = c(1.10, 1.30)
+      )
+    },
+    summarize_evaluation = function(...) {
+      tibble::tibble(
+        consensus_multiplier = 1.20,
+        local_support_mass = 0.80,
+        local_effective_support = 3.00
+      )
+    },
+    .package = "tsbiomass"
+  )
+  first <- predict(selector)
+  selector_cache <- tsbiomass:::policy_selector_prediction_cache_path(cache_base)
+  expect_true(file.exists(selector_cache))
+
+  testthat::local_mocked_bindings(
+    screen_one_anchor_admissibility = function(...) {
+      stop("cached prediction should not rescreen anchors")
+    },
+    evaluate_policies = function(...) {
+      stop("cached prediction should not reevaluate policies")
+    },
+    summarize_evaluation = function(...) {
+      stop("cached prediction should not resummarize anchor evaluations")
+    },
+    .package = "tsbiomass"
+  )
+  second <- predict(selector)
+
+  expect_true(S7::S7_inherits(second, PolicyPredictions))
+  expect_equal(second@selections, first@selections)
+  expect_equal(second@intervals, first@intervals)
+  expect_equal(second@consensus, first@consensus)
+})
+
 test_that("cached anchor admissibility is returned even when config is supplied", {
   candidates <- set_reference_anchors(make_candidates(), selector = list(regional_body = "SWFSC"))
   anchor_ids <- as.character(candidates@reference_anchors$model_id_chr)

@@ -1342,6 +1342,12 @@ sentinel_patch_fold_config <- function(config,
         cfg_now[[section_name]] <- cfg_now[[section_name]] %||% list()
         cfg_now[[section_name]]$cache_path <- cache_path_for(section_name, key_name)
       }
+      cfg_now$selection <- cfg_now$selection %||% list()
+      cfg_now$selection$prediction_cache_path <- file.path(
+        cache_dir_now,
+        cache_names$policy_predictions %||%
+          basename(cfg_now$selection$prediction_cache_path %||% "policy_predictions.rds")
+      )
     }
   }
 

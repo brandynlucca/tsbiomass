@@ -176,6 +176,40 @@ policy_selector_config_value <- function(cfg,
   NULL
 }
 
+#' Resolve a policy-prediction cache path
+#'
+#' @param cache_path Base prediction-cache path.
+#' @param learner Optional [PolicyLearner] object.
+#'
+#' @return A variant-specific cache path, or `NULL`.
+#'
+#' @keywords internal
+#' @noRd
+policy_selector_prediction_cache_path <- function(cache_path,
+                                                  learner = NULL) {
+  if (is.null(cache_path)) {
+    return(NULL)
+  }
+  if (!is.character(cache_path) || length(cache_path) != 1L || !nzchar(cache_path)) {
+    stop("'cache_path' must be NULL or a single file path.", call. = FALSE)
+  }
+  variant <- if (is_s7_instance(learner, "PolicyLearner")) {
+    "learner"
+  } else {
+    "selector"
+  }
+  ext <- tools::file_ext(cache_path)
+  stem <- if (nzchar(ext)) {
+    sub(paste0("\\.", ext, "$"), "", basename(cache_path))
+  } else {
+    basename(cache_path)
+  }
+  file.path(
+    dirname(cache_path),
+    paste0(stem, "_", variant, if (nzchar(ext)) paste0(".", ext) else "")
+  )
+}
+
 #' Rebuild a `PolicySelector`
 #'
 #' @param object A [PolicySelector] object.
@@ -942,6 +976,11 @@ S7::method(select_policies, PolicySelector) <- function(object,
 #'   learner-backed selection path.
 #' @param reuse_admissibility Logical scalar. If `TRUE`, reuse admissibility
 #'   results already stored on the selector's [Candidates] object.
+#' @param cache_path Optional prediction-bundle cache path. When supplied, the
+#'   method writes separate selector-only and learner-backed cache files derived
+#'   from this base path.
+#' @param refresh Optional logical scalar controlling whether cached prediction
+#'   bundles are ignored and rebuilt.
 #' @param progress Optional logical scalar controlling stage messages.
 #'
 #' @return A [PolicyPredictions] object.
@@ -958,6 +997,8 @@ S7::method(select_policies, PolicySelector) <- function(object,
                                      use_support_bin_intervals = NULL,
                                      max_selection_tolerance = NULL,
                                      reuse_admissibility = TRUE,
+                                     cache_path = NULL,
+                                     refresh = NULL,
                                      progress = NULL,
                                      ...) {
   dots <- list(...)
@@ -991,6 +1032,12 @@ S7::method(select_policies, PolicySelector) <- function(object,
   if ("reuse_admissibility" %in% names(dots)) {
     reuse_admissibility <- dots[["reuse_admissibility"]]
   }
+  if ("cache_path" %in% names(dots)) {
+    cache_path <- dots[["cache_path"]]
+  }
+  if ("refresh" %in% names(dots)) {
+    refresh <- dots[["refresh"]]
+  }
   if ("progress" %in% names(dots)) {
     progress <- dots[["progress"]]
   }
@@ -1003,6 +1050,13 @@ S7::method(select_policies, PolicySelector) <- function(object,
   progress <- progress %||%
     policy_selector_config_value(cfg, "progress", sections = c("selection", "benchmark")) %||%
     FALSE
+  refresh <- refresh %||%
+    policy_selector_config_value(cfg, "prediction_refresh", sections = c("selection", "prediction")) %||%
+    policy_selector_config_value(cfg, "refresh", sections = c("prediction", "selection")) %||%
+    FALSE
+  cache_path <- cache_path %||%
+    policy_selector_config_value(cfg, "prediction_cache_path", sections = c("selection", "prediction")) %||%
+    policy_selector_config_value(cfg, "cache_path", sections = "prediction")
   policy_params <- merge_config_sections(
     (((cfg$policies) %||% list())$policy_params %||% list()),
     merge_config_sections(
@@ -1129,6 +1183,18 @@ S7::method(select_policies, PolicySelector) <- function(object,
   }
   if (!is.null(learner) && !is_s7_instance(learner, "PolicyLearner")) {
     stop("'learner' must be NULL or a `PolicyLearner` object.", call. = FALSE)
+  }
+  prediction_cache_path <- policy_selector_prediction_cache_path(cache_path, learner = learner)
+  if (!is.null(prediction_cache_path) && file.exists(prediction_cache_path) && !isTRUE(refresh)) {
+    report_progress(progress, "Loading cached policy predictions from ", prediction_cache_path, ".")
+    cached_predictions <- readRDS(prediction_cache_path)
+    if (!is_s7_instance(cached_predictions, "PolicyPredictions")) {
+      stop(
+        "Cached policy predictions are not a `PolicyPredictions` object; rerun with `refresh = TRUE`.",
+        call. = FALSE
+      )
+    }
+    return(cached_predictions)
   }
   learner_random_intercepts <- if (is_s7_instance(learner, "PolicyLearner")) {
     policy_learner_selection_random_intercepts(learner@config)
@@ -1619,11 +1685,17 @@ S7::method(select_policies, PolicySelector) <- function(object,
 
   report_progress(progress, "[Predict] Completed predictions for ", n_anchors, " anchor", if (n_anchors != 1L) "s" else "", ".")
 
-  PolicyPredictions(
+  predictions <- PolicyPredictions(
     intervals = dplyr::bind_rows(all_policy_intervals),
     selections = dplyr::bind_rows(selected_policy_rows),
     consensus = dplyr::bind_rows(consensus_multiplier_rows)
   )
+  if (!is.null(prediction_cache_path)) {
+    dir.create(dirname(prediction_cache_path), recursive = TRUE, showWarnings = FALSE)
+    saveRDS(predictions, prediction_cache_path)
+    report_progress(progress, "Saved policy predictions cache to ", prediction_cache_path, ".")
+  }
+  predictions
 }
 
 #' Predict selected policy intervals
