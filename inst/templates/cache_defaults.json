@@ -12,5 +12,6 @@
   "policy_benchmark": "policy_benchmark.rds",
   "policy_conformal": "policy_conformal.rds",
   "policy_selection": "policy_selection.rds",
+  "policy_predictions": "policy_predictions.rds",
   "policy_sensitivity": "policy_sensitivity.rds"
 }

@@ -1433,6 +1433,16 @@ plot_overlap_heatmap <- function(overlap_tbl,
     )
   }
   metric_labs <- metric_labs[names(metric_labs) %in% names(overlap_df)]
+  if (length(metric_labs) == 0L) {
+    return(ggplot2::ggplot() +
+      ggplot2::labs(
+        title = "Admissibility Overlap Profile",
+        subtitle = "Anchor overlap rows were stored, but no finite overlap metrics were available to plot.",
+        x = NULL,
+        y = NULL
+      ) +
+      ggplot2::theme_minimal(base_size = 11))
+  }
 
   plot_df <- overlap_df |>
     dplyr::select("anchor_species", dplyr::any_of(names(metric_labs))) |>

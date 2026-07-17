@@ -1361,7 +1361,7 @@ S7::method(screen_learners, PolicyLearner) <- function(object,
 #' The method reuses the feature columns, outcome transformation, learner
 #' method, and method settings resolved during cross-fitting unless explicit
 #' overrides are supplied. The returned learner stores the fitted model and
-#' clears stale prediction state that depends on an earlier fit.
+#' clears prediction state that depends on an earlier fit.
 #'
 #' @name fit.PolicyLearner
 #' @usage NULL
@@ -3362,10 +3362,10 @@ policy_learner_reference_anchor_species <- function(x) {
       tibble::tibble()
   )
   if (nrow(all_predictions) == 0 && nrow(selected_predictions) == 0) {
-    stop(
-      "No learner prediction rows are stored on this `PolicyLearner`. Run `crossfit()` and `calibrate_uncertainty()` first.",
-      call. = FALSE
-    )
+    return(plot_report_placeholder(
+      title = "Policy Learner Diagnostics",
+      subtitle = "No learner prediction rows are stored on this PolicyLearner."
+    ))
   }
 
   outcome_col <- x@calibration$outcome_col %||% x@crossfit$outcome_col %||% "error_abs_log"
@@ -3380,10 +3380,10 @@ policy_learner_reference_anchor_species <- function(x) {
 
   plot_tbl <- if (identical(rows, "selected")) selected_predictions else all_predictions
   if (nrow(plot_tbl) == 0) {
-    stop(
-      sprintf("No '%s' learner rows are stored on this `PolicyLearner`.", rows),
-      call. = FALSE
-    )
+    return(plot_report_placeholder(
+      title = "Policy Learner Diagnostics",
+      subtitle = sprintf("No '%s' learner rows are stored on this PolicyLearner.", rows)
+    ))
   }
 
   observed_col <- outcome_col
@@ -3641,26 +3641,30 @@ policy_learner_reference_anchor_species <- function(x) {
     )
   }
 
-  if (identical(type, "support_bin_error")) {
-    if (!isTRUE(x@calibration$use_support_bin_intervals)) {
-      stop(
-        "Support-bin intervals are not enabled for this `PolicyLearner`; no support-bin plot is available.",
-        call. = FALSE
-      )
-    }
+        if (identical(type, "support_bin_error")) {
+          if (!isTRUE(x@calibration$use_support_bin_intervals)) {
+            return(plot_report_placeholder(
+              title = "Observed transfer error by support bin",
+              subtitle = "Support-bin intervals are not enabled for this PolicyLearner.",
+              x = "Support bin",
+              y = observed_label
+            ))
+          }
     support_col <- if ("post_selection_support_label" %in% names(plot_tbl)) {
       "post_selection_support_label"
     } else if ("post_selection_support_bin" %in% names(plot_tbl)) {
       "post_selection_support_bin"
     } else {
       NA_character_
-    }
-    if (!is.character(support_col) || !nzchar(support_col)) {
-      stop(
-        "No post-selection support-bin labels are stored on this `PolicyLearner`.",
-        call. = FALSE
-      )
-    }
+          }
+          if (!is.character(support_col) || !nzchar(support_col)) {
+            return(plot_report_placeholder(
+              title = "Observed transfer error by support bin",
+              subtitle = "No post-selection support-bin labels are stored on this PolicyLearner.",
+              x = "Support bin",
+              y = observed_label
+            ))
+          }
 
     plot_df <- plot_tbl |>
       dplyr::filter(
@@ -3688,19 +3692,8 @@ policy_learner_reference_anchor_species <- function(x) {
         "Higher support",
         "Highest support"
       )
-      legacy_support_map <- c(
-        support_bin_1 = "Lowest support",
-        support_bin_2 = "Lower support",
-        support_bin_3 = "Middle support",
-        support_bin_4 = "Higher support",
-        support_bin_5 = "Highest support"
-      )
       support_chr <- as.character(plot_df[[support_col]])
-      plot_df[[support_col]] <- dplyr::if_else(
-        support_chr %in% support_levels,
-        support_chr,
-        dplyr::coalesce(unname(legacy_support_map[support_chr]), support_chr)
-      )
+      plot_df[[support_col]] <- support_chr
       plot_df[[support_col]] <- factor(
         plot_df[[support_col]],
         levels = c(
@@ -3725,14 +3718,16 @@ policy_learner_reference_anchor_species <- function(x) {
   }
 
   if (identical(type, "selected_policy_counts")) {
-    view <- match.arg(view %||% "by_policy", c("by_policy", "by_anchor"))
-    selected_tbl <- selected_predictions
-    if (nrow(selected_tbl) == 0) {
-      stop(
-        "No selected calibration rows are stored on this `PolicyLearner`.",
-        call. = FALSE
-      )
-    }
+          view <- match.arg(view %||% "by_policy", c("by_policy", "by_anchor"))
+          selected_tbl <- selected_predictions
+          if (nrow(selected_tbl) == 0) {
+            return(plot_report_placeholder(
+              title = "Cross-fitted meta-policy selections",
+              subtitle = "No selected calibration rows are stored on this PolicyLearner.",
+              x = NULL,
+              y = "Selected row count"
+            ))
+          }
 
     selected_tbl$selected_policy_display <- resolve_selected_policy_names(selected_tbl)
 
@@ -3780,13 +3775,15 @@ policy_learner_reference_anchor_species <- function(x) {
     )
   }
 
-  selected_tbl <- selected_predictions
-  if (nrow(selected_tbl) == 0) {
-    stop(
-      "No selected calibration rows are stored on this `PolicyLearner`.",
-      call. = FALSE
-    )
-  }
+        selected_tbl <- selected_predictions
+        if (nrow(selected_tbl) == 0) {
+          return(plot_report_placeholder(
+            title = "Recommendation stability by species",
+            subtitle = "No selected calibration rows are stored on this PolicyLearner.",
+            x = "Cross-fitted win fraction",
+            y = NULL
+          ))
+        }
 
   # Summarize the cross-fitted winning policy frequencies by anchor species so
   # the plot can show both the dominant recommendation and its margin over the

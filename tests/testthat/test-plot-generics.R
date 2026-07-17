@@ -127,6 +127,20 @@ test_that("overlap heatmap discovers available summary metrics", {
   )
 })
 
+test_that("overlap heatmap handles rows without finite metric columns", {
+  overlap_tbl <- tibble::tibble(
+    anchor_species = "Alpha alpha",
+    anchor_model_id = "1",
+    n_admissible = 2L
+  )
+
+  p <- plot_overlap_heatmap(overlap_tbl)
+
+  expect_s3_class(p, "ggplot")
+  expect_equal(p$labels$title, "Admissibility Overlap Profile")
+  expect_match(p$labels$subtitle, "no finite overlap metrics", ignore.case = TRUE)
+})
+
 test_that("plot.Candidates exposes ordination, tuning, and slope diagnostics", {
   models <- minimal_candidate_models()
   ordination_bundle <- list(
@@ -300,6 +314,56 @@ test_that("plot.Alchemist exposes admissibility summaries", {
 
   expect_s3_class(p_gate, "ggplot")
   expect_s3_class(p_overlap, "ggplot")
+})
+
+test_that("plot.Alchemist overlap profile handles overlap rows without metric columns", {
+  alchemist <- Alchemist(
+    candidates = make_candidates(),
+    config = list(
+      config_data = list(
+        admissibility = list(
+          species_traits = c("swimbladder_type"),
+          study_traits = character(0),
+          coherence = list(
+            length = list(mode = "overlap", min = 0.01),
+            depth = list(mode = "overlap", min = 0.01),
+            frequency = list(mode = "none", gap = 60)
+          ),
+          key_metadata_max = 0.75
+        )
+      )
+    ),
+    learner = list(),
+    distance_matrix = list(),
+    trait_importance = list(),
+    ordination = list(),
+    admissibility = list(
+      all_scores = tibble::tibble(
+        anchor_model_id = "1",
+        anchor_species = "Alpha alpha",
+        gate_trait_swimbladder_type = TRUE,
+        gate_missing_key_metadata = TRUE,
+        key_metadata_missing_fraction = 0,
+        admissible = TRUE
+      ),
+      all_gates = tibble::tibble(
+        anchor_species = "Alpha alpha",
+        inadmissible_reason = "admissible",
+        n_models = 1L
+      ),
+      all_overlap = tibble::tibble(
+        anchor_species = "Alpha alpha",
+        anchor_model_id = "1",
+        n_admissible = 1L
+      )
+    )
+  )
+
+  p_overlap <- plot(alchemist, type = "admissibility", view = "overlap_profile")
+
+  expect_s3_class(p_overlap, "ggplot")
+  expect_equal(p_overlap$labels$title, "Admissibility Overlap Profile")
+  expect_match(p_overlap$labels$subtitle, "no finite overlap metrics", ignore.case = TRUE)
 })
 
 test_that("plot.Alchemist supports species ordination and reference-species highlighting", {
@@ -822,11 +886,9 @@ test_that("plot.PolicyLearner filters to reference anchors and repairs NA labels
   )
   expect_false(any(grepl("^NA NA", as.character(p_counts$data$selected_policy_display))))
   expect_false(any(grepl("^NA NA", as.character(p_stability$data$top_policy))))
-  expect_error(
-    plot(learner, type = "support_bin_error"),
-    "Support-bin intervals are not enabled",
-    fixed = TRUE
-  )
+  p_support <- plot(learner, type = "support_bin_error")
+  expect_s3_class(p_support, "ggplot")
+  expect_match(p_support$labels$subtitle, "Support-bin intervals are not enabled", fixed = TRUE)
 })
 
 test_that("plot_tuning_variation builds resample labels", {

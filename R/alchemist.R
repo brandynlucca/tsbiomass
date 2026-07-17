@@ -2260,7 +2260,7 @@ fit_mahalanobis <- function(training_data, feature_cols,
 #' The returned object contains the fitted learner and a distance bundle with
 #' the learned matrix, pairwise training data, feature columns, trait matrices,
 #' out-of-fold performance, and sigma matrices used by later trait-importance
-#' and policy-support diagnostics. Re-running this method clears stale
+#' and policy-support diagnostics. Re-running this method clears previous
 #' trait-importance, ordination, and admissibility results because those layers
 #' depend on the learned distance geometry.
 #'
@@ -2478,7 +2478,7 @@ S7::method(forge_distances, Alchemist) <- function(object,
   # A fresh learned distance matrix invalidates every downstream artifact that
   # depends on that geometry. Re-running forge_distances() on an existing
   # Alchemist must therefore clear trait importance, ordination, and
-  # admissibility rather than silently carrying stale results forward.
+  # admissibility rather than silently carrying incompatible results forward.
   object <- alchemist_rebuild(
     object,
     distance_matrix = distance_matrix,
@@ -3342,40 +3342,44 @@ NULL
 
   if (identical(type, "admissibility")) {
     if (length(x@admissibility) == 0L) {
-      stop(
-        "No admissibility results stored. Run `screen_admissibility()` first.",
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Admissibility",
+        subtitle = "No admissibility results are stored on this Alchemist object."
+      ))
     }
     if (!admissibility_bundle_is_current(x@admissibility, x@config$config_data %||% x@candidates)) {
-      stop(
-        paste(
-          "The stored admissibility bundle on this `Alchemist` object predates the current admissibility gate logic.",
-          "Run `screen_admissibility()` again to rebuild it before plotting."
-        ),
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Current Admissibility Plot Unavailable",
+        subtitle = paste(
+          "Current-format admissibility diagnostics are not available on this object.",
+          "Run screen_admissibility() before generating admissibility plots."
+        )
+      ))
     }
     adm_view <- match.arg(view %||% "gate_composition", c("gate_composition", "overlap_profile"))
     if (identical(adm_view, "gate_composition")) {
       return(plot_gate_composition(
         x@admissibility$all_gates %||% tibble::tibble(),
         config = x@config$config_data %||% x@candidates
-      ))
+      )
+      )
     }
     return(plot_overlap_heatmap(x@admissibility$all_overlap %||% tibble::tibble()))
   }
 
   if (identical(type, "trait_importance")) {
     if (length(x@trait_importance) == 0L) {
-      stop(
-        "No trait importance data stored. Run `distill_traits()` first.",
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Trait Importance",
+        subtitle = "No trait-importance data are stored on this Alchemist object."
+      ))
     }
     imp_tbl <- tibble::as_tibble(x@trait_importance$importance_tbl %||% tibble::tibble())
     if (nrow(imp_tbl) == 0L) {
-      stop("Trait importance table is empty.", call. = FALSE)
+      return(plot_report_placeholder(
+        title = "Trait Importance",
+        subtitle = "The stored trait-importance table is empty."
+      ))
     }
     trait_levels <- imp_tbl |>
       dplyr::arrange(.data$importance_score) |>
@@ -5446,7 +5450,7 @@ screen_admissibility <- function(reference_anchors = NULL,
         progress_,
         "Cached anchor admissibility at ",
         cache_path_,
-        " is stale under the current admissibility logic; rebuilding."
+        " does not match the current admissibility logic; rebuilding."
       )
     } else {
       if (!is.null(candidates_obj)) {

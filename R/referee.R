@@ -1964,10 +1964,12 @@ NULL
   if (identical(type, "ts_length_bands")) {
     curve_tbl <- tibble::as_tibble(x@ts_panel)
     if (nrow(curve_tbl) == 0) {
-      stop(
-        "No TS panel is stored on this `Scorecard`. Run `predict(referee)` first.",
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Weighted TS Ribbon",
+        subtitle = "No TS panel is stored on this Scorecard.",
+        x = "Length (cm)",
+        y = "TS (dB re 1 m^2)"
+      ))
     }
     anchor_id_value <- if (!is.null(anchor_model_id)) as.character(anchor_model_id[[1]]) else NULL
     anchor_species_value <- if (!is.null(anchor_species)) as.character(anchor_species[[1]]) else NULL
@@ -1980,7 +1982,12 @@ NULL
         dplyr::filter(as.character(.data$anchor_species) == anchor_species_value)
     }
     if (nrow(curve_tbl) == 0) {
-      stop("No TS panel rows matched the requested anchor.", call. = FALSE)
+      return(plot_report_placeholder(
+        title = "Weighted TS Ribbon",
+        subtitle = "No TS panel rows matched the requested anchor.",
+        x = "Length (cm)",
+        y = "TS (dB re 1 m^2)"
+      ))
     }
     if ("anchor_model_id" %in% names(curve_tbl)) {
       first_anchor_id <- as.character(curve_tbl$anchor_model_id[[1]])
@@ -2032,10 +2039,12 @@ NULL
   if (identical(type, "selected_multiplier_summary")) {
     plot_df <- tibble::as_tibble(x@selected)
     if (nrow(plot_df) == 0) {
-      stop(
-        "No selected-policy rows are stored on this `Scorecard`. Run `predict(referee)` first.",
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Meta-policy selected biomass multipliers",
+        subtitle = "No selected-policy rows are stored on this Scorecard.",
+        x = NULL,
+        y = "Biomass multiplier"
+      ))
     }
 
     plot_df$selected_policy_display <- resolve_selected_policy_names(plot_df)
@@ -2122,10 +2131,12 @@ NULL
     view <- match.arg(view %||% "by_policy", c("by_policy", "by_anchor"))
     plot_df <- tibble::as_tibble(x@selected)
     if (nrow(plot_df) == 0) {
-      stop(
-        "No selected-policy rows are stored on this `Scorecard`. Run `predict(referee)` first.",
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Selected policies",
+        subtitle = "No selected-policy rows are stored on this Scorecard.",
+        x = NULL,
+        y = "Selected anchor-model count"
+      ))
     }
 
     plot_df$selected_policy_display <- resolve_selected_policy_names(plot_df)
@@ -2371,7 +2382,10 @@ NULL
   selected_tbl <- scorecard_normalize_multiplier_columns(selected_tbl)
 
   if (nrow(anchor_summary_tbl) == 0 && nrow(interval_tbl) == 0 && nrow(selected_tbl) == 0) {
-    stop("No plot-ready prediction results are available on this `Referee`.", call. = FALSE)
+    return(plot_report_placeholder(
+      title = "Referee Plot",
+      subtitle = "No plot-ready prediction results are available on this Referee."
+    ))
   }
 
   if (identical(type, "biomass_change")) {
@@ -2410,10 +2424,12 @@ NULL
   # final recommendation context exactly.
   if (identical(type, "length_density")) {
     if (nrow(selected_tbl) == 0) {
-      stop(
-        "No selected-policy rows are stored on this `Referee`. Run `predict(referee)` first.",
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Reference Anchor Length Density",
+        subtitle = "No selected-policy rows are stored on this Referee.",
+        x = "Length (cm)",
+        y = "f(L)"
+      ))
     }
     anchor_id_value <- if (!is.null(anchor_model_id)) as.character(anchor_model_id[[1]]) else NULL
     anchor_species_value <- if (!is.null(anchor_species)) as.character(anchor_species[[1]]) else NULL
@@ -2426,7 +2442,12 @@ NULL
         dplyr::filter(as.character(.data$anchor_species) == anchor_species_value)
     }
     if (nrow(selected_tbl) == 0) {
-      stop("No selected-policy rows matched the requested anchor.", call. = FALSE)
+      return(plot_report_placeholder(
+        title = "Reference Anchor Length Density",
+        subtitle = "No selected-policy rows matched the requested anchor.",
+        x = "Length (cm)",
+        y = "f(L)"
+      ))
     }
     density_view <- match.arg(
       view %||% if (is.null(anchor_id_value) && is.null(anchor_species_value)) "panel" else "single",
@@ -2456,10 +2477,12 @@ NULL
           )
       })
       if (nrow(panel_tbl) == 0) {
-        stop(
-          "No anchor length-support metadata were available for the requested panel.",
-          call. = FALSE
-        )
+        return(plot_report_placeholder(
+          title = "Reference Anchor Length Density",
+          subtitle = "No anchor length-support metadata were available for the requested panel.",
+          x = "Length (cm)",
+          y = "f(L)"
+        ))
       }
       return(plot_length_density_panel(panel_tbl))
     }
@@ -2476,14 +2499,21 @@ NULL
       dplyr::filter(as.character(.data[[id_col]]) == anchor_id) |>
       dplyr::slice(1)
     if (nrow(anchor_row) == 0) {
-      stop("The requested anchor was not present in the selector candidate table.", call. = FALSE)
+      return(plot_report_placeholder(
+        title = "Reference Anchor Length Density",
+        subtitle = "The requested anchor was not present in the selector candidate table.",
+        x = "Length (cm)",
+        y = "f(L)"
+      ))
     }
     anchor_pdf <- anchor_pdf_from_row(anchor_row)
     if (nrow(anchor_pdf) == 0) {
-      stop(
-        "The requested anchor does not contain stored length-support metadata needed for this diagnostic plot.",
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Reference Anchor Length Density",
+        subtitle = "The requested anchor does not contain stored length-support metadata needed for this diagnostic plot.",
+        x = "Length (cm)",
+        y = "f(L)"
+      ))
     }
     return(plot_length_density(anchor_pdf, anchor_label))
   }

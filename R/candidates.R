@@ -2188,19 +2188,19 @@ NULL
   # stored on the object after `screen_admissibility()`.
   if (identical(type, "admissibility")) {
     if (length(x@admissibility) == 0) {
-      stop(
-        "No admissibility results are stored on this `Candidates` object. Run `screen_admissibility()` first.",
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Admissibility",
+        subtitle = "No admissibility results are stored on this Candidates object."
+      ))
     }
     if (!admissibility_bundle_is_current(x@admissibility, x)) {
-      stop(
-        paste(
-          "The stored admissibility bundle on this `Candidates` object predates the current admissibility gate logic.",
-          "Run `screen_admissibility()` again to rebuild it before plotting."
-        ),
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Current Admissibility Plot Unavailable",
+        subtitle = paste(
+          "Current-format admissibility diagnostics are not available on this object.",
+          "Run screen_admissibility() before generating admissibility plots."
+        )
+      ))
     }
     view <- match.arg(view %||% "gate_composition", c("gate_composition", "overlap_profile"))
     if (identical(view, "gate_composition")) {

@@ -1932,10 +1932,10 @@ NULL
 
   if (type %in% c("strategy_error_heatmap", "policy_benchmark")) {
     if (length(x@benchmark) == 0) {
-      stop(
-        "No benchmark results are stored on this `PolicySelector`. Run `benchmark()` first.",
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Policy Benchmark",
+        subtitle = "No benchmark results are stored on this PolicySelector."
+      ))
     }
     if (identical(type, "policy_benchmark")) {
       return(plot_policy_boxplot(
@@ -1953,10 +1953,10 @@ NULL
   }
 
   if (length(x@uncertainty) == 0) {
-    stop(
-      "No uncertainty results are stored on this `PolicySelector`. Run `calibrate_uncertainty()` first.",
-      call. = FALSE
-    )
+    return(plot_report_placeholder(
+      title = "Conformal Calibration Radius by Policy",
+      subtitle = "No uncertainty results are stored on this PolicySelector."
+    ))
   }
   policy_filter <- policy_selector_reference_policy_display_levels(
     x,
