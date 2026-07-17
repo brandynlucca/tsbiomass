@@ -1869,6 +1869,15 @@ policy_selector_reference_policy_display_levels <- function(x,
   unique(out)
 }
 
+#' Current PolicySelector plot type names
+#'
+#' @return Character vector of supported plot type names.
+#' @keywords internal
+#' @noRd
+policy_selector_plot_types <- function() {
+  c("strategy_error_heatmap", "conformal_scores", "policy_benchmark")
+}
+
 #' Plot a `PolicySelector`
 #'
 #' Uses the package's S7 method on [base::plot()] so selector-stage
@@ -1923,7 +1932,17 @@ NULL
                                   max_policies = 30L,
                                   show_values = NULL,
                                   ...) {
-  type <- match.arg(type)
+  valid_types <- policy_selector_plot_types()
+  type <- as.character(type %||% valid_types[[1]])[[1]]
+  if (!type %in% valid_types) {
+    return(plot_report_placeholder(
+      title = "PolicySelector Plot Unavailable",
+      subtitle = sprintf(
+        "Plot type '%s' is not a current PolicySelector plot type.",
+        type
+      )
+    ))
+  }
   anchor_species <- if (missing(anchor_species)) {
     policy_selector_reference_anchor_species(x)
   } else {
@@ -2016,13 +2035,32 @@ S7::method(plot_generic, PolicySelector) <- .plot_policy_selector
 #' )
 NULL
 
+#' Current PolicyPredictions plot type names
+#'
+#' @return Character vector of supported plot type names.
+#' @keywords internal
+#' @noRd
+policy_predictions_plot_types <- function() {
+  c("selected_intervals", "strategy_competition")
+}
+
 .plot_policy_predictions <- function(x,
                                      y = NULL,
                                      type = c("selected_intervals", "strategy_competition"),
                                      anchor_species = NULL,
                                      reference_name = NULL,
                                      ...) {
-  type <- match.arg(type)
+  valid_types <- policy_predictions_plot_types()
+  type <- as.character(type %||% valid_types[[1]])[[1]]
+  if (!type %in% valid_types) {
+    return(plot_report_placeholder(
+      title = "PolicyPredictions Plot Unavailable",
+      subtitle = sprintf(
+        "Plot type '%s' is not a current PolicyPredictions plot type.",
+        type
+      )
+    ))
+  }
 
   if (identical(type, "selected_intervals")) {
     return(plot_selected_intervals(x@selections))

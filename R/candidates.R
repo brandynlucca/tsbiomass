@@ -1970,6 +1970,30 @@ S7::method(show_generic, Candidates) <- function(object) {
 #' )
 NULL
 
+#' Current Candidates plot type names
+#'
+#' @return Character vector of supported plot type names.
+#' @keywords internal
+#' @noRd
+candidates_plot_types <- function() {
+  c(
+    "area_distribution",
+    "ordination",
+    "admissibility",
+    "candidate_review",
+    "uncertainty_importance",
+    "similarity_tuning",
+    "most_similar",
+    "candidate_biomass_response",
+    "model_weights",
+    "similarity_map",
+    "component_importance",
+    "tuning_variation",
+    "slope_support",
+    "slope_group"
+  )
+}
+
 .plot_candidates <- function(x,
                              y = NULL,
                              type = c(
@@ -1995,7 +2019,17 @@ NULL
                              anchor_species = NULL,
                              include_hulls = TRUE,
                              ...) {
-  type <- match.arg(type)
+  valid_types <- candidates_plot_types()
+  type <- as.character(type %||% valid_types[[1]])[[1]]
+  if (!type %in% valid_types) {
+    return(plot_report_placeholder(
+      title = "Candidates Plot Unavailable",
+      subtitle = sprintf(
+        "Plot type '%s' is not a current Candidates plot type.",
+        type
+      )
+    ))
+  }
   count_type <- match.arg(count_type)
   dissimilarity <- match.arg(dissimilarity)
 
@@ -2020,10 +2054,10 @@ NULL
 
     if (identical(dissimilarity, "combined")) {
       if (length(x@ordination) == 0) {
-        stop(
-          "No ordination results are stored on this `Candidates` object. Run `run_ordination()` first.",
-          call. = FALSE
-        )
+        return(plot_report_placeholder(
+          title = "Candidates Ordination",
+          subtitle = "No ordination results are stored on this Candidates object."
+        ))
       }
       model_obj <- (x@ordination)$model %||% list()
       point_tbl <- mark_ordination_reference_species(
@@ -2059,10 +2093,10 @@ NULL
 
     if (identical(dissimilarity, "species")) {
       if (length(x@ordination) == 0) {
-        stop(
-          "No ordination results are stored on this `Candidates` object. Run `run_ordination()` first.",
-          call. = FALSE
-        )
+        return(plot_report_placeholder(
+          title = "Candidates Ordination",
+          subtitle = "No ordination results are stored on this Candidates object."
+        ))
       }
       species_obj <- (x@ordination)$species %||% list()
       species_points <- mark_ordination_reference_species(
@@ -2105,17 +2139,17 @@ NULL
     }
 
     if (length(x@gower_distances) == 0) {
-      stop(
-        "No Gower-distance bundle is stored on this `Candidates` object. Run `construct_gower_distances()` first.",
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Candidates Ordination",
+        subtitle = "No Gower-distance bundle is stored on this Candidates object."
+      ))
     }
     study_dist <- (x@gower_distances)$study_dist %||% NULL
     if (is.null(study_dist) || length(study_dist) == 0) {
-      stop(
-        "No study-distance matrix is stored on this `Candidates` object.",
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Candidates Ordination",
+        subtitle = "No study-distance matrix is stored on this Candidates object."
+      ))
     }
 
     study_trait_cols <- intersect(
@@ -2238,10 +2272,10 @@ NULL
   )) {
     anchor_results <- (x@admissibility)$anchors %||% list()
     if (length(anchor_results) == 0) {
-      stop(
-        "No anchor-level admissibility bundle is stored on this `Candidates` object. Run `screen_admissibility()` first.",
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Candidate Review",
+        subtitle = "No anchor-level admissibility bundle is stored on this Candidates object."
+      ))
     }
 
     anchor_result <- NULL
@@ -2313,13 +2347,10 @@ NULL
     type <- match.arg(view %||% "overall", c("overall", "driver_heatmap", "anchor_profile"))
     if (identical(type, "driver_heatmap")) {
       if (nrow(diag_tbl) == 0) {
-        stop(
-          paste(
-            "No anchor-level uncertainty-driver diagnostics are stored on this `Candidates` object.",
-            "Build them before requesting `plot(candidates, type = 'uncertainty_importance', view = 'driver_heatmap')`."
-          ),
-          call. = FALSE
-        )
+        return(plot_report_placeholder(
+          title = "Uncertainty Importance",
+          subtitle = "No anchor-level uncertainty-driver diagnostics are stored on this Candidates object."
+        ))
       }
       return(plot_uncertainty_heat(
         dropout_tbl = diag_tbl |>
@@ -2333,13 +2364,10 @@ NULL
     }
     if (identical(type, "anchor_profile")) {
       if (nrow(diag_tbl) == 0) {
-        stop(
-          paste(
-            "No anchor-level uncertainty-driver diagnostics are stored on this `Candidates` object.",
-            "Build them before requesting anchor-specific uncertainty profiles."
-          ),
-          call. = FALSE
-        )
+        return(plot_report_placeholder(
+          title = "Uncertainty Importance",
+          subtitle = "No anchor-level uncertainty-driver diagnostics are stored on this Candidates object."
+        ))
       }
       diag_tbl <- if (!is.null(anchor_model_id)) {
         diag_tbl |>
@@ -2352,7 +2380,10 @@ NULL
           dplyr::filter(as.character(.data$anchor_model_id) == as.character(diag_tbl$anchor_model_id[[1]]))
       }
       if (nrow(diag_tbl) == 0) {
-        stop("The requested anchor was not present in the stored uncertainty-driver diagnostics.", call. = FALSE)
+        return(plot_report_placeholder(
+          title = "Uncertainty Importance",
+          subtitle = "The requested anchor was not present in the stored uncertainty-driver diagnostics."
+        ))
       }
       return(plot_uncertainty_blocks(
         dropout_tbl = diag_tbl |>
@@ -2366,13 +2397,10 @@ NULL
       ))
     }
     if (nrow(overall_tbl) == 0) {
-      stop(
-        paste(
-          "No aggregate uncertainty-driver diagnostics are stored on this `Candidates` object.",
-          "Build them before requesting `view = 'overall'`."
-        ),
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Uncertainty Importance",
+        subtitle = "No aggregate uncertainty-driver diagnostics are stored on this Candidates object."
+      ))
     }
     return(plot_uncertainty_blocks(
       dropout_tbl = overall_tbl |>
@@ -2398,23 +2426,20 @@ NULL
     if (identical(component_view, "overall")) {
       impact_tbl <- ((x@similarity_tuning %||% list())$component_impact_summary %||% tibble::tibble())
       if (nrow(tibble::as_tibble(impact_tbl)) == 0) {
-        stop(
-          "No similarity-tuning component-importance summary is stored on this `Candidates` object. Run `tune_similarities()` first.",
-          call. = FALSE
-        )
+        return(plot_report_placeholder(
+          title = "Similarity Tuning",
+          subtitle = "No similarity-tuning component-importance summary is stored on this Candidates object."
+        ))
       }
       return(plot_component_importance(impact_tbl))
     }
 
     local_tbl <- tibble::as_tibble((((x@admissibility %||% list())$uncertainty_diagnostics %||% list())$anchor_ablation %||% tibble::tibble()))
     if (nrow(local_tbl) == 0) {
-      stop(
-        paste(
-          "No anchor-level component-ablation diagnostics are stored on this `Candidates` object.",
-          "Build them before requesting anchor-level component-importance plots."
-        ),
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Similarity Tuning",
+        subtitle = "No anchor-level component-ablation diagnostics are stored on this Candidates object."
+      ))
     }
     if (identical(component_view, "anchor")) {
       local_tbl <- if (!is.null(anchor_model_id)) {
@@ -2428,7 +2453,10 @@ NULL
           dplyr::filter(as.character(.data$anchor_model_id) == as.character(local_tbl$anchor_model_id[[1]]))
       }
       if (nrow(local_tbl) == 0) {
-        stop("The requested anchor was not present in the stored component-ablation diagnostics.", call. = FALSE)
+        return(plot_report_placeholder(
+          title = "Similarity Tuning",
+          subtitle = "The requested anchor was not present in the stored component-ablation diagnostics."
+        ))
       }
     }
     return(plot_component_importance(local_tbl))
@@ -2436,10 +2464,10 @@ NULL
   if (identical(type, "tuning_variation")) {
     variation_tbl <- tibble::as_tibble(((x@similarity_tuning %||% list())$component_weights %||% tibble::tibble()))
     if (nrow(variation_tbl) == 0 || !all(c("component", "multiplier") %in% names(variation_tbl))) {
-      stop(
-        "No similarity-tuning resample multipliers are stored on this `Candidates` object. Run `tune_similarities()` with resampling enabled first.",
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Similarity Tuning",
+        subtitle = "No similarity-tuning resample multipliers are stored on this Candidates object."
+      ))
     }
     return(plot_tuning_variation(
       plot_tbl = variation_tbl |>

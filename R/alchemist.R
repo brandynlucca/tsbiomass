@@ -3245,6 +3245,15 @@ S7::method(show_generic, Alchemist) <- function(object) {
 #' )
 NULL
 
+#' Current Alchemist plot type names
+#'
+#' @return Character vector of supported plot type names.
+#' @keywords internal
+#' @noRd
+alchemist_plot_types <- function() {
+  c("ordination", "trait_importance", "admissibility")
+}
+
 .plot_alchemist <- function(x,
                             y = NULL,
                             type = c("ordination", "trait_importance", "admissibility"),
@@ -3252,15 +3261,25 @@ NULL
                             view = NULL,
                             include_hulls = TRUE,
                             ...) {
-  type <- match.arg(type)
+  valid_types <- alchemist_plot_types()
+  type <- as.character(type %||% valid_types[[1]])[[1]]
+  if (!type %in% valid_types) {
+    return(plot_report_placeholder(
+      title = "Alchemist Plot Unavailable",
+      subtitle = sprintf(
+        "Plot type '%s' is not a current Alchemist plot type.",
+        type
+      )
+    ))
+  }
   dissimilarity <- match.arg(dissimilarity)
 
   if (identical(type, "ordination")) {
     if (length(x@ordination) == 0L) {
-      stop(
-        "No ordination results stored. Run `run_ordination()` first.",
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Alchemist Ordination",
+        subtitle = "No ordination results are stored on this Alchemist object."
+      ))
     }
     reference_species <- ordination_reference_species(x@candidates@reference_anchors)
 

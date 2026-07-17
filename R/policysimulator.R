@@ -457,6 +457,15 @@ S7::method(show_generic, PolicySimulator) <- function(object) {
 #' )
 NULL
 
+#' Current PolicySimulator plot type names
+#'
+#' @return Character vector of supported plot type names.
+#' @keywords internal
+#' @noRd
+policy_simulator_plot_types <- function() {
+  c("sensitivity_overview", "policy_stability", "multiplier_drift")
+}
+
 .plot_policy_simulator <- function(x,
                                    y = NULL,
                                    type = c(
@@ -466,22 +475,32 @@ NULL
                                    ),
                                    baseline_label = "baseline",
                                    ...) {
-  type_ <- match.arg(type)
+  valid_types <- policy_simulator_plot_types()
+  type_ <- as.character(type %||% valid_types[[1]])[[1]]
+  if (!type_ %in% valid_types) {
+    return(plot_report_placeholder(
+      title = "PolicySimulator Plot Unavailable",
+      subtitle = sprintf(
+        "Plot type '%s' is not a current PolicySimulator plot type.",
+        type_
+      )
+    ))
+  }
   sensitivity_tables <- collect_sensitivity_results(x)
   sensitivity_tbl <- tibble::as_tibble(sensitivity_tables$select_ref %||% tibble::tibble())
   if (nrow(sensitivity_tbl) == 0) {
-    stop(
-      "No scenario policy-selection summaries are stored on this `PolicySimulator`. Run `simulate()` first.",
-      call. = FALSE
-    )
+    return(plot_report_placeholder(
+      title = "Policy Sensitivity",
+      subtitle = "No scenario policy-selection summaries are stored on this PolicySimulator."
+    ))
   }
   baseline_tbl <- sensitivity_tbl |>
     dplyr::filter(as.character(.data$scenario) == as.character(baseline_label))
   if (nrow(baseline_tbl) == 0) {
-    stop(
-      sprintf("No '%s' rows were stored on this `PolicySimulator` for sensitivity plotting.", baseline_label),
-      call. = FALSE
-    )
+    return(plot_report_placeholder(
+      title = "Policy Sensitivity",
+      subtitle = sprintf("No '%s' rows were stored for sensitivity plotting.", baseline_label)
+    ))
   }
 
   if (identical(type_, "sensitivity_overview")) {
@@ -514,10 +533,10 @@ NULL
   if (identical(type_, "policy_stability")) {
     anchor_selected_tbl <- tibble::as_tibble(sensitivity_tables$anchor_selected %||% tibble::tibble())
     if (nrow(anchor_selected_tbl) == 0) {
-      stop(
-        "No anchor-level scenario selections are stored on this `PolicySimulator`. Re-run `simulate()` with the current package code.",
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Policy Stability",
+        subtitle = "No anchor-level scenario selections are stored on this PolicySimulator."
+      ))
     }
     sens_detail <- summarize_sensitivity(
       sensitivity_table = anchor_selected_tbl,
@@ -530,13 +549,13 @@ NULL
     ))
   }
 
-  if (identical(type, "multiplier_drift")) {
+  if (identical(type_, "multiplier_drift")) {
     anchor_selected_tbl <- tibble::as_tibble(sensitivity_tables$anchor_selected %||% tibble::tibble())
     if (nrow(anchor_selected_tbl) == 0) {
-      stop(
-        "No anchor-level scenario selections are stored on this `PolicySimulator`. Re-run `simulate()` with the current package code.",
-        call. = FALSE
-      )
+      return(plot_report_placeholder(
+        title = "Multiplier Drift",
+        subtitle = "No anchor-level scenario selections are stored on this PolicySimulator."
+      ))
     }
     return(plot_multiplier_drift(
       sens_tbl = anchor_selected_tbl |>

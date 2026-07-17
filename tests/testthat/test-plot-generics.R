@@ -13,8 +13,11 @@ test_that("plot.Candidates dispatches through base plot without replacing it", {
   )
 
   p <- plot(candidates, count_type = "models")
+  p_unavailable <- plot(candidates, type = "species_policy_ranked")
 
   expect_s3_class(p, "ggplot")
+  expect_s3_class(p_unavailable, "ggplot")
+  expect_equal(p_unavailable$labels$title, "Candidates Plot Unavailable")
   expect_equal(seen$n_models, nrow(candidates@candidate_models))
   expect_equal(seen$count_type, "models")
 })
@@ -311,9 +314,12 @@ test_that("plot.Alchemist exposes admissibility summaries", {
 
   p_gate <- plot(alchemist, type = "admissibility")
   p_overlap <- plot(alchemist, type = "admissibility", view = "overlap_profile")
+  p_unavailable <- plot(alchemist, type = "species_policy_ranked")
 
   expect_s3_class(p_gate, "ggplot")
   expect_s3_class(p_overlap, "ggplot")
+  expect_s3_class(p_unavailable, "ggplot")
+  expect_equal(p_unavailable$labels$title, "Alchemist Plot Unavailable")
 })
 
 test_that("plot.Alchemist overlap profile handles overlap rows without metric columns", {
@@ -415,6 +421,22 @@ test_that("plot.PolicySelector dispatches benchmark and uncertainty summaries", 
   expect_s3_class(p_conf, "ggplot")
 })
 
+test_that("plot.PolicySelector returns diagnostics for unavailable plot types", {
+  selector <- make_selector(
+    benchmark = list(
+      policy_perf = minimal_policy_performance(),
+      species_block_perf = minimal_policy_performance()
+    ),
+    uncertainty = minimal_uncertainty()
+  )
+
+  p <- plot(selector, type = "species_policy_ranked")
+
+  expect_s3_class(p, "ggplot")
+  expect_equal(p$labels$title, "PolicySelector Plot Unavailable")
+  expect_match(p$labels$subtitle, "not a current PolicySelector plot type", fixed = TRUE)
+})
+
 test_that("policy heatmap keeps requested anchors and missing policy cells", {
   perf <- minimal_policy_performance() |>
     dplyr::mutate(
@@ -502,9 +524,12 @@ test_that("plot.PolicyPredictions dispatches selected intervals and policy compe
 
   p_selected <- plot(predictions, type = "selected_intervals")
   p_competition <- plot(predictions, type = "strategy_competition", anchor_species = "Alpha alpha")
+  p_unavailable <- plot(predictions, type = "species_policy_ranked")
 
   expect_s3_class(p_selected, "ggplot")
   expect_s3_class(p_competition, "ggplot")
+  expect_s3_class(p_unavailable, "ggplot")
+  expect_equal(p_unavailable$labels$title, "PolicyPredictions Plot Unavailable")
 })
 
 test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
@@ -650,6 +675,8 @@ test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
   p_competition_alias <- plot(referee, type = "biomass_change", view = "strategy_competition", anchor_species = "Alpha alpha")
   p_length_density <- plot(referee, type = "length_density", anchor_species = "Alpha alpha")
   p_length_density_panel <- plot(referee, type = "length_density")
+  p_scorecard_unavailable <- plot(scorecard, type = "species_policy_ranked")
+  p_referee_unavailable <- plot(referee, type = "species_policy_ranked")
 
   expect_s3_class(p_ts, "ggplot")
   expect_s3_class(p_ts_top, "ggplot")
@@ -670,6 +697,10 @@ test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
   expect_s3_class(p_competition_alias, "ggplot")
   expect_s3_class(p_length_density, "ggplot")
   expect_s3_class(p_length_density_panel, "ggplot")
+  expect_s3_class(p_scorecard_unavailable, "ggplot")
+  expect_s3_class(p_referee_unavailable, "ggplot")
+  expect_equal(p_scorecard_unavailable$labels$title, "Scorecard Plot Unavailable")
+  expect_equal(p_referee_unavailable$labels$title, "Referee Plot Unavailable")
 })
 
 test_that("plot_selected_intervals prefers learner post-selection interval columns", {
@@ -828,6 +859,7 @@ test_that("plot.PolicyLearner exposes calibration and residual diagnostics", {
   p_counts <- plot(learner, type = "selected_policy_counts")
   p_counts_anchor <- plot(learner, type = "selected_policy_counts", view = "by_anchor")
   p_stability <- plot(learner, type = "recommendation_stability")
+  p_unavailable <- plot(learner, type = "species_policy_ranked")
 
   expect_s3_class(p_predicted, "ggplot")
   expect_s3_class(p_calibration, "ggplot")
@@ -840,6 +872,8 @@ test_that("plot.PolicyLearner exposes calibration and residual diagnostics", {
   expect_s3_class(p_counts, "ggplot")
   expect_s3_class(p_counts_anchor, "ggplot")
   expect_s3_class(p_stability, "ggplot")
+  expect_s3_class(p_unavailable, "ggplot")
+  expect_equal(p_unavailable$labels$title, "PolicyLearner Plot Unavailable")
   expect_silent(ggplot2::ggplot_build(p_stability))
 })
 
@@ -957,8 +991,11 @@ test_that("plot.PolicySimulator exposes sensitivity summaries", {
   p <- plot(simulator)
   p_stability <- plot(simulator, type = "policy_stability")
   p_drift <- plot(simulator, type = "multiplier_drift")
+  p_unavailable <- plot(simulator, type = "species_policy_ranked")
 
   expect_s3_class(p, "ggplot")
   expect_s3_class(p_stability, "ggplot")
   expect_s3_class(p_drift, "ggplot")
+  expect_s3_class(p_unavailable, "ggplot")
+  expect_equal(p_unavailable$labels$title, "PolicySimulator Plot Unavailable")
 })

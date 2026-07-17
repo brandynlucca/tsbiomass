@@ -3330,6 +3330,23 @@ policy_learner_reference_anchor_species <- function(x) {
   character(0)
 }
 
+#' Current PolicyLearner plot type names
+#'
+#' @return Character vector of supported plot type names.
+#' @keywords internal
+#' @noRd
+policy_learner_plot_types <- function() {
+  c(
+    "predicted_vs_observed",
+    "calibration_curve",
+    "residuals",
+    "score_by_policy",
+    "support_bin_error",
+    "selected_policy_counts",
+    "recommendation_stability"
+  )
+}
+
 .plot_policy_learner <- function(x,
                                  y = NULL,
                                  type = c(
@@ -3347,7 +3364,17 @@ policy_learner_reference_anchor_species <- function(x) {
                                  n_bins = 10L,
                                  anchor_species = NULL,
                                  ...) {
-  type <- match.arg(type)
+  valid_types <- policy_learner_plot_types()
+  type <- as.character(type %||% valid_types[[1]])[[1]]
+  if (!type %in% valid_types) {
+    return(plot_report_placeholder(
+      title = "PolicyLearner Plot Unavailable",
+      subtitle = sprintf(
+        "Plot type '%s' is not a current PolicyLearner plot type.",
+        type
+      )
+    ))
+  }
   outcome <- match.arg(outcome)
   rows <- match.arg(rows)
   anchor_species <- anchor_species %||% policy_learner_reference_anchor_species(x)

@@ -1906,6 +1906,34 @@ S7::method(show_generic, Referee) <- function(object) {
 #' )
 NULL
 
+#' Current Scorecard plot type names
+#'
+#' @return Character vector of supported plot type names.
+#' @keywords internal
+#' @noRd
+scorecard_plot_types <- function() {
+  c(
+    "ts_length",
+    "ts_length_conformal",
+    "ts_length_multiplier",
+    "ts_length_bands",
+    "coefficient_uncertainty",
+    "selected_intervals",
+    "selected_multiplier_summary",
+    "selected_policy_counts",
+    "strategy_competition",
+    "field_missingness",
+    "ablation",
+    "validation",
+    "coverage",
+    "ablation_decomposition",
+    "sentinel_ablation",
+    "sentinel_ablation_decomposition",
+    "sentinel_validation",
+    "sentinel_coverage"
+  )
+}
+
 .plot_scorecard <- function(x,
                             y = NULL,
                             type = c(
@@ -1935,7 +1963,17 @@ NULL
                             show_top_candidate = FALSE,
                             reference_label = "Reference",
                             ...) {
-  type <- match.arg(type)
+  valid_types <- scorecard_plot_types()
+  type <- as.character(type %||% valid_types[[1]])[[1]]
+  if (!type %in% valid_types) {
+    return(plot_report_placeholder(
+      title = "Scorecard Plot Unavailable",
+      subtitle = sprintf(
+        "Plot type '%s' is not a current Scorecard plot type.",
+        type
+      )
+    ))
+  }
   scale <- match.arg(scale)
 
   if (type %in% c("ablation", "sentinel_ablation")) {
@@ -2266,6 +2304,15 @@ S7::method(plot_generic, Scorecard) <- .plot_scorecard
 #' )
 NULL
 
+#' Current Referee plot type names
+#'
+#' @return Character vector of supported plot type names.
+#' @keywords internal
+#' @noRd
+referee_plot_types <- function() {
+  c("biomass_change", "strategy_competition", "length_density", "anchor_multiplier_summary")
+}
+
 .plot_referee <- function(x,
                           y = NULL,
                           type = "biomass_change",
@@ -2274,10 +2321,17 @@ NULL
                           anchor_species = NULL,
                           reference_name = NULL,
                           ...) {
-  type <- match.arg(
-    type,
-    c("biomass_change", "strategy_competition", "length_density", "anchor_multiplier_summary")
-  )
+  valid_types <- referee_plot_types()
+  type <- as.character(type %||% valid_types[[1]])[[1]]
+  if (!type %in% valid_types) {
+    return(plot_report_placeholder(
+      title = "Referee Plot Unavailable",
+      subtitle = sprintf(
+        "Plot type '%s' is not a current Referee plot type.",
+        type
+      )
+    ))
+  }
   if (identical(type, "anchor_multiplier_summary")) {
     type <- "biomass_change"
   }
