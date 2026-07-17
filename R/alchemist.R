@@ -4890,6 +4890,10 @@ summarize_anchor_overlap <- function(admissible_df,
     rep(1, nrow(out))
   }
   weights[!is.finite(weights) | weights < 0] <- 0
+  if (!any(weights > 0)) {
+    stop("Cannot summarize anchor overlap: no positive finite admissibility weights were available.", call. = FALSE)
+  }
+  weights <- weights / sum(weights)
   weighted_mean_or_na <- function(x) {
     x <- suppressWarnings(as.numeric(x))
     keep <- is.finite(x) & is.finite(weights) & weights > 0
@@ -5857,8 +5861,7 @@ screen_admissibility <- function(reference_anchors = NULL,
 
     scored <- collect_anchor_scores(eval_obj, anchor_row, cfg)
     ranked <- rank_anchor_models(eval_obj)
-    overlap <- scored |>
-      dplyr::filter(.data$admissible) |>
+    overlap <- eval_obj$admissible_df |>
       summarize_anchor_overlap(config = config_) |>
       dplyr::mutate(anchor_model_id = anchor_id, anchor_species = anchor_species)
     gates <- summarize_gate_counts(scored, anchor_row, cfg)

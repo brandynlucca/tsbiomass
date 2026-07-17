@@ -1147,7 +1147,12 @@ plot_ordination_vectors <- function(vec_tbl,
       label_x = .data$MDS1 * 1.18,
       label_y = .data$MDS2 * 1.18
     )
-  scope_cols <- ordination_discrete_palette(unique(vec_df$trait_scope), palette = "batlow")
+  scope_cols <- c(
+    "Species trait" = "#005AB5",
+    "Survey trait" = "#D55E00",
+    "Trait" = "#2B2B2B"
+  )
+  scope_cols <- scope_cols[intersect(names(scope_cols), unique(vec_df$trait_scope))]
 
   ggplot2::ggplot(
     vec_df,
@@ -2627,20 +2632,36 @@ plot_policy_heatmap <- function(perf_tbl,
     plot_df <- plot_df |>
       dplyr::mutate(policy = dplyr::recode(.data$policy, !!!policy_labs))
   }
-  anchor_levels <- unique(c(
-    as.character(anchor_species %||% character(0)),
-    sort(unique(as.character(plot_df$anchor_species)))
-  ))
-  anchor_levels <- anchor_levels[!is.na(anchor_levels) & nzchar(anchor_levels)]
-  all_policy_levels <- sort(unique(as.character(plot_df$policy)))
-  all_policy_levels <- all_policy_levels[!is.na(all_policy_levels) & nzchar(all_policy_levels)]
+  requested_anchor_levels <- unique(as.character(anchor_species %||% character(0)))
+  requested_anchor_levels <- requested_anchor_levels[!is.na(requested_anchor_levels) & nzchar(requested_anchor_levels)]
   plot_df <- plot_df |>
     dplyr::filter(.data$valid_prediction, is.finite(.data$error_abs_log)) |>
     dplyr::group_by(.data$anchor_species, .data$policy) |>
     dplyr::summarise(median_abs_log_error = stats::median(.data$error_abs_log, na.rm = TRUE), .groups = "drop")
+  available_anchor_levels <- sort(unique(as.character(plot_df$anchor_species)))
+  available_anchor_levels <- available_anchor_levels[!is.na(available_anchor_levels) & nzchar(available_anchor_levels)]
+  anchor_levels <- if (length(requested_anchor_levels) > 0L) {
+    intersect(requested_anchor_levels, available_anchor_levels)
+  } else {
+    available_anchor_levels
+  }
+  missing_requested_anchors <- setdiff(requested_anchor_levels, anchor_levels)
+  all_policy_levels <- sort(unique(as.character(plot_df$policy)))
+  all_policy_levels <- all_policy_levels[!is.na(all_policy_levels) & nzchar(all_policy_levels)]
   if (length(anchor_levels) == 0L || length(all_policy_levels) == 0L) {
     return(ggplot2::ggplot() +
-      ggplot2::labs(x = NULL, y = NULL) +
+      ggplot2::labs(
+        x = NULL,
+        y = NULL,
+        subtitle = if (length(missing_requested_anchors) > 0L) {
+          paste(
+            "Dropped requested species with no finite benchmark cells:",
+            paste(missing_requested_anchors, collapse = ", ")
+          )
+        } else {
+          "No finite policy benchmark cells were available to plot."
+        }
+      ) +
       ggplot2::theme_minimal(base_size = 11))
   }
 
@@ -2694,10 +2715,19 @@ plot_policy_heatmap <- function(perf_tbl,
   ) +
     ggplot2::geom_tile(colour = "white") +
     ggplot2::scale_fill_viridis_c(option = "C", direction = -1, na.value = "grey90") +
-    ggplot2::scale_y_discrete(labels = function(x) parse(text = paste0("italic('", x, "')"))) +
+    ggplot2::scale_x_discrete(expand = ggplot2::expansion(add = 0)) +
+    ggplot2::scale_y_discrete(labels = function(x) parse(text = paste0("italic('", x, "')")), expand = ggplot2::expansion(add = 0)) +
     ggplot2::labs(
       x = NULL,
       y = NULL,
+      subtitle = if (length(missing_requested_anchors) > 0L) {
+        paste(
+          "Dropped requested species with no finite benchmark cells:",
+          paste(missing_requested_anchors, collapse = ", ")
+        )
+      } else {
+        NULL
+      },
       fill = "Median |log error|"
     ) +
     ggplot2::theme_minimal(base_size = 11) +

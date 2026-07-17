@@ -508,6 +508,10 @@ test_that("ordination vector labels use reference species names", {
     function(layer) "Scomber scombrus" %in% layer$data$anchor_label,
     logical(1)
   )))
+  ref_layer <- label_layers[[1]]$data |>
+    dplyr::filter(.data$anchor_label == "Scomber scombrus")
+  expect_equal(ref_layer$MDS1, 0)
+  expect_equal(ref_layer$MDS2, 0)
 })
 
 test_that("ordination centroid labels use registry display values without duplicated trait prefixes", {
@@ -596,7 +600,7 @@ test_that("plot.PolicySelector returns diagnostics for unavailable plot types", 
   expect_match(p$labels$subtitle, "not a current PolicySelector plot type", fixed = TRUE)
 })
 
-test_that("policy heatmap keeps requested anchors and missing policy cells", {
+test_that("policy heatmap drops requested anchors and policies without finite cells", {
   perf <- minimal_policy_performance() |>
     dplyr::mutate(
       policy_display = dplyr::if_else(
@@ -633,9 +637,18 @@ test_that("policy heatmap keeps requested anchors and missing policy cells", {
   expect_false(any(grepl("^NA NA", as.character(p_heat$data$policy))))
   expect_setequal(
     as.character(unique(p_heat$data$anchor_species)),
-    c("Alpha alpha", "Gamma gamma", "Missing missing")
+    c("Alpha alpha", "Gamma gamma")
   )
-  expect_true(any(is.na(p_heat$data$median_abs_log_error)))
+  expect_match(p_heat$labels$subtitle, "Dropped requested species", fixed = TRUE)
+  expect_match(p_heat$labels$subtitle, "Missing missing", fixed = TRUE)
+  species_has_value <- p_heat$data |>
+    dplyr::group_by(.data$anchor_species) |>
+    dplyr::summarise(any_finite = any(is.finite(.data$median_abs_log_error)), .groups = "drop")
+  policy_has_value <- p_heat$data |>
+    dplyr::group_by(.data$policy) |>
+    dplyr::summarise(any_finite = any(is.finite(.data$median_abs_log_error)), .groups = "drop")
+  expect_true(all(species_has_value$any_finite))
+  expect_true(all(policy_has_value$any_finite))
   expect_false("Unused species" %in% as.character(p_heat$data$anchor_species))
 })
 
