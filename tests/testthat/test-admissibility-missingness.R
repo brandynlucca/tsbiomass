@@ -216,6 +216,44 @@ test_that("anchor overlap summary is driven by available overlap fields", {
   expect_false("mean_depth_overlap_fraction" %in% names(overlap))
 })
 
+test_that("admissibility cache currentness requires overlap summary metrics", {
+  cfg <- list(
+    admissibility = list(
+      species_traits = character(0),
+      study_traits = character(0),
+      coherence = list(
+        frequency = list(mode = "overlap")
+      )
+    )
+  )
+  stale_bundle <- list(
+    all_scores = tibble::tibble(
+      anchor_species = "Alpha alpha",
+      admissible = TRUE,
+      overlap_same_species = TRUE,
+      length_overlap_fraction = 0.75,
+      frequency_coherence_distance = 0.20,
+      gate_frequency = TRUE,
+      key_metadata_missing_fraction = 0
+    ),
+    all_overlap = tibble::tibble(
+      anchor_species = "Alpha alpha",
+      n_admissible = 1L
+    )
+  )
+  current_bundle <- stale_bundle
+  current_bundle$all_overlap <- tibble::tibble(
+    anchor_species = "Alpha alpha",
+    n_admissible = 1L,
+    w_same_species = 1,
+    mean_length_overlap_fraction = 0.75,
+    mean_frequency_coherence = 0.80
+  )
+
+  expect_false(tsbiomass:::admissibility_bundle_is_current(stale_bundle, cfg))
+  expect_true(tsbiomass:::admissibility_bundle_is_current(current_bundle, cfg))
+})
+
 test_that("admissibility gates reuse precomputed overlap columns when available", {
   cfg <- tsbiomass:::default_anchor_config(list(
     admissibility = list(

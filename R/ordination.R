@@ -639,14 +639,77 @@ run_ordination <- function(dist_mat,
   )
 }
 
+#' Select an automatic ordination cluster count
+#'
+#' @param cluster_scores Data frame with `k` and `silhouette` columns.
+#' @param min_silhouette Minimum acceptable mean silhouette width.
+#' @param selection_rule Cluster-count selection rule. `"granular_silhouette"`
+#'   keeps the most resolved cluster count within `silhouette_tolerance` of the
+#'   best silhouette. `"max_silhouette"` keeps the historical maximum-silhouette
+#'   rule.
+#' @param silhouette_tolerance Absolute silhouette-width tolerance used by
+#'   `"granular_silhouette"`.
+#'
+#' @return Integer cluster count.
+#'
+#' @keywords internal
+#' @noRd
+select_ordination_cluster_k <- function(cluster_scores,
+                                        min_silhouette = 0.10,
+                                        selection_rule = c("granular_silhouette", "max_silhouette"),
+                                        silhouette_tolerance = 0.05) {
+  scores <- tibble::as_tibble(cluster_scores)
+  selection_rule <- match.arg(selection_rule)
+  if (nrow(scores) == 0 ||
+    !all(c("k", "silhouette") %in% names(scores))) {
+    return(1L)
+  }
+  scores <- scores |>
+    dplyr::mutate(
+      k = suppressWarnings(as.integer(.data$k)),
+      silhouette = suppressWarnings(as.numeric(.data$silhouette))
+    ) |>
+    dplyr::filter(is.finite(.data$k), .data$k >= 2L, is.finite(.data$silhouette))
+  if (nrow(scores) == 0) {
+    return(1L)
+  }
+
+  best_s <- max(scores$silhouette, na.rm = TRUE)
+  if (!is.finite(best_s) || best_s < min_silhouette) {
+    return(1L)
+  }
+  if (identical(selection_rule, "max_silhouette")) {
+    best_row <- scores |>
+      dplyr::arrange(dplyr::desc(.data$silhouette), .data$k) |>
+      dplyr::slice(1L)
+    return(as.integer(best_row$k[[1]]))
+  }
+
+  tolerance <- suppressWarnings(as.numeric(silhouette_tolerance[[1]]))
+  if (!is.finite(tolerance) || tolerance < 0) {
+    tolerance <- 0
+  }
+  eligible <- scores |>
+    dplyr::filter(.data$silhouette >= best_s - tolerance) |>
+    dplyr::arrange(dplyr::desc(.data$k))
+  as.integer(eligible$k[[1]])
+}
+
 #' Assign ordination clusters
 #'
-#' Assigns Ward hierarchical clusters to NMDS point coordinates using the best
-#' mean silhouette width up to a maximum `k`.
+#' Assigns Ward hierarchical clusters to NMDS point coordinates using an
+#' automatic silhouette-based cluster-count rule up to a maximum `k`.
 #'
 #' @param points_df NMDS point table with `MDS1` and `MDS2`.
+#' @param k Optional fixed number of clusters. When `NULL`, the function
+#'   selects a cluster count by mean silhouette width.
 #' @param max_k Maximum number of clusters to evaluate.
 #' @param min_silhouette Minimum acceptable mean silhouette width.
+#' @param selection_rule Automatic cluster-count selection rule.
+#' @param silhouette_tolerance Absolute silhouette-width tolerance for the
+#'   granular automatic rule.
+#' @param min_cluster_size Minimum allowed cluster size for automatic candidate
+#'   partitions.
 #' @param cluster_col Name of the cluster-ID column to create.
 #'
 #' @return The input point table with cluster columns appended.
@@ -654,8 +717,12 @@ run_ordination <- function(dist_mat,
 #' @keywords internal
 #' @noRd
 assign_ordination_groups <- function(points_df,
+                                     k = NULL,
                                      max_k = 8,
                                      min_silhouette = 0.10,
+                                     selection_rule = c("granular_silhouette", "max_silhouette"),
+                                     silhouette_tolerance = 0.05,
+                                     min_cluster_size = 2L,
                                      cluster_col = "nmds_cluster_id") {
   # Validate the point table and clustering arguments before building any
   # coordinate distance objects.
@@ -668,8 +735,25 @@ assign_ordination_groups <- function(points_df,
   if (!is.numeric(max_k) || length(max_k) != 1 || !is.finite(max_k) || max_k < 1) {
     stop("'max_k' must be one number >= 1.", call. = FALSE)
   }
+  if (!is.null(k) &&
+    (!is.numeric(k) || length(k) != 1 || !is.finite(k) || k < 1)) {
+    stop("'k' must be NULL or one number >= 1.", call. = FALSE)
+  }
   if (!is.numeric(min_silhouette) || length(min_silhouette) != 1 || !is.finite(min_silhouette)) {
     stop("'min_silhouette' must be one finite numeric value.", call. = FALSE)
+  }
+  selection_rule <- match.arg(selection_rule)
+  if (!is.numeric(silhouette_tolerance) ||
+    length(silhouette_tolerance) != 1 ||
+    !is.finite(silhouette_tolerance) ||
+    silhouette_tolerance < 0) {
+    stop("'silhouette_tolerance' must be one finite number >= 0.", call. = FALSE)
+  }
+  if (!is.numeric(min_cluster_size) ||
+    length(min_cluster_size) != 1 ||
+    !is.finite(min_cluster_size) ||
+    min_cluster_size < 1) {
+    stop("'min_cluster_size' must be one number >= 1.", call. = FALSE)
   }
   if (!is.character(cluster_col) || length(cluster_col) != 1 || !nzchar(cluster_col)) {
     stop("'cluster_col' must be a single column name.", call. = FALSE)
@@ -696,29 +780,59 @@ assign_ordination_groups <- function(points_df,
   d <- stats::dist(coords)
   hc <- stats::hclust(d, method = "ward.D2")
   max_k_local <- min(as.integer(max_k), nrow(out) - 1L)
+  if (!is.null(k)) {
+    fixed_k <- min(as.integer(k), max_k_local)
+    fixed_k <- max(1L, fixed_k)
+    cl <- if (fixed_k > 1L) stats::cutree(hc, k = fixed_k) else rep(1L, nrow(out))
+    sil_mean <- if (fixed_k > 1L) {
+      sil <- cluster::silhouette(cl, d)
+      mean(sil[, 3], na.rm = TRUE)
+    } else {
+      NA_real_
+    }
+    out[[cluster_col]] <- paste0("cluster_", cl)
+    out$nmds_cluster_k <- fixed_k
+    out$nmds_cluster_sil <- sil_mean
+    return(out)
+  }
   best_k <- 1L
-  best_s <- -Inf
+  cluster_scores <- list()
+  min_cluster_size <- as.integer(min_cluster_size)
 
-  # Search the admissible cluster counts and retain the partition with the
-  # highest mean silhouette width.
+  # Search the admissible cluster counts and retain their silhouette scores.
   for (k in seq.int(2L, max_k_local)) {
     cl <- stats::cutree(hc, k = k)
     if (length(unique(cl)) < 2) {
       next
     }
+    if (any(tabulate(cl) < min_cluster_size)) {
+      next
+    }
     sil <- cluster::silhouette(cl, d)
     sil_mean <- mean(sil[, 3], na.rm = TRUE)
-    if (is.finite(sil_mean) && sil_mean > best_s) {
-      best_s <- sil_mean
-      best_k <- k
+    if (is.finite(sil_mean)) {
+      cluster_scores[[length(cluster_scores) + 1L]] <- tibble::tibble(
+        k = as.integer(k),
+        silhouette = sil_mean
+      )
     }
   }
 
-  if (!is.finite(best_s) || best_s < min_silhouette) {
-    best_k <- 1L
-  }
+  best_k <- select_ordination_cluster_k(
+    dplyr::bind_rows(cluster_scores),
+    min_silhouette = min_silhouette,
+    selection_rule = selection_rule,
+    silhouette_tolerance = silhouette_tolerance
+  )
 
   cl <- if (best_k > 1L) stats::cutree(hc, k = best_k) else rep(1L, nrow(out))
+  best_s <- if (best_k > 1L) {
+    score_tbl <- dplyr::bind_rows(cluster_scores)
+    match_idx <- match(best_k, score_tbl$k)
+    if (!is.na(match_idx)) score_tbl$silhouette[[match_idx]] else NA_real_
+  } else {
+    NA_real_
+  }
   out[[cluster_col]] <- paste0("cluster_", cl)
   out$nmds_cluster_k <- best_k
   out$nmds_cluster_sil <- if (best_k > 1L) best_s else NA_real_

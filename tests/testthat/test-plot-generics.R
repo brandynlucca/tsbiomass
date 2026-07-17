@@ -403,6 +403,46 @@ test_that("plot.Alchemist supports species ordination and reference-species high
   expect_silent(ggplot2::ggplot_build(p_species))
 })
 
+test_that("ordination reference marking preserves model-id reference flags", {
+  points <- tibble::tibble(
+    model_id = c("11", "21", "31"),
+    species_name = c("Alpha alpha", "Alpha alpha", "Beta beta"),
+    MDS1 = c(0, 1, 2),
+    MDS2 = c(0, 1, 2),
+    is_reference = c(TRUE, FALSE, FALSE)
+  )
+
+  marked <- mark_ordination_reference_species(
+    points,
+    reference_species = "Alpha alpha"
+  )
+
+  expect_identical(marked$is_reference, c(TRUE, FALSE, FALSE))
+})
+
+test_that("ordination vector labels use reference species names", {
+  points <- tibble::tibble(
+    model_id = c("11", "21"),
+    species_name = c("Alpha alpha", "Beta beta"),
+    common = c("Alpha common", "Beta common"),
+    MDS1 = c(0, 1),
+    MDS2 = c(0, 1),
+    is_reference = c(TRUE, FALSE)
+  )
+  vectors <- tibble::tibble(
+    trait = "frequency",
+    MDS1 = 0.5,
+    MDS2 = 0.25,
+    r2 = 0.5,
+    p_value = 0.01
+  )
+
+  p <- plot_ordination_vectors(vectors, points)
+
+  expect_s3_class(p, "ggplot")
+  expect_equal(p$layers[[4]]$data$anchor_label, "Alpha alpha")
+})
+
 test_that("plot.PolicySelector dispatches benchmark and uncertainty summaries", {
   selector <- make_selector(
     benchmark = list(

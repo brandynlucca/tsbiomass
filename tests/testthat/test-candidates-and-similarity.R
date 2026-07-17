@@ -332,6 +332,43 @@ test_that("run_ordination works on Alchemist distance objects with model trait t
   expect_true(length(ord@ordination) > 0L)
 })
 
+test_that("assign_ordination_groups can use a fixed cluster count", {
+  points <- tibble::tibble(
+    model_id = as.character(seq_len(8)),
+    MDS1 = c(-2, -1.8, -1.6, 0, 0.2, 0.4, 2, 2.2),
+    MDS2 = c(0, 0.1, -0.1, 2, 2.2, 1.8, -1, -1.1)
+  )
+
+  clustered <- tsbiomass:::assign_ordination_groups(points, k = 3)
+
+  expect_equal(unique(clustered$nmds_cluster_k), 3L)
+  expect_equal(dplyr::n_distinct(clustered$nmds_cluster_id), 3L)
+})
+
+test_that("automatic ordination cluster selection can prefer granular near-optimal silhouettes", {
+  scores <- tibble::tibble(
+    k = c(2L, 3L, 4L),
+    silhouette = c(0.60, 0.58, 0.56)
+  )
+
+  expect_equal(
+    tsbiomass:::select_ordination_cluster_k(
+      scores,
+      selection_rule = "granular_silhouette",
+      silhouette_tolerance = 0.05
+    ),
+    4L
+  )
+  expect_equal(
+    tsbiomass:::select_ordination_cluster_k(
+      scores,
+      selection_rule = "max_silhouette",
+      silhouette_tolerance = 0.05
+    ),
+    2L
+  )
+})
+
 test_that("screen_admissibility preserves arbitrary configured trait gates", {
   cfg <- minimal_config_data()
   cfg$admissibility$species_traits <- c("family")

@@ -892,11 +892,7 @@ plot_ordination_vectors <- function(vec_tbl,
   } else {
     species_col
   }
-  if (common_col %in% names(point_df)) {
-    point_df$anchor_label <- dplyr::coalesce(as.character(point_df[[common_col]]), as.character(point_df[[species_col_]]))
-  } else {
-    point_df$anchor_label <- as.character(point_df[[species_col_]])
-  }
+  point_df$anchor_label <- as.character(point_df[[species_col_]])
   if (reference_col %in% names(point_df)) {
     ref_flag <- dplyr::coalesce(as.logical(point_df[[reference_col]]), FALSE)
   } else {
@@ -1950,6 +1946,10 @@ mark_ordination_reference_species <- function(points_tbl,
     dplyr::coalesce(as.logical(out[[reference_col]]), FALSE)
   } else {
     rep(FALSE, nrow(out))
+  }
+  if (any(existing, na.rm = TRUE)) {
+    out[[reference_col]] <- existing
+    return(out)
   }
   out[[reference_col]] <- existing | as.character(out[[species_col]]) %in% reference_species
   out

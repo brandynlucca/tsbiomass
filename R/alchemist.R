@@ -2964,7 +2964,7 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
                                         "swimbladder_type", "family",
                                         "regional_body", "is_group_model"
                                       ),
-                                      cluster_args = list(),
+                                      cluster_args = NULL,
                                       model_id_col = "model_id",
                                       progress = NULL) {
   config <- alchemist@config
@@ -2980,6 +2980,7 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
   envfit_args <- envfit_args %||% ordination_cfg$envfit_args %||% list()
   include_loadings <- include_loadings %||% ordination_cfg$include_loadings %||% FALSE
   include_centroids <- include_centroids %||% ordination_cfg$include_centroids %||% FALSE
+  cluster_args <- cluster_args %||% ordination_cfg$cluster_args %||% list()
 
   report_progress(progress, "Running Alchemist ordination.")
 
@@ -3730,6 +3731,40 @@ admissibility_bundle_is_current <- function(admissibility_bundle,
     if (has_missing_inputs &&
       !any(is.finite(scores_tbl$key_metadata_missing_fraction) & scores_tbl$key_metadata_missing_fraction > 0, na.rm = TRUE)) {
       return(FALSE)
+    }
+  }
+
+  if (!is.null(admissibility_bundle$all_overlap)) {
+    overlap_tbl <- tibble::as_tibble(admissibility_bundle$all_overlap)
+    if (nrow(overlap_tbl) == 0 || !"anchor_species" %in% names(overlap_tbl)) {
+      return(FALSE)
+    }
+    score_metric_cols <- names(scores_tbl)[
+      startsWith(names(scores_tbl), "overlap_same_") |
+        endsWith(names(scores_tbl), "_coherence_distance") |
+        endsWith(names(scores_tbl), "_overlap_fraction")
+    ]
+    if (length(score_metric_cols) > 0L) {
+      expected_overlap_metrics <- unique(c(
+        paste0(
+          "w_same_",
+          sub("^overlap_same_", "", score_metric_cols[startsWith(score_metric_cols, "overlap_same_")])
+        ),
+        paste0(
+          "mean_",
+          sub(
+            "_coherence_distance$",
+            "_coherence",
+            score_metric_cols[endsWith(score_metric_cols, "_coherence_distance")]
+          )
+        ),
+        paste0("mean_", score_metric_cols[endsWith(score_metric_cols, "_overlap_fraction")])
+      ))
+      expected_overlap_metrics <- expected_overlap_metrics[nzchar(expected_overlap_metrics)]
+      if (length(expected_overlap_metrics) > 0L &&
+        !any(expected_overlap_metrics %in% names(overlap_tbl))) {
+        return(FALSE)
+      }
     }
   }
 
@@ -5593,7 +5628,9 @@ screen_admissibility <- function(reference_anchors = NULL,
 
     scored <- collect_anchor_scores(eval_obj, anchor_row, cfg)
     ranked <- rank_anchor_models(eval_obj)
-    overlap <- summarize_anchor_overlap(eval_obj$admissible_df) |>
+    overlap <- scored |>
+      dplyr::filter(.data$admissible) |>
+      summarize_anchor_overlap() |>
       dplyr::mutate(anchor_model_id = anchor_id, anchor_species = anchor_species)
     gates <- summarize_gate_counts(scored, anchor_row, cfg)
     summary <- summarize_anchor_pool(scored)
