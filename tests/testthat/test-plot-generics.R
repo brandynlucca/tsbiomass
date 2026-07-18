@@ -503,6 +503,7 @@ test_that("ordination vector labels use reference species names", {
     "anchor_label" %in% names(layer$data %||% data.frame())
   }, p$layers)
   expect_true(length(label_layers) > 0L)
+  expect_true("anchor_label" %in% names(p$layers[[length(p$layers)]]$data %||% data.frame()))
   expect_true(any(vapply(
     label_layers,
     function(layer) "Scomber scombrus" %in% layer$data$anchor_label,
@@ -542,6 +543,14 @@ test_that("ordination centroid labels use registry display values without duplic
   expect_true(all(c("Ocean basin", "Pressure corrected", "Body shape", "Species") %in% as.character(p$data$trait_label)))
   expect_false("family" %in% as.character(p$data$trait_label))
   expect_false(any(grepl("ocean basin ocean basin", p$data$centroid_label, ignore.case = TRUE)))
+  point_layers <- Filter(function(layer) {
+    inherits(layer$geom, "GeomPoint")
+  }, p$layers)
+  expect_true(all(vapply(
+    point_layers,
+    function(layer) "anchor_label" %in% names(layer$data %||% data.frame()),
+    logical(1)
+  )))
 })
 
 test_that("ordination hull plot uses closed polygon outlines", {
@@ -650,6 +659,15 @@ test_that("policy heatmap drops requested anchors and policies without finite ce
   expect_true(all(species_has_value$any_finite))
   expect_true(all(policy_has_value$any_finite))
   expect_false("Unused species" %in% as.character(p_heat$data$anchor_species))
+
+  p_component <- plot_policy_component_heatmap(
+    perf,
+    anchor_species = c("Alpha alpha", "Gamma gamma"),
+    show_values = TRUE
+  )
+  expect_s3_class(p_component, "ggplot")
+  expect_true(all(c("component", "component_level", "median_abs_log_error") %in% names(p_component$data)))
+  expect_false(any(grepl("^NA NA", as.character(p_component$data$component_level))))
 })
 
 test_that("policy heatmap includes each displayed species best policy under policy limits", {
@@ -691,11 +709,20 @@ test_that("policy display resolvers rebuild unusable NA labels", {
     selected_policy = "closest_within_species",
     selected_equation_branch_filter = "all"
   ))
+  selected_component_display <- resolve_selected_policy_names(tibble::tibble(
+    selected_policy_display = "NA NA [fixed-slope]",
+    selected_policy = "closest_within_species",
+    candidate_pool = NA_character_,
+    aggregation_method = NA_character_,
+    selected_equation_branch_filter = "fixed_slope"
+  ))
 
   expect_false(any(grepl("^NA NA", display)))
   expect_false(any(grepl("^NA NA", selected_display)))
+  expect_false(any(grepl("^NA NA", selected_component_display)))
   expect_true(grepl("species", display[[1]], ignore.case = TRUE))
   expect_true(grepl("species", selected_display[[1]], ignore.case = TRUE))
+  expect_true(grepl("species", selected_component_display[[1]], ignore.case = TRUE))
 })
 
 test_that("plot.PolicyPredictions dispatches selected intervals and policy competition", {
@@ -869,9 +896,11 @@ test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
   p_selected_counts <- plot(scorecard, type = "selected_policy_counts")
   p_selected_counts_anchor <- plot(scorecard, type = "selected_policy_counts", view = "by_anchor")
   p_competition_scorecard <- plot(scorecard, type = "strategy_competition", anchor_species = "Alpha alpha")
+  p_competition_components <- plot(scorecard, type = "strategy_competition", view = "components")
   p_field_missing <- plot(scorecard, type = "field_missingness")
   p_summary <- plot(referee, type = "biomass_change")
   p_competition <- plot(referee, type = "strategy_competition", anchor_species = "Alpha alpha")
+  p_referee_competition_components <- plot(referee, type = "strategy_competition", view = "components")
   p_competition_alias <- plot(referee, type = "biomass_change", view = "strategy_competition", anchor_species = "Alpha alpha")
   p_length_density <- plot(referee, type = "length_density", anchor_species = "Alpha alpha")
   p_length_density_panel <- plot(referee, type = "length_density")
@@ -891,9 +920,11 @@ test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
   expect_s3_class(p_selected_counts, "ggplot")
   expect_s3_class(p_selected_counts_anchor, "ggplot")
   expect_s3_class(p_competition_scorecard, "ggplot")
+  expect_s3_class(p_competition_components, "ggplot")
   expect_s3_class(p_field_missing, "ggplot")
   expect_s3_class(p_summary, "ggplot")
   expect_s3_class(p_competition, "ggplot")
+  expect_s3_class(p_referee_competition_components, "ggplot")
   expect_s3_class(p_competition_alias, "ggplot")
   expect_s3_class(p_length_density, "ggplot")
   expect_s3_class(p_length_density_panel, "ggplot")
@@ -901,6 +932,13 @@ test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
   expect_s3_class(p_referee_unavailable, "ggplot")
   expect_equal(p_scorecard_unavailable$labels$title, "Scorecard Plot Unavailable")
   expect_equal(p_referee_unavailable$labels$title, "Referee Plot Unavailable")
+  expect_true(all(c("component", "component_level", "n_selected") %in% names(p_competition_components$data)))
+  expect_false(any(grepl("^NA NA", as.character(p_competition_components$data$component_level))))
+  ts_text_layers <- Filter(function(layer) inherits(layer$geom, "GeomText"), p_ts$layers)
+  expect_true(length(ts_text_layers) > 0L)
+  expect_true(any(vapply(ts_text_layers, function(layer) {
+    identical(layer$geom_params$parse, TRUE)
+  }, logical(1))))
 })
 
 test_that("plot_selected_intervals prefers learner post-selection interval columns", {

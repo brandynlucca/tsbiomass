@@ -2242,6 +2242,9 @@ scorecard_plot_types <- function() {
       }
       return(plot_all_intervals(interval_tbl = interval_tbl, reference_name = anchor_label))
     }
+    if (identical(view, "components") || identical(view, "component")) {
+      return(plot_strategy_component_competition(interval_tbl))
+    }
     return(plot_interval_panel(interval_tbl))
   }
   if (identical(type, "field_missingness")) {
@@ -2469,6 +2472,9 @@ referee_plot_types <- function() {
         interval_tbl = interval_tbl,
         reference_name = reference_name %||% as.character(anchor_species[[1]])
       ))
+    }
+    if (identical(view, "components") || identical(view, "component")) {
+      return(plot_strategy_component_competition(interval_tbl))
     }
     return(plot_interval_panel(interval_tbl))
   }

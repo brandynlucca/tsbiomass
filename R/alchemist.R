@@ -5546,6 +5546,28 @@ screen_one_anchor_admissibility <- function(anchor_row,
     config = cfg
   )
   anchor_sigma <- anchor_backscatter(model_eval, anchor_id, cfg)
+  anchor_pdf_status <- if ("length_pdf" %in% names(anchor_row)) {
+    stringr::str_to_lower(stringr::str_squish(as.character(anchor_row$length_pdf[[1]] %||% "")))
+  } else {
+    ""
+  }
+  if (identical(anchor_pdf_status, "user") &&
+    (!is.finite(anchor_sigma) || anchor_sigma <= 0)) {
+    anchor_species <- if (build_anchor_field(cfg, "species_name") %in% names(anchor_row)) {
+      as.character(anchor_row[[build_anchor_field(cfg, "species_name")]][[1]])
+    } else {
+      NA_character_
+    }
+    stop(
+      "Reference anchor ",
+      anchor_id,
+      if (!is.na(anchor_species) && nzchar(anchor_species)) paste0(" (", anchor_species, ")") else "",
+      " has a user-supplied length PDF but no finite positive anchor backscatter could be computed. ",
+      "Check that the anchor has finite standardized TS-length coefficients ",
+      "(`slope_standard`/`intercept_standard`) or the length-weight coefficients needed to derive them.",
+      call. = FALSE
+    )
+  }
 
   # Keep the anchor rows available long enough to derive the reference
   # backscatter term, then drop any declared reference anchors before donor

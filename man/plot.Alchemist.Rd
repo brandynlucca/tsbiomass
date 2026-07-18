@@ -29,8 +29,8 @@ model-level ordination; \code{"species"} plots the species-level ordination.}
 \item{view}{Secondary plot selector for \code{type = "ordination"} or
 \code{type = "admissibility"}. One of \code{"clusters"}, \code{"cluster_hulls"},
 \code{"vectors"}, or \code{"centers"} for combined ordination; species ordination
-also accepts \code{"overview"}. For admissibility, one of \code{"gate_composition"} or
-\code{"overlap_profile"}.}
+also accepts \code{"overview"}. For admissibility, one of
+\code{"gate_composition"} or \code{"overlap_profile"}.}
 
 \item{include_hulls}{Logical. When \code{TRUE} (default) and hull data are
 available, \code{view = NULL} defaults to \code{"cluster_hulls"} for \code{type = "ordination"}.}

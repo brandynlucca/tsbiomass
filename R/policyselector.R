@@ -1948,6 +1948,8 @@ NULL
   } else {
     anchor_species
   }
+  dots <- list(...)
+  view <- as.character(dots$view %||% "policy")[[1]]
 
   if (type %in% c("strategy_error_heatmap", "policy_benchmark")) {
     if (length(x@benchmark) == 0) {
@@ -1961,6 +1963,13 @@ NULL
         (x@benchmark)$policy_perf %||% tibble::tibble(),
         anchor_species = anchor_species,
         max_policies = max_policies
+      ))
+    }
+    if (identical(view, "components") || identical(view, "component")) {
+      return(plot_policy_component_heatmap(
+        (x@benchmark)$species_block_perf %||% tibble::tibble(),
+        anchor_species = anchor_species,
+        show_values = show_values
       ))
     }
     return(plot_policy_heatmap(

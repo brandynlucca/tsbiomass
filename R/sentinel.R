@@ -3474,6 +3474,273 @@ run_sentinel <- function(object,
   )
 }
 
+#' Run one Sentinel fold
+#'
+#' Runs exactly one row from a Sentinel manifest and returns the fold output
+#' without updating the parent Sentinel manifest or result index. This is a
+#' low-level bridge for external orchestrators such as `targets`; ordinary
+#' interactive use should call [run_sentinel()] instead.
+#'
+#' @param object A [Sentinel] object.
+#' @param manifest_row One-row Sentinel manifest table, usually from
+#'   `object@manifest`.
+#' @param workflow_fn Optional workflow override. Defaults to the workflow stored
+#'   on `object`.
+#' @param progress Optional logical override controlling console progress.
+#' @param logging Optional logical override controlling isolated fold logging.
+#'
+#' @return A list with `ok`, `fold_id`, `row`, and either `fold_result` or
+#'   `error_message`.
+#'
+#' @export
+run_sentinel_fold <- function(object,
+                              manifest_row,
+                              workflow_fn = NULL,
+                              progress = NULL,
+                              logging = NULL) {
+  if (!is_s7_instance(object, "Sentinel")) {
+    stop("'object' must be a `Sentinel` object.", call. = FALSE)
+  }
+  workflow_fn <- workflow_fn %||% object@workflow_fn
+  if (is.null(workflow_fn) || !is.function(workflow_fn)) {
+    stop("`workflow_fn` must be supplied either on the object or at call time.", call. = FALSE)
+  }
+  manifest_row <- tibble::as_tibble(manifest_row)
+  if (nrow(manifest_row) != 1L) {
+    stop("'manifest_row' must contain exactly one Sentinel manifest row.", call. = FALSE)
+  }
+
+  progress <- isTRUE(progress %||% object@options$progress %||% FALSE)
+  logging <- isTRUE(logging %||% object@options$logging %||% FALSE)
+  runtime_options <- object@options
+  workers_now <- as.integer(runtime_options$workers %||% 1L)
+  if (!is.finite(workers_now) || workers_now < 1L) {
+    workers_now <- 1L
+  }
+  runtime_options$workers <- workers_now
+  runtime_options$progress <- progress
+  runtime_options$logging <- logging
+  object <- sentinel_rebuild(
+    object,
+    workflow_fn = workflow_fn,
+    options = runtime_options
+  )
+  if (!"log_file" %in% names(manifest_row)) {
+    manifest_row$log_file <- file.path(
+      as.character(manifest_row$cache_dir),
+      "sentinel_fold.log"
+    )
+  }
+
+  split_plan <- sentinel_split_plan(
+    data = object@data,
+    split_col = object@split_col,
+    split_mode = object@split_mode,
+    options = object@options
+  )
+  worker_object <- sentinel_rebuild(
+    object,
+    manifest = tibble::tibble(),
+    results = tibble::tibble()
+  )
+  fold_id_now <- as.integer(manifest_row$fold_id[[1]])
+  log_file_now <- as.character(manifest_row$log_file[[1]] %||% "")
+  if (!nzchar(log_file_now)) {
+    log_file_now <- file.path(
+      as.character(manifest_row$cache_dir[[1]]),
+      "sentinel_fold.log"
+    )
+  }
+  fold_label <- sprintf(
+    "fold=%04d scenario=%s holdout=%s",
+    fold_id_now,
+    as.character(manifest_row$scenario[[1]]),
+    as.character(manifest_row$holdout_id[[1]])
+  )
+  execute_fold <- function() {
+    sentinel_run_one_fold(
+      object = worker_object,
+      manifest_row = manifest_row,
+      workflow_fn = workflow_fn,
+      progress = progress,
+      split_plan = split_plan
+    )
+  }
+
+  tryCatch(
+    list(
+      ok = TRUE,
+      fold_id = fold_id_now,
+      row = manifest_row,
+      fold_result = if (logging) {
+        sentinel_with_fold_logging(
+          work = execute_fold,
+          log_file = log_file_now,
+          progress = progress,
+          fold_label = fold_label
+        )
+      } else {
+        execute_fold()
+      }
+    ),
+    error = function(e) {
+      list(
+        ok = FALSE,
+        fold_id = fold_id_now,
+        row = manifest_row,
+        error_message = conditionMessage(e)
+      )
+    }
+  )
+}
+
+#' Combine externally orchestrated Sentinel folds
+#'
+#' Combines outputs from [run_sentinel_fold()] into a Sentinel object, updates
+#' the manifest/result index, writes Sentinel timing tables, and optionally
+#' compiles fold logs. This function exists so external DAG schedulers can own
+#' worker allocation while Sentinel still owns validation result structure.
+#'
+#' @param object A [Sentinel] object with a materialized manifest.
+#' @param fold_outputs A list of outputs returned by [run_sentinel_fold()].
+#' @param logging Optional logical override controlling compiled Sentinel logs.
+#'
+#' @return An updated [Sentinel] object.
+#'
+#' @export
+combine_sentinel_folds <- function(object,
+                                   fold_outputs,
+                                   logging = NULL) {
+  if (!is_s7_instance(object, "Sentinel")) {
+    stop("'object' must be a `Sentinel` object.", call. = FALSE)
+  }
+  fold_outputs <- sentinel_normalize_fold_outputs(fold_outputs)
+  if (length(fold_outputs) == 0L) {
+    return(object)
+  }
+
+  logging <- isTRUE(logging %||% object@options$logging %||% FALSE)
+  manifest_tbl <- tibble::as_tibble(object@manifest)
+  if (nrow(manifest_tbl) == 0L) {
+    manifest_tbl <- dplyr::bind_rows(lapply(fold_outputs, function(x) tibble::as_tibble(x$row)))
+  }
+  results_rows <- if (nrow(object@results) > 0L) {
+    split(object@results, seq_len(nrow(object@results)))
+  } else {
+    list()
+  }
+  timing_rows <- list()
+
+  for (task_out in fold_outputs) {
+    row_now <- tibble::as_tibble(task_out$row)
+    fold_id_now <- as.integer(task_out$fold_id)
+    if (!fold_id_now %in% as.integer(manifest_tbl$fold_id)) {
+      manifest_tbl <- dplyr::bind_rows(manifest_tbl, row_now)
+    }
+
+    if (!isTRUE(task_out$ok)) {
+      manifest_tbl <- sentinel_update_manifest_row(
+        manifest_tbl,
+        fold_id = fold_id_now,
+        fields = list(
+          status = "failed",
+          error_message = task_out$error_message %||% "unknown error",
+          completed_at = as.character(Sys.time())
+        )
+      )
+      next
+    }
+
+    fold_result <- task_out$fold_result
+    row_now$outer_fold_id <- row_now$outer_fold_id %||% row_now$fold_id
+    row_now$repeat_id <- row_now$repeat_id %||% 1L
+    row_now$scenario_type <- row_now$scenario_type %||% "custom"
+    row_now$ablated_traits <- row_now$ablated_traits %||% ""
+    row_now$ablation_component <- row_now$ablation_component %||% ""
+    row_now$log_file <- row_now$log_file %||% NA_character_
+    results_rows[[length(results_rows) + 1L]] <- row_now |>
+      dplyr::transmute(
+        fold_id = as.integer(.data$fold_id),
+        outer_fold_id = as.integer(.data$outer_fold_id),
+        repeat_id = as.integer(.data$repeat_id),
+        scenario = as.character(.data$scenario),
+        scenario_type = as.character(.data$scenario_type),
+        ablated_traits = as.character(.data$ablated_traits),
+        ablation_component = as.character(.data$ablation_component),
+        holdout_id = as.character(.data$holdout_id),
+        summary_file = as.character(.data$summary_file),
+        artifact_file = as.character(.data$artifact_file),
+        log_file = as.character(.data$log_file),
+        artifacts_saved = isTRUE(fold_result$artifacts_saved)
+      )
+
+    manifest_tbl <- sentinel_update_manifest_row(
+      manifest_tbl,
+      fold_id = fold_id_now,
+      fields = list(
+        status = "completed",
+        error_message = NA_character_,
+        completed_at = as.character(Sys.time())
+      )
+    )
+    if (is.data.frame(fold_result$timings) && nrow(fold_result$timings) > 0L) {
+      timing_rows[[length(timing_rows) + 1L]] <- fold_result$timings
+    }
+  }
+
+  results_tbl <- if (length(results_rows) > 0L) {
+    dplyr::bind_rows(results_rows) |>
+      dplyr::distinct(.data$fold_id, .data$scenario, .data$holdout_id, .keep_all = TRUE)
+  } else {
+    tibble::tibble()
+  }
+  timing_tbl <- if (length(timing_rows) > 0L) {
+    dplyr::bind_rows(timing_rows)
+  } else {
+    tibble::tibble()
+  }
+
+  object <- sentinel_rebuild(
+    object,
+    manifest = manifest_tbl,
+    results = results_tbl
+  )
+  paths_now <- sentinel_output_paths(object)
+  sentinel_write_table(manifest_tbl, paths_now$manifest_file)
+  sentinel_write_table(results_tbl, paths_now$results_index_file)
+  if (nrow(timing_tbl) > 0L) {
+    sentinel_write_table(timing_tbl, paths_now$timings_file)
+  }
+  if (logging) {
+    sentinel_compile_fold_logs(
+      manifest_tbl = manifest_tbl,
+      path = paths_now$log_file
+    )
+  }
+
+  object
+}
+
+#' Normalize Sentinel fold output lists
+#'
+#' @param x A fold output or nested list of fold outputs.
+#'
+#' @return A flat list of fold outputs.
+#' @keywords internal
+#' @noRd
+sentinel_normalize_fold_outputs <- function(x) {
+  if (is.null(x)) {
+    return(list())
+  }
+  if (is.list(x) && all(c("ok", "fold_id", "row") %in% names(x))) {
+    return(list(x))
+  }
+  if (!is.list(x)) {
+    stop("'fold_outputs' must be a Sentinel fold output or a list of outputs.", call. = FALSE)
+  }
+  unlist(lapply(x, sentinel_normalize_fold_outputs), recursive = FALSE)
+}
+
 #' Collect Sentinel summary outputs from disk
 #'
 #' @param object A [Sentinel] object.

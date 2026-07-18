@@ -1171,19 +1171,6 @@ plot_ordination_vectors <- function(vec_tbl,
       fill = "#fdd0a2",
       colour = "black"
     ) +
-    ggrepel::geom_label_repel(
-      data = point_df[ref_flag, , drop = FALSE],
-      ggplot2::aes(x = .data$MDS1, y = .data$MDS2, label = .data$anchor_label),
-      inherit.aes = FALSE,
-      size = 2.8,
-      fontface = "italic",
-      box.padding = 0.5,
-      point.padding = 0.35,
-      min.segment.length = 0,
-      max.overlaps = Inf,
-      label.size = 0.2,
-      fill = "white"
-    ) +
     ggplot2::geom_segment(
       ggplot2::aes(xend = .data$MDS1, yend = .data$MDS2, linewidth = .data$r2, colour = .data$trait_scope),
       arrow = grid::arrow(length = grid::unit(0.18, "cm")),
@@ -1199,6 +1186,22 @@ plot_ordination_vectors <- function(vec_tbl,
       segment.size = 0.25,
       force = 2,
       force_pull = 0.15,
+      max.overlaps = Inf,
+      label.size = 0.2,
+      fill = "white"
+    ) +
+    ggrepel::geom_label_repel(
+      data = point_df[ref_flag, , drop = FALSE],
+      ggplot2::aes(x = .data$MDS1, y = .data$MDS2, label = .data$anchor_label),
+      inherit.aes = FALSE,
+      size = 2.8,
+      fontface = "italic",
+      box.padding = 0.9,
+      point.padding = 0.7,
+      min.segment.length = 0,
+      segment.size = 0.25,
+      force = 4,
+      force_pull = 0.05,
       max.overlaps = Inf,
       label.size = 0.2,
       fill = "white"
@@ -1596,7 +1599,9 @@ plot_ordination_centers <- function(fac_tbl,
   if (!"n" %in% names(fac_df)) {
     fac_df$n <- 1
   }
-  if ("p_value" %in% names(fac_df)) {
+  if (!"p_value" %in% names(fac_df)) {
+    fac_df <- fac_df[0, , drop = FALSE]
+  } else {
     fac_df <- fac_df |>
       dplyr::filter(!is.na(.data$p_value), is.finite(.data$p_value), .data$p_value < 0.05)
   }
@@ -1659,20 +1664,25 @@ plot_ordination_centers <- function(fac_tbl,
       inherit.aes = FALSE,
       size = 3.15,
       fontface = "bold.italic",
-      box.padding = 0.65,
-      point.padding = 0.45,
+      box.padding = 0.9,
+      point.padding = 0.7,
       min.segment.length = 0,
+      segment.size = 0.25,
+      force = 4,
+      force_pull = 0.05,
       max.overlaps = Inf,
       label.size = 0.2,
       fill = "white"
     ) +
-    ggplot2::geom_point(size = 3.1, alpha = 0.9) +
     ggrepel::geom_label_repel(
       ggplot2::aes(label = .data$centroid_label, fontface = .data$centroid_fontface),
       size = 3,
-      box.padding = 0.35,
-      point.padding = 0.25,
+      box.padding = 0.55,
+      point.padding = 0,
       min.segment.length = 0,
+      segment.size = 0.25,
+      force = 3,
+      force_pull = 0.2,
       max.overlaps = Inf,
       label.size = 0.2,
       fill = "white",
@@ -2743,6 +2753,120 @@ plot_policy_heatmap <- function(perf_tbl,
   p
 }
 
+#' Plot species-blocked policy error by strategy component
+#'
+#' @param perf_tbl Species-block benchmark table.
+#' @param anchor_species Optional species names used to restrict held-out
+#'   species before summarising policy components.
+#' @param show_values Logical scalar. If `NULL`, values are shown only for
+#'   reasonably small heatmaps.
+#'
+#' @return A ggplot object.
+#'
+#' @keywords internal
+#' @noRd
+plot_policy_component_heatmap <- function(perf_tbl,
+                                          anchor_species = NULL,
+                                          show_values = NULL) {
+  # Collapse full policy definitions into interpretable strategy components so
+  # dense policy libraries can be evaluated without unreadable axis labels.
+  plot_df <- tibble::as_tibble(perf_tbl)
+  if (!all(c("anchor_species", "valid_prediction", "error_abs_log") %in% names(plot_df))) {
+    return(ggplot2::ggplot() +
+      ggplot2::labs(x = NULL, y = NULL) +
+      ggplot2::theme_minimal(base_size = 11))
+  }
+  plot_df <- filter_plot_anchor_species(plot_df, anchor_species = anchor_species)
+  requested_anchor_levels <- unique(as.character(anchor_species %||% character(0)))
+  requested_anchor_levels <- requested_anchor_levels[!is.na(requested_anchor_levels) & nzchar(requested_anchor_levels)]
+  plot_df <- plot_df |>
+    dplyr::mutate(.row_id = dplyr::row_number()) |>
+    dplyr::filter(.data$valid_prediction, is.finite(.data$error_abs_log))
+  component_tbl <- policy_component_labels(plot_df)
+  if (nrow(plot_df) == 0L || nrow(component_tbl) == 0L) {
+    return(plot_report_placeholder(
+      title = "Strategy Component Error",
+      subtitle = "No finite policy benchmark component cells were available.",
+      x = NULL,
+      y = NULL
+    ))
+  }
+  summary_tbl <- plot_df |>
+    dplyr::select(".row_id", "anchor_species", "error_abs_log") |>
+    dplyr::left_join(component_tbl, by = ".row_id") |>
+    dplyr::filter(!is.na(.data$component), !policy_display_value_missing(.data$component_level)) |>
+    dplyr::group_by(.data$anchor_species, .data$component, .data$component_level) |>
+    dplyr::summarise(
+      median_abs_log_error = stats::median(.data$error_abs_log, na.rm = TRUE),
+      n_rows = dplyr::n(),
+      .groups = "drop"
+    )
+  available_anchor_levels <- sort(unique(as.character(summary_tbl$anchor_species)))
+  anchor_levels <- if (length(requested_anchor_levels) > 0L) {
+    intersect(requested_anchor_levels, available_anchor_levels)
+  } else {
+    available_anchor_levels
+  }
+  if (length(anchor_levels) == 0L || nrow(summary_tbl) == 0L) {
+    return(plot_report_placeholder(
+      title = "Strategy Component Error",
+      subtitle = "No finite policy benchmark component cells were available.",
+      x = NULL,
+      y = NULL
+    ))
+  }
+  level_order <- summary_tbl |>
+    dplyr::group_by(.data$component, .data$component_level) |>
+    dplyr::summarise(order_value = stats::median(.data$median_abs_log_error, na.rm = TRUE), .groups = "drop") |>
+    dplyr::arrange(.data$component, .data$order_value, .data$component_level) |>
+    dplyr::pull(.data$component_level) |>
+    unique()
+  component_levels_tbl <- summary_tbl |>
+    dplyr::distinct(.data$component, .data$component_level)
+  plot_tbl <- tidyr::expand_grid(
+    anchor_species = anchor_levels,
+    component_levels_tbl
+  ) |>
+    dplyr::left_join(summary_tbl, by = c("anchor_species", "component", "component_level")) |>
+    dplyr::filter(!is.na(.data$component), .data$component_level %in% .env$level_order) |>
+    dplyr::mutate(
+      anchor_species = factor(.data$anchor_species, levels = anchor_levels),
+      component = factor(.data$component, levels = levels(component_tbl$component)),
+      component_level = factor(.data$component_level, levels = level_order)
+    )
+  show_values <- show_values %||% (sum(is.finite(plot_tbl$median_abs_log_error)) <= 90L)
+
+  p <- ggplot2::ggplot(
+    plot_tbl,
+    ggplot2::aes(x = .data$component_level, y = .data$anchor_species, fill = .data$median_abs_log_error)
+  ) +
+    ggplot2::geom_tile(colour = "white") +
+    ggplot2::facet_grid(cols = ggplot2::vars(.data$component), scales = "free_x", space = "free_x") +
+    ggplot2::scale_fill_viridis_c(option = "C", direction = -1, na.value = "grey90") +
+    ggplot2::scale_x_discrete(expand = ggplot2::expansion(add = 0)) +
+    ggplot2::scale_y_discrete(labels = function(x) parse(text = paste0("italic('", x, "')")), expand = ggplot2::expansion(add = 0)) +
+    ggplot2::labs(
+      x = NULL,
+      y = NULL,
+      fill = "Median |log error|"
+    ) +
+    ggplot2::theme_minimal(base_size = 10) +
+    ggplot2::theme(
+      axis.text.x = ggplot2::element_text(angle = 35, hjust = 1, size = 8),
+      panel.spacing.x = grid::unit(0.6, "lines"),
+      strip.text.x = ggplot2::element_text(face = "bold", size = 9)
+    )
+  if (isTRUE(show_values)) {
+    p <- p +
+      ggplot2::geom_text(
+        ggplot2::aes(label = dplyr::if_else(is.finite(.data$median_abs_log_error), sprintf("%.2f", .data$median_abs_log_error), "")),
+        size = 2.3,
+        colour = "black"
+      )
+  }
+  p
+}
+
 #' Build one `Conjurer` summary heatmap
 #'
 #' @param x A [Conjurer] object or `Conjurer@summary`-like tibble.
@@ -3648,17 +3772,19 @@ plot_selected_intervals <- function(sel_tbl,
     ggplot2::theme_bw(base_size = 12) +
     ggplot2::theme(
       panel.grid = ggplot2::element_blank(),
-      axis.title = ggplot2::element_text(size = 15.75),
-      axis.text = ggplot2::element_text(size = 14, colour = "black"),
+      axis.title = ggplot2::element_text(size = 10.5),
+      axis.text = ggplot2::element_text(size = 9, colour = "black"),
       axis.ticks = ggplot2::element_line(linewidth = 0.4, colour = "black"),
-      legend.text = ggplot2::element_text(size = 14, colour = "black"),
-      legend.title = ggplot2::element_text(size = 15.75, colour = "black"),
-      legend.position = "top",
+      legend.text = ggplot2::element_text(size = 7.5, colour = "black"),
+      legend.title = ggplot2::element_text(size = 8.5, colour = "black"),
+      legend.key.height = grid::unit(0.35, "lines"),
+      legend.key.width = grid::unit(0.9, "lines"),
+      legend.position = "bottom",
       legend.direction = "horizontal"
     ) +
     ggplot2::guides(
       colour = ggplot2::guide_legend(
-        nrow = 2,
+        nrow = 3,
         byrow = TRUE
       )
     )
@@ -4274,14 +4400,12 @@ plot_ts_panel <- function(curve_tbl,
   label_tbl <- curve_tbl |>
     dplyr::group_by(.data[[reference_col]]) |>
     dplyr::summarise(
-      x_min = min(.data$length_cm, na.rm = TRUE),
-      x_max = max(.data$length_cm, na.rm = TRUE),
       label_expr = paste0("italic('", dplyr::first(.data[[reference_col]]), "')"),
       .groups = "drop"
     ) |>
     dplyr::mutate(
-      x_label = .data$x_max - 0.04 * (.data$x_max - .data$x_min),
-      y_label = -60
+      x_label = Inf,
+      y_label = -Inf
     )
 
   p <- ggplot2::ggplot()
@@ -4330,9 +4454,9 @@ plot_ts_panel <- function(curve_tbl,
       data = label_tbl,
       ggplot2::aes(x = .data$x_label, y = .data$y_label, label = .data$label_expr),
       parse = TRUE,
-      hjust = 1,
-      vjust = -0.25,
-      size = 5.2
+      hjust = 1.03,
+      vjust = -0.55,
+      size = 3.2
     )
   colour_values <- c(
     "Selected policy" = "#0057b8",
@@ -4369,11 +4493,12 @@ plot_ts_panel <- function(curve_tbl,
       panel.grid = ggplot2::element_blank(),
       strip.background = ggplot2::element_blank(),
       strip.text = ggplot2::element_blank(),
-      axis.title = ggplot2::element_text(size = 15.75),
-      axis.text = ggplot2::element_text(size = 14, colour = "black"),
+      axis.title = ggplot2::element_text(size = 10.5),
+      axis.text = ggplot2::element_text(size = 9, colour = "black"),
       axis.ticks = ggplot2::element_line(linewidth = 0.4, colour = "black"),
-      legend.title = ggplot2::element_text(size = 15.75),
-      legend.text = ggplot2::element_text(size = 14)
+      legend.title = ggplot2::element_text(size = 9),
+      legend.text = ggplot2::element_text(size = 8.5),
+      legend.position = "right"
     )
 }
 
@@ -4640,7 +4765,7 @@ plot_policy_coefficients <- function(coefficient_tbl) {
       inherit.aes = FALSE,
       hjust = 0,
       vjust = 1,
-      size = 7
+      size = 4.2
     ) +
     ggplot2::scale_y_continuous(
       breaks = seq_along(species_levels),
@@ -4654,6 +4779,11 @@ plot_policy_coefficients <- function(coefficient_tbl) {
         "Plausible competing strategies" = "#b2182b",
         "SWFSC model" = "#2166ac"
       ),
+      labels = c(
+        "Selected strategy" = "Selected",
+        "Plausible competing strategies" = "Competing",
+        "SWFSC model" = "SWFSC"
+      ),
       name = NULL,
       drop = FALSE
     ) +
@@ -4666,14 +4796,15 @@ plot_policy_coefficients <- function(coefficient_tbl) {
       panel.grid = ggplot2::element_blank(),
       strip.background = ggplot2::element_blank(),
       strip.text = ggplot2::element_blank(),
-      axis.title = ggplot2::element_text(size = 15.75),
-      axis.text = ggplot2::element_text(size = 14, colour = "black"),
+      axis.title = ggplot2::element_text(size = 10.5),
+      axis.text = ggplot2::element_text(size = 9, colour = "black"),
       axis.ticks = ggplot2::element_line(linewidth = 0.4, colour = "black"),
       legend.title = ggplot2::element_blank(),
-      legend.text = ggplot2::element_text(size = 14),
-      legend.position = "top",
+      legend.text = ggplot2::element_text(size = 8.5),
+      legend.position = "bottom",
       legend.direction = "horizontal"
-    )
+    ) +
+    ggplot2::guides(colour = ggplot2::guide_legend(nrow = 1, byrow = TRUE))
 }
 
 #' Plot selected biomass multiplier against expected anchor length
@@ -4810,8 +4941,14 @@ plot_multiplier_length_spectrum <- function(curve_tbl,
       x = "Length (cm)",
       y = "Biomass multiplier"
     ) +
-    ggplot2::theme_minimal(base_size = 11) +
-    ggplot2::theme(strip.text = ggplot2::element_text(face = "italic"))
+    ggplot2::theme_bw(base_size = 10) +
+    ggplot2::theme(
+      panel.grid = ggplot2::element_blank(),
+      strip.background = ggplot2::element_blank(),
+      strip.text = ggplot2::element_text(face = "italic", size = 9),
+      axis.title = ggplot2::element_text(size = 10.5),
+      axis.text = ggplot2::element_text(size = 9, colour = "black")
+    )
 }
 
 #' Plot per-reference policy intervals
@@ -4928,6 +5065,80 @@ plot_all_intervals <- function(interval_tbl,
       y = NULL
     ) +
     ggplot2::theme_minimal(base_size = 11)
+}
+
+#' Plot selected-strategy component counts across references
+#'
+#' @param interval_tbl All-policy interval table across references.
+#'
+#' @return A ggplot object.
+#'
+#' @keywords internal
+#' @noRd
+plot_strategy_component_competition <- function(interval_tbl) {
+  # Summarize selected policies by interpretable strategy components instead of
+  # drawing every full policy label on one axis.
+  plot_df <- tibble::as_tibble(interval_tbl)
+  if (nrow(plot_df) == 0L || !"anchor_species" %in% names(plot_df)) {
+    return(plot_report_placeholder(
+      title = "Strategy Component Competition",
+      x = NULL,
+      y = "Selected anchor count"
+    ))
+  }
+  plot_df$is_selected <- dplyr::coalesce(
+    if ("is_selected.y" %in% names(plot_df)) as.logical(plot_df$is_selected.y) else rep(NA, nrow(plot_df)),
+    if ("is_selected" %in% names(plot_df)) as.logical(plot_df$is_selected) else rep(NA, nrow(plot_df)),
+    if ("is_selected.x" %in% names(plot_df)) as.logical(plot_df$is_selected.x) else rep(NA, nrow(plot_df)),
+    FALSE
+  )
+  plot_df <- plot_df |>
+    dplyr::mutate(.row_id = dplyr::row_number()) |>
+    dplyr::filter(.data$is_selected, !is.na(.data$anchor_species), nzchar(as.character(.data$anchor_species)))
+  component_tbl <- policy_component_labels(plot_df)
+  if (nrow(plot_df) == 0L || nrow(component_tbl) == 0L) {
+    return(plot_report_placeholder(
+      title = "Strategy Component Competition",
+      subtitle = "No selected strategy components were available.",
+      x = NULL,
+      y = "Selected anchor count"
+    ))
+  }
+  count_tbl <- plot_df |>
+    dplyr::select(".row_id", "anchor_species") |>
+    dplyr::left_join(component_tbl, by = ".row_id") |>
+    dplyr::filter(!policy_display_value_missing(.data$component_level)) |>
+    dplyr::count(.data$component, .data$component_level, name = "n_selected") |>
+    dplyr::group_by(.data$component) |>
+    dplyr::mutate(component_total = sum(.data$n_selected)) |>
+    dplyr::ungroup() |>
+    dplyr::mutate(
+      selection_fraction = .data$n_selected / .data$component_total,
+      component_level = stats::reorder(.data$component_level, .data$n_selected)
+    )
+  ggplot2::ggplot(
+    count_tbl,
+    ggplot2::aes(x = .data$n_selected, y = .data$component_level, fill = .data$component)
+  ) +
+    ggplot2::geom_col(width = 0.72, show.legend = FALSE) +
+    ggplot2::geom_text(
+      ggplot2::aes(label = sprintf("%d (%.0f%%)", .data$n_selected, 100 * .data$selection_fraction)),
+      hjust = -0.08,
+      size = 2.8
+    ) +
+    ggplot2::facet_grid(rows = ggplot2::vars(.data$component), scales = "free_y", space = "free_y") +
+    ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = c(0, 0.18))) +
+    ggplot2::scale_fill_viridis_d(option = "D", begin = 0.15, end = 0.85) +
+    ggplot2::labs(
+      x = "Selected anchor count",
+      y = NULL
+    ) +
+    ggplot2::theme_bw(base_size = 10) +
+    ggplot2::theme(
+      panel.grid.major.y = ggplot2::element_blank(),
+      strip.text.y = ggplot2::element_text(face = "bold", angle = 0),
+      axis.text.y = ggplot2::element_text(size = 8, colour = "black")
+    )
 }
 
 #' Plot all-reference policy interval panel

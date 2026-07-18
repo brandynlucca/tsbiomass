@@ -37,6 +37,13 @@ fetch_worms <- function(species, cache_path = NULL, refresh = FALSE) {
   if (!is.logical(refresh) || length(refresh) != 1 || is.na(refresh)) {
     stop("'refresh' must be TRUE or FALSE.", call. = FALSE)
   }
+  if (!requireNamespace("rfishbase", quietly = TRUE)) {
+    stop(
+      "FishBase metadata ingestion requires the optional package 'rfishbase'. ",
+      "Install it or remove/disable the FishBase source in the candidate configuration.",
+      call. = FALSE
+    )
+  }
 
   # Standardize the incoming species vector so blank and duplicate queries do
   # not trigger redundant API calls.
@@ -604,10 +611,18 @@ fetch_fishbase <- function(species, cache_path = NULL, refresh = FALSE) {
   }
 
   # Fetch the FishBase endpoint tables needed for the current translation map.
-  fetch_quietly <- function(expr) {
+  endpoint_errors <- list()
+  fetch_quietly <- function(endpoint_name,
+                            expr) {
     suppressWarnings(
       suppressMessages(
-        tryCatch(expr, error = function(err) NULL)
+        tryCatch(
+          expr,
+          error = function(err) {
+            endpoint_errors[[endpoint_name]] <<- conditionMessage(err)
+            NULL
+          }
+        )
       )
     )
   }
@@ -662,14 +677,26 @@ fetch_fishbase <- function(species, cache_path = NULL, refresh = FALSE) {
     )
   }
   endpoints <- list(
-    species = fetch_quietly(rfishbase::species(species_list = species_)),
-    morphology = fetch_quietly(rfishbase::morphology(species_list = species_)),
-    ecology = fetch_quietly(rfishbase::ecology(species_list = species_)),
-    length_weight = fetch_quietly(rfishbase::length_weight(species_list = species_)),
-    popgrowth = fetch_quietly(rfishbase::popgrowth(species_list = species_)),
-    stocks = fetch_quietly(rfishbase::stocks(species_list = species_)),
-    faoareas = fetch_quietly(rfishbase::faoareas(species_list = species_))
+    species = fetch_quietly("species", rfishbase::species(species_list = species_)),
+    morphology = fetch_quietly("morphology", rfishbase::morphology(species_list = species_)),
+    ecology = fetch_quietly("ecology", rfishbase::ecology(species_list = species_)),
+    length_weight = fetch_quietly("length_weight", rfishbase::length_weight(species_list = species_)),
+    popgrowth = fetch_quietly("popgrowth", rfishbase::popgrowth(species_list = species_)),
+    stocks = fetch_quietly("stocks", rfishbase::stocks(species_list = species_)),
+    faoareas = fetch_quietly("faoareas", rfishbase::faoareas(species_list = species_))
   )
+  if ("length_weight" %in% names(endpoint_errors)) {
+    warning(
+      "FishBase length_weight endpoint failed: ",
+      endpoint_errors$length_weight,
+      call. = FALSE
+    )
+  } else if (is.null(endpoints$length_weight) || nrow(endpoints$length_weight) == 0L) {
+    warning(
+      "FishBase length_weight endpoint returned no rows; length-weight coefficients will be missing.",
+      call. = FALSE
+    )
+  }
 
   for (endpoint_name in names(endpoints)) {
     dat <- endpoints[[endpoint_name]]
@@ -864,6 +891,19 @@ fetch_fishbase <- function(species, cache_path = NULL, refresh = FALSE) {
   }
 
   out$species_name_query <- NULL
+  if (all(c("lw_a_g", "lw_b") %in% names(out))) {
+    n_lw <- sum(
+      is.finite(suppressWarnings(as.numeric(out$lw_a_g))) &
+        is.finite(suppressWarnings(as.numeric(out$lw_b))),
+      na.rm = TRUE
+    )
+    if (n_lw == 0L) {
+      warning(
+        "FishBase ingestion produced zero finite length-weight coefficient pairs (`lw_a_g`, `lw_b`).",
+        call. = FALSE
+      )
+    }
+  }
 
   # Persist the fetched result exactly as returned so repeated calls can avoid
   # extra API traffic.

@@ -573,6 +573,48 @@ test_that("Sentinel run persists fold outputs and supports resume/collect", {
   expect_true(file.exists(artifact_path))
 })
 
+test_that("Sentinel folds can be externally orchestrated and combined", {
+  candidate_models <- tibble::tibble(
+    model_id_chr = c("m1", "m2", "m3"),
+    species_name = c("sp1", "sp1", "sp2"),
+    study_reference_id = c("study_a", "study_b", "study_c"),
+    study_cell_id = c("cell_1", "cell_2", "cell_3"),
+    score = c(10, 20, 30)
+  )
+
+  workflow_fn <- function(train_data, test_data, params, config, manifest_row, sentinel) {
+    list(metrics = tibble::tibble(
+      train_n = nrow(train_data),
+      test_n = nrow(test_data),
+      score_delta = mean(test_data$score) - mean(train_data$score)
+    ))
+  }
+
+  sentinel <- build_sentinel(
+    data = candidate_models,
+    workflow_fn = workflow_fn,
+    split_mode = "anchor_row_holdout",
+    output_dir = file.path(tempdir(), paste0("sentinel-fold-bridge-", as.integer(Sys.time())))
+  )
+  sentinel <- tsbiomass:::build_sentinel_manifest(sentinel)
+  fold_outputs <- lapply(seq_len(2L), function(i) {
+    run_sentinel_fold(sentinel, sentinel@manifest[i, , drop = FALSE])
+  })
+  expect_true(all(vapply(fold_outputs, `[[`, logical(1), "ok")))
+
+  combined <- combine_sentinel_folds(sentinel, fold_outputs)
+  expect_equal(sum(combined@manifest$status == "completed"), 2L)
+  expect_equal(nrow(combined@results), 2L)
+  expect_true(all(file.exists(combined@results$summary_file)))
+
+  validation_card <- summary(
+    combined,
+    type = "validation",
+    metric_cols = c("train_n", "test_n", "score_delta")
+  )
+  expect_true(S7::S7_inherits(validation_card, Scorecard))
+})
+
 test_that("Sentinel object workflow receives fold Candidates and Configurer", {
   candidate_models <- tibble::tibble(
     model_id_chr = c("m1", "m2", "m3"),

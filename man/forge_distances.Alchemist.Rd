@@ -38,7 +38,7 @@ transfer distances for the full candidate set.
 The returned object contains the fitted learner and a distance bundle with
 the learned matrix, pairwise training data, feature columns, trait matrices,
 out-of-fold performance, and sigma matrices used by later trait-importance
-and policy-support diagnostics. Re-running this method clears stale
+and policy-support diagnostics. Re-running this method clears previous
 trait-importance, ordination, and admissibility results because those layers
 depend on the learned distance geometry.
 }

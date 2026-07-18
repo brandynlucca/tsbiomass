@@ -218,8 +218,10 @@ resolve_policy_display_names <- function(policy_data) {
   if (all(c("candidate_pool", "aggregation_method") %in% names(policy_data))) {
     branch_definitions <- read_policy_registry()$policy_branches %||% list()
     branch_tags <- policy_branch_tag_map(branch_definitions)
+    candidate_pool_values <- as.character(policy_data$candidate_pool)
+    aggregation_method_values <- as.character(policy_data$aggregation_method)
     pool_values <- dplyr::recode(
-      as.character(policy_data$candidate_pool),
+      candidate_pool_values,
       all_admissible = "All-models",
       closest_study_cell = "Study-cell",
       generalized_models_only = "Generalized",
@@ -233,17 +235,17 @@ resolve_policy_display_names <- function(policy_data) {
       same_ocean_basin = "Ocean-basin",
       same_order = "Order",
       same_species = "Species",
-      .default = snake_title(policy_data$candidate_pool)
+      .default = snake_title(candidate_pool_values)
     )
     aggregation_values <- dplyr::recode(
-      as.character(policy_data$aggregation_method),
+      aggregation_method_values,
       arithmetic_mean = "averaged",
       equal_weight_mean = "averaged",
       nearest = "nearest",
       nearest_by_combined_distance = "nearest",
       nearest_by_trait_gower_distance = "trait-nearest",
       nearest_study_then_model = "study-nearest",
-      .default = snake_lower_dash(policy_data$aggregation_method)
+      .default = snake_lower_dash(aggregation_method_values)
     )
     branch_labels <- policy_branch_labels(branch_values, branch_tags)
     alias_values <- paste0(
@@ -254,6 +256,9 @@ resolve_policy_display_names <- function(policy_data) {
       branch_labels,
       "]"
     )
+    missing_components <- policy_display_value_missing(candidate_pool_values) |
+      policy_display_value_missing(aggregation_method_values)
+    alias_values[missing_components] <- NA_character_
     fallback_values <- alias_values
   }
 
@@ -270,9 +275,13 @@ resolve_policy_display_names <- function(policy_data) {
     display_values <- as.character(policy_data$policy_display)
     missing_display <- policy_display_value_missing(display_values)
     display_values[missing_display] <- fallback_values[missing_display]
+    missing_display <- policy_display_value_missing(display_values)
+    display_values[missing_display] <- paste0("Unresolved policy [", policy_branch_labels(branch_values, policy_branch_tag_map(read_policy_registry()$policy_branches %||% list()))[missing_display], "]")
     return(display_values)
   }
 
+  missing_fallback <- policy_display_value_missing(fallback_values)
+  fallback_values[missing_fallback] <- paste0("Unresolved policy [", policy_branch_labels(branch_values, policy_branch_tag_map(read_policy_registry()$policy_branches %||% list()))[missing_fallback], "]")
   fallback_values
 }
 
@@ -300,8 +309,10 @@ resolve_selected_policy_names <- function(policy_data) {
   branch_labels <- policy_branch_labels(branch_values, branch_tags)
   fallback_values <- rep(NA_character_, nrow(policy_data))
   if (all(c("candidate_pool", "aggregation_method") %in% names(policy_data))) {
+    candidate_pool_values <- as.character(policy_data$candidate_pool)
+    aggregation_method_values <- as.character(policy_data$aggregation_method)
     pool_values <- dplyr::recode(
-      as.character(policy_data$candidate_pool),
+      candidate_pool_values,
       all_admissible = "All-models",
       closest_study_cell = "Study-cell",
       generalized_models_only = "Generalized",
@@ -315,17 +326,17 @@ resolve_selected_policy_names <- function(policy_data) {
       same_ocean_basin = "Ocean-basin",
       same_order = "Order",
       same_species = "Species",
-      .default = snake_title(policy_data$candidate_pool)
+      .default = snake_title(candidate_pool_values)
     )
     aggregation_values <- dplyr::recode(
-      as.character(policy_data$aggregation_method),
+      aggregation_method_values,
       arithmetic_mean = "averaged",
       equal_weight_mean = "averaged",
       nearest = "nearest",
       nearest_by_combined_distance = "nearest",
       nearest_by_trait_gower_distance = "trait-nearest",
       nearest_study_then_model = "study-nearest",
-      .default = snake_lower_dash(policy_data$aggregation_method)
+      .default = snake_lower_dash(aggregation_method_values)
     )
     branch_labels <- policy_branch_labels(branch_values, branch_tags)
     alias_values <- paste0(
@@ -336,6 +347,9 @@ resolve_selected_policy_names <- function(policy_data) {
       branch_labels,
       "]"
     )
+    missing_components <- policy_display_value_missing(candidate_pool_values) |
+      policy_display_value_missing(aggregation_method_values)
+    alias_values[missing_components] <- NA_character_
     fallback_values <- alias_values
   }
 
@@ -357,10 +371,111 @@ resolve_selected_policy_names <- function(policy_data) {
     if (any(needs_branch, na.rm = TRUE)) {
       display_values[needs_branch] <- paste0(display_values[needs_branch], " [", branch_labels[needs_branch], "]")
     }
+    missing_display <- policy_display_value_missing(display_values)
+    display_values[missing_display] <- paste0("Unresolved policy [", branch_labels[missing_display], "]")
     return(display_values)
   }
 
+  missing_fallback <- policy_display_value_missing(fallback_values)
+  fallback_values[missing_fallback] <- paste0("Unresolved policy [", branch_labels[missing_fallback], "]")
   fallback_values
+}
+
+#' Build policy component labels for plotting
+#'
+#' @param policy_data Data frame or tibble containing policy definition columns.
+#' @param policy_column Policy identifier column.
+#' @param branch_column Equation-branch filter column.
+#'
+#' @return Tibble with one row per source row and policy component.
+#' @keywords internal
+#' @noRd
+policy_component_labels <- function(policy_data,
+                                    policy_column = "policy",
+                                    branch_column = "equation_branch_filter") {
+  # Resolve strategy components from explicit columns first, then from the
+  # policy registry when a canonical policy identifier is available.
+  policy_data <- tibble::as_tibble(policy_data)
+  n_rows <- nrow(policy_data)
+  if (n_rows == 0L) {
+    return(tibble::tibble(.row_id = integer(), component = character(), component_level = character()))
+  }
+
+  policy_values <- if (policy_column %in% names(policy_data)) {
+    canonical_policy_name(as.character(policy_data[[policy_column]]))
+  } else {
+    rep(NA_character_, n_rows)
+  }
+  lookup_tbl <- policy_lookup_table()
+  registry_value <- function(field) {
+    vapply(policy_values, function(policy_now) {
+      if (policy_display_value_missing(policy_now)) {
+        return(NA_character_)
+      }
+      policy_def <- lookup_tbl[[policy_now]] %||%
+        build_policy_definition_from_name(policy_now) %||%
+        NULL
+      if (!is.list(policy_def)) {
+        return(NA_character_)
+      }
+      as.character(policy_def[[field]] %||% NA_character_)[[1]]
+    }, character(1))
+  }
+
+  candidate_pool_values <- if ("candidate_pool" %in% names(policy_data)) {
+    as.character(policy_data$candidate_pool)
+  } else {
+    rep(NA_character_, n_rows)
+  }
+  missing_pool <- policy_display_value_missing(candidate_pool_values)
+  candidate_pool_values[missing_pool] <- registry_value("candidate_pool")[missing_pool]
+
+  aggregation_values <- if ("aggregation_method" %in% names(policy_data)) {
+    as.character(policy_data$aggregation_method)
+  } else {
+    rep(NA_character_, n_rows)
+  }
+  missing_aggregation <- policy_display_value_missing(aggregation_values)
+  aggregation_values[missing_aggregation] <- registry_value("aggregation_method")[missing_aggregation]
+
+  branch_values <- resolve_policy_branch_filters(policy_data, branch_column = branch_column)
+  branch_tags <- policy_branch_tag_map(read_policy_registry()$policy_branches %||% list())
+  branch_values <- policy_branch_labels(branch_values, branch_tags)
+
+  pool_labels <- dplyr::recode(
+    candidate_pool_values,
+    all_admissible = "All admissible",
+    closest_study_cell = "Closest study cell",
+    generalized_models_only = "Generalized models",
+    nearest_phylogenetic = "Nearest taxon",
+    phylogenetic_neighborhood = "Taxon neighborhood",
+    same_family = "Same family",
+    same_fao_area = "Same FAO area",
+    same_genus = "Same genus",
+    same_ocean_basin = "Same ocean basin",
+    same_species = "Same species",
+    .default = snake_title(candidate_pool_values)
+  )
+  aggregation_labels <- dplyr::recode(
+    aggregation_values,
+    arithmetic_mean = "Mean",
+    equal_weight_mean = "Mean",
+    nearest = "Nearest",
+    nearest_by_combined_distance = "Nearest",
+    nearest_by_trait_gower_distance = "Trait nearest",
+    nearest_study_then_model = "Study nearest",
+    weighted_mean = "Weighted mean",
+    .default = snake_title(aggregation_values)
+  )
+
+  out <- dplyr::bind_rows(
+    tibble::tibble(.row_id = seq_len(n_rows), component = "Candidate pool", component_level = pool_labels),
+    tibble::tibble(.row_id = seq_len(n_rows), component = "Aggregation", component_level = aggregation_labels),
+    tibble::tibble(.row_id = seq_len(n_rows), component = "Slope class", component_level = branch_values)
+  ) |>
+    dplyr::filter(!policy_display_value_missing(.data$component_level))
+  out$component <- factor(out$component, levels = c("Candidate pool", "Aggregation", "Slope class"))
+  out
 }
 
 #' Resolve equivalent policy-set labels from policy data

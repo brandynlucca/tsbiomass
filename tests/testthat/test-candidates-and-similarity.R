@@ -747,6 +747,54 @@ test_that("reference anchor PDFs can be set from raw empirical lengths", {
   expect_true(any(pdf_one$pdf_density > 0))
 })
 
+test_that("user reference PDFs require finite anchor length-form coefficients", {
+  cfg <- minimal_config_data()
+  cfg$admissibility$species_traits <- c("family")
+  cfg$admissibility$study_traits <- character(0)
+  cfg$admissibility$coherence$frequency$mode <- "none"
+  cfg_obj <- build_configurer(cfg, base_dir = tempdir())
+
+  candidates <- make_candidates(seed_similarity_tuning = FALSE)
+  candidates <- set_reference_anchors(candidates, model_ids = "1")
+  candidates <- set_reference_length_pdf(
+    candidates,
+    length_pdf = list("1" = c(10, 12, 14, 16, 18))
+  )
+
+  candidate_models <- candidates@candidate_models
+  reference_anchors <- candidates@reference_anchors
+  candidate_idx <- as.character(candidate_models$model_id) == "1"
+  anchor_idx <- as.character(reference_anchors$model_id) == "1"
+  candidate_models$slope_len[candidate_idx] <- NA_real_
+  candidate_models$intercept_len[candidate_idx] <- NA_real_
+  candidate_models$lw_a_g[candidate_idx] <- NA_real_
+  candidate_models$lw_b[candidate_idx] <- NA_real_
+  reference_anchors$slope_len[anchor_idx] <- NA_real_
+  reference_anchors$intercept_len[anchor_idx] <- NA_real_
+  reference_anchors$lw_a_g[anchor_idx] <- NA_real_
+  reference_anchors$lw_b[anchor_idx] <- NA_real_
+
+  candidates <- Candidates(
+    spec = candidates@spec,
+    study_db = candidates@study_db,
+    species_vector = candidates@species_vector,
+    source_dbs = candidates@source_dbs,
+    species_db = candidates@species_db,
+    candidate_models = candidate_models,
+    reference_anchors = reference_anchors,
+    similarity_matrix = candidates@similarity_matrix,
+    gower_distances = candidates@gower_distances,
+    ordination = candidates@ordination,
+    admissibility = candidates@admissibility,
+    similarity_tuning = candidates@similarity_tuning
+  )
+
+  expect_error(
+    screen_admissibility(candidates, config = cfg_obj, refresh = TRUE, progress = FALSE),
+    "user-supplied length PDF"
+  )
+})
+
 test_that("candidate trimming removes unused configured traits", {
   candidate_specification <- list(
     config_data = tsbiomass:::merge_config_sections(

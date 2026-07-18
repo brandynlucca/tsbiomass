@@ -170,6 +170,8 @@ reference:
       - create_scenarios
       - build_sentinel
       - run_sentinel
+      - run_sentinel_fold
+      - combine_sentinel_folds
       - Sentinel-class
       - sentinel_apply_scenario
       - collect_sensitivity_results
