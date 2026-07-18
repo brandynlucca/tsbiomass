@@ -280,6 +280,12 @@ Sensitivity simulation and outer-loop holdout validation.
 - [`run_sentinel()`](https://brandynlucca.github.io/tsbiomass/reference/run_sentinel.md)
   : Run Sentinel outer-loop validation
 
+- [`run_sentinel_fold()`](https://brandynlucca.github.io/tsbiomass/reference/run_sentinel_fold.md)
+  : Run one Sentinel fold
+
+- [`combine_sentinel_folds()`](https://brandynlucca.github.io/tsbiomass/reference/combine_sentinel_folds.md)
+  : Combine externally orchestrated Sentinel folds
+
 - [`Sentinel-class`](https://brandynlucca.github.io/tsbiomass/reference/Sentinel-class.md)
   [`Sentinel`](https://brandynlucca.github.io/tsbiomass/reference/Sentinel-class.md)
   : Sentinel S7 Class

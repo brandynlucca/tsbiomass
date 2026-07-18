@@ -38,6 +38,7 @@
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/collect_sensitivity_results.PolicySimulator.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/collect_sensitivity_results.default.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/collect_sensitivity_results.html</loc></url>
+<url><loc>https://brandynlucca.github.io/tsbiomass/reference/combine_sentinel_folds.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/construct_anchor_audit.PolicyPredictions.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/construct_anchor_audit.default.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/construct_anchor_audit.html</loc></url>
@@ -83,6 +84,7 @@
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/referee_rebuild.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/run_ordination.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/run_sentinel.html</loc></url>
+<url><loc>https://brandynlucca.github.io/tsbiomass/reference/run_sentinel_fold.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/screen_admissibility.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/screen_learners.PolicyLearner.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/screen_learners.html</loc></url>

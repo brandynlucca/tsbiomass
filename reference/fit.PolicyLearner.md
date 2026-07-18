@@ -92,4 +92,4 @@ settings.
 The method reuses the feature columns, outcome transformation, learner
 method, and method settings resolved during cross-fitting unless
 explicit overrides are supplied. The returned learner stores the fitted
-model and clears stale prediction state that depends on an earlier fit.
+model and clears prediction state that depends on an earlier fit.
