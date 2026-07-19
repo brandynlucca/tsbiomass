@@ -979,6 +979,77 @@ S7::method(crossfit, PolicyLearner) <- function(object,
                                                 workers = NULL,
                                                 progress = NULL,
                                                 config = NULL) {
+  selection_plan <- policy_learner_selection_crossfit_plan(
+    object = object,
+    policy_perf = policy_perf,
+    group_col = group_col,
+    n_folds = n_folds,
+    selection_method = selection_method,
+    seed = seed,
+    feature_cols = feature_cols,
+    outcome_col = outcome_col,
+    outcome_transform = outcome_transform,
+    lambda_rule = lambda_rule,
+    alpha = alpha,
+    inner_folds = inner_folds,
+    selection_super_methods = selection_super_methods,
+    metalearner_loss = metalearner_loss,
+    selection_method_settings = selection_method_settings,
+    method_settings = method_settings,
+    workers = workers,
+    progress = progress,
+    config = config
+  )
+  if (isTRUE(selection_plan$crossfit_plan$is_super)) {
+    report_progress(
+      selection_plan$progress,
+      sprintf(
+        "Cross-fitting policy learner: method=%s, %d folds, %d workers, %d benchmark rows.",
+        selection_plan$selection_method %||% "super_learner",
+        selection_plan$n_folds %||% 10L,
+        selection_plan$workers %||% 1L,
+        selection_plan$policy_perf_n
+      )
+    )
+    n_parallel_units <- length(selection_plan$crossfit_plan$method_tasks)
+    n_workers_eff <- min(as.integer(selection_plan$workers %||% 1L), n_parallel_units)
+    report_progress(
+      selection_plan$progress,
+      sprintf(
+        "Starting %d-fold cross-fit: method=%s, %d base learners, %d workers, %d rows, %d method-fold task(s).",
+        selection_plan$crossfit_plan$n_folds,
+        selection_plan$crossfit_plan$method,
+        selection_plan$crossfit_plan$n_base_methods,
+        n_workers_eff,
+        selection_plan$crossfit_plan$n_rows,
+        n_parallel_units
+      )
+    )
+    report_progress(
+      selection_plan$progress,
+      sprintf(
+        "Policy learner cross-fit backend: bounded method-fold scheduler, up to %d worker(s); method-local workers=1.",
+        n_workers_eff
+      )
+    )
+    method_results <- run_meta_policy_crossfit_method_tasks(
+      tasks = selection_plan$crossfit_plan$method_tasks,
+      payload = c(
+        selection_plan$crossfit_plan$payload,
+        list(fold_splits = selection_plan$crossfit_plan$fold_splits)
+      ),
+      workers = n_workers_eff,
+      progress = selection_plan$progress
+    )
+    out <- policy_learner_complete_selection_crossfit_plan(
+      plan = selection_plan,
+      method_results = method_results,
+      progress = selection_plan$progress
+    )
+    report_progress(selection_plan$progress, "Completed policy-learner cross-fit.")
+    return(out)
+  }
+
   cfg <- policy_learner_config(object, config)
   policy_perf <- tibble::as_tibble(policy_perf %||% policy_learner_species_perf(object))
   # Resolve the learner controls once so the training-frame preparation and
