@@ -698,6 +698,223 @@ policy_learner_uncertainty_feature_cols <- function(cfg,
   intersect(unique(feature_cols[!is.na(feature_cols) & nzchar(feature_cols)]), names(policy_perf))
 }
 
+#' Prepare a PolicyLearner selection cross-fit plan
+#'
+#' Resolves the same selection-stage configuration used by
+#' [crossfit.PolicyLearner()], prepares the retained training data, and creates
+#' a meta-policy cross-fit plan whose Super Learner method-fold tasks can be run
+#' by the package scheduler or by an external workflow orchestrator.
+#'
+#' @param object A [PolicyLearner] object.
+#' @param policy_perf Optional species-block performance table.
+#' @param group_col Optional grouping column.
+#' @param n_folds Optional number of outer folds.
+#' @param selection_method Optional selection learner method.
+#' @param seed Optional integer seed.
+#' @param feature_cols Optional feature columns.
+#' @param outcome_col Optional outcome column.
+#' @param outcome_transform Optional outcome transform.
+#' @param lambda_rule Optional regularization rule.
+#' @param alpha Optional elastic-net alpha.
+#' @param inner_folds Optional inner fold count.
+#' @param selection_super_methods Optional Super Learner base methods.
+#' @param metalearner_loss Optional metalearner loss.
+#' @param selection_method_settings Optional selection learner settings.
+#' @param method_settings Shared method-settings override.
+#' @param workers Optional worker count.
+#' @param progress Optional logical scalar controlling progress messages.
+#' @param config Optional config override.
+#'
+#' @return A list containing the learner, prepared training data, resolved
+#'   controls, and cross-fit task plan.
+#' @keywords internal
+#' @noRd
+policy_learner_selection_crossfit_plan <- function(object,
+                                                   policy_perf = NULL,
+                                                   group_col = NULL,
+                                                   n_folds = NULL,
+                                                   selection_method = NULL,
+                                                   seed = NULL,
+                                                   feature_cols = NULL,
+                                                   outcome_col = NULL,
+                                                   outcome_transform = NULL,
+                                                   lambda_rule = NULL,
+                                                   alpha = NULL,
+                                                   inner_folds = NULL,
+                                                   selection_super_methods = NULL,
+                                                   metalearner_loss = NULL,
+                                                   selection_method_settings = NULL,
+                                                   method_settings = NULL,
+                                                   workers = NULL,
+                                                   progress = NULL,
+                                                   config = NULL) {
+  cfg <- policy_learner_config(object, config)
+  policy_perf <- tibble::as_tibble(policy_perf %||% policy_learner_species_perf(object))
+  feature_cols <- feature_cols %||% policy_learner_feature_cols(cfg, policy_perf)
+  outcome_col <- policy_learner_selection_outcome_col(
+    policy_perf = policy_perf,
+    cfg = cfg,
+    outcome_col = outcome_col
+  )
+  outcome_clip_quantile <- policy_selector_config_value(
+    cfg,
+    "outcome_clip_quantile",
+    sections = c("selection", "policy_learner")
+  )
+  group_col <- group_col %||%
+    policy_selector_config_value(cfg, "group_col", sections = c("selection", "policy_learner"))
+  selection_method <- selection_method %||%
+    policy_selector_config_value(cfg, "method", sections = c("selection", "policy_learner"))
+  outcome_transform <- outcome_transform %||%
+    policy_selector_config_value(cfg, "outcome_transform", sections = c("selection", "policy_learner"))
+  lambda_rule <- lambda_rule %||%
+    policy_selector_config_value(cfg, "lambda_rule", sections = c("selection", "policy_learner"))
+  alpha <- alpha %||%
+    policy_selector_config_value(cfg, "alpha", sections = c("selection", "policy_learner"))
+  n_folds <- n_folds %||%
+    policy_selector_config_value(cfg, "n_folds", sections = c("selection", "policy_learner"))
+  seed <- seed %||%
+    policy_selector_config_value(cfg, "seed", sections = c("selection", "policy_learner"))
+  inner_folds <- inner_folds %||%
+    policy_selector_config_value(cfg, "inner_folds", sections = c("selection", "policy_learner"))
+  selection_super_methods <- selection_super_methods %||%
+    policy_learner_selection_super_methods(cfg)
+  metalearner_loss <- metalearner_loss %||%
+    policy_selector_config_value(cfg, "loss", sections = c("selection", "policy_learner"))
+  selection_method_settings <- selection_method_settings %||%
+    method_settings %||%
+    policy_learner_selection_method_settings(cfg)
+  selection_active_methods <- if (identical(selection_method, "super_learner")) {
+    available_meta_policy_super_methods(
+      selection_super_methods,
+      method_settings = selection_method_settings
+    )
+  } else {
+    selection_method
+  }
+  selection_lmm_random_intercepts <- active_meta_policy_lmm_random_intercepts(
+    selection_active_methods,
+    method_settings = selection_method_settings
+  )
+  workers <- workers %||%
+    policy_selector_config_value(cfg, "workers", sections = c("selection", "policy_learner"))
+  progress <- progress %||%
+    policy_selector_config_value(cfg, "progress", sections = c("selection", "policy_learner"))
+  group_col <- resolve_meta_policy_group_col(policy_perf, group_col = group_col)
+  training_data <- prepare_meta_policy_data(
+    policy_perf = policy_perf,
+    outcome_col = outcome_col,
+    feature_cols = feature_cols,
+    outcome_clip_quantile = outcome_clip_quantile,
+    retain_cols = c(group_col, selection_lmm_random_intercepts)
+  )
+  crossfit_plan <- prepare_meta_policy_crossfit_plan(
+    policy_perf = policy_perf,
+    group_col = group_col,
+    n_folds = n_folds,
+    method = selection_method,
+    seed = seed,
+    feature_cols = feature_cols,
+    outcome_col = outcome_col,
+    outcome_clip_quantile = outcome_clip_quantile,
+    outcome_transform = outcome_transform,
+    lambda_rule = lambda_rule,
+    alpha = alpha,
+    inner_folds = inner_folds,
+    super_methods = selection_super_methods,
+    metalearner_loss = metalearner_loss,
+    method_settings = selection_method_settings,
+    progress = progress
+  )
+  list(
+    learner = object,
+    config = cfg,
+    training_data = training_data,
+    crossfit_plan = crossfit_plan,
+    policy_perf_n = nrow(policy_perf),
+    workers = as.integer(workers %||% 1L),
+    progress = isTRUE(progress),
+    outcome_col = outcome_col,
+    uncertainty_outcome_col = NULL,
+    outcome_clip_quantile = outcome_clip_quantile,
+    feature_cols = feature_cols,
+    group_col = group_col,
+    selection_method = selection_method,
+    outcome_transform = outcome_transform,
+    lambda_rule = lambda_rule,
+    alpha = alpha,
+    inner_folds = inner_folds,
+    selection_super_methods = selection_super_methods,
+    metalearner_loss = metalearner_loss,
+    selection_method_settings = selection_method_settings,
+    method_settings = selection_method_settings,
+    n_folds = as.integer(n_folds),
+    seed = seed
+  )
+}
+
+#' Complete a PolicyLearner selection cross-fit plan
+#'
+#' Combines externally scheduled method-fold task results into a standard
+#' PolicyLearner cross-fit bundle and rebuilds the learner with the same state
+#' produced by [crossfit.PolicyLearner()].
+#'
+#' @param plan Result from [policy_learner_selection_crossfit_plan()].
+#' @param method_results List of method-fold task results.
+#' @param fold_results Optional complete fold results for non-Super Learner
+#'   plans.
+#' @param progress Optional logical scalar controlling progress messages.
+#'
+#' @return A [PolicyLearner] with stored cross-fit results.
+#' @keywords internal
+#' @noRd
+policy_learner_complete_selection_crossfit_plan <- function(plan,
+                                                            method_results = list(),
+                                                            fold_results = NULL,
+                                                            progress = NULL) {
+  progress <- progress %||% plan$progress
+  crossfit_obj <- combine_meta_policy_crossfit_plan(
+    plan = plan$crossfit_plan,
+    method_results = method_results,
+    fold_results = fold_results,
+    progress = isTRUE(progress)
+  )
+  policy_learner_rebuild(
+    plan$learner,
+    config = plan$config,
+    training_data = plan$training_data,
+    crossfit = list(
+      species_block_perf = plan$learner@crossfit$species_block_perf,
+      result = crossfit_obj,
+      outcome_col = plan$outcome_col,
+      uncertainty_outcome_col = policy_learner_uncertainty_outcome_col(
+        predictions = tibble::as_tibble(crossfit_obj$predictions %||% tibble::tibble()),
+        cfg = plan$config,
+        crossfit_obj = crossfit_obj,
+        outcome_col = NULL
+      ),
+      outcome_clip_quantile = plan$outcome_clip_quantile,
+      outcome_clip_cap = crossfit_obj$outcome_clip_cap %||% attr(plan$training_data, "outcome_clip_cap"),
+      feature_cols = plan$feature_cols,
+      group_col = plan$group_col,
+      selection_method = plan$selection_method,
+      outcome_transform = plan$outcome_transform,
+      lambda_rule = plan$lambda_rule,
+      alpha = plan$alpha,
+      inner_folds = plan$inner_folds,
+      selection_super_methods = plan$selection_super_methods,
+      metalearner_loss = plan$metalearner_loss,
+      selection_method_settings = plan$selection_method_settings,
+      method_settings = plan$method_settings,
+      workers = as.integer(plan$workers %||% 1L),
+      n_folds = as.integer(plan$n_folds),
+      seed = as.integer(plan$seed)
+    ),
+    fitted_model = list(),
+    calibration = list()
+  )
+}
+
 #' Cross-fit a `PolicyLearner`
 #'
 #' Builds the out-of-fold prediction layer for a policy learner. The method
@@ -1817,6 +2034,248 @@ policy_learner_lookup_specs <- function() {
   )
 }
 
+#' Prepare a PolicyLearner uncertainty cross-fit plan
+#'
+#' Resolves the conditional uncertainty learner target used by
+#' [calibrate_uncertainty.PolicyLearner()] and creates the same meta-policy
+#' method-fold task plan that calibration would otherwise run internally.
+#'
+#' @param object A [PolicyLearner] with stored selection cross-fit results and
+#'   final fitted selection model.
+#' @param predictions Optional cross-fit prediction table override.
+#' @param outcome_col Optional outcome column.
+#' @param max_selection_tolerance Optional score-selection tolerance.
+#' @param uncertainty_method Optional uncertainty learner method.
+#' @param uncertainty_super_methods Optional uncertainty Super Learner methods.
+#' @param uncertainty_method_settings Optional uncertainty method settings.
+#' @param progress Optional logical scalar controlling progress messages.
+#' @param config Optional config override.
+#'
+#' @return A list containing the learner, selected calibration rows, resolved
+#'   controls, and uncertainty cross-fit plan. The plan has zero method tasks
+#'   when conditional uncertainty regression should be skipped.
+#' @keywords internal
+#' @noRd
+policy_learner_uncertainty_crossfit_plan <- function(object,
+                                                     predictions = NULL,
+                                                     outcome_col = NULL,
+                                                     max_selection_tolerance = NULL,
+                                                     uncertainty_method = NULL,
+                                                     uncertainty_super_methods = NULL,
+                                                     uncertainty_method_settings = NULL,
+                                                     progress = NULL,
+                                                     config = NULL) {
+  cfg <- policy_learner_config(object, config)
+  if (length(object@crossfit) == 0) {
+    stop("No cross-fit results are stored on this `PolicyLearner`.", call. = FALSE)
+  }
+  crossfit_obj <- object@crossfit
+  cal_obj <- object@calibration %||% list()
+  progress <- progress %||%
+    policy_selector_config_value(cfg, "progress", sections = c("uncertainty", "selection", "policy_learner"))
+  predictions <- tibble::as_tibble(predictions %||% crossfit_obj$result$predictions %||% tibble::tibble())
+  outcome_col <- policy_learner_uncertainty_outcome_col(
+    predictions = predictions,
+    cfg = cfg,
+    crossfit_obj = crossfit_obj,
+    outcome_col = outcome_col %||% crossfit_obj$uncertainty_outcome_col %||% NULL
+  )
+  if (!outcome_col %in% names(predictions) && ".outcome" %in% names(predictions)) {
+    predictions[[outcome_col]] <- predictions$.outcome
+  }
+  if (!outcome_col %in% names(predictions)) {
+    stop(sprintf("Outcome column '%s' was not found in cross-fit predictions.", outcome_col), call. = FALSE)
+  }
+  calibration_outcome_col <- if (".outcome_raw" %in% names(predictions)) {
+    ".outcome_raw"
+  } else if (outcome_col %in% names(predictions)) {
+    outcome_col
+  } else if (".outcome" %in% names(predictions)) {
+    ".outcome"
+  } else {
+    outcome_col
+  }
+  if ("n_valid_models" %in% names(predictions)) {
+    predictions$selection_valid <- is.finite(predictions$n_valid_models) &
+      predictions$n_valid_models > 0
+  } else if ("n_models" %in% names(predictions)) {
+    predictions$selection_valid <- is.finite(predictions$n_models) &
+      predictions$n_models > 0
+  } else {
+    predictions$selection_valid <- is.finite(predictions$.meta_predicted_score)
+  }
+  max_selection_tolerance <- as.numeric(
+    max_selection_tolerance %||%
+      cal_obj$max_selection_tolerance %||%
+      policy_selector_config_value(cfg, "max_selection_tolerance", sections = c("selection", "policy_learner"))
+  )
+  one_se_multiplier <- as.numeric(
+    policy_selector_config_value(cfg, "one_se_multiplier", sections = c("selection", "policy")) %||% 1
+  )
+  if (!is.finite(one_se_multiplier)) {
+    one_se_multiplier <- 1
+  }
+  predictions <- policy_learner_prepare_context(predictions)
+  anchor_lookup <- policy_learner_anchor_lookup(predictions)
+  meta_selected <- policy_learner_select_calibration_rows(
+    tbl = predictions,
+    max_selection_tolerance = if (is.finite(max_selection_tolerance)) max_selection_tolerance else NULL,
+    one_se_multiplier = one_se_multiplier
+  )
+  if (nrow(meta_selected) == 0L) {
+    stop("The cross-fit predictions did not yield any selectable rows for post-selection calibration.", call. = FALSE)
+  }
+  meta_selected <- policy_learner_prepare_context(
+    meta_selected,
+    anchor_lookup = anchor_lookup
+  )
+
+  width_feature_cols <- policy_learner_uncertainty_feature_cols(cfg, meta_selected)
+  width_method <- uncertainty_method %||% policy_selector_config_value(
+    cfg, "method",
+    sections = c("uncertainty", "policy_learner")
+  ) %||% (object@fitted_model)$selection_method %||% crossfit_obj$selection_method
+  uncertainty_method_settings <- uncertainty_method_settings %||%
+    policy_learner_uncertainty_method_settings(
+      cfg,
+      fallback = (object@fitted_model)$selection_method_settings %||%
+        crossfit_obj$selection_method_settings %||%
+        (object@fitted_model)$method_settings %||%
+        crossfit_obj$method_settings
+    )
+  width_super_methods <- uncertainty_super_methods %||% policy_learner_uncertainty_super_methods(
+    cfg,
+    fallback = (object@fitted_model)$selection_super_methods %||%
+      crossfit_obj$selection_super_methods
+  )
+  width_group_col <- crossfit_obj$group_col %||% NULL
+  if (!is.null(width_group_col) && !width_group_col %in% names(meta_selected)) {
+    width_group_col <- NULL
+  }
+
+  min_bin_scores <- as.integer(
+    policy_selector_config_value(cfg, "min_bin_scores", sections = c("selection"))
+  )
+  configured_min_width_rows <- policy_selector_config_value(
+    cfg,
+    "min_selected_rows",
+    sections = c("uncertainty", "policy_learner")
+  )
+  configured_min_bin_scores <- if (length(min_bin_scores) > 0L) min_bin_scores else NULL
+  min_width_rows <- as.integer(configured_min_width_rows %||% configured_min_bin_scores %||% 25L)
+  if (!is.finite(min_width_rows) || min_width_rows < 1L) {
+    min_width_rows <- 25L
+  }
+  if (is.null(configured_min_width_rows) && is.null(configured_min_bin_scores)) {
+    min_width_rows <- max(min_width_rows, as.integer(crossfit_obj$n_folds %||% 1L) + 1L)
+  }
+
+  skip_reason <- NULL
+  if (nrow(meta_selected) < min_width_rows) {
+    skip_reason <- sprintf(
+      "Only %d selected calibration row(s) were available, below the minimum of %d.",
+      nrow(meta_selected),
+      min_width_rows
+    )
+  } else if (length(width_feature_cols) == 0L) {
+    skip_reason <- "No conditional-uncertainty feature columns were available."
+  } else if (!identical(as.character(width_method), "super_learner")) {
+    skip_reason <- sprintf(
+      "Uncertainty method '%s' is not a Super Learner, so no method-fold task grid is available.",
+      as.character(width_method)
+    )
+  }
+
+  crossfit_plan <- if (is.null(skip_reason)) {
+    prepare_meta_policy_crossfit_plan(
+      policy_perf = meta_selected,
+      group_col = width_group_col,
+      n_folds = crossfit_obj$n_folds %||%
+        policy_selector_config_value(cfg, "n_folds", sections = c("uncertainty", "policy_learner")),
+      method = width_method,
+      seed = crossfit_obj$seed %||%
+        policy_selector_config_value(cfg, "seed", sections = c("uncertainty", "policy_learner")),
+      feature_cols = width_feature_cols,
+      outcome_col = calibration_outcome_col,
+      outcome_clip_quantile = NULL,
+      outcome_transform = crossfit_obj$outcome_transform %||%
+        policy_selector_config_value(cfg, "outcome_transform", sections = c("uncertainty", "policy_learner")),
+      lambda_rule = crossfit_obj$lambda_rule %||%
+        policy_selector_config_value(cfg, "lambda_rule", sections = c("uncertainty", "policy_learner")),
+      alpha = crossfit_obj$alpha,
+      inner_folds = crossfit_obj$inner_folds %||%
+        policy_selector_config_value(cfg, "inner_folds", sections = c("uncertainty", "policy_learner")),
+      super_methods = width_super_methods,
+      metalearner_loss = crossfit_obj$metalearner_loss %||%
+        policy_selector_config_value(cfg, "loss", sections = c("uncertainty", "policy_learner")),
+      method_settings = uncertainty_method_settings,
+      progress = progress
+    )
+  } else {
+    list(
+      fold_assignments = tibble::tibble(),
+      fold_splits = list(),
+      payload = list(),
+      method_tasks = list(),
+      method = width_method,
+      is_super = FALSE,
+      active_methods = character(),
+      n_folds = 0L,
+      n_rows = nrow(meta_selected),
+      n_base_methods = 0L,
+      outcome_col = calibration_outcome_col,
+      outcome_clip_quantile = NULL,
+      outcome_clip_cap = NULL
+    )
+  }
+
+  list(
+    learner = object,
+    config = cfg,
+    predictions = predictions,
+    selected = meta_selected,
+    anchor_lookup = anchor_lookup,
+    crossfit_plan = crossfit_plan,
+    width_feature_cols = width_feature_cols,
+    width_method = width_method,
+    width_super_methods = width_super_methods,
+    uncertainty_method_settings = uncertainty_method_settings,
+    calibration_outcome_col = calibration_outcome_col,
+    raw_outcome_col = outcome_col,
+    width_group_col = width_group_col,
+    min_width_rows = min_width_rows,
+    skip_reason = skip_reason,
+    progress = isTRUE(progress)
+  )
+}
+
+#' Complete a PolicyLearner uncertainty cross-fit plan
+#'
+#' Combines externally scheduled uncertainty method-fold results into the
+#' standard cross-fit result expected by
+#' [calibrate_uncertainty.PolicyLearner()].
+#'
+#' @param plan Result from [policy_learner_uncertainty_crossfit_plan()].
+#' @param method_results List of method-fold task results.
+#' @param progress Optional logical scalar controlling progress messages.
+#'
+#' @return A cross-fit result list, or `NULL` when no external uncertainty
+#'   cross-fit was planned.
+#' @keywords internal
+#' @noRd
+policy_learner_complete_uncertainty_crossfit_plan <- function(plan,
+                                                              method_results = list(),
+                                                              progress = NULL) {
+  if (!is.null(plan$skip_reason) || length(plan$crossfit_plan$method_tasks %||% list()) == 0L) {
+    return(NULL)
+  }
+  combine_meta_policy_crossfit_plan(
+    plan = plan$crossfit_plan,
+    method_results = method_results,
+    progress = isTRUE(progress %||% plan$progress)
+  )
+}
+
 #' Summarize one local conformal lookup table
 #'
 #' @param tbl Calibration tibble containing the lookup value.
@@ -2070,6 +2529,9 @@ policy_learner_apply_local_lookup <- function(tbl,
 #'   base methods override.
 #' @param uncertainty_method_settings Optional uncertainty-learner
 #'   method-settings override.
+#' @param uncertainty_crossfit_result Optional precomputed uncertainty learner
+#'   cross-fit result from an external task scheduler. When `NULL`, the method
+#'   runs the configured uncertainty learner normally.
 #' @param progress Optional logical scalar controlling progress messages.
 #' @param config Optional config override.
 #'
@@ -2088,6 +2550,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
                                                              uncertainty_method = NULL,
                                                              uncertainty_super_methods = NULL,
                                                              uncertainty_method_settings = NULL,
+                                                             uncertainty_crossfit_result = NULL,
                                                              progress = NULL,
                                                              config = NULL) {
   cfg <- policy_learner_config(object, config)
@@ -2385,29 +2848,30 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
         width_active_methods,
         method_settings = uncertainty_method_settings
       )
-      width_crossfit_result <- crossfit_meta_policy_learner(
-        policy_perf = meta_selected,
-        group_col = width_group_col,
-        n_folds = crossfit_obj$n_folds %||% policy_selector_config_value(cfg, "n_folds", sections = c("uncertainty", "policy_learner")),
-        method = method_now,
-        seed = crossfit_obj$seed %||% policy_selector_config_value(cfg, "seed", sections = c("uncertainty", "policy_learner")),
-        feature_cols = width_feature_cols,
-        outcome_col = calibration_outcome_col,
-        outcome_clip_quantile = NULL,
-        outcome_transform = crossfit_obj$outcome_transform %||% policy_selector_config_value(cfg, "outcome_transform", sections = c("uncertainty", "policy_learner")),
-        lambda_rule = crossfit_obj$lambda_rule %||% policy_selector_config_value(cfg, "lambda_rule", sections = c("uncertainty", "policy_learner")),
-        alpha = crossfit_obj$alpha,
-        inner_folds = crossfit_obj$inner_folds %||% policy_selector_config_value(cfg, "inner_folds", sections = c("uncertainty", "policy_learner")),
-        super_methods = width_super_methods,
-        metalearner_loss = crossfit_obj$metalearner_loss %||% policy_selector_config_value(cfg, "loss", sections = c("uncertainty", "policy_learner")),
-        method_settings = uncertainty_method_settings,
-        # Keep the uncertainty-width fit in-process. On the current Windows
-        # development path, PSOCK workers do not inherit the freshly loaded
-        # custom learner registry, which causes a silent fallback away from the
-        # learned width model and explodes the multiplier intervals.
-        workers = 1L,
-        progress = progress
-      )
+      width_crossfit_result <- if (!is.null(uncertainty_crossfit_result) &&
+        identical(as.character(method_now), as.character(width_method))) {
+        uncertainty_crossfit_result
+      } else {
+        crossfit_meta_policy_learner(
+          policy_perf = meta_selected,
+          group_col = width_group_col,
+          n_folds = crossfit_obj$n_folds %||% policy_selector_config_value(cfg, "n_folds", sections = c("uncertainty", "policy_learner")),
+          method = method_now,
+          seed = crossfit_obj$seed %||% policy_selector_config_value(cfg, "seed", sections = c("uncertainty", "policy_learner")),
+          feature_cols = width_feature_cols,
+          outcome_col = calibration_outcome_col,
+          outcome_clip_quantile = NULL,
+          outcome_transform = crossfit_obj$outcome_transform %||% policy_selector_config_value(cfg, "outcome_transform", sections = c("uncertainty", "policy_learner")),
+          lambda_rule = crossfit_obj$lambda_rule %||% policy_selector_config_value(cfg, "lambda_rule", sections = c("uncertainty", "policy_learner")),
+          alpha = crossfit_obj$alpha,
+          inner_folds = crossfit_obj$inner_folds %||% policy_selector_config_value(cfg, "inner_folds", sections = c("uncertainty", "policy_learner")),
+          super_methods = width_super_methods,
+          metalearner_loss = crossfit_obj$metalearner_loss %||% policy_selector_config_value(cfg, "loss", sections = c("uncertainty", "policy_learner")),
+          method_settings = uncertainty_method_settings,
+          workers = 1L,
+          progress = progress
+        )
+      }
 
       width_training <- prepare_meta_policy_data(
         policy_perf = meta_selected,

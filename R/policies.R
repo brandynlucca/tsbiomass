@@ -7067,17 +7067,38 @@ fit_stochtree_bart <- function(x, y, args, training_data, seed) {
     rfx_group_ids <- as.integer(grp$group_factor)
   }
 
-  model <- stochtree::bart(
-    X_train = as.matrix(x),
-    y_train = as.numeric(y),
-    num_gfr = as.integer(args$num_gfr %||% 0L),
-    num_burnin = as.integer(args$num_burnin %||% 100L),
-    num_mcmc = as.integer(args$num_mcmc %||% 200L),
-    general_params = general_params,
-    mean_forest_params = mean_forest_params,
-    variance_forest_params = variance_forest_params,
-    random_effects_params = random_effects_params,
-    rfx_group_ids_train = rfx_group_ids
+  model <- withCallingHandlers(
+    stochtree::bart(
+      X_train = as.matrix(x),
+      y_train = as.numeric(y),
+      num_gfr = as.integer(args$num_gfr %||% 0L),
+      num_burnin = as.integer(args$num_burnin %||% 100L),
+      num_mcmc = as.integer(args$num_mcmc %||% 200L),
+      general_params = general_params,
+      mean_forest_params = mean_forest_params,
+      variance_forest_params = variance_forest_params,
+      random_effects_params = random_effects_params,
+      rfx_group_ids_train = rfx_group_ids
+    ),
+    warning = function(w) {
+      msg <- conditionMessage(w)
+      is_gfr_diagnostic <- grepl(
+        paste(
+          "grow-from-root",
+          "GFR algorithm",
+          "fewer than 20 unique values",
+          "repeated observations",
+          "ratio of unique to overall observations",
+          "appear to be binary but are currently treated",
+          "Global error variance will not be sampled with a heteroskedasticity forest",
+          sep = "|"
+        ),
+        msg
+      )
+      if (is_gfr_diagnostic) {
+        invokeRestart("muffleWarning")
+      }
+    }
   )
 
   list(
@@ -8655,10 +8676,38 @@ fit_meta_policy_learner <- function(training_data,
         )
       )
     }
-    # Both kernlab learners take a numeric matrix (built via the shared
-    # model-matrix path) and scale it internally. A configured sigma is passed
-    # through kpar; otherwise kernlab uses its automatic sigest heuristic.
     mm <- meta_policy_model_matrix(model_frame_fit)
+    keep_kernel_col <- vapply(seq_len(ncol(mm$x)), function(j) {
+      vals <- mm$x[, j]
+      vals <- vals[is.finite(vals)]
+      length(unique(vals)) >= 2L
+    }, logical(1))
+    kernel_dropped_cols <- colnames(mm$x)[!keep_kernel_col]
+    mm$x <- mm$x[, keep_kernel_col, drop = FALSE]
+    if (ncol(mm$x) == 0L) {
+      stop("No non-constant kernlab model-matrix columns remained after preprocessing.", call. = FALSE)
+    }
+    if (length(kernel_dropped_cols) > 0L) {
+      shown_cols <- head(kernel_dropped_cols, 40L)
+      warning(
+        sprintf(
+          "Meta-policy %s dropped %d constant kernlab model-matrix column(s): %s%s",
+          method,
+          length(kernel_dropped_cols),
+          paste(shown_cols, collapse = ", "),
+          if (length(kernel_dropped_cols) > length(shown_cols)) {
+            sprintf(", ... +%d more", length(kernel_dropped_cols) - length(shown_cols))
+          } else {
+            ""
+          }
+        ),
+        call. = FALSE
+      )
+    }
+    # Both kernlab learners take a numeric matrix (built via the shared
+    # model-matrix path). Constant columns are dropped before fitting because
+    # kernlab's internal scaler warns on them in every fold. A configured sigma
+    # is passed through kpar; otherwise kernlab uses its automatic sigest path.
     fit <- if (identical(method_spec$family, "svr")) {
       kernlab::ksvm(
         x = mm$x,
@@ -8691,7 +8740,7 @@ fit_meta_policy_learner <- function(training_data,
         method_arguments = fit_arguments,
         feature_cols = feature_cols,
         blueprint = prep$blueprint,
-        dropped_model_cols = dropped_model_cols,
+        dropped_model_cols = c(dropped_model_cols, kernel_dropped_cols),
         terms = mm$terms,
         x_columns = colnames(mm$x),
         outcome_transform = outcome_transform,
@@ -10010,6 +10059,261 @@ run_meta_policy_crossfit_task <- function(fold_id) {
   run_meta_policy_crossfit_payload_fold(
     fold_split = fold_splits[[as.integer(fold_id)]],
     payload = payload
+  )
+}
+
+#' Prepare a meta-policy cross-fit task plan
+#'
+#' Builds the same grouped outer folds, prepared training rows, fold payload,
+#' and Super Learner method-fold task list used by
+#' [crossfit_meta_policy_learner()]. Workflow orchestrators can schedule the
+#' returned method-fold tasks externally and then recombine them with
+#' [combine_meta_policy_crossfit_plan()].
+#'
+#' @param policy_perf Policy-performance table.
+#' @param group_col Exchangeable grouping column.
+#' @param n_folds Number of outer folds.
+#' @param method Learner method.
+#' @param seed Integer seed.
+#' @param feature_cols Optional feature columns.
+#' @param outcome_col Outcome column.
+#' @param outcome_clip_quantile Optional outcome clipping quantile.
+#' @param outcome_transform Outcome transform.
+#' @param lambda_rule Regularization rule.
+#' @param alpha Optional elastic-net alpha.
+#' @param inner_folds Number of inner folds.
+#' @param super_methods Optional Super Learner base methods.
+#' @param metalearner_loss Metalearner loss.
+#' @param method_settings Optional method settings.
+#' @param progress Logical. Emit progress messages.
+#'
+#' @return A list containing fold splits, payload, method-fold tasks, and
+#'   cross-fit metadata.
+#' @keywords internal
+#' @noRd
+prepare_meta_policy_crossfit_plan <- function(policy_perf,
+                                              group_col = NULL,
+                                              n_folds = 5L,
+                                              method = "glm",
+                                              seed = NULL,
+                                              feature_cols = NULL,
+                                              outcome_col = "error_abs_log",
+                                              outcome_clip_quantile = NULL,
+                                              outcome_transform = "log1p",
+                                              lambda_rule = "lambda.1se",
+                                              alpha = NULL,
+                                              inner_folds = 5L,
+                                              super_methods = NULL,
+                                              metalearner_loss = "squared_error",
+                                              method_settings = NULL,
+                                              progress = FALSE) {
+  policy_perf <- tibble::as_tibble(policy_perf)
+  group_col <- resolve_meta_policy_group_col(policy_perf, group_col = group_col)
+  groups <- sort(unique(stats::na.omit(as.character(policy_perf[[group_col]]))))
+  n_folds <- min(as.integer(n_folds), length(groups))
+  if (!is.finite(n_folds) || n_folds < 2L) {
+    stop("'n_folds' must be at least 2 and no larger than the number of groups.", call. = FALSE)
+  }
+
+  if (!is.null(seed)) {
+    set.seed(as.integer(seed))
+  }
+  fold_tbl <- tibble::tibble(
+    group_id = sample(groups, length(groups), replace = FALSE),
+    fold_id = rep(seq_len(n_folds), length.out = length(groups))
+  )
+
+  is_super <- identical(as.character(method), "super_learner")
+  active_methods <- if (is_super) {
+    available_meta_policy_super_methods(super_methods, method_settings = method_settings)
+  } else {
+    method
+  }
+  lmm_random_intercepts <- active_meta_policy_lmm_random_intercepts(
+    active_methods,
+    method_settings = method_settings
+  )
+
+  data_all <- prepare_meta_policy_data(
+    policy_perf = policy_perf,
+    outcome_col = outcome_col,
+    feature_cols = feature_cols,
+    outcome_clip_quantile = outcome_clip_quantile,
+    retain_cols = c(group_col, lmm_random_intercepts)
+  ) |>
+    dplyr::mutate(.split_group = as.character(.data[[group_col]])) |>
+    dplyr::left_join(fold_tbl, by = c(".split_group" = "group_id"))
+
+  if (!"fold_id" %in% names(data_all)) {
+    if ("fold_id.y" %in% names(data_all)) {
+      data_all$fold_id <- data_all$fold_id.y
+    } else if ("fold_id.x" %in% names(data_all)) {
+      data_all$fold_id <- data_all$fold_id.x
+    }
+  }
+  data_all <- data_all |>
+    dplyr::select(-dplyr::any_of(c("fold_id.x", "fold_id.y")))
+
+  n_rows_data <- nrow(data_all)
+  data_clip_quantile <- attr(data_all, "outcome_clip_quantile")
+  data_clip_cap <- attr(data_all, "outcome_clip_cap")
+  train_keep <- if (!is.null(feature_cols) && length(feature_cols) > 0L) {
+    intersect(
+      unique(c(
+        feature_cols, ".outcome", ".split_group", "fold_id", lmm_random_intercepts
+      )),
+      names(data_all)
+    )
+  } else {
+    names(data_all)
+  }
+  fold_splits <- lapply(seq_len(n_folds), function(f) {
+    mask_train <- !is.na(data_all$fold_id) & data_all$fold_id != f
+    mask_test <- !is.na(data_all$fold_id) & data_all$fold_id == f
+    list(
+      train = data_all[mask_train, train_keep, drop = FALSE],
+      test = data_all[mask_test, , drop = FALSE],
+      fold_id = f
+    )
+  })
+
+  fold_payload <- list(
+    is_super = is_super,
+    active_methods = active_methods,
+    feature_cols = feature_cols,
+    method = method,
+    outcome_transform = outcome_transform,
+    lambda_rule = lambda_rule,
+    alpha = alpha,
+    inner_folds = inner_folds,
+    super_methods = super_methods,
+    metalearner_loss = metalearner_loss,
+    method_settings = method_settings,
+    seed = seed,
+    progress = progress
+  )
+  method_tasks <- if (is_super) {
+    unlist(
+      lapply(seq_along(fold_splits), function(f) {
+        lapply(active_methods, function(method_now) {
+          list(fold_id = f, method = method_now)
+        })
+      }),
+      recursive = FALSE
+    )
+  } else {
+    list()
+  }
+
+  list(
+    fold_assignments = fold_tbl,
+    fold_splits = fold_splits,
+    payload = fold_payload,
+    method_tasks = method_tasks,
+    method = method,
+    is_super = is_super,
+    active_methods = active_methods,
+    n_folds = n_folds,
+    n_rows = n_rows_data,
+    n_base_methods = if (is_super) length(active_methods) else 1L,
+    outcome_col = outcome_col,
+    outcome_clip_quantile = data_clip_quantile,
+    outcome_clip_cap = data_clip_cap
+  )
+}
+
+#' Run one externalized meta-policy cross-fit method-fold task
+#'
+#' Executes a single Super Learner base-method/outer-fold task from a
+#' self-contained task specification. This is the task unit used by external
+#' workflow schedulers such as `targets`.
+#'
+#' @param task_spec List containing `task`, `fold_split`, and `payload`.
+#'
+#' @return Method-fold task result with the task identifier attached.
+#' @keywords internal
+#' @noRd
+run_meta_policy_crossfit_plan_method_task <- function(task_spec) {
+  task <- task_spec$task
+  payload <- task_spec$payload
+  fold_id <- as.integer(task$fold_id)
+  fold_splits <- vector("list", fold_id)
+  fold_splits[[fold_id]] <- task_spec$fold_split
+  payload$fold_splits <- fold_splits
+  out <- tryCatch(
+    run_meta_policy_crossfit_method_payload_task(task, payload),
+    error = function(e) failed_meta_policy_crossfit_method_task(task, conditionMessage(e))
+  )
+  out$task_id <- as.character(task_spec$task_id %||% NA_character_)
+  out$parent_id <- as.character(task_spec$parent_id %||% NA_character_)
+  out$stage <- as.character(task_spec$stage %||% NA_character_)
+  out
+}
+
+#' Combine an externalized meta-policy cross-fit task plan
+#'
+#' Reassembles externally scheduled fold or method-fold results into the same
+#' cross-fit bundle returned by [crossfit_meta_policy_learner()].
+#'
+#' @param plan Result from [prepare_meta_policy_crossfit_plan()].
+#' @param method_results List of Super Learner method-fold task results.
+#' @param fold_results Optional list of complete fold prediction tables for
+#'   non-Super Learner methods.
+#' @param progress Logical. Emit progress messages.
+#'
+#' @return Cross-fit result list.
+#' @keywords internal
+#' @noRd
+combine_meta_policy_crossfit_plan <- function(plan,
+                                              method_results = list(),
+                                              fold_results = NULL,
+                                              progress = FALSE) {
+  if (isTRUE(plan$is_super)) {
+    fold_results <- lapply(seq_along(plan$fold_splits), function(i) {
+      combine_meta_policy_super_fold_tasks(
+        fold_split = plan$fold_splits[[i]],
+        task_results = method_results[vapply(
+          method_results,
+          function(result) identical(as.integer(result$fold_id), as.integer(i)),
+          logical(1)
+        )],
+        payload = plan$payload
+      )
+    })
+  } else if (is.null(fold_results)) {
+    fold_results <- lapply(plan$fold_splits, run_meta_policy_crossfit_payload_fold, payload = plan$payload)
+  }
+
+  learner_timings <- dplyr::bind_rows(lapply(
+    fold_results,
+    function(result) attr(result, "learner_timings") %||% tibble::tibble()
+  ))
+  fold_timings <- dplyr::bind_rows(lapply(
+    fold_results,
+    function(result) attr(result, "fold_timing") %||% tibble::tibble()
+  ))
+  pred_rows <- dplyr::bind_rows(fold_results)
+
+  report_progress(
+    progress,
+    sprintf(
+      "Cross-fit complete: %d prediction rows collected across %d fold task(s).",
+      nrow(pred_rows),
+      nrow(fold_timings)
+    )
+  )
+
+  if (!plan$outcome_col %in% names(pred_rows) && ".outcome" %in% names(pred_rows)) {
+    pred_rows[[plan$outcome_col]] <- pred_rows$.outcome
+  }
+
+  list(
+    fold_assignments = plan$fold_assignments,
+    predictions = pred_rows,
+    learner_timings = learner_timings,
+    fold_timings = fold_timings,
+    outcome_clip_quantile = plan$outcome_clip_quantile,
+    outcome_clip_cap = plan$outcome_clip_cap
   )
 }
 
