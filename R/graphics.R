@@ -5116,6 +5116,17 @@ plot_strategy_component_competition <- function(interval_tbl) {
       selection_fraction = .data$n_selected / .data$component_total,
       component_level = stats::reorder(.data$component_level, .data$n_selected)
     )
+  if (
+    nrow(count_tbl) == 0L ||
+      !all(c("component", "component_level", "n_selected") %in% names(count_tbl))
+  ) {
+    return(plot_report_placeholder(
+      title = "Strategy Component Competition",
+      subtitle = "No selected strategy components were available.",
+      x = NULL,
+      y = "Selected anchor count"
+    ))
+  }
   ggplot2::ggplot(
     count_tbl,
     ggplot2::aes(x = .data$n_selected, y = .data$component_level, fill = .data$component)

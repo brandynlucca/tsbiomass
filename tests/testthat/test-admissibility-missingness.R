@@ -258,6 +258,39 @@ test_that("anchor overlap summary is restricted to configured traits", {
   expect_false("w_same_swimbladder_type" %in% names(overlap))
 })
 
+test_that("anchor scored rows reattach admissible weights by stable model id", {
+  cfg <- tsbiomass:::default_anchor_config(minimal_config_data())
+  anchor_row <- tibble::tibble(
+    model_id = "anchor",
+    species_name = "Sardinops sagax"
+  )
+  eval_obj <- list(
+    model_eval = tibble::tibble(
+      model_id = c("donor_1", "donor_2"),
+      w_combined = c(0.1234567, 0.2),
+      admissible = c(TRUE, FALSE),
+      overlap_same_species = c(TRUE, FALSE),
+      overlap_same_genus = c(TRUE, FALSE)
+    ),
+    admissible_df = tibble::tibble(
+      model_id = "donor_1",
+      w_combined = 0.1234568,
+      w_study_adj_raw = 0.5,
+      w_adm = 1,
+      cumulative_w_adm = 1
+    )
+  )
+
+  scored <- tsbiomass:::collect_anchor_scores(eval_obj, anchor_row, cfg)
+  overlap <- scored |>
+    dplyr::filter(.data$admissible) |>
+    tsbiomass:::summarize_anchor_overlap()
+
+  expect_equal(scored$w_adm, c(1, NA_real_))
+  expect_equal(overlap$w_same_species, 1)
+  expect_equal(overlap$w_same_genus, 1)
+})
+
 test_that("admissibility cache currentness requires overlap summary metrics", {
   cfg <- list(
     admissibility = list(

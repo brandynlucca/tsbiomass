@@ -4977,6 +4977,7 @@ collect_anchor_scores <- function(eval_obj,
                                   anchor_row,
                                   config = NULL) {
   cfg <- default_anchor_config(config)
+  id_col <- build_anchor_field(cfg, "model_id")
   anchor_id <- build_anchor_model_id(anchor_row, cfg)
   anchor_species <- as.character(anchor_row[[build_anchor_field(cfg, "species_name")]][[1]])
 
@@ -4987,19 +4988,19 @@ collect_anchor_scores <- function(eval_obj,
   # admissibility screen.
   support_cols <- intersect(
     c(
-      "model_id", "study_cell_id", "study_cell_n_models",
-      "w_combined", "w_study_adj_raw", "w_adm",
+      id_col, "study_cell_id", "study_cell_n_models",
+      "w_study_adj_raw", "w_adm",
       "cumulative_w_adm"
     ),
     names(eval_obj$admissible_df)
   )
 
-  if (length(support_cols) > 0) {
+  if (id_col %in% names(scored) && id_col %in% support_cols) {
     scored <- scored |>
       dplyr::left_join(
         tibble::as_tibble(eval_obj$admissible_df) |>
           dplyr::select(dplyr::all_of(support_cols)),
-        by = intersect(c("model_id", "w_combined"), support_cols)
+        by = id_col
       )
   }
 
@@ -5883,7 +5884,8 @@ screen_admissibility <- function(reference_anchors = NULL,
 
     scored <- collect_anchor_scores(eval_obj, anchor_row, cfg)
     ranked <- rank_anchor_models(eval_obj)
-    overlap <- eval_obj$admissible_df |>
+    overlap <- scored |>
+      dplyr::filter(.data$admissible) |>
       summarize_anchor_overlap(config = config_) |>
       dplyr::mutate(anchor_model_id = anchor_id, anchor_species = anchor_species)
     gates <- summarize_gate_counts(scored, anchor_row, cfg)

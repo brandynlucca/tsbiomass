@@ -3126,13 +3126,18 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     width_calibration$width_ratio,
     alpha = alpha
   )
-  width_factor_simultaneous_global <- width_calibration |>
+  width_factor_simultaneous_values <- width_calibration |>
     dplyr::group_by(anchor_species) |>
     dplyr::summarise(
-      width_ratio = max(width_ratio, na.rm = TRUE),
+      width_ratio = {
+        width_ratio_values <- .data$width_ratio[is.finite(.data$width_ratio)]
+        if (length(width_ratio_values) > 0L) max(width_ratio_values) else NA_real_
+      },
       .groups = "drop"
     ) |>
-    dplyr::pull(width_ratio) |>
+    dplyr::filter(is.finite(.data$width_ratio)) |>
+    dplyr::pull(width_ratio)
+  width_factor_simultaneous_global <- width_factor_simultaneous_values |>
     conformal_quantile(alpha = alpha)
 
   # Build pooled local conformal factors so thin policy/species cells borrow

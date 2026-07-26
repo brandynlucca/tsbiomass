@@ -22,6 +22,18 @@ test_that("plot.Candidates dispatches through base plot without replacing it", {
   expect_equal(seen$count_type, "models")
 })
 
+test_that("strategy component competition plot handles selected rows with no parseable components", {
+  interval_tbl <- tibble::tibble(
+    anchor_species = c("Alpha alpha", "Beta beta"),
+    policy = c(NA_character_, NA_character_),
+    is_selected = c(TRUE, TRUE)
+  )
+
+  p <- tsbiomass:::plot_strategy_component_competition(interval_tbl)
+
+  expect_s3_class(p, "ggplot")
+})
+
 test_that("plot.Candidates renders admissibility and anchor-review plots", {
   anchor_row <- minimal_candidate_models()[1, , drop = FALSE]
   scored_tbl <- tibble::tibble(
