@@ -76,6 +76,41 @@ test_that("Sentinel trait scenarios support automatic leave-one-trait-out grids"
   expect_equal(sentinel@options$trait_ablation_missing, "absent_trait")
 })
 
+test_that("Sentinel trait ablation can remove the only study trait when species traits remain", {
+  candidate_models <- tibble::tibble(
+    model_id_chr = paste0("m", 1:4),
+    species_name = paste0("sp", 1:4),
+    family = c("f1", "f1", "f2", "f2"),
+    fao_area = c("61", "61", "67", "67")
+  )
+  cfg <- minimal_config_data()
+  cfg$similarity$species_traits <- list(family = 1)
+  cfg$similarity$study_traits <- list(fao_area = 1)
+  cfg$policy$species_traits <- list(family = 1)
+  cfg$policy$study_traits <- list(fao_area = 1)
+
+  sentinel <- build_sentinel(
+    candidate_models,
+    config = cfg,
+    split_mode = "species_holdout",
+    trait_ablations = TRUE,
+    output_dir = file.path(tempdir(), paste0("sentinel-study-only-ablation-", as.integer(Sys.time())))
+  )
+  scenario_spec <- sentinel@scenario_grid$without_fao_area
+  expect_true(is.list(scenario_spec))
+
+  fold_config <- sentinel_exclude_similarity_traits(
+    config = sentinel@config,
+    traits = scenario_spec$exclude_similarity_traits
+  )
+
+  expect_equal(names(fold_config$similarity$species_traits), "family")
+  expect_equal(length(fold_config$similarity$study_traits), 0L)
+  expect_no_error(
+    build_configurer(fold_config, base_dir = tempdir())
+  )
+})
+
 test_that("Sentinel collapses configured taxonomic ranks into one effective-feature ablation", {
   candidate_models <- tibble::tibble(
     model_id_chr = paste0("m", 1:4),

@@ -118,6 +118,46 @@ test_that("construct_gower_distances stores distance matrices on Candidates", {
   )
 })
 
+test_that("similarity preparation and distances support species-only and study-only traits", {
+  candidates <- make_candidates(seed_similarity_tuning = FALSE)
+
+  species_only_cfg <- minimal_similarity_config()
+  species_only_cfg$species_traits <- list(genus = 1)
+  species_only_cfg$study_traits <- list()
+
+  species_only <- prepare_similarities(
+    candidate_models = candidates,
+    config = species_only_cfg
+  )
+  species_only <- construct_gower_distances(species_only)
+
+  expect_equal(species_only@similarity_matrix$species_traits, "genus")
+  expect_equal(species_only@similarity_matrix$study_traits, character(0))
+  expect_equal(
+    dim(species_only@gower_distances$combined_dist),
+    c(nrow(species_only@candidate_models), nrow(species_only@candidate_models))
+  )
+  expect_true(all(is.finite(diag(species_only@gower_distances$combined_dist))))
+
+  study_only_cfg <- minimal_similarity_config()
+  study_only_cfg$species_traits <- list()
+  study_only_cfg$study_traits <- list(fao_area = 1)
+
+  study_only <- prepare_similarities(
+    candidate_models = candidates,
+    config = study_only_cfg
+  )
+  study_only <- construct_gower_distances(study_only)
+
+  expect_equal(study_only@similarity_matrix$species_traits, character(0))
+  expect_equal(study_only@similarity_matrix$study_traits, "fao_area")
+  expect_equal(
+    dim(study_only@gower_distances$combined_dist),
+    c(nrow(study_only@candidate_models), nrow(study_only@candidate_models))
+  )
+  expect_true(all(is.finite(diag(study_only@gower_distances$combined_dist))))
+})
+
 test_that("forge_distances invalidates stale downstream alchemist state", {
   candidates <- make_candidates(seed_similarity_tuning = FALSE)
   alchemist <- as_alchemist(candidates)
@@ -715,6 +755,55 @@ test_that("admissibility records unscorable anchors without dropping valid ancho
   expect_equal(length(screened@admissibility$anchors), 1L)
 })
 
+test_that("admissibility records anchors with invalid backscatter as unscorable", {
+  cfg <- minimal_config_data()
+  cfg$admissibility$species_traits <- character(0)
+  cfg$admissibility$study_traits <- character(0)
+  cfg$admissibility$coherence$frequency$mode <- "none"
+  cfg_obj <- build_configurer(cfg, base_dir = tempdir())
+
+  candidates <- set_reference_anchors(
+    make_candidates(seed_similarity_tuning = FALSE),
+    model_ids = c("1", "4")
+  )
+  models <- candidates@candidate_models
+  models$slope_standard <- models$slope_len
+  models$intercept_standard <- models$intercept_len
+  models$slope_standard[models$model_id_chr == "1"] <- NA_real_
+  models$intercept_standard[models$model_id_chr == "1"] <- NA_real_
+  anchors <- models[models$model_id_chr %in% c("1", "4"), , drop = FALSE]
+  failed_id <- "1"
+  candidates <- Candidates(
+    spec = candidates@spec,
+    study_db = candidates@study_db,
+    species_vector = candidates@species_vector,
+    source_dbs = candidates@source_dbs,
+    species_db = candidates@species_db,
+    candidate_models = models,
+    reference_anchors = anchors,
+    similarity_matrix = candidates@similarity_matrix,
+    gower_distances = candidates@gower_distances,
+    ordination = candidates@ordination,
+    admissibility = list(),
+    similarity_tuning = candidates@similarity_tuning
+  )
+
+  screened <- screen_admissibility(
+    candidate_models = candidates,
+    config = cfg_obj,
+    refresh = TRUE,
+    progress = FALSE
+  )
+  failures <- tibble::as_tibble(screened@admissibility$anchor_failures)
+
+  expect_equal(nrow(failures), 1L)
+  expect_equal(failures$anchor_model_id, failed_id)
+  expect_equal(failures$failure_stage, "anchor_backscatter")
+  expect_equal(failures$failure_code, "invalid_anchor_backscatter")
+  expect_match(failures$failure_message, "no finite positive anchor backscatter")
+  expect_equal(length(screened@admissibility$anchors), 1L)
+})
+
 test_that("reference anchor PDFs can be set from raw empirical lengths", {
   candidates <- make_candidates(seed_similarity_tuning = FALSE)
   candidates <- set_reference_anchors(candidates, model_ids = c("1", "4"))
@@ -747,7 +836,7 @@ test_that("reference anchor PDFs can be set from raw empirical lengths", {
   expect_true(any(pdf_one$pdf_density > 0))
 })
 
-test_that("user reference PDFs require finite anchor length-form coefficients", {
+test_that("user reference PDFs record invalid anchor length-form coefficients", {
   cfg <- minimal_config_data()
   cfg$admissibility$species_traits <- c("family")
   cfg$admissibility$study_traits <- character(0)
@@ -789,10 +878,15 @@ test_that("user reference PDFs require finite anchor length-form coefficients", 
     similarity_tuning = candidates@similarity_tuning
   )
 
-  expect_error(
-    screen_admissibility(candidates, config = cfg_obj, refresh = TRUE, progress = FALSE),
-    "user-supplied length PDF"
-  )
+  screened <- screen_admissibility(candidates, config = cfg_obj, refresh = TRUE, progress = FALSE)
+  failures <- tibble::as_tibble(screened@admissibility$anchor_failures)
+
+  expect_equal(nrow(failures), 1L)
+  expect_equal(failures$anchor_model_id, "1")
+  expect_equal(failures$failure_stage, "anchor_backscatter")
+  expect_equal(failures$failure_code, "invalid_anchor_backscatter_user_pdf")
+  expect_match(failures$failure_message, "no finite positive anchor backscatter")
+  expect_equal(length(screened@admissibility$anchors), 0L)
 })
 
 test_that("candidate trimming removes unused configured traits", {

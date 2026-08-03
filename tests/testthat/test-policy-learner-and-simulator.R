@@ -218,6 +218,11 @@ test_that("PolicyLearner selection fit respects selection-specific learner setti
     prepare_meta_policy_data = function(policy_perf, ...) {
       tibble::as_tibble(policy_perf)
     },
+    prepare_meta_policy_crossfit_plan = function(super_methods = NULL, method_settings = NULL, ...) {
+      captured$crossfit_super_methods <- super_methods
+      captured$crossfit_num_trees <- method_settings$rf$num_trees
+      list(is_super = FALSE)
+    },
     crossfit_meta_policy_learner = function(super_methods = NULL, method_settings = NULL, ...) {
       captured$crossfit_super_methods <- super_methods
       captured$crossfit_num_trees <- method_settings$rf$num_trees

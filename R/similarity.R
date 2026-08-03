@@ -774,6 +774,10 @@ normalize_trait_weights <- function(models_tbl,
     stop(sprintf("'%s' must be NULL, a character vector, a named list/vector, or a trait-weight data frame.", scope_label), call. = FALSE)
   }
 
+  if (length(weights) == 0L) {
+    return(list(weights = stats::setNames(numeric(0), character(0)), defs = list()))
+  }
+
   if (is.null(names(weights)) || any(is.na(names(weights))) || any(!nzchar(names(weights)))) {
     stop(sprintf("'%s' weights must be named by trait.", scope_label), call. = FALSE)
   }

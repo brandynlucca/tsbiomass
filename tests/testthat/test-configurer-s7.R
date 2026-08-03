@@ -164,6 +164,37 @@ test_that("trait names without explicit weights default to one", {
   expect_equal(cfg$policy$study_traits, c(frequency = 1, fao_area = 1))
 })
 
+test_that("trait-weight validation permits one empty scope when the other has traits", {
+  species_only <- minimal_config_data()
+  species_only$similarity$species_traits <- list(genus = 1)
+  species_only$similarity$study_traits <- list()
+  species_only$policy$species_traits <- list(genus = 1)
+  species_only$policy$study_traits <- list()
+
+  expect_no_error(
+    build_configurer(species_only, base_dir = tempdir())
+  )
+
+  study_only <- minimal_config_data()
+  study_only$similarity$species_traits <- list()
+  study_only$similarity$study_traits <- list(fao_area = 1)
+  study_only$policy$species_traits <- list()
+  study_only$policy$study_traits <- list(fao_area = 1)
+
+  expect_no_error(
+    build_configurer(study_only, base_dir = tempdir())
+  )
+
+  empty_similarity <- minimal_config_data()
+  empty_similarity$similarity$species_traits <- list()
+  empty_similarity$similarity$study_traits <- list()
+
+  expect_error(
+    build_configurer(empty_similarity, base_dir = tempdir()),
+    "Similarity trait weights must include at least one species or study trait"
+  )
+})
+
 test_that("policy group construction only allows active configured study traits", {
   registry <- tsbiomass:::read_policy_registry()
 

@@ -2623,8 +2623,23 @@ validate_similarity_section <- function(similarity_section,
     stop("Similarity field 'conformal_alpha' must be strictly between 0 and 1.", call. = FALSE)
   }
 
-  validate_weight_map(similarity_section$species_traits, scope = "species", registry_path = registry_path)
-  validate_weight_map(similarity_section$study_traits, scope = "study", registry_path = registry_path)
+  similarity_species_n <- length(similarity_section$species_traits %||% list())
+  similarity_study_n <- length(similarity_section$study_traits %||% list())
+  if (similarity_species_n == 0L && similarity_study_n == 0L) {
+    stop("Similarity trait weights must include at least one species or study trait.", call. = FALSE)
+  }
+  validate_weight_map(
+    similarity_section$species_traits,
+    scope = "species",
+    registry_path = registry_path,
+    allow_empty = TRUE
+  )
+  validate_weight_map(
+    similarity_section$study_traits,
+    scope = "study",
+    registry_path = registry_path,
+    allow_empty = TRUE
+  )
   if (!is.null(similarity_section$alpha_range) || !is.null(similarity_section$alpha_grid) ||
     !is.null(similarity_section$kernel_scale_range) || !is.null(similarity_section$kernel_scale_grid)) {
     stop("Similarity tuning ranges belong under the top-level 'tuning' section.", call. = FALSE)
@@ -3434,15 +3449,23 @@ validate_policy_section <- function(policy_section,
     stop("Policy field 'require_same_frequency_label' must be TRUE or FALSE.", call. = FALSE)
   }
 
+  policy_species_n <- length(policy_section$species_traits %||% list())
+  policy_study_n <- length(policy_section$study_traits %||% list())
+  if (policy_species_n == 0L && policy_study_n == 0L) {
+    stop("Policy trait weights must include at least one species or study trait.", call. = FALSE)
+  }
+
   validate_weight_map(
     weight_map = policy_section$species_traits,
     scope = "species",
-    registry_path = registry_path
+    registry_path = registry_path,
+    allow_empty = TRUE
   )
   validate_weight_map(
     weight_map = policy_section$study_traits,
     scope = "study",
-    registry_path = registry_path
+    registry_path = registry_path,
+    allow_empty = TRUE
   )
 }
 
@@ -3508,10 +3531,14 @@ validate_policy_list_section <- function(policies_section,
 #' @noRd
 validate_weight_map <- function(weight_map,
                                 scope,
-                                registry_path = NULL) {
+                                registry_path = NULL,
+                                allow_empty = FALSE) {
   # Require named finite nonnegative weights and check the names directly
   # against the relevant trait registry scope.
   if (length(weight_map) == 0) {
+    if (isTRUE(allow_empty)) {
+      return(invisible(NULL))
+    }
     stop(sprintf("%s trait weights must include at least one trait.", scope), call. = FALSE)
   }
 
