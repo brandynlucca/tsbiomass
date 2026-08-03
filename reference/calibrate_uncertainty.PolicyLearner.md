@@ -59,6 +59,12 @@ anchor has little local support.
 
   Optional uncertainty-learner method-settings override.
 
+- uncertainty_crossfit_result:
+
+  Optional precomputed uncertainty learner cross-fit result from an
+  external task scheduler. When `NULL`, the method runs the configured
+  uncertainty learner normally.
+
 - progress:
 
   Optional logical scalar controlling progress messages.
