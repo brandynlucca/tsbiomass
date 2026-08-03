@@ -216,13 +216,17 @@ test_that("anchor overlap summary is driven by available overlap fields", {
   expect_false("mean_depth_overlap_fraction" %in% names(overlap))
 })
 
-test_that("anchor overlap summary fails explicitly when admissible weights are degenerate", {
-  expect_error(tsbiomass:::summarize_anchor_overlap(tibble::tibble(
+test_that("anchor overlap summary returns an empty summary when admissible weights are degenerate", {
+  overlap <- tsbiomass:::summarize_anchor_overlap(tibble::tibble(
     w_adm = c(NA_real_, 0),
     overlap_same_family = c(TRUE, FALSE),
     overlap_same_ocean_basin = c(TRUE, TRUE),
     length_overlap_fraction = c(0.25, 0.75)
-  )), "no positive finite admissibility weights")
+  ))
+
+  expect_equal(overlap$n_admissible, 0L)
+  expect_true(is.na(overlap$w_same_family))
+  expect_true(is.na(overlap$w_same_ocean_basin))
 })
 
 test_that("anchor overlap summary is restricted to configured traits", {

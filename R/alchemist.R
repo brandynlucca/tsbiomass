@@ -4875,13 +4875,17 @@ summarize_anchor_overlap <- function(admissible_df,
   overlap_fraction_cols <- coherence_config$fraction
   overlap_fraction_names <- paste0("mean_", overlap_fraction_cols)
 
-  if (nrow(out) == 0) {
+  empty_overlap_summary <- function() {
     summary_values <- c(
       stats::setNames(rep(NA_real_, length(overlap_names)), overlap_names),
       stats::setNames(rep(NA_real_, length(coherence_names)), coherence_names),
       stats::setNames(rep(NA_real_, length(overlap_fraction_names)), overlap_fraction_names)
     )
-    return(tibble::as_tibble(c(list(n_admissible = 0L), as.list(summary_values))))
+    tibble::as_tibble(c(list(n_admissible = 0L), as.list(summary_values)))
+  }
+
+  if (nrow(out) == 0) {
+    return(empty_overlap_summary())
   }
 
   weights <- if ("w_adm" %in% names(out)) {
@@ -4891,7 +4895,7 @@ summarize_anchor_overlap <- function(admissible_df,
   }
   weights[!is.finite(weights) | weights < 0] <- 0
   if (!any(weights > 0)) {
-    stop("Cannot summarize anchor overlap: no positive finite admissibility weights were available.", call. = FALSE)
+    return(empty_overlap_summary())
   }
   weights <- weights / sum(weights)
   weighted_mean_or_na <- function(x) {
@@ -5884,8 +5888,71 @@ screen_admissibility <- function(reference_anchors = NULL,
 
     scored <- collect_anchor_scores(eval_obj, anchor_row, cfg)
     ranked <- rank_anchor_models(eval_obj)
-    overlap <- scored |>
-      dplyr::filter(.data$admissible) |>
+    weighted_support <- scored |>
+      dplyr::filter(
+        .data$admissible,
+        is.finite(.data$w_adm),
+        .data$w_adm > 0
+      )
+    gate_admissible_n <- sum(scored$admissible %in% TRUE, na.rm = TRUE)
+    weighted_support_n <- nrow(weighted_support)
+    if (isTRUE(progress_) && gate_admissible_n > 0L && weighted_support_n == 0L) {
+      gate_rows <- scored[scored$admissible %in% TRUE, , drop = FALSE]
+      finite_w_combined_n <- if ("w_combined" %in% names(gate_rows)) {
+        sum(is.finite(suppressWarnings(as.numeric(gate_rows$w_combined))), na.rm = TRUE)
+      } else {
+        NA_integer_
+      }
+      positive_w_combined_n <- if ("w_combined" %in% names(gate_rows)) {
+        w_combined_now <- suppressWarnings(as.numeric(gate_rows$w_combined))
+        sum(is.finite(w_combined_now) & w_combined_now > 0, na.rm = TRUE)
+      } else {
+        NA_integer_
+      }
+      finite_multiplier_n <- if ("biomass_multiplier_if_replace" %in% names(gate_rows)) {
+        sum(is.finite(suppressWarnings(as.numeric(gate_rows$biomass_multiplier_if_replace))), na.rm = TRUE)
+      } else {
+        NA_integer_
+      }
+      positive_joined_w_adm_n <- if ("w_adm" %in% names(gate_rows)) {
+        w_adm_now <- suppressWarnings(as.numeric(gate_rows$w_adm))
+        sum(is.finite(w_adm_now) & w_adm_now > 0, na.rm = TRUE)
+      } else {
+        NA_integer_
+      }
+      support_pool_n <- nrow(tibble::as_tibble(eval_obj$admissible_df))
+      support_pool_positive_w_adm_n <- if ("w_adm" %in% names(eval_obj$admissible_df)) {
+        w_adm_pool_now <- suppressWarnings(as.numeric(eval_obj$admissible_df$w_adm))
+        sum(is.finite(w_adm_pool_now) & w_adm_pool_now > 0, na.rm = TRUE)
+      } else {
+        NA_integer_
+      }
+      report_progress(
+        progress_,
+        "Anchor ",
+        anchor_id,
+        " (",
+        anchor_species,
+        ") had ",
+        gate_admissible_n,
+        " gate-admissible row(s), but zero weighted-support row(s). ",
+        "Weighted support additionally requires finite positive w_combined and finite biomass_multiplier_if_replace. ",
+        "Diagnostics: finite_w_combined=",
+        finite_w_combined_n,
+        ", positive_w_combined=",
+        positive_w_combined_n,
+        ", finite_multiplier=",
+        finite_multiplier_n,
+        ", support_pool_rows=",
+        support_pool_n,
+        ", support_pool_positive_w_adm=",
+        support_pool_positive_w_adm_n,
+        ", joined_positive_w_adm=",
+        positive_joined_w_adm_n,
+        "."
+      )
+    }
+    overlap <- weighted_support |>
       summarize_anchor_overlap(config = config_) |>
       dplyr::mutate(anchor_model_id = anchor_id, anchor_species = anchor_species)
     gates <- summarize_gate_counts(scored, anchor_row, cfg)

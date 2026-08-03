@@ -34,6 +34,10 @@ base methods override.}
 \item{uncertainty_method_settings}{Optional uncertainty-learner
 method-settings override.}
 
+\item{uncertainty_crossfit_result}{Optional precomputed uncertainty learner
+cross-fit result from an external task scheduler. When \code{NULL}, the method
+runs the configured uncertainty learner normally.}
+
 \item{progress}{Optional logical scalar controlling progress messages.}
 
 \item{config}{Optional config override.}
