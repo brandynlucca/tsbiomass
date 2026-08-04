@@ -51,6 +51,42 @@ test_that("stochtree BART learners fit and predict", {
   }
 })
 
+test_that("stochtree BART learners predict after RDS reload", {
+  testthat::skip_if_not_installed("stochtree")
+  training_data <- new_learner_training_data(n = 40L)
+  method_settings <- list(
+    vfbart = list(
+      num_trees = 5L,
+      num_gfr = 0L,
+      num_burnin = 5L,
+      num_mcmc = 5L,
+      variance_forest = TRUE,
+      variance_forest_num_trees = 2L,
+      keep_gfr = FALSE,
+      random_effects = FALSE
+    )
+  )
+
+  learner <- suppressWarnings(fit_meta_policy_learner(
+    training_data = training_data,
+    method = "vfbart",
+    feature_cols = c("feature_a", "feature_b", "feature_c"),
+    outcome_transform = "identity",
+    method_settings = method_settings,
+    seed = 20260707L
+  ))
+  expect_true(is.character(learner$fit_json))
+  expect_true(nzchar(learner$fit_json))
+
+  path <- tempfile(fileext = ".rds")
+  saveRDS(learner, path)
+  reloaded <- readRDS(path)
+  scored <- predict_meta_policy_score(reloaded, training_data)
+
+  expect_length(scored$.meta_predicted_score, nrow(training_data))
+  expect_true(all(is.finite(scored$.meta_predicted_score)))
+})
+
 test_that("KNN meta-policy learner fits and predicts", {
   testthat::skip_if_not_installed("FNN")
   expect_new_learner_fits("knn")

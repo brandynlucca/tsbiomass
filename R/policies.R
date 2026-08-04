@@ -7124,11 +7124,31 @@ fit_stochtree_bart <- function(x, y, args, training_data, seed) {
     }
   )
 
+  model_json <- tryCatch(
+    stochtree::saveBARTModelToJsonString(model),
+    error = function(e) {
+      stop(
+        "Failed to serialize stochtree BART model with stochtree::saveBARTModelToJsonString(): ",
+        conditionMessage(e),
+        call. = FALSE
+      )
+    }
+  )
+
   list(
     model = model,
+    model_json = model_json,
     rfx_group_col = rfx_group_col,
     rfx_levels = rfx_levels
   )
+}
+
+restore_stochtree_bart_fit <- function(object) {
+  model_json <- object$fit_json %||% object$model_json %||% NULL
+  if (!is.null(model_json) && length(model_json) == 1L && !is.na(model_json) && nzchar(model_json)) {
+    return(stochtree::createBARTModelFromJsonString(model_json))
+  }
+  object$fit
 }
 
 #' Predict from a fitted stochtree BART variant
@@ -7190,11 +7210,11 @@ predict_stochtree_bart <- function(object, x, prediction_tbl) {
   }
 
   if (is.null(rfx_group_ids)) {
-    return(reduce_draws(stats::predict(object$fit, x)))
+    return(reduce_draws(stats::predict(restore_stochtree_bart_fit(object), x)))
   }
 
   reduce_draws(stats::predict(
-    object$fit,
+    restore_stochtree_bart_fit(object),
     x,
     rfx_group_ids = rfx_group_ids
   ))
@@ -8606,6 +8626,7 @@ fit_meta_policy_learner <- function(training_data,
     return(structure(
       list(
         fit = bart_fit$model,
+        fit_json = bart_fit$model_json,
         method = method,
         method_family = method_spec$family,
         method_variant = method_spec$variant,
