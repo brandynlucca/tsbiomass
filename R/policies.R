@@ -1782,20 +1782,43 @@ valid_equation_rows <- function(rows) {
 #' @keywords internal
 #' @noRd
 group_model_rows <- function(rows) {
-  # Treat the prepared boolean flagas evidence that a row represents a generalized
-  # or grouped model.
+  # Treat explicit prepared flags or absent species identity as evidence that a
+  # row represents a generalized or grouped model.
   out <- tibble::as_tibble(rows)
 
   # Evaluate the optional grouping flags against the materialized tibble so the
   # filter does not depend on the magrittr pronoun.
   has_group_flag <- "is_group_model" %in% names(out)
   has_method_flag <- "method_type" %in% names(out)
+  generalized_flag <- rep(FALSE, nrow(out))
+
+  if (has_group_flag) {
+    generalized_flag <- generalized_flag | (as.logical(out$is_group_model) %in% TRUE)
+  }
+  if (has_method_flag) {
+    method_type <- tolower(trimws(as.character(out$method_type)))
+    generalized_flag <- generalized_flag | method_type %in% c("group", "generalized", "generalised")
+  }
+
+  species_cols <- intersect(
+    c("species_name", "species", "species_species_name"),
+    names(out)
+  )
+  if (length(species_cols) > 0) {
+    species_missing <- Reduce(
+      `|`,
+      lapply(species_cols, function(col) {
+        value <- trimws(as.character(out[[col]]))
+        is.na(out[[col]]) |
+          !nzchar(value) |
+          tolower(value) %in% c("na", "n/a", "na na", "unknown", "unknown unknown")
+      })
+    )
+    generalized_flag <- generalized_flag | species_missing
+  }
 
   out |>
-    dplyr::filter(
-      (if (has_group_flag) .data$is_group_model else FALSE) |
-        (if (has_method_flag) .data$method_type == "group" else FALSE)
-    )
+    dplyr::filter(.env$generalized_flag)
 }
 
 #' Identify canonical 20-log10 slope rows
