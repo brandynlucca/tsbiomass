@@ -4797,13 +4797,15 @@ configured_anchor_overlap_columns <- function(tbl,
   }
   selected <- character(0)
   for (trait in traits) {
-    candidates <- paste0("overlap_same_", anchor_overlap_suffix_candidates(trait, cfg))
+    suffix_candidates <- anchor_overlap_suffix_candidates(trait, cfg)
+    candidates <- paste0("overlap_same_", suffix_candidates)
     hit <- candidates[candidates %in% available]
     if (length(hit) > 0L) {
-      selected <- c(selected, hit[[1L]])
+      canonical_suffix <- suffix_candidates[[1L]]
+      selected <- c(selected, stats::setNames(hit[[1L]], canonical_suffix))
     }
   }
-  unique(selected)
+  selected[!duplicated(unname(selected))]
 }
 
 #' Select configured coherence columns from an anchor table
@@ -4867,7 +4869,13 @@ summarize_anchor_overlap <- function(admissible_df,
                                      config = NULL) {
   out <- tibble::as_tibble(admissible_df)
   overlap_cols <- configured_anchor_overlap_columns(out, config = config)
-  overlap_names <- paste0("w_same_", sub("^overlap_same_", "", overlap_cols))
+  overlap_suffixes <- names(overlap_cols)
+  if (length(overlap_suffixes) != length(overlap_cols)) {
+    overlap_suffixes <- rep("", length(overlap_cols))
+  }
+  missing_names <- is.na(overlap_suffixes) | !nzchar(overlap_suffixes)
+  overlap_suffixes[missing_names] <- sub("^overlap_same_", "", unname(overlap_cols[missing_names]))
+  overlap_names <- paste0("w_same_", overlap_suffixes)
   overlap_names <- make.unique(overlap_names, sep = "_")
   coherence_config <- configured_anchor_coherence_columns(out, config = config)
   coherence_cols <- coherence_config$distance

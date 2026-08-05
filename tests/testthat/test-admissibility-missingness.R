@@ -262,6 +262,34 @@ test_that("anchor overlap summary is restricted to configured traits", {
   expect_false("w_same_swimbladder_type" %in% names(overlap))
 })
 
+test_that("anchor overlap aliases summarize onto canonical metrics", {
+  scored <- tibble::tibble(
+    w_adm = c(0.25, 0.75),
+    overlap_same_fao = c(TRUE, FALSE),
+    overlap_same_swimbladder_type = c(FALSE, TRUE),
+    overlap_same_derivation_type = c(TRUE, TRUE)
+  )
+  cfg <- list(
+    similarity = list(
+      species_traits = character(0),
+      study_traits = c("fao_area")
+    ),
+    admissibility = list(
+      species_traits = c("swimbladder_type"),
+      study_traits = c("derivation_type")
+    )
+  )
+
+  overlap <- tsbiomass:::summarize_anchor_overlap(scored, config = cfg)
+
+  expect_equal(overlap$w_same_fao_area, 0.25)
+  expect_equal(overlap$w_same_swimbladder, 0.75)
+  expect_equal(overlap$w_same_derivation, 1)
+  expect_false("w_same_fao" %in% names(overlap))
+  expect_false("w_same_swimbladder_type" %in% names(overlap))
+  expect_false("w_same_derivation_type" %in% names(overlap))
+})
+
 test_that("anchor scored rows reattach admissible weights by stable model id", {
   cfg <- tsbiomass:::default_anchor_config(minimal_config_data())
   anchor_row <- tibble::tibble(

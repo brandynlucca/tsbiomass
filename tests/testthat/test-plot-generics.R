@@ -181,6 +181,25 @@ test_that("overlap heatmap restricts stale wide summaries to configured metrics"
   expect_false("Same Diel" %in% as.character(unique(p$data$metric)))
 })
 
+test_that("overlap heatmap resolves legacy FAO summaries to configured FAO area", {
+  overlap_tbl <- tibble::tibble(
+    anchor_species = "Alpha alpha",
+    w_same_fao = 0.66
+  )
+  cfg <- list(
+    similarity = list(
+      species_traits = character(0),
+      study_traits = c("fao_area")
+    )
+  )
+
+  p <- plot_overlap_heatmap(overlap_tbl, config = cfg)
+
+  expect_s3_class(p, "ggplot")
+  expect_identical(as.character(unique(p$data$metric)), "Same Fao Area")
+  expect_equal(unique(p$data$value), 0.66)
+})
+
 test_that("overlap heatmap handles rows without finite metric columns", {
   overlap_tbl <- tibble::tibble(
     anchor_species = "Alpha alpha",
@@ -974,6 +993,30 @@ test_that("plot_selected_intervals prefers learner post-selection interval colum
   expect_equal(errorbar_data$ymax[[1]], log10(2.2), tolerance = 1e-8)
 })
 
+test_that("TS interval display columns are centered on selected policy curve", {
+  curve_tbl <- tibble::tibble(
+    length_cm = c(10, 20),
+    ts_pred = c(-60, -54),
+    ts_center = c(-60, -54),
+    ts_lo_80 = c(-61, -57),
+    ts_hi_80 = c(-58, -53),
+    ts_lo_90 = c(-62, -58),
+    ts_hi_90 = c(-57, -52),
+    ts_lo_95 = c(-63, -59),
+    ts_hi_95 = c(-56, -51),
+    ts_lo_99 = c(-64, -60),
+    ts_hi_99 = c(-55, -50)
+  )
+
+  centered <- tsbiomass:::center_ts_interval_columns(curve_tbl)
+
+  for (level in c("80", "90", "95", "99")) {
+    lo <- centered[[paste0("ts_lo_", level)]]
+    hi <- centered[[paste0("ts_hi_", level)]]
+    expect_equal(centered$ts_center - lo, hi - centered$ts_center, tolerance = 1e-8)
+  }
+})
+
 test_that("reference length-density plots display stored empirical PDFs as densities", {
   raw_lengths <- c(10, 10, 11, 12, 12, 12, 22, 22, 24, 25)
   support_tbl <- normalize_anchor_pdf_input(raw_lengths) |>
@@ -1140,7 +1183,7 @@ test_that("plot.PolicyLearner filters to reference anchors and repairs NA labels
     dplyr::ungroup() |>
     dplyr::mutate(
       selected_policy = policy,
-      selected_policy_display = "NA NA",
+      selected_policy_display = "Unresolved policy [all]",
       selected_equation_branch_filter = NA_character_
     )
   candidates <- set_reference_anchors(make_candidates(), selector = list(regional_body = "SWFSC"))
@@ -1170,6 +1213,7 @@ test_that("plot.PolicyLearner filters to reference anchors and repairs NA labels
   )
   expect_false(any(grepl("^NA NA", as.character(p_counts$data$selected_policy_display))))
   expect_false(any(grepl("^NA NA", as.character(p_stability$data$top_policy))))
+  expect_false(any(grepl("^Unresolved policy", as.character(p_stability$data$top_policy))))
   p_support <- plot(learner, type = "support_bin_error")
   expect_s3_class(p_support, "ggplot")
   expect_match(p_support$labels$subtitle, "Support-bin intervals are not enabled", fixed = TRUE)

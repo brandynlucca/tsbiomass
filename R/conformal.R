@@ -5235,6 +5235,33 @@ strategy_uncertainty_context <- function(row_now,
   ts_hi_95 <- ts_center + comp_hi95 + q95_L_upper
   ts_lo_99 <- ts_center + comp_lo99 - q99_L_lower
   ts_hi_99 <- ts_center + comp_hi99 + q99_L_upper
+  center_band <- function(lo, hi) {
+    half_width <- pmax(ts_center - lo, hi - ts_center)
+    valid <- is.finite(ts_center) & is.finite(half_width) & half_width >= 0
+    lo_out <- lo
+    hi_out <- hi
+    lo_out[valid] <- ts_center[valid] - half_width[valid]
+    hi_out[valid] <- ts_center[valid] + half_width[valid]
+    list(lo = lo_out, hi = hi_out, half_width = half_width)
+  }
+  centered80 <- center_band(ts_lo_80, ts_hi_80)
+  ts_lo_80 <- centered80$lo
+  ts_hi_80 <- centered80$hi
+  centered90 <- center_band(ts_lo_90, ts_hi_90)
+  valid90 <- is.finite(ts_center) & is.finite(centered90$half_width) & is.finite(centered80$half_width)
+  centered90$half_width[valid90] <- pmax(centered90$half_width[valid90], centered80$half_width[valid90] + gap_eps)
+  ts_lo_90[valid90] <- ts_center[valid90] - centered90$half_width[valid90]
+  ts_hi_90[valid90] <- ts_center[valid90] + centered90$half_width[valid90]
+  centered95 <- center_band(ts_lo_95, ts_hi_95)
+  valid95 <- is.finite(ts_center) & is.finite(centered95$half_width) & is.finite(centered90$half_width)
+  centered95$half_width[valid95] <- pmax(centered95$half_width[valid95], centered90$half_width[valid95] + gap_eps)
+  ts_lo_95[valid95] <- ts_center[valid95] - centered95$half_width[valid95]
+  ts_hi_95[valid95] <- ts_center[valid95] + centered95$half_width[valid95]
+  centered99 <- center_band(ts_lo_99, ts_hi_99)
+  valid99 <- is.finite(ts_center) & is.finite(centered99$half_width) & is.finite(centered95$half_width)
+  centered99$half_width[valid99] <- pmax(centered99$half_width[valid99], centered95$half_width[valid99] + gap_eps)
+  ts_lo_99[valid99] <- ts_center[valid99] - centered99$half_width[valid99]
+  ts_hi_99[valid99] <- ts_center[valid99] + centered99$half_width[valid99]
   top_candidate_fields <- c(
     "anchor_model_id",
     "combined_distance",

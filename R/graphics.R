@@ -548,6 +548,15 @@ plot_ts_bands <- function(band_tbl,
   } else {
     curve_df$ts_panel_center <- suppressWarnings(as.numeric(curve_df$ts_pred))
   }
+  if ("ts_center" %in% names(band_df)) {
+    band_center <- suppressWarnings(as.numeric(band_df$ts_center))
+    band_ymin <- suppressWarnings(as.numeric(band_df$ymin))
+    band_ymax <- suppressWarnings(as.numeric(band_df$ymax))
+    band_half_width <- pmax(band_center - band_ymin, band_ymax - band_center)
+    valid_band <- is.finite(band_center) & is.finite(band_half_width) & band_half_width >= 0
+    band_df$ymin[valid_band] <- band_center[valid_band] - band_half_width[valid_band]
+    band_df$ymax[valid_band] <- band_center[valid_band] + band_half_width[valid_band]
+  }
   if (nrow(band_df) == 0 || nrow(curve_df) == 0 ||
     !all(c("length_cm", "ymin", "ymax", "band") %in% names(band_df)) ||
     !all(c("length_cm", "ts_anchor", "ts_panel_center") %in% names(curve_df))) {
@@ -1750,11 +1759,14 @@ configured_overlap_metric_labels <- function(overlap_df,
     anchor_overlap_trait_names(cfg$similarity_study_traits)
   ))
   metric_cols <- character(0)
+  metric_label_overrides <- character(0)
   for (trait in traits) {
-    candidates <- paste0("w_same_", anchor_overlap_suffix_candidates(trait, cfg))
+    suffix_candidates <- anchor_overlap_suffix_candidates(trait, cfg)
+    candidates <- paste0("w_same_", suffix_candidates)
     hit <- candidates[candidates %in% names(overlap_df)]
     if (length(hit) > 0L) {
       metric_cols <- c(metric_cols, hit[[1L]])
+      metric_label_overrides[[hit[[1L]]]] <- overlap_metric_label(paste0("w_same_", suffix_candidates[[1L]]))
     }
   }
 
@@ -1788,8 +1800,11 @@ configured_overlap_metric_labels <- function(overlap_df,
   metric_cols <- metric_cols[vapply(overlap_df[metric_cols], function(x) {
     any(is.finite(suppressWarnings(as.numeric(x))))
   }, logical(1))]
+  labels <- vapply(metric_cols, overlap_metric_label, character(1))
+  override_hits <- intersect(metric_cols, names(metric_label_overrides))
+  labels[match(override_hits, metric_cols)] <- metric_label_overrides[override_hits]
   stats::setNames(
-    vapply(metric_cols, overlap_metric_label, character(1)),
+    labels,
     metric_cols
   )
 }
@@ -3615,6 +3630,37 @@ plot_report_placeholder <- function(title,
     ggplot2::theme_minimal(base_size = 11)
 }
 
+center_ts_interval_columns <- function(curve_tbl,
+                                       levels = c("80", "90", "95", "99"),
+                                       gap = 1e-6) {
+  curve_tbl <- tibble::as_tibble(curve_tbl)
+  if (!"ts_pred" %in% names(curve_tbl)) {
+    return(curve_tbl)
+  }
+  center <- dplyr::coalesce(
+    if ("ts_center" %in% names(curve_tbl)) suppressWarnings(as.numeric(curve_tbl$ts_center)) else rep(NA_real_, nrow(curve_tbl)),
+    suppressWarnings(as.numeric(curve_tbl$ts_pred))
+  )
+  previous_half_width <- rep(NA_real_, nrow(curve_tbl))
+  for (level in levels) {
+    lo_col <- paste0("ts_lo_", level)
+    hi_col <- paste0("ts_hi_", level)
+    if (!all(c(lo_col, hi_col) %in% names(curve_tbl))) {
+      next
+    }
+    lo <- suppressWarnings(as.numeric(curve_tbl[[lo_col]]))
+    hi <- suppressWarnings(as.numeric(curve_tbl[[hi_col]]))
+    half_width <- pmax(center - lo, hi - center)
+    valid <- is.finite(center) & is.finite(half_width) & half_width >= 0
+    nested <- valid & is.finite(previous_half_width)
+    half_width[nested] <- pmax(half_width[nested], previous_half_width[nested] + gap)
+    curve_tbl[[lo_col]][valid] <- center[valid] - half_width[valid]
+    curve_tbl[[hi_col]][valid] <- center[valid] + half_width[valid]
+    previous_half_width[valid] <- half_width[valid]
+  }
+  curve_tbl
+}
+
 #' Plot selected policy intervals
 #'
 #' @param sel_tbl Selected-policy interval table.
@@ -4326,6 +4372,7 @@ plot_ts_panel <- function(curve_tbl,
       }
     }
   }
+  curve_tbl <- center_ts_interval_columns(curve_tbl)
 
   # Draw non-overlapping shells for the nested intervals. This avoids the
   # misleading mixed colours produced by stacking translucent full ribbons.
@@ -4900,6 +4947,7 @@ plot_multiplier_length_spectrum <- function(curve_tbl,
       curve_tbl$ts_hi_95 <- hi_now
     }
   }
+  curve_tbl <- center_ts_interval_columns(curve_tbl, levels = "95")
   needed <- c(reference_col, "length_cm", "ts_anchor", "ts_pred", "ts_lo_95", "ts_hi_95")
   if (nrow(curve_tbl) == 0 || !all(needed %in% names(curve_tbl))) {
     return(plot_report_placeholder(

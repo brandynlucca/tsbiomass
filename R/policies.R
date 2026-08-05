@@ -53,7 +53,7 @@ policy_display_value_missing <- function(x) {
   clean_no_branch <- stringr::str_squish(stringr::str_remove(clean, "\\s*\\[[^]]*\\]$"))
   is.na(clean) |
     !nzchar(clean) |
-    stringr::str_to_lower(clean_no_branch) %in% c("na", "nan", "null", "none", "na na")
+    stringr::str_to_lower(clean_no_branch) %in% c("na", "nan", "null", "none", "na na", "unresolved policy")
 }
 
 #' Build a policy-branch display-tag map
