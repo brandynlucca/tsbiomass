@@ -5863,7 +5863,15 @@ meta_policy_context_columns <- function(tbl,
       return(FALSE)
     }
     grepl("^(anchor_|reference_anchor_)", name) ||
-      name %in% c("validation_scheme", "valid_prediction", ".split_group", "fold_id")
+      name %in% c(
+        "validation_scheme", "valid_prediction", ".split_group", "fold_id",
+        # Policy identity is not a model feature (it is decomposed into
+        # candidate_pool/aggregation_method/equation_branch_filter for that
+        # purpose), but it must survive as bookkeeping so downstream
+        # calibration (post-selection local-lookup cascade) can condition on
+        # the selected strategy instead of silently receiving NA.
+        "policy", "policy_family", "candidate_pool", "aggregation_method"
+      )
   }, logical(1))]
   if (isTRUE(include_outcome) && ".outcome" %in% names(tbl)) {
     out <- c(out, ".outcome")

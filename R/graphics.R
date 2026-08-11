@@ -4015,7 +4015,7 @@ plot_anchor_summary <- function(integrated_tbl,
   )
   axis_breaks <- multiplier_axis_breaks(axis_values)
 
-  ggplot2::ggplot(integrated_df, ggplot2::aes(x = .data$x_pos)) +
+  base_plot <- ggplot2::ggplot(integrated_df, ggplot2::aes(x = .data$x_pos)) +
     ggplot2::geom_vline(
       xintercept = seq_along(anchor_levels),
       linewidth = 0.35,
@@ -4107,7 +4107,7 @@ plot_anchor_summary <- function(integrated_tbl,
         ymax = .data$multiplier_hi
       ),
       colour = "#b2182b",
-      width = 0.12,
+      width = 0.12
     ) +
     ggplot2::geom_point(
       ggplot2::aes(
@@ -4143,6 +4143,29 @@ plot_anchor_summary <- function(integrated_tbl,
       axis.ticks = ggplot2::element_line(linewidth = 0.4, colour = "black"),
       legend.position = "none"
     )
+
+  legend_height <- 0.16
+  legend <- grid::grobTree(
+    grid::rectGrob(gp = grid::gpar(fill = "white", col = NA)),
+    grid::pointsGrob(x = grid::unit(0.06, "npc"), y = grid::unit(0.79, "npc"), pch = 16, size = grid::unit(2.1, "mm"), gp = grid::gpar(col = scales::alpha("#1b1b1b", 0.55))),
+    grid::textGrob("Admissible models", x = grid::unit(0.064, "npc"), y = grid::unit(0.79, "npc"), gp = grid::gpar(fontsize = 14.5)),
+    grid::segmentsGrob(x0 = grid::unit(0.34, "npc"), x1 = grid::unit(0.40, "npc"), y0 = grid::unit(0.79, "npc"), y1 = grid::unit(0.79, "npc"), gp = grid::gpar(col = "#b2182b", lwd = 1.8, lineend = "butt")),
+    grid::pointsGrob(x = grid::unit(0.37, "npc"), y = grid::unit(0.79, "npc"), pch = 16, size = grid::unit(2.3, "mm"), gp = grid::gpar(col = "#b2182b")),
+    grid::textGrob("Selected strategy", x = grid::unit(0.405, "npc"), y = grid::unit(0.79, "npc"), gp = grid::gpar(fontsize = 14.5)),
+    grid::textGrob("Admissible model quantiles", x = grid::unit(0.058, "npc"), y = grid::unit(0.49, "npc"), gp = grid::gpar(fontsize = 14.5)),
+    grid::pointsGrob(x = grid::unit(0.34, "npc"), y = grid::unit(0.49, "npc"), pch = 16, size = grid::unit(2.1, "mm"), gp = grid::gpar(col = scales::alpha("#b2182b", 0.25))),
+    grid::textGrob("All tested strategies", x = grid::unit(0.352, "npc"), y = grid::unit(0.49, "npc"), gp = grid::gpar(fontsize = 14.5)),
+    grid::segmentsGrob(x0 = grid::unit(c(0.09, 0.132), "npc"), x1 = grid::unit(c(0.122, 0.164), "npc"), y0 = grid::unit(c(0.24, 0.24), "npc"), y1 = grid::unit(c(0.24, 0.24), "npc"), gp = grid::gpar(col = "#1b1b1b", lwd = c(3, 1.5), lineend = "butt")),
+    grid::textGrob(c("80%", "90%", "95%"), x = grid::unit(c(0.106, 0.152, 0.198), "npc"), y = grid::unit(0.11, "npc"), just = "center", gp = grid::gpar(fontsize = 13)),
+    grid::segmentsGrob(x0 = grid::unit(c(0.178, 0.178, 0.210), "npc"), x1 = grid::unit(c(0.210, 0.178, 0.210), "npc"), y0 = grid::unit(c(0.24, 0.208, 0.208), "npc"), y1 = grid::unit(c(0.24, 0.272, 0.272), "npc"), gp = grid::gpar(col = "#1b1b1b", lwd = 1, lineend = "butt"))
+  )
+  figure <- grid::grobTree(
+    grid::grobTree(legend, vp = grid::viewport(x = 0.5, y = 1 - legend_height / 2, width = 1, height = legend_height)),
+    grid::grobTree(ggplot2::ggplotGrob(base_plot), vp = grid::viewport(x = 0.5, y = (1 - legend_height) / 2, width = 1, height = 1 - legend_height))
+  )
+  grid::grid.newpage()
+  grid::grid.draw(figure)
+  invisible(figure)
 }
 
 #' Plot FAO study distribution map

@@ -4385,9 +4385,12 @@ strategy_q_scalars <- function(row_now) {
       )
     }
   }
-  q99_raw <- suppressWarnings(as.numeric(
-    row_now$meta_q_abs_log_simultaneous_total[[1]] %||% NA_real_
-  ))
+  # q80/q90/q99 are derived from the same per-anchor sigma_base as q95, so all
+  # four levels stay self-consistently species-conditioned. An earlier version
+  # additionally floored q99 with meta_q_abs_log_simultaneous_total, a single
+  # ratio pooled across every species in the dataset; that let one poorly
+  # calibrated species set the 99% band width for every other species,
+  # regardless of how tightly that species' own calibration behaved.
   z80 <- stats::qnorm(0.90)
   z90 <- stats::qnorm(0.95)
   z95 <- stats::qnorm(0.975)
@@ -4395,9 +4398,7 @@ strategy_q_scalars <- function(row_now) {
   sigma_base <- ifelse(is.finite(q95) & q95 > 0, q95 / z95, NA_real_)
   q80 <- ifelse(is.finite(sigma_base), sigma_base * z80, NA_real_)
   q90 <- ifelse(is.finite(sigma_base), sigma_base * z90, NA_real_)
-  q99_implied <- ifelse(is.finite(sigma_base), sigma_base * z99, NA_real_)
-  q99 <- pmax(q99_raw, q99_implied, q95, na.rm = TRUE)
-  q99[!is.finite(q99)] <- NA_real_
+  q99 <- ifelse(is.finite(sigma_base), sigma_base * z99, NA_real_)
   list(q80 = q80, q90 = q90, q95 = q95, q99 = q99)
 }
 
@@ -5235,33 +5236,35 @@ strategy_uncertainty_context <- function(row_now,
   ts_hi_95 <- ts_center + comp_hi95 + q95_L_upper
   ts_lo_99 <- ts_center + comp_lo99 - q99_L_lower
   ts_hi_99 <- ts_center + comp_hi99 + q99_L_upper
-  center_band <- function(lo, hi) {
-    half_width <- pmax(ts_center - lo, hi - ts_center)
-    valid <- is.finite(ts_center) & is.finite(half_width) & half_width >= 0
-    lo_out <- lo
-    hi_out <- hi
-    lo_out[valid] <- ts_center[valid] - half_width[valid]
-    hi_out[valid] <- ts_center[valid] + half_width[valid]
-    list(lo = lo_out, hi = hi_out, half_width = half_width)
+  # Nest each side (lower/upper distance from the center) independently
+  # instead of collapsing both to a common symmetric half-width. The signed
+  # construction above (comp_lo/hi and q_L_lower/upper) is asymmetric by
+  # design; forcing both sides to match the larger of the two discarded that
+  # asymmetry and could only ever widen the tighter side, never reflect it.
+  nest_side <- function(dist, prior_dist) {
+    valid <- is.finite(dist)
+    if (!is.null(prior_dist)) {
+      valid <- valid & is.finite(prior_dist)
+      dist[valid] <- pmax(dist[valid], prior_dist[valid] + gap_eps)
+    }
+    dist
   }
-  centered80 <- center_band(ts_lo_80, ts_hi_80)
-  ts_lo_80 <- centered80$lo
-  ts_hi_80 <- centered80$hi
-  centered90 <- center_band(ts_lo_90, ts_hi_90)
-  valid90 <- is.finite(ts_center) & is.finite(centered90$half_width) & is.finite(centered80$half_width)
-  centered90$half_width[valid90] <- pmax(centered90$half_width[valid90], centered80$half_width[valid90] + gap_eps)
-  ts_lo_90[valid90] <- ts_center[valid90] - centered90$half_width[valid90]
-  ts_hi_90[valid90] <- ts_center[valid90] + centered90$half_width[valid90]
-  centered95 <- center_band(ts_lo_95, ts_hi_95)
-  valid95 <- is.finite(ts_center) & is.finite(centered95$half_width) & is.finite(centered90$half_width)
-  centered95$half_width[valid95] <- pmax(centered95$half_width[valid95], centered90$half_width[valid95] + gap_eps)
-  ts_lo_95[valid95] <- ts_center[valid95] - centered95$half_width[valid95]
-  ts_hi_95[valid95] <- ts_center[valid95] + centered95$half_width[valid95]
-  centered99 <- center_band(ts_lo_99, ts_hi_99)
-  valid99 <- is.finite(ts_center) & is.finite(centered99$half_width) & is.finite(centered95$half_width)
-  centered99$half_width[valid99] <- pmax(centered99$half_width[valid99], centered95$half_width[valid99] + gap_eps)
-  ts_lo_99[valid99] <- ts_center[valid99] - centered99$half_width[valid99]
-  ts_hi_99[valid99] <- ts_center[valid99] + centered99$half_width[valid99]
+  lo_dist_80 <- pmax(ts_center - ts_lo_80, 0)
+  hi_dist_80 <- pmax(ts_hi_80 - ts_center, 0)
+  lo_dist_90 <- nest_side(pmax(ts_center - ts_lo_90, 0), lo_dist_80)
+  hi_dist_90 <- nest_side(pmax(ts_hi_90 - ts_center, 0), hi_dist_80)
+  lo_dist_95 <- nest_side(pmax(ts_center - ts_lo_95, 0), lo_dist_90)
+  hi_dist_95 <- nest_side(pmax(ts_hi_95 - ts_center, 0), hi_dist_90)
+  lo_dist_99 <- nest_side(pmax(ts_center - ts_lo_99, 0), lo_dist_95)
+  hi_dist_99 <- nest_side(pmax(ts_hi_99 - ts_center, 0), hi_dist_95)
+  ts_lo_80 <- ts_center - lo_dist_80
+  ts_hi_80 <- ts_center + hi_dist_80
+  ts_lo_90 <- ts_center - lo_dist_90
+  ts_hi_90 <- ts_center + hi_dist_90
+  ts_lo_95 <- ts_center - lo_dist_95
+  ts_hi_95 <- ts_center + hi_dist_95
+  ts_lo_99 <- ts_center - lo_dist_99
+  ts_hi_99 <- ts_center + hi_dist_99
   top_candidate_fields <- c(
     "anchor_model_id",
     "combined_distance",
