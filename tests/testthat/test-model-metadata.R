@@ -48,7 +48,7 @@ test_that("a query anchor accepts a literal length PDF list-column", {
     dplyr::slice(1L)
   new_anchor$model_id <- "query_model"
   new_anchor$length_pdf_data <- list(length_pdf)
-  density <- tsbiomass:::build_anchor_density(
+  density <- tsbiomass:::build_anchor_length_pdf(
     new_anchor,
     tsbiomass:::default_anchor_config()
   )
@@ -60,7 +60,7 @@ test_that("a query anchor accepts a literal length PDF list-column", {
     f_len = c(0, 0)
   ))
   expect_error(
-    tsbiomass:::build_anchor_density(
+    tsbiomass:::build_anchor_length_pdf(
       new_anchor,
       tsbiomass:::default_anchor_config()
     ),
@@ -77,7 +77,7 @@ test_that("a query anchor accepts raw empirical lengths in length_pdf_data", {
   new_anchor$model_id <- "query_model_raw_lengths"
   new_anchor$length_pdf_data <- list(raw_lengths)
 
-  density <- tsbiomass:::build_anchor_density(
+  density <- tsbiomass:::build_anchor_length_pdf(
     new_anchor,
     tsbiomass:::default_anchor_config()
   )

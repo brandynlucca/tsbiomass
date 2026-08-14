@@ -168,8 +168,6 @@ test_that("trait-weight validation permits one empty scope when the other has tr
   species_only <- minimal_config_data()
   species_only$similarity$species_traits <- list(genus = 1)
   species_only$similarity$study_traits <- list()
-  species_only$policy$species_traits <- list(genus = 1)
-  species_only$policy$study_traits <- list()
 
   expect_no_error(
     build_configurer(species_only, base_dir = tempdir())
@@ -178,8 +176,6 @@ test_that("trait-weight validation permits one empty scope when the other has tr
   study_only <- minimal_config_data()
   study_only$similarity$species_traits <- list()
   study_only$similarity$study_traits <- list(fao_area = 1)
-  study_only$policy$species_traits <- list()
-  study_only$policy$study_traits <- list(fao_area = 1)
 
   expect_no_error(
     build_configurer(study_only, base_dir = tempdir())
@@ -402,4 +398,41 @@ test_that("uncertainty lmm settings are validated at ingestion", {
     read_configuration(yaml_path, base_dir = tempdir()),
     "group_cols.*replaced by.*random_intercept"
   )
+})
+
+test_that("retired configuration fields are rejected at ingestion", {
+  retired_cases <- list(
+    list(path = c("paths", "input"), value = "input.xlsx"),
+    list(path = c("execution", "strict_pdf"), value = FALSE),
+    list(path = c("policy"), value = list(alpha = 0.8)),
+    list(path = c("similarity", "k_species"), value = 4),
+    list(path = c("similarity", "length_weight"), value = 2),
+    list(path = c("admissibility", "frequency_gap"), value = 60),
+    list(path = c("selection", "tolerance"), value = 0.05),
+    list(path = c("tuning", "max_models_per_species"), value = 2L),
+    list(path = c("tuning", "n_resamples"), value = 3L)
+  )
+
+  for (case_now in retired_cases) {
+    config_now <- minimal_config_data()
+    if (length(case_now$path) == 1L) {
+      config_now[[case_now$path[[1]]]] <- case_now$value
+    } else {
+      config_now[[case_now$path[[1]]]][[case_now$path[[2]]]] <- case_now$value
+    }
+    expect_error(
+      build_configurer(config_now, base_dir = tempdir()),
+      "not supported"
+    )
+  }
+})
+
+test_that("command line requires an explicit config path", {
+  expect_equal(
+    tsbiomass:::parse_command_line(c("--config", "config.yaml")),
+    list(action = "run", config_path = "config.yaml")
+  )
+  expect_error(tsbiomass:::parse_command_line(character()), "--config")
+  expect_error(tsbiomass:::parse_command_line("input.xlsx"), "Unsupported command-line")
+  expect_error(tsbiomass:::parse_command_line(c("--config", "config.yaml", "extra")), "--config")
 })

@@ -23,15 +23,15 @@ policy_registry_path <- function() {
 minimal_config_data <- function() {
   list(
     paths = list(
-      input = "input.xlsx",
-      output_root = "outputs",
-      cache_folder = "cache",
-      support_folder = "supplemental",
-      log_path = "logs/run.log"
+      input_file = "input.xlsx",
+      out_root = "outputs",
+      cache_dir = "cache",
+      supplemental_dir = "supplemental",
+      log_file = "logs/run.log"
     ),
     execution = list(
-      strict_pdf = FALSE,
-      run_multiplier = FALSE,
+      strict_length_pdf = FALSE,
+      run_multiplier_model = FALSE,
       write_log = FALSE,
       progress = FALSE
     ),
@@ -54,24 +54,6 @@ minimal_config_data <- function() {
         depth = list(mode = "overlap", weight = 1),
         frequency = list(mode = "overlap", weight = 1, gap = 60)
       )
-    ),
-    policy = list(
-      alpha = 0.8,
-      k_species = 4,
-      k_study = 4,
-      frequency_mode = "overlap",
-      exact_frequency = FALSE,
-      frequency_gap = 60,
-      length_overlap_min = 0.25,
-      depth_overlap_min = 0.25,
-      key_metadata_max = 0.25,
-      length_weight = 2,
-      depth_weight = 1,
-      frequency_weight = 1,
-      core_weight_cutoff = 0.8,
-      conformal_alpha = 0.10,
-      species_traits = list(genus = 1, family = 0.5),
-      study_traits = list(frequency = 1, fao_area = 1)
     ),
     admissibility = list(
       key_metadata_max = 0.25,

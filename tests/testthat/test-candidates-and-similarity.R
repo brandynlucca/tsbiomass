@@ -774,7 +774,7 @@ test_that("anchor density uses study interval or midpoint without Lmax fallback"
     study_length_max = 30,
     study_length_midpoint = NA_real_
   )
-  interval_pdf <- tsbiomass:::build_anchor_density(interval_anchor, cfg, n = 5)
+  interval_pdf <- tsbiomass:::build_anchor_length_pdf(interval_anchor, cfg, n = 5)
   expect_equal(interval_pdf$length_cm, seq(10, 30, length.out = 5))
   expect_equal(interval_pdf$f_len, rep(0.2, 5))
 
@@ -783,7 +783,7 @@ test_that("anchor density uses study interval or midpoint without Lmax fallback"
     study_length_max = NA_real_,
     study_length_midpoint = 17
   )
-  midpoint_pdf <- tsbiomass:::build_anchor_density(midpoint_anchor, cfg, n = 5)
+  midpoint_pdf <- tsbiomass:::build_anchor_length_pdf(midpoint_anchor, cfg, n = 5)
   expect_equal(midpoint_pdf$length_cm, 17)
   expect_equal(midpoint_pdf$f_len, 1)
 
@@ -794,7 +794,7 @@ test_that("anchor density uses study interval or midpoint without Lmax fallback"
     species_length_max = 44
   )
   expect_error(
-    tsbiomass:::build_anchor_density(missing_anchor, cfg, n = 5),
+    tsbiomass:::build_anchor_length_pdf(missing_anchor, cfg, n = 5),
     "No valid anchor study length interval or midpoint was available",
     class = "tsbiomass_unscorable_anchor"
   )
@@ -922,7 +922,7 @@ test_that("reference anchor PDFs can be set from raw empirical lengths", {
   )
 
   row_one <- dplyr::filter(anchors_after, .data$model_id_chr == "1")
-  pdf_one <- tsbiomass:::build_anchor_density(row_one, tsbiomass:::default_anchor_config())
+  pdf_one <- tsbiomass:::build_anchor_length_pdf(row_one, tsbiomass:::default_anchor_config())
   expect_gt(nrow(pdf_one), 3L)
   expect_true(all(c("length_cm", "f_len", "pdf_density") %in% names(pdf_one)))
   expect_equal(min(pdf_one$length_cm), 10, tolerance = 1e-8)

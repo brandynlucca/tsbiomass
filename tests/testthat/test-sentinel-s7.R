@@ -86,8 +86,6 @@ test_that("Sentinel trait ablation can remove the only study trait when species 
   cfg <- minimal_config_data()
   cfg$similarity$species_traits <- list(family = 1)
   cfg$similarity$study_traits <- list(fao_area = 1)
-  cfg$policy$species_traits <- list(family = 1)
-  cfg$policy$study_traits <- list(fao_area = 1)
 
   sentinel <- build_sentinel(
     candidate_models,
@@ -554,7 +552,9 @@ test_that("Sentinel run persists fold outputs and supports resume/collect", {
     score = c(10, 20, 30)
   )
 
-  workflow_fn <- function(train_data, test_data, params, config, manifest_row, sentinel) {
+  workflow_fn <- function(candidates, workflow_config_s7) {
+    train_data <- candidates@candidate_models
+    test_data <- candidates@reference_anchors
     list(
       metrics = tibble::tibble(
         train_n = nrow(train_data),
@@ -562,8 +562,7 @@ test_that("Sentinel run persists fold outputs and supports resume/collect", {
         score_delta = mean(test_data$score) - mean(train_data$score)
       ),
       artifacts = list(
-        holdout = manifest_row$holdout_id[[1]],
-        params = params
+        holdout = test_data$model_id_chr[[1]]
       )
     )
   }
@@ -617,7 +616,9 @@ test_that("Sentinel folds can be externally orchestrated and combined", {
     score = c(10, 20, 30)
   )
 
-  workflow_fn <- function(train_data, test_data, params, config, manifest_row, sentinel) {
+  workflow_fn <- function(candidates, workflow_config_s7) {
+    train_data <- candidates@candidate_models
+    test_data <- candidates@reference_anchors
     list(metrics = tibble::tibble(
       train_n = nrow(train_data),
       test_n = nrow(test_data),
@@ -747,14 +748,17 @@ test_that("Sentinel patches fold-local cache paths into workflow config", {
     study_cell_id = c("cell_1", "cell_2", "cell_3")
   )
 
-  workflow_fn <- function(train_data, test_data, params, config, manifest_row, sentinel) {
+  workflow_fn <- function(candidates, workflow_config_s7) {
+    train_data <- candidates@candidate_models
+    test_data <- candidates@reference_anchors
+    config <- workflow_config_s7@data
     list(
       metrics = tibble::tibble(
         train_n = nrow(train_data),
         test_n = nrow(test_data),
         cache_dir = as.character(config$paths$cache_dir %||% NA_character_),
         benchmark_cache = as.character(config$benchmark$cache_path %||% NA_character_),
-        manifest_cache_dir = as.character(manifest_row$cache_dir[[1]] %||% NA_character_)
+        manifest_cache_dir = as.character(config$paths$cache_dir %||% NA_character_)
       )
     )
   }
@@ -785,7 +789,8 @@ test_that("Sentinel can derive metrics from selected and interval tables", {
     study_cell_id = c("cell_1", "cell_2")
   )
 
-  workflow_fn <- function(train_data, test_data, params, config, manifest_row, sentinel) {
+  workflow_fn <- function(candidates, workflow_config_s7) {
+    test_data <- candidates@reference_anchors
     selected_tbl <- tibble::tibble(
       anchor_model_id = test_data$model_id_chr,
       anchor_species = test_data$species_name,
@@ -1336,8 +1341,11 @@ test_that("Reduced Sentinel builder reduces candidate rows before construction",
 
   sentinel <- build_reduced_sentinel(
     data = candidate_models,
-    workflow_fn = function(train_data, test_data, params, config, manifest_row, sentinel) {
-      list(metrics = tibble::tibble(train_n = nrow(train_data), test_n = nrow(test_data)))
+    workflow_fn = function(candidates, workflow_config_s7) {
+      list(metrics = tibble::tibble(
+        train_n = nrow(candidates@candidate_models),
+        test_n = nrow(candidates@reference_anchors)
+      ))
     },
     config = list(
       candidates = list(
@@ -1367,8 +1375,11 @@ test_that("Reduced Sentinel runner can build the reduced path without executing 
 
   sentinel <- run_reduced_sentinel(
     data = candidate_models,
-    workflow_fn = function(train_data, test_data, params, config, manifest_row, sentinel) {
-      list(metrics = tibble::tibble(train_n = nrow(train_data), test_n = nrow(test_data)))
+    workflow_fn = function(candidates, workflow_config_s7) {
+      list(metrics = tibble::tibble(
+        train_n = nrow(candidates@candidate_models),
+        test_n = nrow(candidates@reference_anchors)
+      ))
     },
     config = list(
       candidates = list(
@@ -1401,8 +1412,11 @@ test_that("Reduced Sentinel suite runs all requested split specs in no-op mode",
 
   suite <- run_reduced_sentinel_suite(
     data = candidate_models,
-    workflow_fn = function(train_data, test_data, params, config, manifest_row, sentinel) {
-      list(metrics = tibble::tibble(train_n = nrow(train_data), test_n = nrow(test_data)))
+    workflow_fn = function(candidates, workflow_config_s7) {
+      list(metrics = tibble::tibble(
+        train_n = nrow(candidates@candidate_models),
+        test_n = nrow(candidates@reference_anchors)
+      ))
     },
     config = list(
       candidates = list(
@@ -1441,14 +1455,17 @@ test_that("Sentinel suite can run generic species holdout and scenario stress wo
     drop_me = seq_len(8) * 10
   )
 
-  workflow_fn <- function(train_data, test_data, params, config, manifest_row, sentinel) {
-    holdout_species <- as.character(manifest_row$holdout_id[[1]])
+  workflow_fn <- function(candidates, workflow_config_s7) {
+    train_data <- candidates@candidate_models
+    test_data <- candidates@reference_anchors
+    config <- workflow_config_s7@data
+    holdout_species <- as.character(test_data$species_name[[1]])
     list(
       metrics = tibble::tibble(
         train_n = nrow(train_data),
         test_n = nrow(test_data),
         holdout_id = holdout_species,
-        deployment_target = as.character(params$deployment_target %||% NA_character_),
+        deployment_target = NA_character_,
         species_purged = !any(train_data$species_name == holdout_species) &&
           !any(train_data$anchor_species == holdout_species) &&
           !any(train_data$donor_species == holdout_species),
@@ -1524,7 +1541,9 @@ test_that("Sentinel writes isolated fold logs beneath the configured cache", {
     model_id_chr = c("m1", "m2", "m3", "m4"),
     species_name = c("sp1", "sp1", "sp2", "sp2")
   )
-  workflow_fn <- function(train_data, test_data, params, config, manifest_row, sentinel) {
+  workflow_fn <- function(candidates, workflow_config_s7) {
+    train_data <- candidates@candidate_models
+    test_data <- candidates@reference_anchors
     message("fold-message")
     cat("fold-output\n")
     list(metrics = tibble::tibble(train_n = nrow(train_data), test_n = nrow(test_data)))
