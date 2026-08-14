@@ -259,9 +259,12 @@ SEXP cpp_evaluate_policy_plan(List donors,
   NumericVector trait = donors["trait_distance"];
   NumericVector taxonomic = donors["taxonomic_distance"];
   NumericVector species = donors["species_distance"];
+  NumericVector learned_disagreement = donors["learned_distance_disagreement"];
+  LogicalVector learned_diagnostic_available = donors["learned_distance_diagnostic_available"];
   bool has_trait = as<bool>(donors["has_trait_distance"]);
   bool has_taxonomic = as<bool>(donors["has_taxonomic_distance"]);
   bool has_species = as<bool>(donors["has_species_distance"]);
+  bool has_learned_diagnostic = as<bool>(donors["has_learned_distance_diagnostic"]);
   NumericVector length_overlap = donors["length_overlap"];
   NumericVector depth_overlap = donors["depth_overlap"];
   NumericVector donor_multiplier = donors["donor_multiplier"];
@@ -321,6 +324,8 @@ SEXP cpp_evaluate_policy_plan(List donors,
   NumericVector min_combined(n_plan, NA_REAL), median_combined(n_plan, NA_REAL), weighted_combined(n_plan, NA_REAL);
   NumericVector min_trait(n_plan, NA_REAL), weighted_trait(n_plan, NA_REAL);
   NumericVector min_species(n_plan, NA_REAL), weighted_species(n_plan, NA_REAL);
+  NumericVector weighted_learned_disagreement(n_plan, NA_REAL), max_learned_disagreement(n_plan, NA_REAL);
+  LogicalVector learned_diagnostic_available_out(n_plan, false);
   NumericVector mean_length_overlap(n_plan, NA_REAL), mean_depth_overlap(n_plan, NA_REAL);
   NumericVector effective_support(n_plan, NA_REAL), max_weight(n_plan, NA_REAL);
   IntegerVector unique_donors(n_plan), n_slope20(n_plan), n_non_slope20(n_plan);
@@ -429,6 +434,26 @@ SEXP cpp_evaluate_policy_plan(List donors,
     weighted_trait[p] = weighted_mean(trait, weight, summary_idx);
     min_species[p] = finite_min(species, summary_idx);
     weighted_species[p] = weighted_mean(species, weight, summary_idx);
+    weighted_learned_disagreement[p] = weighted_mean(learned_disagreement, weight, summary_idx);
+    double max_disagreement = R_NegInf;
+    bool has_disagreement = false;
+    for (int i : summary_idx) {
+      if (finite_num(learned_disagreement[i])) {
+        max_disagreement = std::max(max_disagreement, learned_disagreement[i]);
+        has_disagreement = true;
+      }
+    }
+    max_learned_disagreement[p] = has_disagreement ? max_disagreement : NA_REAL;
+    if (has_learned_diagnostic) {
+      bool all_available = true;
+      for (int i : summary_idx) {
+        if (learned_diagnostic_available[i] != TRUE) {
+          all_available = false;
+          break;
+        }
+      }
+      learned_diagnostic_available_out[p] = all_available;
+    }
     mean_length_overlap[p] = weighted_mean(length_overlap, weight, summary_idx);
     mean_depth_overlap[p] = weighted_mean(depth_overlap, weight, summary_idx);
 
@@ -487,13 +512,15 @@ SEXP cpp_evaluate_policy_plan(List donors,
       sigma_dev.reserve(structural_idx.size());
       curve_dev.reserve(structural_idx.size());
       for (int i : structural_idx) {
-        double dm = donor_multiplier[i];
-        multiplier_dev.push_back(finite_num(dm) && dm > 0.0 ? std::abs(std::log(dm)) : NA_REAL);
         double ds = donor_sigma[i];
-        sigma_dev.push_back(
+        // Structural uncertainty is donor disagreement around the policy
+        // equation on the anchor's length distribution, not error against the
+        // anchor truth. This matches the kappa definition used by the R path.
+        double donor_policy_log_deviation =
           finite_num(ds) && ds > 0.0 && finite_num(policy_sigma[p]) && policy_sigma[p] > 0.0
-            ? std::abs(std::log(ds) - std::log(policy_sigma[p])) : NA_REAL
-        );
+            ? std::abs(std::log(ds) - std::log(policy_sigma[p])) : NA_REAL;
+        multiplier_dev.push_back(donor_policy_log_deviation);
+        sigma_dev.push_back(donor_policy_log_deviation);
         if (finite_num(log_mean) && finite_num(log_second)) {
           double delta_s = slope[i] - policy_slope[p];
           double delta_b = intercept[i] - policy_intercept[p];
@@ -526,6 +553,9 @@ SEXP cpp_evaluate_policy_plan(List donors,
     _["local_min_combined_distance"] = min_combined,
     _["local_median_combined_distance"] = median_combined,
     _["local_weighted_mean_combined_distance"] = weighted_combined,
+    _["local_weighted_mean_learned_distance_disagreement"] = weighted_learned_disagreement,
+    _["local_max_learned_distance_disagreement"] = max_learned_disagreement,
+    _["learned_distance_diagnostic_available"] = learned_diagnostic_available_out,
     _["local_min_trait_gower_distance"] = min_trait,
     _["local_weighted_mean_trait_gower_distance"] = weighted_trait,
     _["local_min_species_distance"] = min_species,
