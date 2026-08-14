@@ -266,8 +266,20 @@ as_policyselector <- function(candidates,
       species_dist = distance_matrix$combined_dist,
       study_dist = as.matrix(distance_matrix$dist_matrix),
       species_dist_model = as.matrix(distance_matrix$dist_matrix),
-      trait_cols = distance_matrix$trait_cols %||% distance_matrix$all_traits %||% character(0)
-    )
+      learned_directed_dist = distance_matrix$directed_dist_matrix %||% NULL,
+      taxonomic_dist_model = distance_matrix$taxonomic_dist_matrix %||% NULL,
+    learned_kernel_bandwidth = distance_matrix$learned_kernel_bandwidth %||% NULL,
+    distance_mode = "alchemist_super_learner",
+    trait_cols = distance_matrix$trait_cols %||% distance_matrix$all_traits %||% character(0),
+    distance_learner = alchemist@learner,
+    feature_cols = distance_matrix$feature_cols %||% alchemist@learner$feature_cols %||% character(0),
+    species_trait_names = distance_matrix$species_trait_names %||% character(0),
+    study_trait_names = distance_matrix$study_trait_names %||% character(0),
+    feature_type = distance_matrix$feature_type %||% NULL,
+    coherence_config = distance_matrix$coherence_config %||% NULL,
+    taxonomic_distance = distance_matrix$taxonomic_distance %||% NULL,
+    feature_normalization = distance_matrix$feature_normalization %||% NULL
+  )
     candidates <- candidates_with_gower_distances(alchemist@candidates, gower_bundle)
     if (length(alchemist@admissibility) > 0L) {
       candidates <- candidates_with_admissibility(candidates, alchemist@admissibility)
@@ -416,6 +428,10 @@ policy_selector_anchor_config <- function(object,
     ),
     frequency_coherence_mode = policy_selector_config_value(
       cfg, "frequency_coherence_mode",
+      sections = c("admissibility", "benchmark", "policy", "similarity")
+    ),
+    frequency_gap = policy_selector_config_value(
+      cfg, "frequency_gap",
       sections = c("admissibility", "benchmark", "policy", "similarity")
     ),
     min_length_overlap_fraction = policy_selector_config_value(
@@ -592,19 +608,17 @@ canonicalize_equivalent_policy_rows <- function(policy_tbl) {
     return(policy_tbl)
   }
 
-  if (!"specificity_rank" %in% names(policy_tbl)) {
-    candidate_pool_values <- if ("candidate_pool" %in% names(policy_tbl)) policy_tbl$candidate_pool else NULL
-    aggregation_values <- if ("aggregation_method" %in% names(policy_tbl)) policy_tbl$aggregation_method else NULL
-    policy_family_values <- if ("policy_family" %in% names(policy_tbl)) policy_tbl$policy_family else NULL
-    branch_values <- if ("equation_branch_filter" %in% names(policy_tbl)) policy_tbl$equation_branch_filter else NULL
-    policy_tbl$specificity_rank <- policy_specificity_rank(
-      policy = policy_tbl$policy,
-      candidate_pool = candidate_pool_values,
-      aggregation_method = aggregation_values,
-      policy_family = policy_family_values,
-      equation_branch_filter = branch_values
-    )
-  }
+  candidate_pool_values <- if ("candidate_pool" %in% names(policy_tbl)) policy_tbl$candidate_pool else NULL
+  aggregation_values <- if ("aggregation_method" %in% names(policy_tbl)) policy_tbl$aggregation_method else NULL
+  policy_family_values <- if ("policy_family" %in% names(policy_tbl)) policy_tbl$policy_family else NULL
+  branch_values <- if ("equation_branch_filter" %in% names(policy_tbl)) policy_tbl$equation_branch_filter else NULL
+  policy_tbl$specificity_rank <- policy_specificity_rank(
+    policy = policy_tbl$policy,
+    candidate_pool = candidate_pool_values,
+    aggregation_method = aggregation_values,
+    policy_family = policy_family_values,
+    equation_branch_filter = branch_values
+  )
 
   policy_tbl |>
     dplyr::mutate(
@@ -614,7 +628,6 @@ canonicalize_equivalent_policy_rows <- function(policy_tbl) {
     ) |>
     dplyr::group_by(
       .data$anchor_model_id,
-      .data$equation_branch_filter,
       .data$realized_donor_fingerprint,
       .data$.dedupe_multiplier,
       .data$.dedupe_slope,
@@ -730,14 +743,9 @@ S7::method(benchmark, PolicySelector) <- function(object,
       policy_params
     )
   )
-  ordination_context <- if (length(object@candidates@ordination) == 0) {
-    list(model_scores = NULL, species_lookup = NULL)
-  } else {
-    list(
-      model_scores = ((object@candidates@ordination)$model)$model_scores %||% NULL,
-      species_lookup = (object@candidates@ordination)$species_lookup %||% NULL
-    )
-  }
+  ordination_context <- policy_selector_ordination_context(
+    object@candidates@ordination
+  )
   model_scores <- model_scores %||% ordination_context$model_scores
   species_lookup <- species_lookup %||% ordination_context$species_lookup
 
@@ -1091,14 +1099,9 @@ S7::method(select_policies, PolicySelector) <- function(object,
     # pool even though valid broad policies exist in the benchmark tables.
     active_policies <- NULL
   }
-  ordination_context <- if (length(object@candidates@ordination) == 0) {
-    list(model_scores = NULL, species_lookup = NULL)
-  } else {
-    list(
-      model_scores = ((object@candidates@ordination)$model)$model_scores %||% NULL,
-      species_lookup = (object@candidates@ordination)$species_lookup %||% NULL
-    )
-  }
+  ordination_context <- policy_selector_ordination_context(
+    object@candidates@ordination
+  )
   model_scores <- ordination_context$model_scores
   species_lookup <- ordination_context$species_lookup
   anchor_cfg <- policy_selector_anchor_config(object, config = cfg)
@@ -1216,13 +1219,14 @@ S7::method(select_policies, PolicySelector) <- function(object,
     )
   }
 
-  # Build one augmented similarity basis when held-out anchors are not already
-  # present in the candidate pool so per-anchor prediction does not rebuild it.
+  # Build one augmented distance basis when query anchors are not already in the
+  # candidate pool. The selected distance family is fixed by the stored object:
+  # learned Alchemist distances stay learned; empirical Gower stays empirical.
   prediction_candidates <- object@candidates
   prediction_excluded_model_ids <- character(0)
-  id_col <- if ("model_id" %in% names(anchors_tbl) && "model_id" %in% names(object@candidates)) {
-    "model_id"
-  } else if ("model_id" %in% names(anchors_tbl) && "model_id" %in% names(object@candidates)) {
+  external_anchor_ids <- character(0)
+  id_col <- if ("model_id" %in% names(anchors_tbl) &&
+    "model_id" %in% names(object@candidates@candidate_models)) {
     "model_id"
   } else {
     NULL
@@ -1238,42 +1242,89 @@ S7::method(select_policies, PolicySelector) <- function(object,
       as.character(object@candidates@reference_anchors$model_id)
     )
   }
-  if (!is.null(id_col)) {
-    candidate_ids_now <- unique(as.character(object@candidates[[id_col]]))
-    external_anchor_rows <- anchors_tbl |>
-      dplyr::filter(!(as.character(.data[[id_col]]) %in% candidate_ids_now))
-    if (nrow(external_anchor_rows) > 0) {
-      prediction_excluded_model_ids <- c(
-        prediction_excluded_model_ids,
-        as.character(external_anchor_rows[[id_col]])
+  if (is.null(id_col)) {
+    stop("Query-anchor prediction requires `model_id` in both anchors and candidate models.", call. = FALSE)
+  }
+  anchor_ids_now <- as.character(anchors_tbl[[id_col]])
+  if (anyNA(anchor_ids_now) || any(!nzchar(anchor_ids_now))) {
+    stop("Query-anchor prediction requires non-missing, non-empty `model_id` values.", call. = FALSE)
+  }
+  if (anyDuplicated(anchor_ids_now)) {
+    stop("Query-anchor prediction requires unique `model_id` values.", call. = FALSE)
+  }
+  candidate_ids_now <- unique(as.character(object@candidates@candidate_models[[id_col]]))
+  external_anchor_rows <- anchors_tbl |>
+    dplyr::filter(!(as.character(.data[[id_col]]) %in% candidate_ids_now))
+  if (nrow(external_anchor_rows) > 0) {
+    external_anchor_ids <- unique(as.character(external_anchor_rows[[id_col]]))
+    prediction_excluded_model_ids <- c(
+      prediction_excluded_model_ids,
+      external_anchor_ids
+    )
+    augmented_candidates <- Candidates(
+      spec = object@candidates@spec,
+      study_db = object@candidates@study_db,
+      species_vector = unique(c(
+        object@candidates@species_vector,
+        sort(unique(stats::na.omit(as.character(external_anchor_rows$species_name %||% character(0)))))
+      )),
+      source_dbs = object@candidates@source_dbs,
+      species_db = object@candidates@species_db,
+      candidate_models = dplyr::bind_rows(
+        tibble::as_tibble(object@candidates@candidate_models),
+        tibble::as_tibble(external_anchor_rows)
+      ),
+      reference_anchors = object@candidates@reference_anchors,
+      similarity_matrix = list(),
+      gower_distances = list(),
+      ordination = object@candidates@ordination,
+      admissibility = list(),
+      similarity_tuning = object@candidates@similarity_tuning
+    )
+    distance_state <- object@candidates@gower_distances
+    distance_mode <- distance_state$distance_mode %||% NULL
+    if (is.null(distance_mode)) {
+      stop(
+        "External query-anchor prediction requires a stored distance mode. Rebuild the selector after preparing empirical Gower or forging Alchemist distances.",
+        call. = FALSE
       )
-      augmented_candidates <- Candidates(
-        spec = object@candidates@spec,
-        study_db = object@candidates@study_db,
-        species_vector = unique(c(
-          object@candidates@species_vector,
-          sort(unique(stats::na.omit(as.character(external_anchor_rows$species_name %||% character(0)))))
-        )),
-        source_dbs = object@candidates@source_dbs,
-        species_db = object@candidates@species_db,
-        candidate_models = dplyr::bind_rows(
-          tibble::as_tibble(object@candidates@candidate_models),
-          tibble::as_tibble(external_anchor_rows)
-        ),
-        reference_anchors = object@candidates@reference_anchors,
-        similarity_matrix = list(),
-        gower_distances = list(),
-        ordination = object@candidates@ordination,
-        admissibility = list(),
-        similarity_tuning = object@candidates@similarity_tuning
+    }
+    if (identical(distance_mode, "alchemist_super_learner")) {
+      learned_distances <- augment_alchemist_query_distances(
+        candidate_models = augmented_candidates@candidate_models,
+        distance_state = distance_state,
+        query_model_ids = external_anchor_rows[[id_col]]
       )
+      prediction_candidates <- candidates_with_gower_distances(
+        augmented_candidates,
+        learned_distances
+      )
+    } else if (identical(distance_mode, "empirical_gower")) {
+      prepared_similarity <- object@candidates@similarity_matrix
+      required_similarity <- c(
+        "species_weights", "study_weights", "alpha", "k_species", "k_study"
+      )
+      missing_similarity <- required_similarity[vapply(
+        required_similarity,
+        function(name) is.null(prepared_similarity[[name]]),
+        logical(1)
+      )]
+      if (length(missing_similarity) > 0L) {
+        stop(
+          sprintf(
+            "External empirical-Gower prediction requires stored prepared similarity state: %s",
+            paste(missing_similarity, collapse = ", ")
+          ),
+          call. = FALSE
+        )
+      }
       sim_prediction <- prepare_similarities(
         candidate_models = augmented_candidates,
-        species_traits = anchor_cfg$species_traits %||% NULL,
-        study_traits = anchor_cfg$study_traits %||% NULL,
-        alpha = anchor_cfg$alpha %||% NULL,
-        k_species = anchor_cfg$k_species %||% NULL,
-        k_study = anchor_cfg$k_study %||% NULL,
+        species_traits = as.list(prepared_similarity$species_weights),
+        study_traits = as.list(prepared_similarity$study_weights),
+        alpha = prepared_similarity$alpha,
+        k_species = prepared_similarity$k_species,
+        k_study = prepared_similarity$k_study,
         config = anchor_cfg,
         registry_path = registry_path,
         seed = anchor_cfg$seed %||% NULL
@@ -1285,6 +1336,11 @@ S7::method(select_policies, PolicySelector) <- function(object,
       prediction_candidates <- candidates_with_gower_distances(
         prediction_candidates,
         construct_gower_distances(sim_prediction)
+      )
+    } else {
+      stop(
+        sprintf("Unsupported stored distance mode for external query anchors: %s", distance_mode),
+        call. = FALSE
       )
     }
   }
@@ -1429,6 +1485,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
       as.character(anchor_row$model_id[[1]])
     }
     anchor_species <- as.character(anchor_row$species_name[[1]])
+    anchor_is_external <- anchor_id %in% external_anchor_ids
     report_progress(
       progress,
       "[Predict]   [", i, "/", n_anchors, "] ", anchor_species, " (", anchor_id, ")"
@@ -1468,6 +1525,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
       selected_policy_rows[[length(selected_policy_rows) + 1]] <- tibble::tibble(
         anchor_model_id = anchor_id,
         anchor_species = anchor_species,
+        anchor_is_external = anchor_is_external,
         selected_policy = NA_character_,
         selected_policy_display = NA_character_,
         equation_branch_filter = NA_character_,
@@ -1494,7 +1552,8 @@ S7::method(select_policies, PolicySelector) <- function(object,
       )
       consensus_multiplier_rows[[length(consensus_multiplier_rows) + 1]] <- tibble::tibble(
         anchor_model_id = anchor_id,
-        anchor_species = anchor_species
+        anchor_species = anchor_species,
+        anchor_is_external = anchor_is_external
       )
       report_progress(
         progress,
@@ -1525,6 +1584,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
       dplyr::mutate(
         anchor_model_id = anchor_id,
         anchor_species = anchor_species,
+        anchor_is_external = anchor_is_external,
         valid_prediction = is.finite(.data$multiplier_pred) & .data$multiplier_pred > 0
       )
     for (random_intercept in anchor_random_intercepts) {
@@ -1606,8 +1666,45 @@ S7::method(select_policies, PolicySelector) <- function(object,
         use_support_bin_intervals = use_support_bin_intervals,
         max_selection_tolerance = max_selection_tolerance
       )
-      selected_row <- policy_tbl |>
-        dplyr::filter(.data$valid_prediction, .data$is_selected)
+      selected_row <- select_anchor_policies(
+        policy_tbl = policy_tbl,
+        uncertainty_rule = uncertainty_rule,
+        u_tol_rel = u_tol_rel,
+        u_tol_abs = u_tol_abs,
+        one_se_multiplier = one_se_multiplier,
+        local_distance_tolerance = local_distance_tolerance
+      ) |>
+        dplyr::mutate(
+          selected_policy_display = dplyr::coalesce(.data$selected_policy_display, .data$policy_display, .data$selected_policy),
+          selection_tier = dplyr::coalesce(.data$selection_tier, "meta_policy_selection")
+        )
+      if (".policy_row_id" %in% names(policy_tbl) && ".policy_row_id" %in% names(selected_row)) {
+        selected_ids <- selected_row$.policy_row_id
+        policy_tbl$is_selected <- policy_tbl$.policy_row_id %in% selected_ids
+      } else {
+        selected_keys <- selected_row |>
+          dplyr::transmute(
+            .selected_policy_key = as.character(.data$policy),
+            .selected_branch_key = as.character(.data$equation_branch_filter)
+          ) |>
+          dplyr::distinct()
+        policy_tbl <- policy_tbl |>
+          dplyr::mutate(
+            .selected_policy_key = as.character(.data$policy),
+            .selected_branch_key = as.character(.data$equation_branch_filter)
+          ) |>
+          dplyr::left_join(
+            selected_keys |>
+              dplyr::mutate(is_selected_key = TRUE),
+            by = c(".selected_policy_key", ".selected_branch_key")
+          ) |>
+          dplyr::mutate(is_selected = dplyr::coalesce(.data$is_selected_key, FALSE)) |>
+          dplyr::select(-dplyr::any_of(c(
+            ".selected_policy_key",
+            ".selected_branch_key",
+            "is_selected_key"
+          )))
+      }
     } else {
       if (!"policy_display" %in% names(policy_tbl)) {
         policy_tbl$policy_display <- policy_tbl$policy
@@ -1665,14 +1762,48 @@ S7::method(select_policies, PolicySelector) <- function(object,
           "deterministic_global_screen"
         }
       )
+    } else {
+      if (all(c(
+        "meta_post_selection_multiplier_lo",
+        "meta_post_selection_multiplier_hi",
+        "meta_post_selection_interval_log_width",
+        "meta_q_abs_log_total"
+      ) %in% names(selected_row))) {
+        selected_row <- selected_row |>
+          dplyr::mutate(
+            multiplier_lo = dplyr::coalesce(
+              suppressWarnings(as.numeric(.data$meta_post_selection_multiplier_lo)),
+              suppressWarnings(as.numeric(.data$multiplier_lo))
+            ),
+            multiplier_hi = dplyr::coalesce(
+              suppressWarnings(as.numeric(.data$meta_post_selection_multiplier_hi)),
+              suppressWarnings(as.numeric(.data$multiplier_hi))
+            ),
+            interval_log_width = dplyr::coalesce(
+              suppressWarnings(as.numeric(.data$meta_post_selection_interval_log_width)),
+              suppressWarnings(as.numeric(.data$interval_log_width))
+            ),
+            q_abs_log_total = dplyr::coalesce(
+              suppressWarnings(as.numeric(.data$meta_q_abs_log_total)),
+              suppressWarnings(as.numeric(.data$q_abs_log_total))
+            ),
+            uncertainty_cost_log_width = dplyr::coalesce(
+              suppressWarnings(as.numeric(.data$meta_post_selection_interval_log_width)),
+              suppressWarnings(as.numeric(.data$uncertainty_cost_log_width))
+            )
+          )
+      }
     }
 
     consensus_row <- summarize_evaluation(eval_obj) |>
       dplyr::mutate(
         anchor_model_id = anchor_id,
         anchor_species = anchor_species,
+        anchor_is_external = anchor_is_external,
         .before = 1
       )
+
+    selected_row$anchor_is_external <- rep(anchor_is_external, nrow(selected_row))
 
     all_policy_intervals[[length(all_policy_intervals) + 1]] <- policy_tbl
     selected_policy_rows[[length(selected_policy_rows) + 1]] <- selected_row
@@ -1967,7 +2098,7 @@ NULL
     }
     if (identical(view, "components") || identical(view, "component")) {
       return(plot_policy_component_heatmap(
-        (x@benchmark)$species_block_perf %||% tibble::tibble(),
+        (x@benchmark)$policy_perf %||% tibble::tibble(),
         anchor_species = anchor_species,
         show_values = show_values
       ))
@@ -2214,6 +2345,27 @@ policy_is_broad_aggregate <- function(policy,
     aggregation_rank %in% c(2L, 3L)
 }
 
+#' Flag broad policy pools regardless of aggregation method
+#'
+#' @param policy Policy identifiers.
+#' @param candidate_pool Optional candidate-pool labels.
+#' @param broad_pool_min_rank Minimum pool-rank treated as broad.
+#'
+#' @return Logical vector.
+#'
+#' @keywords internal
+#' @noRd
+policy_is_broad_proxy <- function(policy,
+                                  candidate_pool = NULL,
+                                  broad_pool_min_rank = 6L) {
+  pool_rank <- policy_pool_rank(
+    policy = policy,
+    candidate_pool = candidate_pool
+  )
+  is.finite(pool_rank) &
+    pool_rank >= as.integer(broad_pool_min_rank[[1]] %||% 6L)
+}
+
 policy_specificity_rank <- function(policy,
                                     candidate_pool = NULL,
                                     aggregation_method = NULL,
@@ -2231,7 +2383,11 @@ policy_specificity_rank <- function(policy,
     aggregation_method = aggregation_method
   )
 
-  branch_penalty <- 0L
+  branch_penalty <- dplyr::case_when(
+    equation_branch_filter_ %in% c("fixed20_only", "free_slope_only") ~ 0L,
+    is.na(equation_branch_filter_) | equation_branch_filter_ == "all" ~ 4L,
+    TRUE ~ 2L
+  )
   family_penalty <- dplyr::case_when(
     policy_family_ %in% c("single_model", "study_hierarchical_single_model") ~ 0L,
     policy_family_ %in% c("baseline", "random_baseline") ~ 20L,
@@ -2939,24 +3095,6 @@ select_anchor_policies <- function(policy_tbl,
       policy_tbl_$candidate_intercept_interval_width <- NA_real_
     }
   }
-  if (!"candidate_ts_q95_mean" %in% names(policy_tbl_)) {
-    policy_tbl_$candidate_ts_q95_mean <- NA_real_
-  }
-  if (!"candidate_ts_q99_mean" %in% names(policy_tbl_)) {
-    policy_tbl_$candidate_ts_q99_mean <- NA_real_
-  }
-  if (!"candidate_ts_q95_max" %in% names(policy_tbl_)) {
-    policy_tbl_$candidate_ts_q95_max <- NA_real_
-  }
-  if (!"candidate_ts_q99_max" %in% names(policy_tbl_)) {
-    policy_tbl_$candidate_ts_q99_max <- NA_real_
-  }
-  if (!"candidate_ts_hi99_max" %in% names(policy_tbl_)) {
-    policy_tbl_$candidate_ts_hi99_max <- NA_real_
-  }
-  if (!"candidate_ts_lo99_min" %in% names(policy_tbl_)) {
-    policy_tbl_$candidate_ts_lo99_min <- NA_real_
-  }
   candidate_pool_values <- if ("candidate_pool" %in% names(policy_tbl_)) {
     policy_tbl_$candidate_pool
   } else {
@@ -2984,6 +3122,26 @@ select_anchor_policies <- function(policy_tbl,
     policy_family = policy_family_values,
     equation_branch_filter = branch_values
   )
+  policy_tbl_$anchor_selection_broad_aggregate <- policy_is_broad_aggregate(
+    policy = policy_tbl_$policy,
+    candidate_pool = candidate_pool_values,
+    aggregation_method = aggregation_values
+  )
+  policy_tbl_$anchor_selection_broad_proxy <- policy_is_broad_proxy(
+    policy = policy_tbl_$policy,
+    candidate_pool = candidate_pool_values
+  )
+  policy_family_screen_values <- if (is.null(policy_family_values)) {
+    rep(NA_character_, nrow(policy_tbl_))
+  } else {
+    as.character(policy_family_values)
+  }
+  policy_tbl_$anchor_selection_aggregate_proxy <- !(policy_family_screen_values %in% c(
+    "single_model",
+    "study_hierarchical_single_model",
+    "baseline",
+    "random_baseline"
+  ))
   local_distance <- dplyr::coalesce(
     policy_tbl_$local_weighted_mean_combined_distance,
     policy_tbl_$local_min_combined_distance
@@ -3066,14 +3224,10 @@ select_anchor_policies <- function(policy_tbl,
     return(selected)
   }
 
-  # Respect the precomputed global benchmark acceptability screen whenever it
-  # When the meta-learner provides anchor-specific scores, the global
-  # acceptability screen is redundant: the meta-score already incorporates
-  # cross-species benchmark signal, and applying a global pre-filter here
-  # eliminates anchor-optimal policies that the meta-learner correctly prefers.
-  # Mirror the same pattern used for the benchmark_one_se gate below.
-  if (!uses_meta_score &&
-    "acceptable_global" %in% names(candidate_tbl) &&
+  # Respect the precomputed global benchmark acceptability screen before any
+  # anchor-specific ranking. The ranking learner is trained to order globally
+  # acceptable strategies, not to rescue strategies that failed that screen.
+  if ("acceptable_global" %in% names(candidate_tbl) &&
     any(!is.na(candidate_tbl$acceptable_global))) {
     globally_acceptable <- candidate_tbl |>
       dplyr::filter(dplyr::coalesce(.data$acceptable_global, FALSE))
@@ -3134,25 +3288,11 @@ select_anchor_policies <- function(policy_tbl,
     min_validation_error <- NA_real_
   }
   score_tol_abs_ <- suppressWarnings(as.numeric(score_tol_abs[[1]] %||% NA_real_))
-  benchmark_score_slack <- suppressWarnings(
-    min(
-      score_ranked$one_se_threshold - score_ranked$best_mean_species_median_abs_log,
-      na.rm = TRUE
-    )
-  )
-  if (!is.finite(benchmark_score_slack)) {
-    benchmark_score_slack <- 0
-  }
-  # In the meta-policy path, the proper one-standard-error width comes from
-  # the leave-one-species-out benchmark that produced
-  # `best_mean_species_median_abs_log` and `one_se_threshold`. Reuse that
-  # benchmark slack on the meta-score scale instead of estimating a pseudo-SE
-  # from the spread across competing policies for this anchor.
+  # The prediction-band SE is computed on the anchor-specific predicted scores,
+  # matching the methods draft's \hat{s}_{t|i} one-SE rule.
   score_threshold <- if (is.finite(min_validation_error)) {
     if (is.finite(score_tol_abs_)) {
       min_validation_error + pmax(0, score_tol_abs_)
-    } else if (uses_meta_score) {
-      min_validation_error + pmax(0, one_se_multiplier_ * benchmark_score_slack)
     } else {
       min_validation_error + pmax(
         0,
@@ -3174,6 +3314,29 @@ select_anchor_policies <- function(policy_tbl,
   }
 
   selected <- best_score_rows
+
+  # Similarity is part of the transfer estimand. Once policies are
+  # indistinguishable within the anchor-specific score band, discard policies
+  # requiring larger donor-to-anchor leaps before uncertainty breaks the
+  # remaining tie.
+  finite_distance <- selected |>
+    dplyr::filter(is.finite(.data$anchor_selection_local_distance))
+  if (nrow(finite_distance) > 0) {
+    min_distance <- suppressWarnings(
+      min(finite_distance$anchor_selection_local_distance, na.rm = TRUE)
+    )
+    if (is.finite(min_distance)) {
+      distance_filtered <- selected |>
+        dplyr::filter(
+          is.finite(.data$anchor_selection_local_distance),
+          .data$anchor_selection_local_distance <= min_distance + local_distance_tolerance
+        )
+      if (nrow(distance_filtered) > 0) {
+        selected <- distance_filtered
+        tier <- paste0(tier, "_local_distance")
+      }
+    }
+  }
 
   min_width <- suppressWarnings(
     min(selected$uncertainty_cost_log_width, na.rm = TRUE)
@@ -3224,13 +3387,11 @@ select_anchor_policies <- function(policy_tbl,
 
   selected <- selected |>
     dplyr::arrange(
-      .data$specificity_rank,
-      .data$anchor_selection_local_distance,
-      .data$uncertainty_cost_log_width,
-      .data$coefficient_slope_q95,
-      .data$coefficient_intercept_q95,
       .data$anchor_selection_validation_error,
       .data$bootstrap_median_rank,
+      .data$uncertainty_cost_log_width,
+      .data$anchor_selection_local_distance,
+      .data$specificity_rank,
       .data$policy
     )
 

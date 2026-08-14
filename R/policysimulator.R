@@ -292,6 +292,7 @@ policy_simulator_anchor_config <- function(object,
     }
 
     ordination_obj <- selector@candidates@ordination
+    ordination_context <- policy_selector_ordination_context(ordination_obj)
     anchor_selected <- selector@selection$anchor_selected %||%
       selector@selection$selections %||%
       tibble::tibble()
@@ -303,9 +304,9 @@ policy_simulator_anchor_config <- function(object,
     }
     list(
       ord_ctx = list(
-        model_scores = ordination_obj$model$model_scores %||% NULL,
-        species_lookup = ordination_obj$species_lookup %||% NULL,
-        points_missing_df = ordination_obj$model$points_missing %||% tibble::tibble()
+        model_scores = ordination_context$model_scores,
+        species_lookup = ordination_context$species_lookup,
+        points_missing_df = ordination_context$points_missing_df
       ),
       policy_perf = selector@benchmark$policy_perf %||% tibble::tibble(),
       species_block_perf = selector@benchmark$species_block_perf %||% tibble::tibble(),

@@ -452,10 +452,13 @@ expand_multival_col <- function(x, col_fn, tr) {
 #'
 #' @keywords internal
 #' @noRd
-gower_col <- function(x) {
+gower_col <- function(x, scale = NULL) {
   if (is.numeric(x)) {
     finite_x <- x[is.finite(x)]
-    r <- if (length(finite_x) >= 2L) diff(range(finite_x)) else 1
+    r <- suppressWarnings(as.numeric(scale)[[1]])
+    if (!is.finite(r) || r <= 0) {
+      r <- if (length(finite_x) >= 2L) diff(range(finite_x)) else 1
+    }
     if (!is.finite(r) || r <= 0) r <- 1
     mat <- outer(x, x, function(a, b) abs(a - b) / r)
     mat[!is.finite(mat)] <- 0.5
@@ -475,9 +478,12 @@ gower_col <- function(x) {
 #'
 #' @keywords internal
 #' @noRd
-diff_col <- function(x) {
+diff_col <- function(x, scale = NULL) {
   if (is.numeric(x)) {
-    s <- sd(x[is.finite(x)], na.rm = TRUE)
+    s <- suppressWarnings(as.numeric(scale)[[1]])
+    if (!is.finite(s) || s <= 0) {
+      s <- sd(x[is.finite(x)], na.rm = TRUE)
+    }
     if (!is.finite(s) || s <= 0) s <- 1
     mat <- outer(x, x, function(a, b) (a - b) / s)
     mat[!is.finite(mat)] <- 0
@@ -493,9 +499,12 @@ diff_col <- function(x) {
 #'
 #' @keywords internal
 #' @noRd
-squared_col <- function(x) {
+squared_col <- function(x, scale = NULL) {
   if (is.numeric(x)) {
-    s <- sd(x[is.finite(x)], na.rm = TRUE)
+    s <- suppressWarnings(as.numeric(scale)[[1]])
+    if (!is.finite(s) || s <= 0) {
+      s <- sd(x[is.finite(x)], na.rm = TRUE)
+    }
     if (!is.finite(s) || s <= 0) s <- 1
     mat <- outer(x, x, function(a, b) ((a - b) / s)^2)
     mat[!is.finite(mat)] <- 0
@@ -588,6 +597,7 @@ tax_dist_mat <- function(models_df, tax_col_map) {
       error = function(e) NULL
     )
     if (!is.null(phylo_mat)) {
+      attr(phylo_mat, "taxonomic_distance_method") <- "open_tree_cophenetic"
       return(phylo_mat)
     }
   }
@@ -608,6 +618,7 @@ tax_dist_mat <- function(models_df, tax_col_map) {
   }
   mat <- 1 - deepest / n_ranks
   diag(mat) <- 0
+  attr(mat, "taxonomic_distance_method") <- "rank_fallback"
   mat
 }
 
@@ -742,6 +753,171 @@ coherence_mats <- function(models_df, coherence_cfg) {
   c(len_mats, dep_mats, list(frequency_coherence = freq_mat))
 }
 
+#' Build directed pair-feature matrices for Alchemist distance prediction
+#'
+#' @keywords internal
+#' @noRd
+build_pair_feature_matrices <- function(models_df,
+                                        species_trait_names,
+                                        study_trait_names,
+                                        coherence_cfg = NULL,
+                                        taxonomic_distance = FALSE,
+                                        feature_type = c(
+                                          "gower", "difference", "mahalanobis"
+                                        ),
+                                        feature_normalization = NULL,
+                                        progress = FALSE) {
+  feature_type <- match.arg(feature_type)
+  all_traits <- unique(c(species_trait_names, study_trait_names))
+  if (length(all_traits) == 0L) {
+    stop(
+      "No configured traits found in `candidate_models`. Supply species_traits and/or study_traits.",
+      call. = FALSE
+    )
+  }
+  missing_traits <- setdiff(all_traits, names(models_df))
+  if (length(missing_traits) > 0L) {
+    stop(
+      sprintf(
+        "Candidate models are missing required Alchemist trait column(s): %s",
+        paste(missing_traits, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+
+  n <- nrow(models_df)
+  col_fn <- switch(feature_type,
+    difference = diff_col,
+    mahalanobis = squared_col,
+    gower_col
+  )
+  feat_label <- switch(feature_type,
+    difference = "signed-difference",
+    mahalanobis = "squared-difference (Mahalanobis)",
+    "Gower"
+  )
+  report_progress(
+    progress,
+    "  [Alchemist] Computing per-trait ", feat_label, " matrices (",
+    length(all_traits), " traits, ", n, " models)..."
+  )
+
+  trait_values <- lapply(all_traits, function(tr) {
+    x <- models_df[[tr]]
+    if (identical(tr, "ocean_basin")) {
+      x <- normalize_alchemist_ocean_basin(x)
+    } else if (identical(tr, "fao_area")) {
+      x <- normalize_alchemist_fao_area(x)
+    } else if (identical(tr, "species") && "genus" %in% names(models_df)) {
+      g <- trimws(as.character(models_df[["genus"]]))
+      s <- trimws(as.character(x))
+      combined <- paste(g, s)
+      combined[is.na(g) | g == "NA" | is.na(s) | s == "NA"] <- NA_character_
+      x <- combined
+    }
+    x
+  })
+  names(trait_values) <- all_traits
+  normalization <- stats::setNames(vector("list", length(all_traits)), all_traits)
+  trait_mat_list <- lapply(all_traits, function(tr) {
+    x <- trait_values[[tr]]
+    supplied_scale <- suppressWarnings(as.numeric(feature_normalization[[tr]]$scale %||% NA_real_)[[1]])
+    scale <- supplied_scale
+    if (is.numeric(x) && (!is.finite(scale) || scale <= 0)) {
+      finite_x <- x[is.finite(x)]
+      scale <- if (identical(feature_type, "gower")) {
+        if (length(finite_x) >= 2L) diff(range(finite_x)) else 1
+      } else {
+        stats::sd(finite_x, na.rm = TRUE)
+      }
+    }
+    if (!is.finite(scale) || scale <= 0) scale <- NA_real_
+    normalization[[tr]] <<- list(scale = scale)
+    expand_multival_col(x, function(values) col_fn(values, scale = scale), tr)
+  })
+  trait_mats <- do.call(c, trait_mat_list)
+
+  n_feat_cols <- length(trait_mats)
+  if (n_feat_cols > length(all_traits)) {
+    report_progress(
+      progress,
+      "  [Alchemist]   Set-type expansion: ", length(all_traits), " traits -> ",
+      n_feat_cols, " binary indicator columns."
+    )
+  }
+
+  if (isTRUE(taxonomic_distance)) {
+    tax_ranks_found <- intersect(.ALCH_TAX_RANKS, tolower(species_trait_names))
+    tax_col_map <- stats::setNames(
+      vapply(tax_ranks_found, function(rk) {
+        m <- species_trait_names[tolower(species_trait_names) == rk]
+        if (length(m) > 0L) m[[1L]] else NA_character_
+      }, character(1)),
+      tax_ranks_found
+    )
+    tax_col_map <- tax_col_map[!is.na(tax_col_map) & tax_col_map %in%
+                                 names(models_df)]
+    if (length(tax_col_map) >= 1L) {
+      report_progress(
+        progress,
+        "  [Alchemist] Computing phylogenetic distance (rotl, fallback: rank-based) for: ",
+        paste(names(tax_col_map), collapse = ", "), "..."
+      )
+      tax_mat <- tax_dist_mat(models_df, tax_col_map)
+      if (!is.null(tax_mat)) {
+        tax_method <- attr(tax_mat, "taxonomic_distance_method") %||% "unknown"
+        trait_mats[[".dist_tax"]] <- tax_mat
+        drop_cols <- paste0(".dist_", unname(tax_col_map))
+        trait_mats <- trait_mats[setdiff(names(trait_mats), drop_cols)]
+        report_progress(
+          progress,
+          "  [Alchemist]   Replaced ", paste(drop_cols, collapse = ", "),
+          " with .dist_tax (", tax_method, ")."
+        )
+      } else {
+        report_progress(
+          progress,
+          "  [Alchemist]   WARNING: phylogenetic distance failed; keeping individual Gower features."
+        )
+      }
+    }
+  }
+
+  if (!is.null(coherence_cfg) && length(coherence_cfg) > 0L) {
+    report_progress(progress, "  [Alchemist] Computing coherence feature matrices...")
+    coh_mats <- coherence_mats(models_df, coherence_cfg)
+    for (coh_nm in names(coh_mats)) {
+      if (!is.null(coh_mats[[coh_nm]])) {
+        trait_mats[[paste0(".dist_", coh_nm)]] <- coh_mats[[coh_nm]]
+        report_progress(progress, "    + ", coh_nm, " added.")
+      }
+    }
+  }
+
+  species_feature_cols <- unlist(lapply(species_trait_names, function(tr) {
+    base <- paste0(".dist_", tr)
+    prefix <- paste0(base, "__")
+    c(
+      if (base %in% names(trait_mats)) base else character(0),
+      grep(paste0("^\\Q", prefix, "\\E"), names(trait_mats), value = TRUE)
+    )
+  }), use.names = FALSE)
+  species_feature_cols <- c(
+    species_feature_cols,
+    if (".dist_tax" %in% names(trait_mats)) ".dist_tax" else character(0)
+  )
+
+  list(
+    trait_mats = trait_mats,
+    feature_cols = names(trait_mats),
+    all_traits = all_traits,
+    species_feature_cols = species_feature_cols,
+    feature_type = feature_type,
+    feature_normalization = normalization
+  )
+}
+
 #' Build the pair-level supervised training table
 #'
 #' @param models_df Candidate-model data frame.
@@ -772,134 +948,20 @@ build_pair_data <- function(models_df,
                             ),
                             progress = FALSE) {
   feature_type <- match.arg(feature_type)
-  all_traits <- unique(c(species_trait_names, study_trait_names))
-  if (length(all_traits) == 0L) {
-    stop(
-      "No configured traits found in `candidate_models`. Supply species_traits and/or study_traits.",
-      call. = FALSE
-    )
-  }
-
+  feature_data <- build_pair_feature_matrices(
+    models_df = models_df,
+    species_trait_names = species_trait_names,
+    study_trait_names = study_trait_names,
+    coherence_cfg = coherence_cfg,
+    taxonomic_distance = taxonomic_distance,
+    feature_type = feature_type,
+    progress = progress
+  )
+  all_traits <- feature_data$all_traits
+  trait_mats <- feature_data$trait_mats
+  feature_cols <- feature_data$feature_cols
+  species_feature_cols <- feature_data$species_feature_cols
   n <- nrow(models_df)
-
-  col_fn <- switch(feature_type,
-    difference = diff_col,
-    mahalanobis = squared_col,
-    gower_col
-  )
-  feat_label <- switch(feature_type,
-    difference = "signed-difference",
-    mahalanobis = "squared-difference (Mahalanobis)",
-    "Gower"
-  )
-
-  report_progress(
-    progress,
-    "  [Alchemist] Computing per-trait ", feat_label, " matrices (",
-    length(all_traits), " traits, ", n, " models)..."
-  )
-
-  # Normalize known set-type columns and expand any semicolon-separated
-  # multi-value trait into one binary indicator matrix per unique value.
-  # Column naming: .dist_ocean_basin__atlantic, .dist_fao_area__77, etc.
-  # (double-underscore matches the expand_trait_block())
-  trait_mat_list <- lapply(all_traits, function(tr) {
-    x <- models_df[[tr]]
-    if (identical(tr, "ocean_basin")) {
-      x <- normalize_alchemist_ocean_basin(x)
-    } else if (identical(tr, "fao_area")) {
-      x <- normalize_alchemist_fao_area(x)
-    } else if (identical(tr, "species") && "genus" %in% names(models_df)) {
-      # Use full binomial so same-epithet species in different genera are distinct
-      g <- trimws(as.character(models_df[["genus"]]))
-      s <- trimws(as.character(x))
-      combined <- paste(g, s)
-      combined[is.na(g) | g == "NA" | is.na(s) | s == "NA"] <- NA_character_
-      x <- combined
-    }
-    expand_multival_col(x, col_fn, tr)
-  })
-  trait_mats <- do.call(c, trait_mat_list)
-
-  n_feat_cols <- length(trait_mats)
-  if (n_feat_cols > length(all_traits)) {
-    report_progress(
-      progress,
-      "  [Alchemist]   Set-type expansion: ", length(all_traits), " traits -> ",
-      n_feat_cols, " binary indicator columns."
-    )
-  }
-
-  # - Optional phylogenetic/taxonomic distance -
-  # When enabled, recognized taxonomic rank columns (family, genus, species,
-  # etc.) are REPLACED by a single .dist_tax feature. The primary method is the
-  # rotl/Tree of Life cophenetic distance; rank-based scoring is the fallback.
-  if (isTRUE(taxonomic_distance)) {
-    tax_ranks_found <- intersect(.ALCH_TAX_RANKS, tolower(species_trait_names))
-    tax_col_map <- stats::setNames(
-      vapply(tax_ranks_found, function(rk) {
-        m <- species_trait_names[tolower(species_trait_names) == rk]
-        if (length(m) > 0L) m[[1L]] else NA_character_
-      }, character(1)),
-      tax_ranks_found
-    )
-    tax_col_map <- tax_col_map[!is.na(tax_col_map) & tax_col_map %in%
-                                 names(models_df)]
-
-    if (length(tax_col_map) >= 1L) {
-      report_progress(
-        progress,
-        "  [Alchemist] Computing phylogenetic distance (rotl, fallback: rank-based) for: ",
-        paste(names(tax_col_map), collapse = ", "), "..."
-      )
-      tax_mat <- tax_dist_mat(models_df, tax_col_map)
-      if (!is.null(tax_mat)) {
-        trait_mats[[".dist_tax"]] <- tax_mat
-        # Remove individual taxonomic Gower features - they are now redundant
-        drop_cols <- paste0(".dist_", unname(tax_col_map))
-        trait_mats <- trait_mats[setdiff(names(trait_mats), drop_cols)]
-        report_progress(
-          progress,
-          "  [Alchemist]   Replaced ", paste(drop_cols, collapse = ", "),
-          " with .dist_tax."
-        )
-      } else {
-        report_progress(
-          progress,
-          "  [Alchemist]   WARNING: phylogenetic distance failed; keeping individual Gower features."
-        )
-      }
-    }
-  }
-
-  # - Coherence features -
-  if (!is.null(coherence_cfg) && length(coherence_cfg) > 0L) {
-    report_progress(progress, "  [Alchemist] Computing coherence feature matrices...")
-    coh_mats <- coherence_mats(models_df, coherence_cfg)
-    for (coh_nm in names(coh_mats)) {
-      if (!is.null(coh_mats[[coh_nm]])) {
-        trait_mats[[paste0(".dist_", coh_nm)]] <- coh_mats[[coh_nm]]
-        report_progress(progress, "    + ", coh_nm, " added.")
-      }
-    }
-  }
-
-  feature_cols <- names(trait_mats)
-
-  # Match both simple columns (.dist_ocean_basin) and all expanded indicator
-  # columns derived from a species trait (.dist_ocean_basin__atlantic, etc.)
-  species_feature_cols <- unlist(lapply(species_trait_names, function(tr) {
-    base <- paste0(".dist_", tr)
-    prefix <- paste0(base, "__")
-    c(
-      if (base %in% names(trait_mats)) base else character(0),
-      grep(paste0("^\\Q", prefix, "\\E"), names(trait_mats), value = TRUE)
-    )
-  }), use.names = FALSE)
-  species_feature_cols <- c(
-    species_feature_cols,
-    if (".dist_tax" %in% names(trait_mats)) ".dist_tax" else character(0)
-  )
 
   slope_col <- intersect(c("slope_standard", "slope_len"),
                          names(models_df))[[1]] %||% NULL
@@ -1049,6 +1111,7 @@ build_pair_data <- function(models_df,
     all_traits = all_traits,
     species_trait_names = species_trait_names,
     species_feature_cols = species_feature_cols,
+    feature_normalization = feature_data$feature_normalization,
     n_models = n,
     model_ids = model_ids,
     donor_sigma_matrix = donor_sigma_mat,
@@ -1056,6 +1119,210 @@ build_pair_data <- function(models_df,
     trait_mats = trait_mats,
     feature_type = feature_type
   )
+}
+
+#' Materialize fitted Alchemist feature rows for query anchors
+#'
+#' @keywords internal
+#' @noRd
+alchemist_query_pair_features <- function(candidate_models,
+                                          distance_state,
+                                          donor_model_ids,
+                                          anchor_model_ids) {
+  candidate_models <- tibble::as_tibble(candidate_models)
+  required_state <- c(
+    "distance_learner", "species_trait_names", "study_trait_names",
+    "feature_type", "coherence_config", "taxonomic_distance",
+    "feature_normalization"
+  )
+  missing_state <- required_state[vapply(
+    required_state,
+    function(name) is.null(distance_state[[name]]),
+    logical(1)
+  )]
+  if (length(missing_state) > 0L) {
+    stop(
+      sprintf(
+        "Alchemist query-distance state is incomplete: %s. Rebuild the selector from a newly forged Alchemist object.",
+        paste(missing_state, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+  if (!"model_id" %in% names(candidate_models)) {
+    stop("Alchemist query-distance prediction requires `candidate_models$model_id`.", call. = FALSE)
+  }
+  model_ids <- as.character(candidate_models$model_id)
+  if (anyDuplicated(model_ids)) {
+    stop("Alchemist query-distance prediction requires unique candidate model IDs.", call. = FALSE)
+  }
+
+  feature_data <- build_pair_feature_matrices(
+    models_df = candidate_models,
+    species_trait_names = as.character(distance_state$species_trait_names),
+    study_trait_names = as.character(distance_state$study_trait_names),
+    coherence_cfg = distance_state$coherence_config,
+    taxonomic_distance = isTRUE(distance_state$taxonomic_distance),
+    feature_type = as.character(distance_state$feature_type),
+    feature_normalization = distance_state$feature_normalization,
+    progress = FALSE
+  )
+  learner <- distance_state$distance_learner
+  feature_cols <- as.character(learner$feature_cols)
+  if (length(feature_cols) == 0L) {
+    stop("The stored Alchemist learner has no feature columns.", call. = FALSE)
+  }
+  missing_features <- setdiff(feature_cols, names(feature_data$trait_mats))
+  if (length(missing_features) > 0L) {
+    stop(
+      sprintf(
+        "Query anchor metadata cannot construct required Alchemist feature(s): %s",
+        paste(missing_features, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+
+  donor_model_ids <- as.character(donor_model_ids)
+  anchor_model_ids <- as.character(anchor_model_ids)
+  donor_idx <- match(donor_model_ids, model_ids)
+  anchor_idx <- match(anchor_model_ids, model_ids)
+  if (anyNA(donor_idx) || anyNA(anchor_idx)) {
+    stop("Query-distance model IDs were not found in `candidate_models`.", call. = FALSE)
+  }
+  pairs <- expand.grid(
+    donor_idx = donor_idx,
+    anchor_idx = anchor_idx,
+    KEEP.OUT.ATTRS = FALSE,
+    stringsAsFactors = FALSE
+  )
+  pairs <- pairs[pairs$donor_idx != pairs$anchor_idx, , drop = FALSE]
+  out <- tibble::tibble(
+    .donor_model_id = model_ids[pairs$donor_idx],
+    .anchor_model_id = model_ids[pairs$anchor_idx]
+  )
+  for (feature_col in feature_cols) {
+    out[[feature_col]] <- feature_data$trait_mats[[feature_col]][
+      cbind(pairs$donor_idx, pairs$anchor_idx)
+    ]
+  }
+  attr(out, "trait_mats") <- feature_data$trait_mats
+  out
+}
+
+#' Add external query-anchor rows to a fitted Alchemist distance bundle
+#'
+#' @keywords internal
+#' @noRd
+augment_alchemist_query_distances <- function(candidate_models,
+                                              distance_state,
+                                              query_model_ids) {
+  if (!identical(distance_state$distance_mode %||% "", "alchemist_super_learner")) {
+    stop("Alchemist query-distance augmentation requires an Alchemist distance bundle.", call. = FALSE)
+  }
+  learner <- distance_state$distance_learner
+  if (is.null(learner)) {
+    stop("Alchemist query-distance prediction requires the fitted distance learner.", call. = FALSE)
+  }
+  candidate_models <- tibble::as_tibble(candidate_models)
+  if (!"model_id" %in% names(candidate_models)) {
+    stop("Alchemist query-distance prediction requires `candidate_models$model_id`.", call. = FALSE)
+  }
+  model_ids <- as.character(candidate_models$model_id)
+  query_model_ids <- unique(as.character(query_model_ids))
+  if (anyNA(match(query_model_ids, model_ids))) {
+    stop("Every external query anchor must be present in the augmented candidate table.", call. = FALSE)
+  }
+
+  existing_dist <- distance_state$learned_directed_dist
+  if (is.null(existing_dist) || !is.matrix(existing_dist) ||
+    is.null(rownames(existing_dist)) || is.null(colnames(existing_dist))) {
+    stop("Alchemist query-distance prediction requires a stored directed learned-distance matrix.", call. = FALSE)
+  }
+  base_ids <- setdiff(model_ids, query_model_ids)
+  if (!all(base_ids %in% rownames(existing_dist)) ||
+    !all(base_ids %in% colnames(existing_dist))) {
+    stop("The stored learned-distance matrix does not cover every existing candidate model.", call. = FALSE)
+  }
+
+  query_pairs <- alchemist_query_pair_features(
+    candidate_models = candidate_models,
+    distance_state = distance_state,
+    donor_model_ids = model_ids,
+    anchor_model_ids = query_model_ids
+  )
+  predicted <- predict_distance(learner, query_pairs)
+  if (length(predicted) != nrow(query_pairs) || any(!is.finite(predicted))) {
+    stop("The fitted Alchemist learner did not produce finite distances for every query pair.", call. = FALSE)
+  }
+  diagnostic_available <- isTRUE(attr(predicted, "distance_diagnostic_available"))
+  disagreement <- attr(predicted, "distance_weighted_disagreement")
+  if (inherits(learner, "SuperLearner") &&
+    (!diagnostic_available || length(disagreement) != nrow(query_pairs) ||
+      any(!is.finite(disagreement)))) {
+    stop("The fitted Alchemist Super Learner did not produce query-distance disagreement diagnostics.", call. = FALSE)
+  }
+
+  learned_dist <- matrix(NA_real_, nrow = length(model_ids), ncol = length(model_ids),
+                         dimnames = list(model_ids, model_ids))
+  shared_ids <- intersect(model_ids, rownames(existing_dist))
+  learned_dist[shared_ids, shared_ids] <- existing_dist[shared_ids, shared_ids, drop = FALSE]
+  if (nrow(query_pairs) > 0L) {
+    learned_dist[cbind(query_pairs$.donor_model_id, query_pairs$.anchor_model_id)] <-
+      pmax(0, as.numeric(predicted))
+  }
+  diag(learned_dist) <- 0
+
+  learned_disagreement <- NULL
+  if (diagnostic_available) {
+    learned_disagreement <- matrix(
+      NA_real_, nrow = length(model_ids), ncol = length(model_ids),
+      dimnames = list(model_ids, model_ids)
+    )
+    if (nrow(query_pairs) > 0L) {
+      learned_disagreement[cbind(query_pairs$.donor_model_id, query_pairs$.anchor_model_id)] <-
+        as.numeric(disagreement)
+    }
+    diag(learned_disagreement) <- 0
+  }
+
+  taxonomic_dist <- distance_state$taxonomic_dist_model %||% NULL
+  if (!is.null(taxonomic_dist)) {
+    trait_mats <- attr(query_pairs, "trait_mats")
+    if (is.null(trait_mats[[".dist_tax"]])) {
+      stop("The stored Alchemist taxonomic distance cannot be constructed for the query anchor.", call. = FALSE)
+    }
+    taxonomic_dist_new <- matrix(NA_real_, nrow = length(model_ids), ncol = length(model_ids),
+                                 dimnames = list(model_ids, model_ids))
+    tax_shared_ids <- intersect(model_ids, rownames(taxonomic_dist))
+    taxonomic_dist_new[tax_shared_ids, tax_shared_ids] <-
+      taxonomic_dist[tax_shared_ids, tax_shared_ids, drop = FALSE]
+    all_query_pairs <- alchemist_query_pair_features(
+      candidate_models = candidate_models,
+      distance_state = distance_state,
+      donor_model_ids = model_ids,
+      anchor_model_ids = query_model_ids
+    )
+    if (nrow(all_query_pairs) > 0L) {
+      donor_idx <- match(all_query_pairs$.donor_model_id, model_ids)
+      anchor_idx <- match(all_query_pairs$.anchor_model_id, model_ids)
+      taxonomic_dist_new[cbind(all_query_pairs$.donor_model_id, all_query_pairs$.anchor_model_id)] <-
+        trait_mats[[".dist_tax"]][cbind(donor_idx, anchor_idx)]
+    }
+    diag(taxonomic_dist_new) <- 0
+    taxonomic_dist <- taxonomic_dist_new
+  }
+
+  out <- distance_state
+  out$learned_directed_dist <- learned_dist
+  out$learned_distance_disagreement <- learned_disagreement
+  out$learned_distance_diagnostic_available <- diagnostic_available
+  out$taxonomic_dist_model <- taxonomic_dist
+  out$dist_matrix <- (learned_dist + t(learned_dist)) / 2
+  diag(out$dist_matrix) <- 0
+  out$combined_dist <- stats::as.dist(out$dist_matrix)
+  out$species_dist <- out$combined_dist
+  out
 }
 
 # - Alchemist distance learner -
@@ -2209,7 +2476,10 @@ predict_distance <- function(object, new_data) {
   if (inherits(object, "Mahalanobis")) {
     new_data <- tibble::as_tibble(new_data)
     x_new <- feature_matrix(new_data, object$feature_cols)
-    return(sqrt(pmax(0, as.numeric(x_new %*% object$weights))))
+    prediction <- sqrt(pmax(0, as.numeric(x_new %*% object$weights)))
+    attr(prediction, "distance_weighted_disagreement") <- rep(NA_real_, length(prediction))
+    attr(prediction, "distance_diagnostic_available") <- FALSE
+    return(prediction)
   }
   if (!inherits(object, "SuperLearner")) {
     stop(
@@ -2233,11 +2503,26 @@ predict_distance <- function(object, new_data) {
   pred_transformed <- as.numeric(
     pred_mat[, names(weights), drop = FALSE] %*% weights
   )
-  pmax(0, if (identical(object$outcome_transform, "log1p")) {
+  prediction <- pmax(0, if (identical(object$outcome_transform, "log1p")) {
     expm1(pred_transformed)
   } else {
     pred_transformed
   })
+  base_predictions <- if (identical(object$outcome_transform, "log1p")) {
+    expm1(pred_mat[, names(weights), drop = FALSE])
+  } else {
+    pred_mat[, names(weights), drop = FALSE]
+  }
+  base_predictions[base_predictions < 0] <- 0
+  weighted_center <- as.numeric(base_predictions %*% weights)
+  disagreement <- sqrt(rowSums(
+    sweep(base_predictions, 1L, weighted_center, "-")^2 *
+      rep(as.numeric(weights), each = nrow(base_predictions))
+  ))
+  attr(prediction, "distance_base_predictions") <- base_predictions
+  attr(prediction, "distance_weighted_disagreement") <- disagreement
+  attr(prediction, "distance_diagnostic_available") <- TRUE
+  prediction
 }
 
 # Fit a diagonal Mahalanobis distance via NNLS on squared pairwise differences.
@@ -2484,6 +2769,19 @@ S7::method(forge_distances, Alchemist) <- function(object,
     na_idx <- which(is.na(dist_mat[, j]))
     dist_mat[na_idx, j] <- col_max[[j]]
   }
+  directed_mat <- dist_mat
+  learned_bandwidth <- stats::median(
+    oof_preds[is.finite(oof_preds) & oof_preds > 0],
+    na.rm = TRUE
+  )
+  if (!is.finite(learned_bandwidth) || learned_bandwidth <= 0) {
+    stop("The Alchemist learner produced no positive finite directed distances.", call. = FALSE)
+  }
+
+  taxonomic_mat <- pair_data$trait_mats[[".dist_tax"]] %||% NULL
+  if (!is.null(taxonomic_mat)) {
+    dimnames(taxonomic_mat) <- list(model_ids, model_ids)
+  }
 
   report_progress(
     progress,
@@ -2502,9 +2800,14 @@ S7::method(forge_distances, Alchemist) <- function(object,
   distance_matrix <- list(
     combined_dist = stats::as.dist(sym_mat),
     dist_matrix = sym_mat,
+    directed_dist_matrix = directed_mat,
+    taxonomic_dist_matrix = taxonomic_mat,
+    taxonomic_distance_method = attr(taxonomic_mat, "taxonomic_distance_method") %||% NA_character_,
+    learned_kernel_bandwidth = learned_bandwidth,
     model_ids = model_ids,
     all_traits = pair_data$all_traits,
     species_trait_names = sp_names,
+    study_trait_names = st_names,
     species_feature_cols = pair_data$species_feature_cols,
     trait_cols = pair_data$all_traits,
     oof_performance = sl_fit$oof_performance %||% tibble::tibble(),
@@ -2512,6 +2815,9 @@ S7::method(forge_distances, Alchemist) <- function(object,
     feature_cols = pair_data$feature_cols,
     trait_mats = pair_data$trait_mats,
     feature_type = feature_type,
+    coherence_config = coherence_cfg,
+    taxonomic_distance = taxonomic_distance,
+    feature_normalization = pair_data$feature_normalization,
     donor_sigma_matrix = pair_data$donor_sigma_matrix,
     target_sigma = pair_data$target_sigma
   )
@@ -3138,10 +3444,27 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
     cluster_col = model_cluster_col
   )
 
+  model_points_missing <- if (length(trait_cols) > 0) {
+    add_ordination_missing(
+      points_df = model_points,
+      candidate_models = candidate_models,
+      trait_cols = trait_cols,
+      model_id_col = model_id_col
+    )
+  } else {
+    tibble::as_tibble(model_points) |>
+      dplyr::mutate(
+        missing_trait_count = NA_integer_,
+        missing_trait_fraction = NA_real_,
+        missingness_group = NA_character_
+      )
+  }
+
   model_hulls <- tryCatch(
     build_ordination_hulls(model_points, cluster_col = model_cluster_col),
     error = function(e) tibble::tibble()
   )
+  model_scale <- compute_ordination_scale(model_points)
 
   ordination <- list(
     model = list(
@@ -3149,9 +3472,20 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
       points = tibble::as_tibble(model_points),
       loadings = model_ord$loadings %||% tibble::tibble(),
       centroids = model_ord$centroids %||% tibble::tibble(),
+      model_scores = tibble::as_tibble(model_scores),
       scores = tibble::as_tibble(model_scores),
-      hulls = tibble::as_tibble(model_hulls)
-    )
+      points_missing = tibble::as_tibble(model_points_missing),
+      hulls = tibble::as_tibble(model_hulls),
+      scale = model_scale
+    ),
+    species = list(
+      ordination = NULL,
+      points = tibble::tibble(),
+      loadings = tibble::tibble(),
+      centroids = tibble::tibble(),
+      pairwise_tests = tibble::tibble()
+    ),
+    species_lookup = list()
   )
 
   alchemist_rebuild(alchemist, ordination = ordination)
@@ -3178,7 +3512,19 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
     species_dist = dm$combined_dist,
     study_dist = as.matrix(dm$dist_matrix),
     species_dist_model = as.matrix(dm$dist_matrix),
-    trait_cols = dm$trait_cols %||% dm$all_traits %||% character(0)
+    learned_directed_dist = dm$directed_dist_matrix %||% NULL,
+    taxonomic_dist_model = dm$taxonomic_dist_matrix %||% NULL,
+    learned_kernel_bandwidth = dm$learned_kernel_bandwidth %||% NULL,
+    distance_mode = "alchemist_super_learner",
+    trait_cols = dm$trait_cols %||% dm$all_traits %||% character(0),
+    distance_learner = alchemist@learner,
+    feature_cols = dm$feature_cols %||% alchemist@learner$feature_cols %||% character(0),
+    species_trait_names = dm$species_trait_names %||% character(0),
+    study_trait_names = dm$study_trait_names %||% character(0),
+    feature_type = dm$feature_type %||% NULL,
+    coherence_config = dm$coherence_config %||% NULL,
+    taxonomic_distance = dm$taxonomic_distance %||% NULL,
+    feature_normalization = dm$feature_normalization %||% NULL
   )
 
   injected_candidates <- candidates_with_gower_distances(
@@ -3379,8 +3725,11 @@ alchemist_plot_types <- function() {
     loading_tbl <- tibble::as_tibble(model_obj$loadings %||% tibble::tibble())
     centroid_tbl <- tibble::as_tibble(model_obj$centroids %||% tibble::tibble())
 
+    # Convex hulls may overlap for valid PAM partitions, which incorrectly
+    # implies overlapping clusters. Use the point partition by default; hulls
+    # remain available as an explicit diagnostic view.
     ord_view <- match.arg(
-      view %||% if (isTRUE(include_hulls) && nrow(hull_tbl) > 0) "cluster_hulls" else "clusters",
+      view %||% "clusters",
       c("clusters", "cluster_hulls", "vectors", "centers")
     )
 
@@ -5237,6 +5586,41 @@ add_anchor_distances <- function(model_eval,
   # rows so every later scoring step can work off the row-wise table alone.
   model_eval_ <- model_eval
   model_ids <- model_eval_[[build_anchor_field(config, "model_id")]]
+  if (identical(dist_obj$distance_mode %||% "", "alchemist_super_learner")) {
+    learned_mat <- dist_obj$learned_directed_dist
+    bandwidth <- suppressWarnings(as.numeric(dist_obj$learned_kernel_bandwidth)[[1]])
+    if (is.null(learned_mat) || !is.matrix(learned_mat) ||
+      !all(c(as.character(model_ids), as.character(anchor_id)) %in% rownames(learned_mat)) ||
+      !all(c(as.character(model_ids), as.character(anchor_id)) %in% colnames(learned_mat)) ||
+      !is.finite(bandwidth) || bandwidth <= 0) {
+      stop("Alchemist policy scoring requires a directed learned-distance matrix and positive bandwidth.", call. = FALSE)
+    }
+    taxonomic_mat <- dist_obj$taxonomic_dist_model %||% NULL
+    model_eval_$learned_distance <- as.numeric(learned_mat[model_ids, anchor_id])
+    disagreement_mat <- dist_obj$learned_distance_disagreement %||% NULL
+    model_eval_$learned_distance_disagreement <- if (!is.null(disagreement_mat) &&
+      is.matrix(disagreement_mat) &&
+      all(c(as.character(model_ids), as.character(anchor_id)) %in% rownames(disagreement_mat)) &&
+      all(c(as.character(model_ids), as.character(anchor_id)) %in% colnames(disagreement_mat))) {
+      as.numeric(disagreement_mat[model_ids, anchor_id])
+    } else {
+      NA_real_
+    }
+    model_eval_$learned_distance_diagnostic_available <- isTRUE(
+      dist_obj$learned_distance_diagnostic_available
+    )
+    model_eval_$learned_kernel_bandwidth <- bandwidth
+    model_eval_$d_species <- if (!is.null(taxonomic_mat) && is.matrix(taxonomic_mat) &&
+      all(c(as.character(model_ids), as.character(anchor_id)) %in% rownames(taxonomic_mat)) &&
+      all(c(as.character(model_ids), as.character(anchor_id)) %in% colnames(taxonomic_mat))) {
+      as.numeric(taxonomic_mat[model_ids, anchor_id])
+    } else {
+      NA_real_
+    }
+    model_eval_$d_study <- NA_real_
+    model_eval_$taxonomic_distance_to_anchor <- model_eval_$d_species
+    return(model_eval_)
+  }
   model_eval_$d_species <- as.numeric(dist_obj$species_dist_model[model_ids, anchor_id])
   model_eval_$d_study <- as.numeric(dist_obj$study_dist[model_ids, anchor_id])
 
@@ -5305,6 +5689,13 @@ add_anchor_terms <- function(model_eval,
     freq_wt * out$frequency_coherence_distance,
     NA_real_
   )
+  if ("learned_distance" %in% names(out)) {
+    # The Alchemist distance is already a fitted function of the taxonomic,
+    # study-context, and coherence features. Retain the component diagnostics,
+    # but do not inject any of them into the learned distance a second time.
+    out$kernel_learned_term <- suppressWarnings(as.numeric(out$learned_distance)) /
+      suppressWarnings(as.numeric(out$learned_kernel_bandwidth))
+  }
   out
 }
 
@@ -5324,6 +5715,27 @@ weight_anchor_models <- function(model_eval,
   # Collapse all active distance blocks to one normalized distance and one
   # exponential kernel weight per candidate model.
   model_eval_ <- tibble::as_tibble(model_eval)
+  if ("learned_distance" %in% names(model_eval_)) {
+    learned_distance <- suppressWarnings(as.numeric(model_eval_$learned_distance))
+    bandwidth <- suppressWarnings(as.numeric(model_eval_$learned_kernel_bandwidth))
+    if (!all(is.finite(bandwidth) & bandwidth > 0, na.rm = TRUE)) {
+      stop("Alchemist policy weighting requires a positive learned-distance bandwidth.", call. = FALSE)
+    }
+    model_eval_$combined_distance <- learned_distance
+    model_eval_$trait_gower_distance <- NA_real_
+    model_eval_$w_combined_raw <- ifelse(
+      is.finite(learned_distance),
+      exp(-learned_distance / bandwidth),
+      0
+    )
+    w_sum <- sum(model_eval_$w_combined_raw, na.rm = TRUE)
+    if (!is.finite(w_sum) || w_sum <= 0) {
+      model_eval_$w_combined <- NA_real_
+      return(model_eval_)
+    }
+    model_eval_$w_combined <- model_eval_$w_combined_raw / w_sum
+    return(model_eval_)
+  }
   alpha <- as.numeric(sim_obj$alpha)
   len_wt <- as.numeric(config$length_overlap_weight)
   dep_wt <- as.numeric(config$depth_overlap_weight)

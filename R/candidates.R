@@ -2996,55 +2996,141 @@ fetch_reference_anchors <- function(object) {
   tibble::as_tibble(anchors)
 }
 
-#' Set user-supplied reference length PDFs
+#' Update candidate metadata by model ID
+#'
+#' Applies explicit metadata edits to selected rows of a [Candidates] object.
+#' Every supplied `model_id` must identify exactly one candidate model. Matching
+#' selected reference-anchor rows are updated in lockstep. Because candidate
+#' metadata determines the prepared similarity and distance geometry, all
+#' derived similarity, distance, ordination, and admissibility state is cleared.
 #'
 #' @param object A [Candidates] object.
-#' @param length_pdf Named list keyed by selected reference `model_id`.
+#' @param updates A data frame with a `model_id` column and one or more metadata
+#'   columns to replace. List-columns, including `length_pdf_data`, are
+#'   supported.
+#' @param model_id_col Candidate-model identifier column. Defaults to
+#'   `"model_id"`.
 #'
-#' @return Updated [Candidates] object.
+#' @return Updated [Candidates] object with derived state invalidated.
 #'
 #' @examples
 #' \dontrun{
-#' candidates <- set_reference_length_pdf(
+#' candidates <- set_model_metadata(
 #'   candidates,
-#'   length_pdf = list("12" = c(10, 11, 12, 12, 13))
+#'   tibble::tibble(
+#'     model_id = "anchor_model_12",
+#'     slope_standard = 19.3,
+#'     intercept_standard = -65.1
+#'   )
 #' )
 #' }
 #'
 #' @export
-set_reference_length_pdf <- function(object,
-                                     length_pdf) {
+set_model_metadata <- function(object,
+                               updates,
+                               model_id_col = "model_id") {
   if (!is_s7_instance(object, "Candidates")) {
     stop("'object' must be a `Candidates` object.", call. = FALSE)
   }
-  anchors_now <- set_reference_pdf_rows(object@reference_anchors, length_pdf)
-  model_ids <- as.character(anchors_now[[reference_anchor_id_column(anchors_now)]])
-  candidate_models_now <- ensure_reference_pdf_columns(object@candidate_models)
-  candidate_ids <- as.character(candidate_models_now[[reference_anchor_id_column(candidate_models_now)]])
-  for (model_id in names(length_pdf)) {
-    idx <- which(candidate_ids == as.character(model_id))
-    if (length(idx) > 0) {
-      pdf_now <- normalize_anchor_pdf_input(length_pdf[[model_id]])
-      candidate_models_now$length_pdf_data[idx] <- rep(list(pdf_now), length(idx))
-      candidate_models_now$length_pdf[idx] <- ifelse(
-        candidate_ids[idx] %in% model_ids,
-        "user",
-        candidate_models_now$length_pdf[idx]
-      )
+  if (!is.data.frame(updates) || nrow(updates) == 0L) {
+    stop("'updates' must be a non-empty data frame.", call. = FALSE)
+  }
+  updates <- tibble::as_tibble(updates)
+  if (!model_id_col %in% names(updates)) {
+    stop(sprintf("'updates' must contain '%s'.", model_id_col), call. = FALSE)
+  }
+  if (!model_id_col %in% names(object@candidate_models)) {
+    stop(sprintf("`candidate_models` does not contain '%s'.", model_id_col), call. = FALSE)
+  }
+  update_cols <- setdiff(names(updates), model_id_col)
+  if (length(update_cols) == 0L) {
+    stop("'updates' must include at least one metadata column besides the model ID.", call. = FALSE)
+  }
+  if (anyDuplicated(as.character(updates[[model_id_col]]))) {
+    stop("'updates' contains duplicate model IDs.", call. = FALSE)
+  }
+  if (anyNA(updates[[model_id_col]]) || any(!nzchar(as.character(updates[[model_id_col]])))) {
+    stop("'updates' contains a missing or blank model ID.", call. = FALSE)
+  }
+  if ("length_pdf_data" %in% update_cols) {
+    if (!is.list(updates$length_pdf_data)) {
+      stop("'updates$length_pdf_data' must be a list-column.", call. = FALSE)
+    }
+    updates$length_pdf_data <- lapply(
+      updates$length_pdf_data,
+      normalize_anchor_pdf_input
+    )
+  }
+
+  candidate_models <- tibble::as_tibble(object@candidate_models)
+  candidate_ids <- as.character(candidate_models[[model_id_col]])
+  update_ids <- as.character(updates[[model_id_col]])
+  missing_ids <- setdiff(update_ids, candidate_ids)
+  if (length(missing_ids) > 0L) {
+    stop(
+      sprintf("Unknown candidate model ID(s): %s", paste(missing_ids, collapse = ", ")),
+      call. = FALSE
+    )
+  }
+  duplicate_candidates <- unique(candidate_ids[duplicated(candidate_ids)])
+  if (length(duplicate_candidates) > 0L) {
+    stop(
+      sprintf("`candidate_models` contains duplicate model IDs: %s", paste(duplicate_candidates, collapse = ", ")),
+      call. = FALSE
+    )
+  }
+
+  for (col in update_cols) {
+    if (!col %in% names(candidate_models)) {
+      candidate_models[[col]] <- vector(mode = "list", length(candidate_ids))
+      if (!is.list(updates[[col]])) {
+        candidate_models[[col]] <- updates[[col]][rep(NA_integer_, length(candidate_ids))]
+      }
+    }
+    target_idx <- match(update_ids, candidate_ids)
+    if (is.list(updates[[col]])) {
+      if (!is.list(candidate_models[[col]])) {
+        candidate_models[[col]] <- as.list(candidate_models[[col]])
+      }
+      candidate_models[[col]][target_idx] <- updates[[col]]
+    } else {
+      candidate_models[[col]][target_idx] <- updates[[col]]
     }
   }
+
+  reference_anchors <- tibble::as_tibble(object@reference_anchors)
+  if (model_id_col %in% names(reference_anchors)) {
+    anchor_ids <- as.character(reference_anchors[[model_id_col]])
+    for (col in update_cols) {
+      if (!col %in% names(reference_anchors)) {
+        reference_anchors[[col]] <- candidate_models[[col]][match(anchor_ids, candidate_ids)]
+      }
+      anchor_idx <- match(anchor_ids, update_ids)
+      matched <- !is.na(anchor_idx)
+      if (!any(matched)) next
+      if (is.list(updates[[col]])) {
+        if (!is.list(reference_anchors[[col]])) {
+          reference_anchors[[col]] <- as.list(reference_anchors[[col]])
+        }
+        reference_anchors[[col]][matched] <- updates[[col]][anchor_idx[matched]]
+      } else {
+        reference_anchors[[col]][matched] <- updates[[col]][anchor_idx[matched]]
+      }
+    }
+  }
+
   Candidates(
     spec = object@spec,
     study_db = object@study_db,
     species_vector = object@species_vector,
     source_dbs = object@source_dbs,
     species_db = object@species_db,
-    candidate_models = candidate_models_now,
-    reference_anchors = anchors_now,
-    similarity_matrix = object@similarity_matrix,
-    gower_distances = object@gower_distances,
-    ordination = object@ordination,
-    admissibility = object@admissibility,
+    candidate_models = candidate_models,
+    reference_anchors = reference_anchors,
+    similarity_matrix = list(),
+    gower_distances = list(),
+    ordination = list(),
+    admissibility = list(),
     similarity_tuning = object@similarity_tuning
   )
 }

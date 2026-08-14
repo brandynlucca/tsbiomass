@@ -134,6 +134,115 @@ post_selection_support_score <- function(data) {
   score
 }
 
+#' Rescale a continuous support component onto a bounded score
+#'
+#' @param x Numeric vector to rescale.
+#' @param direction Whether larger or smaller values imply stronger support.
+#'
+#' @return Numeric vector.
+#'
+#' @keywords internal
+#' @noRd
+continuous_support_component <- function(x,
+                                         direction = c("high", "low")) {
+  direction_ <- match.arg(direction)
+  x_ <- suppressWarnings(as.numeric(x))
+  out <- rep(NA_real_, length(x_))
+  ok <- is.finite(x_)
+  if (!any(ok)) {
+    return(out)
+  }
+  if (identical(direction_, "high")) {
+    out[ok] <- 1 - exp(-pmax(x_[ok], 0))
+  } else {
+    out[ok] <- 1 / (1 + pmax(x_[ok], 0))
+  }
+  out
+}
+
+#' Compute continuous local support scores
+#'
+#' @param data Policy prediction or calibration rows.
+#'
+#' @return Numeric vector approximately between 0 and 1; larger values indicate
+#'   stronger transfer support.
+#'
+#' @keywords internal
+#' @noRd
+continuous_support_score <- function(data) {
+  data <- tibble::as_tibble(data)
+  n <- nrow(data)
+  if (n == 0) {
+    return(numeric())
+  }
+  num_col <- function(nm) {
+    if (nm %in% names(data)) {
+      suppressWarnings(as.numeric(data[[nm]]))
+    } else {
+      rep(NA_real_, n)
+    }
+  }
+  first_finite <- function(...) {
+    vals <- list(...)
+    out <- rep(NA_real_, n)
+    for (v in vals) {
+      replace <- !is.finite(out) & is.finite(v)
+      out[replace] <- v[replace]
+    }
+    out
+  }
+
+  distance <- first_finite(
+    num_col("weighted_mean_combined_distance"),
+    num_col("min_combined_distance"),
+    num_col("local_weighted_mean_combined_distance"),
+    num_col("local_min_combined_distance"),
+    num_col("anchor_selection_local_distance")
+  )
+  source_cells <- first_finite(
+    num_col("n_independent_source_cells"),
+    num_col("effective_donor_n"),
+    num_col("local_effective_support"),
+    num_col("n_donor_models"),
+    num_col("n_models")
+  )
+  effective_n <- first_finite(
+    num_col("effective_donor_n"),
+    num_col("local_effective_support"),
+    num_col("n_independent_source_cells"),
+    num_col("n_donor_models"),
+    num_col("n_models")
+  )
+  structural_spread <- first_finite(
+    num_col("local_structural_q_abs_log"),
+    num_col("q_abs_log_structural"),
+    num_col("donor_log_sigma_abs_dev_q90"),
+    num_col("donor_curve_rmse_q90")
+  )
+  length_overlap <- first_finite(
+    num_col("min_length_overlap_fraction"),
+    num_col("local_mean_length_overlap"),
+    num_col("length_overlap_fraction")
+  )
+  depth_overlap <- first_finite(
+    num_col("min_depth_overlap_fraction"),
+    num_col("local_mean_depth_overlap"),
+    num_col("depth_overlap_fraction")
+  )
+
+  components <- cbind(
+    continuous_support_component(distance, "low"),
+    continuous_support_component(source_cells / 5, "high"),
+    continuous_support_component(effective_n / 5, "high"),
+    continuous_support_component(structural_spread, "low"),
+    pmin(pmax(length_overlap, 0), 1),
+    pmin(pmax(depth_overlap, 0), 1)
+  )
+  score <- rowMeans(components, na.rm = TRUE)
+  score[!is.finite(score)] <- NA_real_
+  score
+}
+
 #' Return default post-selection support labels
 #'
 #' @param n_bins Number of support bins.
@@ -1794,6 +1903,97 @@ weighted_quantile_or_na <- function(x,
     ties = "ordered",
     rule = 2
   )$y[[1]]
+}
+
+#' Build continuous support-weighted conformal calibration state
+#'
+#' @keywords internal
+#' @noRd
+build_continuous_support_conformal <- function(calibration_rows,
+                                               alpha,
+                                               bandwidth = NULL) {
+  calibration_rows <- tibble::as_tibble(calibration_rows)
+  required_cols <- c("continuous_support_score", "abs_log_residual")
+  missing_cols <- setdiff(required_cols, names(calibration_rows))
+  if (length(missing_cols) > 0L) {
+    stop(
+      sprintf(
+        "Continuous support conformal calibration is missing column(s): %s",
+        paste(missing_cols, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+  alpha <- suppressWarnings(as.numeric(alpha %||% NA_real_)[[1]])
+  if (!is.finite(alpha) || alpha <= 0 || alpha >= 1) {
+    stop("'alpha' must be a finite value strictly between 0 and 1.", call. = FALSE)
+  }
+  rows <- calibration_rows |>
+    dplyr::transmute(
+      continuous_support_score = suppressWarnings(as.numeric(.data$continuous_support_score)),
+      abs_log_residual = suppressWarnings(as.numeric(.data$abs_log_residual))
+    ) |>
+    dplyr::filter(
+      is.finite(.data$continuous_support_score),
+      is.finite(.data$abs_log_residual),
+      .data$abs_log_residual >= 0
+    )
+  if (nrow(rows) < 2L) {
+    stop("Continuous support conformal calibration requires at least two finite residual rows.", call. = FALSE)
+  }
+  bandwidth <- suppressWarnings(as.numeric(bandwidth %||% NA_real_)[[1]])
+  if (!is.finite(bandwidth) || bandwidth <= 0) {
+    stop("Continuous support conformal calibration requires an explicit positive bandwidth.", call. = FALSE)
+  }
+  list(
+    rows = rows,
+    alpha = alpha,
+    bandwidth = bandwidth,
+    n_calibration_rows = nrow(rows)
+  )
+}
+
+#' Look up support-weighted conformal quantiles for query rows
+#'
+#' @keywords internal
+#' @noRd
+continuous_support_conformal_quantiles <- function(calibration,
+                                                   query_support_score) {
+  if (!is.list(calibration) || is.null(calibration$rows) ||
+    is.null(calibration$alpha) || is.null(calibration$bandwidth)) {
+    stop("Continuous support conformal prediction requires stored calibration state.", call. = FALSE)
+  }
+  rows <- tibble::as_tibble(calibration$rows)
+  alpha <- suppressWarnings(as.numeric(calibration$alpha %||% NA_real_)[[1]])
+  bandwidth <- suppressWarnings(as.numeric(calibration$bandwidth %||% NA_real_)[[1]])
+  if (!all(c("continuous_support_score", "abs_log_residual") %in% names(rows)) ||
+    nrow(rows) < 2L || !is.finite(alpha) || alpha <= 0 || alpha >= 1 ||
+    !is.finite(bandwidth) || bandwidth <= 0) {
+    stop("Stored continuous support conformal calibration is invalid.", call. = FALSE)
+  }
+  query_support_score <- suppressWarnings(as.numeric(query_support_score))
+  if (any(!is.finite(query_support_score))) {
+    stop("Continuous support conformal prediction requires finite query support scores.", call. = FALSE)
+  }
+  lookup_one <- function(score) {
+    weights <- exp(-abs(rows$continuous_support_score - score) / bandwidth)
+    weight_sum <- sum(weights)
+    if (!is.finite(weight_sum) || weight_sum <= 0) {
+      stop("Continuous support conformal weighting produced no positive calibration weight.", call. = FALSE)
+    }
+    normalized_weights <- weights / weight_sum
+    tibble::tibble(
+      continuous_conformal_q_abs_log = weighted_quantile_or_na(
+        rows$abs_log_residual,
+        weights,
+        prob = 1 - alpha
+      ),
+      continuous_conformal_effective_n = 1 / sum(normalized_weights^2),
+      continuous_conformal_weight_max = max(normalized_weights),
+      continuous_conformal_n_scores = nrow(rows)
+    )
+  }
+  purrr::map_dfr(query_support_score, lookup_one)
 }
 
 #' Compute multiple weighted central interval quantiles
@@ -3666,12 +3866,27 @@ select_coefficient_residual_pool <- function(coefficient_calibration,
     is.na(branch_value) || !nzchar(branch_value)) {
     return(tibble::tibble())
   }
+  anchor_id_chr <- as.character(row_now$anchor_model_id[[1]] %||% NA_character_)
+  anchor_species_chr <- as.character(row_now$anchor_species[[1]] %||% NA_character_)
 
   pool_now <- coefficient_calibration |>
     dplyr::filter(
       .data$policy == !!policy_value,
-      .data$equation_branch_filter == !!branch_value
+      .data$equation_branch_filter == !!branch_value,
+      is.na(.data$anchor_model_id) |
+        is.na(!!anchor_id_chr) |
+        .data$anchor_model_id != !!anchor_id_chr
     )
+  # Coefficient residuals are leave-species-out diagnostics. When the target
+  # species appears in the calibration table, exclude it from its own local
+  # display interval to avoid species-level leakage.
+  if (!is.na(anchor_species_chr) && nzchar(anchor_species_chr)) {
+    species_excluded <- pool_now |>
+      dplyr::filter(is.na(.data$anchor_species) | .data$anchor_species != !!anchor_species_chr)
+    if (nrow(species_excluded) >= as.integer(min_rows)) {
+      pool_now <- species_excluded
+    }
+  }
   if (nrow(pool_now) < as.integer(min_rows)) {
     return(tibble::tibble())
   }
@@ -3818,18 +4033,46 @@ fit_centered_coefficient_width_model <- function(coefficient_calibration,
     row_now = row_now,
     include_u = FALSE
   )
+  local_n <- ceiling(sqrt(nrow(training_tbl)))
+  local_n <- max(2L, min(nrow(training_tbl), as.integer(local_n)))
+  local_order <- order(weight_now, decreasing = TRUE, na.last = TRUE)
+  local_keep <- local_order[seq_len(local_n)]
+  training_local <- training_tbl[local_keep, , drop = FALSE]
+  pool_local <- pool_now[local_keep, , drop = FALSE]
+  weight_local <- weight_now[local_keep]
+  residual_local <- suppressWarnings(as.numeric(training_local$abs_residual))
+  residual_center <- stats::median(residual_local, na.rm = TRUE)
+  residual_scale <- stats::mad(residual_local, center = residual_center, constant = 1, na.rm = TRUE)
+  if (!is.finite(residual_scale) || residual_scale <= 0) {
+    residual_scale <- stats::IQR(residual_local, na.rm = TRUE) / 1.349
+  }
+  if (!is.finite(residual_scale) || residual_scale <= 0) {
+    residual_scale <- stats::sd(residual_local, na.rm = TRUE)
+  }
+  if (is.finite(residual_center) && is.finite(residual_scale) && residual_scale > 0) {
+    robust_keep <- is.finite(residual_local) &
+      residual_local <= residual_center + 3 * residual_scale
+    if (sum(robust_keep, na.rm = TRUE) >= 2L) {
+      training_local <- training_local[robust_keep, , drop = FALSE]
+      pool_local <- pool_local[robust_keep, , drop = FALSE]
+      weight_local <- weight_local[robust_keep]
+    }
+  }
+  if (!any(is.finite(weight_local) & weight_local > 0)) {
+    weight_local <- rep(1, nrow(training_local))
+  }
   width_now <- weighted_quantile_or_na(
-    x = training_tbl$abs_residual,
-    w = weight_now,
+    x = training_local$abs_residual,
+    w = weight_local,
     prob = suppressWarnings(as.numeric(tau)[[1]])
   )
 
   list(
     width = suppressWarnings(as.numeric(width_now[[1]] %||% NA_real_)),
-    support_n = dplyr::n_distinct(training_tbl$anchor_model_id),
-    row_n = nrow(training_tbl),
-    pool = pool_now |>
-      dplyr::mutate(locality_weight = weight_now)
+    support_n = dplyr::n_distinct(training_local$anchor_model_id),
+    row_n = nrow(training_local),
+    pool = pool_local |>
+      dplyr::mutate(locality_weight = weight_local)
   )
 }
 
@@ -3854,6 +4097,29 @@ coefficient_interval_critical_value <- function(support_n,
     return(stats::qt(tail_prob, df = max(support_n - 1, 1)))
   }
   stats::qnorm(tail_prob)
+}
+
+#' Extract realized donor identifiers from a selected policy row
+#'
+#' @param row_now One-row selected policy table.
+#'
+#' @return Character vector of donor model identifiers.
+#'
+#' @keywords internal
+#' @noRd
+policy_row_realized_donor_ids <- function(row_now) {
+  row_now <- tibble::as_tibble(row_now)
+  if (nrow(row_now) == 0L || !"realized_donor_fingerprint" %in% names(row_now)) {
+    return(character(0))
+  }
+  fingerprint <- as.character(row_now$realized_donor_fingerprint[[1]] %||% NA_character_)
+  if (is.na(fingerprint) || !nzchar(fingerprint)) {
+    return(character(0))
+  }
+  ids <- unlist(strsplit(fingerprint, "\\|", fixed = FALSE), use.names = FALSE)
+  ids <- stringr::str_squish(as.character(ids))
+  ids <- ids[!is.na(ids) & nzchar(ids)]
+  unique(ids)
 }
 
 #' Return the policy-competition pool for one row
@@ -4080,6 +4346,7 @@ anchor_pdf_from_row <- function(anchor_row,
 #' @param anchor_id_chr Anchor model identifier.
 #' @param length_grid Anchor length grid.
 #' @param pdf_weights Anchor PDF weights.
+#' @param donor_ids Optional realized donor model identifiers.
 #'
 #' @return Numeric vector on the length grid, or `NA` values when unavailable.
 #'
@@ -4088,7 +4355,8 @@ anchor_pdf_from_row <- function(anchor_row,
 donor_length_support_shape <- function(anchor_scores,
                                        anchor_id_chr,
                                        length_grid,
-                                       pdf_weights) {
+                                       pdf_weights,
+                                       donor_ids = NULL) {
   anchor_scores <- tibble::as_tibble(anchor_scores)
   length_grid <- suppressWarnings(as.numeric(length_grid))
   pdf_weights <- suppressWarnings(as.numeric(pdf_weights))
@@ -4106,6 +4374,12 @@ donor_length_support_shape <- function(anchor_scores,
   if (length(donor_id_col) > 0L) {
     donor_pool <- donor_pool |>
       dplyr::filter(as.character(.data[[donor_id_col[[1]]]]) != anchor_id_chr)
+    donor_ids_ <- unique(as.character(donor_ids %||% character(0)))
+    donor_ids_ <- donor_ids_[!is.na(donor_ids_) & nzchar(donor_ids_)]
+    if (length(donor_ids_) > 0L) {
+      donor_pool <- donor_pool |>
+        dplyr::filter(as.character(.data[[donor_id_col[[1]]]]) %in% donor_ids_)
+    }
   }
   if (nrow(donor_pool) == 0L) {
     return(rep(NA_real_, length(length_grid)))
@@ -4638,7 +4912,8 @@ calibrated_coefficient_covariance <- function(length_grid,
 #' @param policy_lookup Policy lookup table.
 #' @param policy_path Optional policy registry path.
 #' @param include_competition Logical; include near-tied competitors.
-#' @param lock_fixed_slope Logical; force zero slope variance for fixed-slope branches.
+#' @param lock_fixed_slope Deprecated. Fixed-slope strategies retain coefficient
+#'   prediction uncertainty from their leave-species-out residuals.
 #' @param length_grid_n Number of support points.
 #' @param ts_band_method TS-band construction method.
 #'
@@ -4718,6 +4993,7 @@ strategy_uncertainty_context <- function(row_now,
   policy_name <- as.character(row_now$selected_policy[[1]] %||% row_now$policy[[1]])
   branch_value <- resolve_selected_policy_branches(row_now)[[1]]
   is_fixed_branch <- identical(branch_value, "fixed20_only")
+  selected_donor_ids <- policy_row_realized_donor_ids(row_now)
   q_scalars <- strategy_q_scalars(row_now)
   q_scalars_ts <- lapply(q_scalars, log_multiplier_halfwidth_to_ts_db)
   ts_min_anchor_neighbors <- suppressWarnings(as.integer(
@@ -4752,64 +5028,18 @@ strategy_uncertainty_context <- function(row_now,
   slope_hat <- suppressWarnings(as.numeric(row_now$policy_slope_len[[1]]))
   intercept_hat <- suppressWarnings(as.numeric(row_now$policy_intercept_len[[1]]))
   selected_sigma_ok <- !is.null(selected_sigma) &&
-    coefficient_covariance_is_sane(
-      covariance = selected_sigma$covariance,
-      slope_hat = slope_hat,
-      intercept_hat = intercept_hat
-    )
+    is.matrix(selected_sigma$covariance) &&
+    identical(dim(selected_sigma$covariance), c(2L, 2L)) &&
+    all(is.finite(selected_sigma$covariance)) &&
+    is.finite(selected_sigma$n) &&
+    selected_sigma$n >= 2L
   raw_covariance <- NULL
   coefficient_support_n <- NA_real_
+  coefficient_covariance_source <- NA_character_
   if (selected_sigma_ok) {
     raw_covariance <- selected_sigma$covariance
     coefficient_support_n <- selected_sigma$n %||% NA_real_
-  } else {
-    donor_pool <- if (
-      !is.null(anchor_scores) &&
-        is.data.frame(anchor_scores) &&
-        nrow(anchor_scores) > 0 &&
-        "anchor_model_id" %in% names(anchor_scores)
-    ) {
-      anc_id_col_d <- intersect(c("model_id", "model_id"), names(anchor_scores))
-      df_d <- dplyr::filter(
-        tibble::as_tibble(anchor_scores),
-        as.character(.data$anchor_model_id) == anchor_id_chr
-      )
-      if (length(anc_id_col_d) > 0) {
-        df_d <- dplyr::filter(df_d, as.character(.data[[anc_id_col_d[[1]]]]) != anchor_id_chr)
-      }
-      slope_vals_d <- candidate_coalesce_column(df_d, c("slope_standard", "slope_len"))
-      intercept_vals_d <- candidate_coalesce_column(df_d, c("intercept_standard", "intercept_len"))
-      if (is.null(slope_vals_d) || length(slope_vals_d) == 0) {
-        slope_vals_d <- rep(NA_real_, nrow(df_d))
-      }
-      if (is.null(intercept_vals_d) || length(intercept_vals_d) == 0) {
-        intercept_vals_d <- rep(NA_real_, nrow(df_d))
-      }
-      df_d$slope_standard <- suppressWarnings(as.numeric(slope_vals_d))
-      df_d$intercept_standard <- suppressWarnings(as.numeric(intercept_vals_d))
-      dplyr::filter(df_d, is.finite(.data$slope_standard), is.finite(.data$intercept_standard))
-    } else {
-      tibble::tibble()
-    }
-    n_pool <- nrow(donor_pool)
-    if (n_pool >= 2) {
-      d_s <- suppressWarnings(as.numeric(donor_pool$slope_standard))
-      d_b <- suppressWarnings(as.numeric(donor_pool$intercept_standard))
-      wts_raw <- if ("w_adm" %in% names(donor_pool)) {
-        suppressWarnings(as.numeric(donor_pool$w_adm))
-      } else {
-        rep(1, n_pool)
-      }
-      wts_raw[!is.finite(wts_raw) | wts_raw <= 0] <- 1
-      wts <- wts_raw / sum(wts_raw)
-      m_s <- sum(wts * d_s)
-      m_b <- sum(wts * d_b)
-      var_s <- sum(wts * (d_s - m_s)^2)
-      var_b <- sum(wts * (d_b - m_b)^2)
-      cov_sb <- sum(wts * (d_s - m_s) * (d_b - m_b))
-      raw_covariance <- matrix(c(var_s, cov_sb, cov_sb, var_b), 2, 2)
-      coefficient_support_n <- n_pool
-    }
+    coefficient_covariance_source <- "empirical_selected_policy_residuals"
   }
 
   competition_support_n <- competition_sigma$n %||% NA_real_
@@ -4821,6 +5051,11 @@ strategy_uncertainty_context <- function(row_now,
     } else {
       raw_covariance + competition_sigma$covariance
     }
+    coefficient_covariance_source <- if (is.na(coefficient_covariance_source)) {
+      "near_tie_competition"
+    } else {
+      paste0(coefficient_covariance_source, "+near_tie_competition")
+    }
   }
 
   support_candidates <- c(coefficient_support_n, competition_support_n)
@@ -4829,17 +5064,6 @@ strategy_uncertainty_context <- function(row_now,
     min(support_candidates)
   } else {
     NA_real_
-  }
-
-  if (isTRUE(lock_fixed_slope) && isTRUE(is_fixed_branch)) {
-    if (is.null(raw_covariance) || !all(is.finite(raw_covariance))) {
-      raw_covariance <- matrix(c(0, 0, 0, 1), nrow = 2, ncol = 2)
-    } else {
-      raw_covariance <- suppressWarnings(as.matrix(raw_covariance))
-      raw_covariance[1, ] <- c(0, 0)
-      raw_covariance[, 1] <- c(0, 0)
-      raw_covariance[2, 2] <- pmax(raw_covariance[2, 2], 1e-8)
-    }
   }
 
   if (!is.null(raw_covariance) && all(is.finite(raw_covariance))) {
@@ -4852,6 +5076,10 @@ strategy_uncertainty_context <- function(row_now,
     Sigma <- sigma_result$covariance
     shape_modifier <- sigma_result$shape_modifier
   } else {
+    # Every selected policy carries post-selection uncertainty. When its
+    # leave-species-out coefficient residuals cannot identify a covariance
+    # direction, map that *same conditional radius* through the target's
+    # length design. This is not a global or donor-spread substitute.
     covariance_result <- calibrated_coefficient_covariance(
       length_grid = length_grid,
       pdf_weights = pdf_weights,
@@ -4859,6 +5087,7 @@ strategy_uncertainty_context <- function(row_now,
     )
     shape_modifier <- covariance_result$shape_modifier
     Sigma <- covariance_result$covariance
+    coefficient_covariance_source <- "policy_conditional_ts_geometry"
   }
 
   if (length(shape_modifier) != length(length_grid) || !all(is.finite(shape_modifier))) {
@@ -4887,7 +5116,8 @@ strategy_uncertainty_context <- function(row_now,
     anchor_scores = anchor_scores,
     anchor_id_chr = anchor_id_chr,
     length_grid = length_grid,
-    pdf_weights = pdf_weights
+    pdf_weights = pdf_weights,
+    donor_ids = selected_donor_ids
   )
   shape_strength_target <- suppressWarnings(as.numeric(
     policy_selector_config_value(
@@ -5284,7 +5514,14 @@ strategy_uncertainty_context <- function(row_now,
         if (is.na(donor_id_col)) {
           df
         } else {
-          dplyr::filter(df, as.character(.data[[donor_id_col]]) != anchor_id_chr)
+          df <- dplyr::filter(df, as.character(.data[[donor_id_col]]) != anchor_id_chr)
+          if (length(selected_donor_ids) > 0L) {
+            df <- dplyr::filter(
+              df,
+              as.character(.data[[donor_id_col]]) %in% selected_donor_ids
+            )
+          }
+          df
         }
       })() |>
       dplyr::mutate(
@@ -5363,6 +5600,7 @@ strategy_uncertainty_context <- function(row_now,
     },
     coefficient_covariance = Sigma,
     coefficient_support_n = coefficient_support_n,
+    coefficient_covariance_source = coefficient_covariance_source,
     policy_selection_competitor_n = competition_support_n
   )
 }
@@ -5566,25 +5804,6 @@ coefficient_bounds_from_ts_band <- function(ctx,
 
   candidate_vertices <- tibble::tibble()
 
-  if (identical(branch_value, "fixed20_only")) {
-    b_lo <- max(lo - slope_hat * x)
-    b_hi <- min(hi - slope_hat * x)
-    if (!is.finite(b_lo) || !is.finite(b_hi) || b_lo > b_hi + tol) {
-      return(NULL)
-    }
-    candidate_vertices <- tibble::tibble(
-      slope = rep(slope_hat, 2L),
-      intercept = c(b_lo, b_hi)
-    )
-    return(list(
-      slope_lo = slope_hat,
-      slope_hi = slope_hat,
-      intercept_lo = b_lo,
-      intercept_hi = b_hi,
-      vertices = candidate_vertices
-    ))
-  }
-
   dx <- outer(x, x, FUN = function(x_i, x_j) x_j - x_i)
   rhs <- outer(lo, hi, FUN = function(lo_i, hi_j) hi_j - lo_i)
 
@@ -5680,6 +5899,11 @@ coefficient_interval_from_context <- function(row_now,
   branch_value <- resolve_selected_policy_branches(row_now)[[1]]
   slope_hat <- suppressWarnings(as.numeric(row_now$policy_slope_len[[1]] %||% NA_real_))
   intercept_hat <- suppressWarnings(as.numeric(row_now$policy_intercept_len[[1]] %||% NA_real_))
+  ctx_support_n <- suppressWarnings(as.numeric(
+    ctx$coefficient_support_n %||%
+      ctx$ts_calibration_anchor_n %||%
+      NA_real_
+  ))
   Sigma_ctx <- tryCatch(
     suppressWarnings(as.matrix(ctx$coefficient_covariance)),
     error = function(e) NULL
@@ -5687,104 +5911,33 @@ coefficient_interval_from_context <- function(row_now,
   use_ctx_covariance <- !is.null(Sigma_ctx) &&
     is.matrix(Sigma_ctx) &&
     identical(dim(Sigma_ctx), c(2L, 2L)) &&
-    all(is.finite(Sigma_ctx))
+    all(is.finite(Sigma_ctx)) &&
+    is.finite(ctx_support_n) &&
+    ctx_support_n >= 2
   crit <- stats::qnorm(0.975)
 
   if (isTRUE(use_ctx_covariance)) {
     Sigma <- (Sigma_ctx + t(Sigma_ctx)) / 2
     diag(Sigma) <- pmax(diag(Sigma), 0)
-    slope_se <- if (identical(branch_value, "fixed20_only")) 0 else sqrt(Sigma[1, 1])
+    slope_se <- sqrt(Sigma[1, 1])
     intercept_se <- sqrt(Sigma[2, 2])
     slope_half_width <- crit * slope_se
     intercept_half_width <- crit * intercept_se
-    corr <- if (identical(branch_value, "fixed20_only")) {
-      0
-    } else if (Sigma[1, 1] > 0 && Sigma[2, 2] > 0) {
+    corr <- if (Sigma[1, 1] > 0 && Sigma[2, 2] > 0) {
       Sigma[1, 2] / sqrt(Sigma[1, 1] * Sigma[2, 2])
     } else {
       0
     }
-    support_n <- suppressWarnings(as.numeric(
-      ctx$coefficient_support_n %||%
-        ctx$ts_calibration_anchor_n %||%
-        NA_real_
-    ))
+    support_n <- ctx_support_n
+    interval_source <- "donor_covariance"
   } else {
-    slope_width_obj <- fit_centered_coefficient_width_model(
-      coefficient_calibration = coefficient_calibration,
-      row_now = row_now,
-      response_col = "slope_resid",
-      tau = 0.95
-    )
-    intercept_width_obj <- fit_centered_coefficient_width_model(
-      coefficient_calibration = coefficient_calibration,
-      row_now = row_now,
-      response_col = "intercept_resid",
-      tau = 0.95
-    )
-    if (is.null(intercept_width_obj)) {
-      return(NULL)
-    }
-
-    slope_half_width <- if (is.null(slope_width_obj)) {
-      NA_real_
-    } else {
-      suppressWarnings(as.numeric(slope_width_obj$width %||% NA_real_))
-    }
-    intercept_half_width <- suppressWarnings(as.numeric(intercept_width_obj$width %||% NA_real_))
-    slope_se <- slope_half_width / crit
-    intercept_se <- intercept_half_width / crit
-    corr_pool <- dplyr::bind_rows(
-      slope_width_obj$pool %||% tibble::tibble(),
-      intercept_width_obj$pool %||% tibble::tibble()
-    ) |>
-      dplyr::distinct()
-    corr <- if (!identical(branch_value, "fixed20_only") &&
-      nrow(corr_pool) >= 2L &&
-      all(c("slope_resid", "intercept_resid") %in% names(corr_pool))) {
-      weighted_cor_or_na(
-        x = corr_pool$slope_resid,
-        y = corr_pool$intercept_resid,
-        w = if ("locality_weight" %in% names(corr_pool)) corr_pool$locality_weight else rep(1, nrow(corr_pool))
-      )
-    } else {
-      NA_real_
-    }
-    if (!is.finite(corr)) {
-      corr <- 0
-    }
-    cov12 <- if (is.finite(slope_se) && is.finite(intercept_se)) {
-      corr * slope_se * intercept_se
-    } else {
-      NA_real_
-    }
-    Sigma <- matrix(
-      c(
-        if (identical(branch_value, "fixed20_only")) 0 else slope_se^2,
-        cov12,
-        cov12,
-        intercept_se^2
-      ),
-      nrow = 2,
-      byrow = TRUE
-    )
-    if (identical(branch_value, "fixed20_only")) {
-      Sigma[1, 2] <- 0
-      Sigma[2, 1] <- 0
-    }
-    support_n <- suppressWarnings(as.numeric(
-      intercept_width_obj$support_n %||%
-        slope_width_obj$support_n %||%
-        ctx$ts_calibration_anchor_n %||%
-        ctx$coefficient_support_n %||%
-        NA_real_
-    ))
+    return(NULL)
   }
 
   if (!is.finite(intercept_half_width)) {
     return(NULL)
   }
-  if (!identical(branch_value, "fixed20_only") && !is.finite(slope_half_width)) {
+  if (!is.finite(slope_half_width)) {
     return(NULL)
   }
 
@@ -5792,16 +5945,66 @@ coefficient_interval_from_context <- function(row_now,
   slope_hi <- slope_hat + slope_half_width
   intercept_lo <- intercept_hat - intercept_half_width
   intercept_hi <- intercept_hat + intercept_half_width
-  if (!is.finite(intercept_lo) || !is.finite(intercept_hi) || intercept_lo > intercept_hi) {
+
+  ts_region <- coefficient_bounds_from_ts_band(
+    ctx = ctx,
+    branch_value = branch_value,
+    slope_hat = slope_hat,
+    intercept_hat = intercept_hat,
+    level = 0.95
+  )
+  if (!is.null(ts_region)) {
+    region_slope_lo <- suppressWarnings(as.numeric(ts_region$slope_lo %||% NA_real_))
+    region_slope_hi <- suppressWarnings(as.numeric(ts_region$slope_hi %||% NA_real_))
+    region_intercept_lo <- suppressWarnings(as.numeric(ts_region$intercept_lo %||% NA_real_))
+    region_intercept_hi <- suppressWarnings(as.numeric(ts_region$intercept_hi %||% NA_real_))
+    if (is.finite(region_slope_lo) && is.finite(region_slope_hi)) {
+      slope_lo <- max(slope_lo, region_slope_lo, na.rm = TRUE)
+      slope_hi <- min(slope_hi, region_slope_hi, na.rm = TRUE)
+    }
+    if (is.finite(region_intercept_lo) && is.finite(region_intercept_hi)) {
+      intercept_lo <- max(intercept_lo, region_intercept_lo, na.rm = TRUE)
+      intercept_hi <- min(intercept_hi, region_intercept_hi, na.rm = TRUE)
+    }
+  }
+
+  slope_half_width <- if (is.finite(slope_lo) && is.finite(slope_hi) && slope_lo <= slope_hi) {
+    (slope_hi - slope_lo) / 2
+  } else {
+    NA_real_
+  }
+  intercept_half_width <- if (is.finite(intercept_lo) && is.finite(intercept_hi) && intercept_lo <= intercept_hi) {
+    (intercept_hi - intercept_lo) / 2
+  } else {
+    NA_real_
+  }
+  slope_se <- if (is.finite(slope_half_width)) slope_half_width / crit else NA_real_
+  intercept_se <- if (is.finite(intercept_half_width)) intercept_half_width / crit else NA_real_
+
+  if (!is.finite(slope_lo) || !is.finite(slope_hi) || slope_lo > slope_hi) {
     return(NULL)
   }
-  if (!identical(branch_value, "fixed20_only") &&
-    (!is.finite(slope_lo) || !is.finite(slope_hi) || slope_lo > slope_hi)) {
+  if (!is.finite(intercept_lo) || !is.finite(intercept_hi) || intercept_lo > intercept_hi) {
     return(NULL)
   }
   if (!is.finite(corr)) {
     corr <- 0
   }
+  cov12 <- if (is.finite(slope_se) && is.finite(intercept_se)) {
+    corr * slope_se * intercept_se
+  } else {
+    NA_real_
+  }
+  Sigma <- matrix(
+    c(
+      slope_se^2,
+      cov12,
+      cov12,
+      intercept_se^2
+    ),
+    nrow = 2,
+    byrow = TRUE
+  )
 
   list(
     slope_hat = slope_hat,
@@ -5815,6 +6018,7 @@ coefficient_interval_from_context <- function(row_now,
     covariance = Sigma,
     correlation = corr,
     support_n = support_n,
+    source = as.character(ctx$coefficient_covariance_source %||% interval_source),
     q95 = max(
       slope_half_width,
       intercept_half_width,
@@ -5897,8 +6101,8 @@ build_ts_conformal_panel_data <- function(selected_tbl,
       species_lookup = species_lookup,
       policy_lookup = policy_lookup,
       policy_path = policy_path,
-      include_competition = TRUE,
-      lock_fixed_slope = TRUE,
+      include_competition = FALSE,
+      lock_fixed_slope = FALSE,
       length_grid_n = length_grid_n,
       ts_band_method = ts_band_method
     )
@@ -5974,7 +6178,7 @@ augment_policy_coefficient_intervals <- function(policy_tbl,
     return(policy_tbl)
   }
   drop_cols <- grep(
-    "^policy_(slope|intercept)_len_(se|lo_95|hi_95)(\\..+)?$|^policy_coefficient_(covariance|correlation|support_n|competitor_n)(\\..+)?$",
+    "^policy_(slope|intercept)_len_(se|lo_95|hi_95)(\\..+)?$|^policy_coefficient_(covariance|correlation|support_n|competitor_n|source)(\\..+)?$",
     names(policy_tbl),
     value = TRUE
   )
@@ -6039,7 +6243,7 @@ augment_policy_coefficient_intervals <- function(policy_tbl,
       policy_lookup = policy_lookup,
       policy_path = policy_path,
       include_competition = FALSE,
-      lock_fixed_slope = TRUE,
+      lock_fixed_slope = FALSE,
       length_grid_n = length_grid_n
     )
     out <- coefficient_interval_from_context(
@@ -6077,19 +6281,10 @@ augment_policy_coefficient_intervals <- function(policy_tbl,
       function(j) conditional_summary_for_row(competitor_pool[j, , drop = FALSE])
     )
     competitor_summaries <- competitor_summaries[!vapply(competitor_summaries, is.null, logical(1))]
-    all_summaries <- c(list(base_summary), competitor_summaries)
-    slope_lo_vals <- vapply(all_summaries, function(x) suppressWarnings(as.numeric(x$slope_lo %||% NA_real_)), numeric(1))
-    slope_hi_vals <- vapply(all_summaries, function(x) suppressWarnings(as.numeric(x$slope_hi %||% NA_real_)), numeric(1))
-    intercept_lo_vals <- vapply(all_summaries, function(x) suppressWarnings(as.numeric(x$intercept_lo %||% NA_real_)), numeric(1))
-    intercept_hi_vals <- vapply(all_summaries, function(x) suppressWarnings(as.numeric(x$intercept_hi %||% NA_real_)), numeric(1))
-    slope_lo_vals <- slope_lo_vals[is.finite(slope_lo_vals)]
-    slope_hi_vals <- slope_hi_vals[is.finite(slope_hi_vals)]
-    intercept_lo_vals <- intercept_lo_vals[is.finite(intercept_lo_vals)]
-    intercept_hi_vals <- intercept_hi_vals[is.finite(intercept_hi_vals)]
-    slope_lo <- if (length(slope_lo_vals) > 0) min(slope_lo_vals, na.rm = TRUE) else NA_real_
-    slope_hi <- if (length(slope_hi_vals) > 0) max(slope_hi_vals, na.rm = TRUE) else NA_real_
-    intercept_lo <- if (length(intercept_lo_vals) > 0) min(intercept_lo_vals, na.rm = TRUE) else NA_real_
-    intercept_hi <- if (length(intercept_hi_vals) > 0) max(intercept_hi_vals, na.rm = TRUE) else NA_real_
+    slope_lo <- suppressWarnings(as.numeric(base_summary$slope_lo %||% NA_real_))
+    slope_hi <- suppressWarnings(as.numeric(base_summary$slope_hi %||% NA_real_))
+    intercept_lo <- suppressWarnings(as.numeric(base_summary$intercept_lo %||% NA_real_))
+    intercept_hi <- suppressWarnings(as.numeric(base_summary$intercept_hi %||% NA_real_))
     slope_se <- if (is.finite(slope_lo) && is.finite(slope_hi)) (slope_hi - slope_lo) / (2 * stats::qnorm(0.975)) else NA_real_
     intercept_se <- if (is.finite(intercept_lo) && is.finite(intercept_hi)) (intercept_hi - intercept_lo) / (2 * stats::qnorm(0.975)) else NA_real_
     Sigma <- base_summary$covariance
@@ -6103,7 +6298,8 @@ augment_policy_coefficient_intervals <- function(policy_tbl,
       policy_coefficient_covariance = Sigma[1, 2],
       policy_coefficient_correlation = base_summary$correlation %||% NA_real_,
       policy_coefficient_support_n = suppressWarnings(as.numeric(base_summary$support_n %||% NA_real_)),
-      policy_coefficient_competitor_n = length(all_summaries)
+      policy_coefficient_source = as.character(base_summary$source %||% NA_character_),
+      policy_coefficient_competitor_n = length(competitor_summaries) + 1L
     )
   })
   summaries <- dplyr::bind_cols(
@@ -6155,7 +6351,7 @@ augment_conditional_coeff_intervals <- function(policy_tbl,
     return(policy_tbl)
   }
   drop_cols <- grep(
-    "^conditional_policy_(slope|intercept)_len_(se|lo_95|hi_95)$|^conditional_policy_coefficient_(covariance|correlation|support_n|competitor_n)$",
+    "^conditional_policy_(slope|intercept)_len_(se|lo_95|hi_95)$|^conditional_policy_coefficient_(covariance|correlation|support_n|competitor_n|source)$",
     names(policy_tbl),
     value = TRUE
   )
@@ -6220,7 +6416,7 @@ augment_conditional_coeff_intervals <- function(policy_tbl,
       policy_lookup = policy_lookup,
       policy_path = policy_path,
       include_competition = FALSE,
-      lock_fixed_slope = TRUE,
+      lock_fixed_slope = FALSE,
       length_grid_n = length_grid_n
     )
     out <- coefficient_interval_from_context(
@@ -6261,6 +6457,7 @@ augment_conditional_coeff_intervals <- function(policy_tbl,
       conditional_policy_coefficient_covariance = Sigma[1, 2],
       conditional_policy_coefficient_correlation = base_summary$correlation %||% NA_real_,
       conditional_policy_coefficient_support_n = suppressWarnings(as.numeric(base_summary$support_n %||% NA_real_)),
+      conditional_policy_coefficient_source = as.character(base_summary$source %||% NA_character_),
       conditional_policy_coefficient_competitor_n = 1
     )
   })
@@ -6381,7 +6578,7 @@ augment_policy_ts_envelope_summary <- function(policy_tbl,
       policy_lookup = policy_lookup,
       policy_path = policy_path,
       include_competition = FALSE,
-      lock_fixed_slope = TRUE,
+      lock_fixed_slope = FALSE,
       length_grid_n = length_grid_n
     )
     if (is.null(ctx_now)) {

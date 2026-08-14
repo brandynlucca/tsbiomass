@@ -2754,8 +2754,28 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     dplyr::transmute(
       selected_score_abs_log = .data[[calibration_outcome_col]],
       post_selection_support_bin,
+      continuous_support_score = continuous_support_score(meta_selected),
+      abs_log_residual = .data[[calibration_outcome_col]],
       n_selected_rows = 1L
     )
+  continuous_support_conformal <- isTRUE(policy_selector_config_value(
+    cfg,
+    "continuous_support_conformal",
+    sections = c("selection", "uncertainty", "policy_learner")
+  ))
+  continuous_support_calibration <- if (continuous_support_conformal) {
+    build_continuous_support_conformal(
+      calibration_rows = meta_calibration,
+      alpha = alpha,
+      bandwidth = policy_selector_config_value(
+        cfg,
+        "continuous_support_bandwidth",
+        sections = c("selection", "uncertainty", "policy_learner")
+      )
+    )
+  } else {
+    list()
+  }
   meta_simultaneous_calibration <- meta_selected |>
     dplyr::filter(is.finite(.data[[calibration_outcome_col]])) |>
     dplyr::group_by(anchor_species) |>
@@ -3211,6 +3231,8 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       q_global = meta_q_global,
       q_simultaneous_global = meta_q_simultaneous_global,
       bin_quantiles = meta_bin_quantiles,
+      continuous_support_conformal = continuous_support_conformal,
+      continuous_support_calibration = continuous_support_calibration,
       local_q_lookup = meta_local_q_lookup,
       coverage = meta_calibration_coverage,
       width_predictions = tibble::as_tibble(width_selected_local),
@@ -3249,6 +3271,90 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
         n_bins = as.integer(n_bins)
       )
     )
+  )
+}
+
+#' Build explicit ensemble-disagreement interval components
+#'
+#' @param tbl Scored anchor-policy rows.
+#' @param enabled Whether disagreement uncertainty is enabled.
+#' @param distance_weight Non-negative multiplier for learned-distance
+#'   disagreement.
+#' @param meta_score_weight Non-negative multiplier for meta-score
+#'   disagreement.
+#'
+#' @return A tibble of interval components.
+#'
+#' @keywords internal
+#' @noRd
+policy_learner_ensemble_disagreement_uncertainty <- function(tbl,
+                                                             enabled = FALSE,
+                                                             distance_weight = NULL,
+                                                             meta_score_weight = NULL) {
+  tbl <- tibble::as_tibble(tbl)
+  n_rows <- nrow(tbl)
+  if (!isTRUE(enabled)) {
+    return(tibble::tibble(
+      ensemble_disagreement_uncertainty_enabled = rep(FALSE, n_rows),
+      meta_q_abs_log_distance_disagreement = rep(0, n_rows),
+      meta_q_abs_log_meta_score_disagreement = rep(0, n_rows),
+      meta_q_abs_log_disagreement = rep(0, n_rows)
+    ))
+  }
+
+  validate_weight <- function(value, name) {
+    value <- suppressWarnings(as.numeric(value))
+    if (length(value) != 1L || !is.finite(value) || value < 0) {
+      stop(
+        sprintf("Ensemble-disagreement uncertainty requires an explicit non-negative `%s`.", name),
+        call. = FALSE
+      )
+    }
+    value
+  }
+  distance_weight <- validate_weight(distance_weight, "distance_disagreement_weight")
+  meta_score_weight <- validate_weight(meta_score_weight, "meta_score_disagreement_weight")
+
+  required_cols <- c(
+    ".meta_score_diagnostic_available",
+    ".meta_score_weighted_disagreement",
+    "learned_distance_diagnostic_available",
+    "local_weighted_mean_learned_distance_disagreement"
+  )
+  missing_cols <- setdiff(required_cols, names(tbl))
+  if (length(missing_cols) > 0L) {
+    stop(
+      sprintf(
+        "Ensemble-disagreement uncertainty requires diagnostic columns: %s.",
+        paste(missing_cols, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+
+  meta_available <- as.logical(tbl$.meta_score_diagnostic_available)
+  distance_available <- as.logical(tbl$learned_distance_diagnostic_available)
+  if (anyNA(meta_available) || anyNA(distance_available)) {
+    stop("Ensemble-disagreement uncertainty requires explicit diagnostic availability indicators.", call. = FALSE)
+  }
+  meta_disagreement <- suppressWarnings(as.numeric(tbl$.meta_score_weighted_disagreement))
+  distance_disagreement <- suppressWarnings(
+    as.numeric(tbl$local_weighted_mean_learned_distance_disagreement)
+  )
+  if (any(meta_available & !is.finite(meta_disagreement))) {
+    stop("Meta-policy diagnostic state is inconsistent: available disagreement values must be finite.", call. = FALSE)
+  }
+  if (any(distance_available & !is.finite(distance_disagreement))) {
+    stop("Distance diagnostic state is inconsistent: available disagreement values must be finite.", call. = FALSE)
+  }
+
+  meta_component <- ifelse(meta_available, meta_score_weight * meta_disagreement, 0)
+  distance_component <- ifelse(distance_available, distance_weight * distance_disagreement, 0)
+  tibble::tibble(
+    ensemble_disagreement_uncertainty_enabled = rep(TRUE, n_rows),
+    meta_q_abs_log_distance_disagreement = distance_component,
+    meta_q_abs_log_meta_score_disagreement = meta_component,
+    meta_q_abs_log_disagreement = sqrt(distance_component^2 + meta_component^2)
   )
 }
 
@@ -3318,6 +3424,12 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   support_bin_quantiles <- tibble::as_tibble(cal_obj$bin_quantiles %||% tibble::tibble())
   has_support_bin_calibration <- nrow(support_bin_quantiles) > 0 &&
     "q_abs_log" %in% names(support_bin_quantiles)
+  use_continuous_support_conformal <- isTRUE(cal_obj$continuous_support_conformal)
+  if (use_continuous_support_conformal &&
+    (!is.list(cal_obj$continuous_support_calibration) ||
+      length(cal_obj$continuous_support_calibration) == 0L)) {
+    stop("Continuous support conformal prediction requires stored calibration state.", call. = FALSE)
+  }
   cfg_use_support_bin_intervals <- policy_selector_config_value(
     cfg,
     "use_support_bin_intervals",
@@ -3332,8 +3444,8 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     FALSE
 
   scored <- predict_meta_policy_score(fit_obj$model, new_policy_tbl)
-  use_direct_support_bin_intervals <- isTRUE(use_support_bin_intervals) &&
-    has_support_bin_calibration
+  use_direct_support_bin_intervals <- use_continuous_support_conformal ||
+    (isTRUE(use_support_bin_intervals) && has_support_bin_calibration)
 
   if (!"valid_prediction" %in% names(scored)) {
     if ("n_valid_models" %in% names(scored)) {
@@ -3345,7 +3457,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     }
   }
 
-  if (isTRUE(use_support_bin_intervals)) {
+  if (isTRUE(use_support_bin_intervals) && !use_continuous_support_conformal) {
     scored <- assign_post_selection_support_bins(
       scored,
       cutpoints = cal_obj$support_cutpoints %||% NULL,
@@ -3358,12 +3470,32 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     scored$post_selection_support_bin <- NA_character_
     scored$post_selection_support_label <- NA_character_
   }
+
+  min_local_scores <- suppressWarnings(as.integer(
+    cal_obj$min_bin_scores %||%
+      policy_selector_config_value(cfg, "min_bin_scores", sections = c("selection")) %||%
+      10L
+  ))
+  if (!is.finite(min_local_scores) || min_local_scores < 1L) {
+    min_local_scores <- 10L
+  }
   scored <- policy_learner_prepare_context(
     scored,
     anchor_lookup = cal_obj$anchor_lookup %||% NULL
   )
 
-  if (isTRUE(use_support_bin_intervals)) {
+  if (use_continuous_support_conformal) {
+    scored$continuous_support_score <- continuous_support_score(scored)
+    continuous_lookup <- continuous_support_conformal_quantiles(
+      calibration = cal_obj$continuous_support_calibration,
+      query_support_score = scored$continuous_support_score
+    )
+    scored <- dplyr::bind_cols(scored, continuous_lookup) |>
+      dplyr::mutate(
+        meta_q_abs_log = .data$continuous_conformal_q_abs_log,
+        meta_q_abs_log_simultaneous = NA_real_
+      )
+  } else if (isTRUE(use_support_bin_intervals)) {
     scored <- scored |>
       dplyr::left_join(
         tibble::as_tibble(cal_obj$bin_quantiles %||% tibble::tibble()) |>
@@ -3407,6 +3539,27 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     scored$coefficient_intercept_q95 <- NA_real_
   }
 
+  ensemble_disagreement_uncertainty <- isTRUE(policy_selector_config_value(
+    cfg,
+    "ensemble_disagreement_uncertainty",
+    sections = c("selection", "uncertainty", "policy_learner")
+  ))
+  disagreement_components <- policy_learner_ensemble_disagreement_uncertainty(
+    scored,
+    enabled = ensemble_disagreement_uncertainty,
+    distance_weight = policy_selector_config_value(
+      cfg,
+      "distance_disagreement_weight",
+      sections = c("selection", "uncertainty", "policy_learner")
+    ),
+    meta_score_weight = policy_selector_config_value(
+      cfg,
+      "meta_score_disagreement_weight",
+      sections = c("selection", "uncertainty", "policy_learner")
+    )
+  )
+  scored <- dplyr::bind_cols(scored, disagreement_components)
+
   width_model_now <- cal_obj$width_model$model %||% NULL
   configured_width_source <- cal_obj$uncertainty_prediction_source %||%
     cal_obj$width_prediction_source %||%
@@ -3430,43 +3583,20 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   scored$meta_q_abs_log_factor_source <- rep(NA_character_, nrow(scored))
   scored$meta_q_abs_log_factor_n_scores <- rep(NA_real_, nrow(scored))
 
-  # Reapply the pooled local width lookup at prediction time so the learned
-  # width model receives a context-aware conformal multiplier with global
-  # fallback when the query lands outside any supported local slice.
-  local_width_lookup <- cal_obj$local_width_lookup %||% NULL
-  if (is.list(local_width_lookup) && length(local_width_lookup) > 0) {
-    scored_local_width <- policy_learner_apply_local_lookup(
-      tbl = scored,
-      lookup = local_width_lookup,
-      value_col = "meta_q_abs_log_conformal_factor",
-      source_col = "meta_q_abs_log_factor_source",
-      n_col = "meta_q_abs_log_factor_n_scores"
-    )
-    scored$meta_q_abs_log_conformal_factor <- suppressWarnings(
-      as.numeric(scored_local_width$meta_q_abs_log_conformal_factor)
-    )
-    scored$meta_q_abs_log_factor_source <- as.character(
-      scored_local_width$meta_q_abs_log_factor_source
-    )
-    scored$meta_q_abs_log_factor_n_scores <- suppressWarnings(
-      as.numeric(scored_local_width$meta_q_abs_log_factor_n_scores)
-    )
+  # The formal post-selection interval is R_i = nu_(1-alpha) * u_hat(v_i).
+  # u_hat(v_i) remains anchor- and policy-conditioned. The normalized
+  # conformal quantile is pooled over held-out selected strategies, as defined
+  # in the methods; sparse policy-only multipliers are not part of R_i.
+  global_width_factor <- suppressWarnings(as.numeric(cal_obj$width_factor_global %||% 1))
+  if (!is.finite(global_width_factor) || global_width_factor <= 0) {
+    global_width_factor <- 1
   }
-
-  # Finish with the stored global fallback so unsupported contexts still return
-  # a valid interval scale.
-  scored$meta_q_abs_log_conformal_factor <- dplyr::coalesce(
-    scored$meta_q_abs_log_conformal_factor,
-    suppressWarnings(as.numeric(cal_obj$width_factor_global %||% 1))
-  )
-  scored$meta_q_abs_log_factor_source <- dplyr::coalesce(
-    scored$meta_q_abs_log_factor_source,
-    "global_scale_conformal"
-  )
-  scored$meta_q_abs_log_factor_n_scores <- dplyr::coalesce(
-    scored$meta_q_abs_log_factor_n_scores,
-    suppressWarnings(as.numeric(nrow(tibble::as_tibble(cal_obj$selected %||% tibble::tibble()))))
-  )
+  pooled_width_n <- suppressWarnings(as.numeric(
+    nrow(tibble::as_tibble(cal_obj$selected %||% tibble::tibble()))
+  ))
+  scored$meta_q_abs_log_conformal_factor <- rep(global_width_factor, nrow(scored))
+  scored$meta_q_abs_log_factor_source <- rep("pooled_normalized_conformal", nrow(scored))
+  scored$meta_q_abs_log_factor_n_scores <- rep(pooled_width_n, nrow(scored))
 
   local_q_lookup <- cal_obj$local_q_lookup %||% NULL
   if (is.list(local_q_lookup) && length(local_q_lookup) > 0) {
@@ -3487,17 +3617,12 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       as.numeric(scored_local_q$meta_q_abs_log_n_scores)
     )
   }
-  scored$meta_q_abs_log_local <- dplyr::coalesce(
-    scored$meta_q_abs_log_local,
-    suppressWarnings(as.numeric(cal_obj$q_global %||% NA_real_))
-  )
+  # The local lookup is retained as an audit diagnostic only.  A global
+  # selected-error quantile is not a defensible substitute for the
+  # species-and-policy-conditioned post-selection uncertainty model.
   scored$meta_q_abs_log_source <- dplyr::coalesce(
     scored$meta_q_abs_log_source,
-    "global_selected_conformal"
-  )
-  scored$meta_q_abs_log_n_scores <- dplyr::coalesce(
-    scored$meta_q_abs_log_n_scores,
-    suppressWarnings(as.numeric(nrow(tibble::as_tibble(cal_obj$selected %||% tibble::tibble()))))
+    "unavailable_local_diagnostic"
   )
 
   # Compute the anchor-level minimum predicted score once, then join it back so
@@ -3593,7 +3718,8 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       meta_q_abs_log_simultaneous_calibration = .data$meta_q_abs_log_simultaneous,
       meta_q_abs_log_total = sqrt(
         .data$meta_q_abs_log_width_total^2 +
-          dplyr::coalesce(.data$q_abs_log_structural, 0)^2
+          dplyr::coalesce(.data$q_abs_log_structural, 0)^2 +
+          .data$meta_q_abs_log_disagreement^2
       ),
       meta_q_abs_log_simultaneous_total = sqrt(
         pmax(
@@ -3601,7 +3727,8 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
           dplyr::coalesce(.data$meta_q_abs_log_simultaneous, .data$meta_q_abs_log_width * .data$meta_q_abs_log_simultaneous_factor),
           na.rm = TRUE
         )^2 +
-          dplyr::coalesce(.data$q_abs_log_structural, 0)^2
+          dplyr::coalesce(.data$q_abs_log_structural, 0)^2 +
+          .data$meta_q_abs_log_disagreement^2
       ),
       meta_simultaneous_interval_factor = dplyr::if_else(
         is.finite(.data$meta_q_abs_log_simultaneous_total),
@@ -3637,58 +3764,6 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       selection_tier = "meta_policy_lexicographic_selection"
     ) |>
     dplyr::ungroup()
-  if (!isTRUE(use_direct_support_bin_intervals)) {
-    scored <- scored |>
-      dplyr::mutate(
-        meta_q_abs_log_width_total = pmax(
-          .data$meta_q_abs_log_width_total,
-          dplyr::coalesce(.data$meta_q_abs_log_local, 0),
-          na.rm = TRUE
-        ),
-        meta_q_abs_log = .data$meta_q_abs_log_width_total,
-        meta_q_abs_log_calibration = .data$meta_q_abs_log_width_total,
-        meta_q_abs_log_total = sqrt(
-          .data$meta_q_abs_log_width_total^2 +
-            dplyr::coalesce(.data$q_abs_log_structural, 0)^2
-        ),
-        meta_q_abs_log_simultaneous_total = sqrt(
-          pmax(
-            .data$meta_q_abs_log_width_total,
-            dplyr::coalesce(
-              .data$meta_q_abs_log_simultaneous,
-              .data$meta_q_abs_log_width * .data$meta_q_abs_log_simultaneous_factor
-            ),
-            na.rm = TRUE
-          )^2 +
-            dplyr::coalesce(.data$q_abs_log_structural, 0)^2
-        ),
-        meta_simultaneous_interval_factor = dplyr::if_else(
-          is.finite(.data$meta_q_abs_log_simultaneous_total),
-          exp(.data$meta_q_abs_log_simultaneous_total),
-          NA_real_
-        ),
-        meta_post_selection_multiplier_lo = dplyr::if_else(
-          is.finite(.data$multiplier_pred) & .data$multiplier_pred > 0 & is.finite(.data$meta_q_abs_log_total),
-          .data$multiplier_pred * exp(-.data$meta_q_abs_log_total),
-          NA_real_
-        ),
-        meta_post_selection_multiplier_hi = dplyr::if_else(
-          is.finite(.data$multiplier_pred) & .data$multiplier_pred > 0 & is.finite(.data$meta_q_abs_log_total),
-          .data$multiplier_pred * exp(.data$meta_q_abs_log_total),
-          NA_real_
-        ),
-        meta_post_selection_interval_log_width = dplyr::if_else(
-          is.finite(.data$meta_q_abs_log_total),
-          2 * .data$meta_q_abs_log_total,
-          NA_real_
-        ),
-        meta_interval_factor = dplyr::if_else(
-          is.finite(.data$meta_q_abs_log_total),
-          exp(.data$meta_q_abs_log_total),
-          NA_real_
-        )
-      )
-  }
   scored <- scored |>
     dplyr::mutate(
       .policy_row_id = seq_len(dplyr::n()),

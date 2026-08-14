@@ -2837,7 +2837,18 @@ plot_policy_component_heatmap <- function(perf_tbl,
     dplyr::pull(.data$component_level) |>
     unique()
   component_levels_tbl <- summary_tbl |>
+    dplyr::distinct(.data$component, .data$component_level) |>
+    dplyr::bind_rows(
+      # Generalized-model policies are part of the configured strategy grammar.
+      # Keep their cells visible when every benchmark row is invalid so a gray
+      # tile is an explicit admissibility outcome rather than a missing panel.
+      tibble::tibble(
+        component = "Candidate pool",
+        component_level = "Generalized models"
+      )
+    ) |>
     dplyr::distinct(.data$component, .data$component_level)
+  level_order <- unique(c(level_order, "Generalized models"))
   plot_tbl <- tidyr::expand_grid(
     anchor_species = anchor_levels,
     component_levels_tbl
@@ -4144,28 +4155,18 @@ plot_anchor_summary <- function(integrated_tbl,
       legend.position = "none"
     )
 
-  legend_height <- 0.16
-  legend <- grid::grobTree(
-    grid::rectGrob(gp = grid::gpar(fill = "white", col = NA)),
-    grid::pointsGrob(x = grid::unit(0.06, "npc"), y = grid::unit(0.79, "npc"), pch = 16, size = grid::unit(2.1, "mm"), gp = grid::gpar(col = scales::alpha("#1b1b1b", 0.55))),
-    grid::textGrob("Admissible models", x = grid::unit(0.064, "npc"), y = grid::unit(0.79, "npc"), gp = grid::gpar(fontsize = 14.5)),
-    grid::segmentsGrob(x0 = grid::unit(0.34, "npc"), x1 = grid::unit(0.40, "npc"), y0 = grid::unit(0.79, "npc"), y1 = grid::unit(0.79, "npc"), gp = grid::gpar(col = "#b2182b", lwd = 1.8, lineend = "butt")),
-    grid::pointsGrob(x = grid::unit(0.37, "npc"), y = grid::unit(0.79, "npc"), pch = 16, size = grid::unit(2.3, "mm"), gp = grid::gpar(col = "#b2182b")),
-    grid::textGrob("Selected strategy", x = grid::unit(0.405, "npc"), y = grid::unit(0.79, "npc"), gp = grid::gpar(fontsize = 14.5)),
-    grid::textGrob("Admissible model quantiles", x = grid::unit(0.058, "npc"), y = grid::unit(0.49, "npc"), gp = grid::gpar(fontsize = 14.5)),
-    grid::pointsGrob(x = grid::unit(0.34, "npc"), y = grid::unit(0.49, "npc"), pch = 16, size = grid::unit(2.1, "mm"), gp = grid::gpar(col = scales::alpha("#b2182b", 0.25))),
-    grid::textGrob("All tested strategies", x = grid::unit(0.352, "npc"), y = grid::unit(0.49, "npc"), gp = grid::gpar(fontsize = 14.5)),
-    grid::segmentsGrob(x0 = grid::unit(c(0.09, 0.132), "npc"), x1 = grid::unit(c(0.122, 0.164), "npc"), y0 = grid::unit(c(0.24, 0.24), "npc"), y1 = grid::unit(c(0.24, 0.24), "npc"), gp = grid::gpar(col = "#1b1b1b", lwd = c(3, 1.5), lineend = "butt")),
-    grid::textGrob(c("80%", "90%", "95%"), x = grid::unit(c(0.106, 0.152, 0.198), "npc"), y = grid::unit(0.11, "npc"), just = "center", gp = grid::gpar(fontsize = 13)),
-    grid::segmentsGrob(x0 = grid::unit(c(0.178, 0.178, 0.210), "npc"), x1 = grid::unit(c(0.210, 0.178, 0.210), "npc"), y0 = grid::unit(c(0.24, 0.208, 0.208), "npc"), y1 = grid::unit(c(0.24, 0.272, 0.272), "npc"), gp = grid::gpar(col = "#1b1b1b", lwd = 1, lineend = "butt"))
-  )
-  figure <- grid::grobTree(
-    grid::grobTree(legend, vp = grid::viewport(x = 0.5, y = 1 - legend_height / 2, width = 1, height = legend_height)),
-    grid::grobTree(ggplot2::ggplotGrob(base_plot), vp = grid::viewport(x = 0.5, y = (1 - legend_height) / 2, width = 1, height = 1 - legend_height))
-  )
-  grid::grid.newpage()
-  grid::grid.draw(figure)
-  invisible(figure)
+  base_plot +
+    ggplot2::labs(
+      title = "Integrated Anchor-Level Biomass Multiplier Summary",
+      subtitle = paste(
+        "Black points and intervals: admissible models (80%, 90%, 95%).",
+        "Red points and intervals: tested and selected strategies."
+      )
+    ) +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(size = 15.75),
+      plot.subtitle = ggplot2::element_text(size = 9, colour = "grey35")
+    )
 }
 
 #' Plot FAO study distribution map
@@ -4601,11 +4602,11 @@ plot_policy_coefficients <- function(coefficient_tbl) {
   plot_df$estimate_intercept <- resolve_one(plot_df, c("policy_intercept_len"))
   plot_df$anchor_slope <- suppressWarnings(as.numeric(resolve_one(
     plot_df,
-    c("anchor_slope_standard", "anchor_slope_len")
+    c("anchor_slope_len", "anchor_slope_standard")
   )))
   plot_df$anchor_intercept <- suppressWarnings(as.numeric(resolve_one(
     plot_df,
-    c("anchor_intercept_standard", "anchor_intercept_len")
+    c("anchor_intercept_len", "anchor_intercept_standard")
   )))
   post_df <- dplyr::bind_rows(
     plot_df |>
@@ -4855,7 +4856,7 @@ plot_policy_coefficients <- function(coefficient_tbl) {
         "SWFSC model" = "SWFSC"
       ),
       name = NULL,
-      drop = FALSE
+      drop = TRUE
     ) +
     ggplot2::labs(
       x = "Coefficient value",

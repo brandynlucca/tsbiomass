@@ -389,13 +389,50 @@ validate_referee_provenance <- function(selector,
   selected_anchor_ids <- unique(as.character(selected_tbl$anchor_model_id))
   consensus_anchor_ids <- unique(as.character(consensus_tbl$anchor_model_id))
 
-  if (!setequal(selected_anchor_ids, anchor_ids)) {
+  external_anchor_ids <- function(tbl, table_name) {
+    if (!"anchor_is_external" %in% names(tbl)) {
+      return(character(0))
+    }
+    marker <- as.logical(tbl$anchor_is_external)
+    if (anyNA(marker)) {
+      stop(
+        sprintf("`predictions` has missing `anchor_is_external` values in %s.", table_name),
+        call. = FALSE
+      )
+    }
+    unique(as.character(tbl$anchor_model_id[marker]))
+  }
+  selected_external_ids <- external_anchor_ids(selected_tbl, "selections")
+  consensus_external_ids <- external_anchor_ids(consensus_tbl, "consensus")
+  interval_external_ids <- external_anchor_ids(intervals_tbl, "intervals")
+  external_id_sets <- list(
+    selections = selected_external_ids,
+    consensus = consensus_external_ids,
+    intervals = interval_external_ids
+  )
+  if (!all(vapply(
+    external_id_sets,
+    function(ids) setequal(ids, selected_external_ids),
+    logical(1)
+  ))) {
+    stop(
+      "`anchor_is_external` must identify the same external anchor IDs in intervals, selections, and consensus.",
+      call. = FALSE
+    )
+  }
+  external_ids <- unique(c(selected_external_ids, consensus_external_ids, interval_external_ids))
+  if (length(intersect(external_ids, anchor_ids)) > 0L) {
+    stop("`predictions` marks selector reference-anchor IDs as external.", call. = FALSE)
+  }
+  allowed_anchor_ids <- unique(c(anchor_ids, external_ids))
+
+  if (!setequal(selected_anchor_ids, allowed_anchor_ids)) {
     stop(
       "`predictions` does not match the selector's reference-anchor ids.",
       call. = FALSE
     )
   }
-  if (!setequal(consensus_anchor_ids, anchor_ids)) {
+  if (!setequal(consensus_anchor_ids, allowed_anchor_ids)) {
     stop(
       "`predictions` does not match the selector's reference-anchor ids.",
       call. = FALSE
@@ -1087,8 +1124,11 @@ build_referee_scorecard <- function(object,
   intervals_tbl <- scorecard_normalize_multiplier_columns(intervals_tbl)
   candidate_models <- tibble::as_tibble(selector@candidates@candidate_models)
   anchor_scores <- tibble::as_tibble((selector@candidates@admissibility)$all_scores %||% tibble::tibble())
-  ordination_scores <- (selector@candidates@ordination)$model_scores %||% NULL
-  ordination_species_lookup <- (selector@candidates@ordination)$species_lookup %||% NULL
+  ordination_context <- policy_selector_ordination_context(
+    selector@candidates@ordination
+  )
+  ordination_scores <- ordination_context$model_scores
+  ordination_species_lookup <- ordination_context$species_lookup
   policy_cfg <- selector@config$policy %||% selector@config
   learner_selected_calibration <- if (is_s7_instance(
     object@learner,

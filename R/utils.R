@@ -38,6 +38,27 @@ is_missing_species_identity <- function(x) {
   is.na(value) | !nzchar(value) | grepl("^na(?:\\s+na)*$", value, perl = TRUE)
 }
 
+#' Return canonical ordination context fields
+#'
+#' @param ordination Ordination bundle stored on a `Candidates` or `Alchemist`
+#'   object.
+#'
+#' @return List with `model_scores`, `species_lookup`, and `points_missing_df`.
+#' @keywords internal
+#' @noRd
+policy_selector_ordination_context <- function(ordination) {
+  ordination <- ordination %||% list()
+  model_obj <- ordination$model %||% list()
+  list(
+    model_scores = model_obj$model_scores %||%
+      model_obj$scores %||%
+      ordination$model_scores %||%
+      NULL,
+    species_lookup = ordination$species_lookup %||% NULL,
+    points_missing_df = model_obj$points_missing %||% tibble::tibble()
+  )
+}
+
 #' Check whether an object inherits from a loaded S7 class
 #'
 #' @param object Object to test.
@@ -463,9 +484,27 @@ initialize_parallel_cluster <- function(workers,
   }
   attr(cluster_obj, "cluster_type") <- "psock"
   library_paths <- .libPaths()
+  namespace_path <- normalizePath(
+    getNamespaceInfo(asNamespace(package_name), "path"),
+    winslash = "/",
+    mustWork = FALSE
+  )
+  installed_candidates <- file.path(library_paths, package_name)
+  installed_candidates <- installed_candidates[dir.exists(installed_candidates)]
+  installed_path <- if (length(installed_candidates) > 0L) {
+    normalizePath(installed_candidates[[1]], winslash = "/", mustWork = FALSE)
+  } else {
+    NA_character_
+  }
+  # PSOCK workers otherwise resolve a prior installed package during local
+  # development, rather than the source currently loaded in the parent.
+  development_path <- if (
+    file.exists(file.path(namespace_path, "DESCRIPTION")) &&
+      (is.na(installed_path) || !identical(namespace_path, installed_path))
+  ) namespace_path else NA_character_
   parallel::clusterExport(
     cluster_obj,
-    c("library_paths", "package_name"),
+    c("library_paths", "package_name", "development_path"),
     envir = environment()
   )
 
@@ -475,56 +514,68 @@ initialize_parallel_cluster <- function(workers,
         cluster_obj,
         {
           .libPaths(unique(c(library_paths, .libPaths())))
-          package_libraries <- library_paths[
-            file.exists(file.path(library_paths, package_name, "DESCRIPTION"))
-          ]
-          package_library <- if (length(package_libraries) > 0L) {
-            package_libraries[[1]]
-          } else {
-            NA_character_
-          }
           loadNamespace("graphics")
           loadNamespace("stats")
           loadNamespace("methods")
-          if (package_name %in% loadedNamespaces()) {
-            loaded_path <- normalizePath(
-              getNamespaceInfo(asNamespace(package_name), "path"),
-              winslash = "/",
-              mustWork = FALSE
-            )
-            target_path <- normalizePath(
-              file.path(package_library, package_name),
-              winslash = "/",
-              mustWork = FALSE
-            )
-            if (!identical(loaded_path, target_path)) {
+          if (!is.na(development_path)) {
+            if (package_name %in% loadedNamespaces()) {
               unloadNamespace(package_name)
             }
-          }
-          if (is.na(package_library) || !dir.exists(file.path(package_library, package_name))) {
-            if (!requireNamespace(package_name, quietly = TRUE)) {
+            pkgload::load_all(
+              development_path,
+              quiet = TRUE,
+              export_all = FALSE,
+              helpers = FALSE
+            )
+          } else {
+            package_libraries <- library_paths[
+              file.exists(file.path(library_paths, package_name, "DESCRIPTION"))
+            ]
+            package_library <- if (length(package_libraries) > 0L) {
+              package_libraries[[1]]
+            } else {
+              NA_character_
+            }
+            if (package_name %in% loadedNamespaces()) {
+              loaded_path <- normalizePath(
+                getNamespaceInfo(asNamespace(package_name), "path"),
+                winslash = "/",
+                mustWork = FALSE
+              )
+              target_path <- normalizePath(
+                file.path(package_library, package_name),
+                winslash = "/",
+                mustWork = FALSE
+              )
+              if (!identical(loaded_path, target_path)) {
+                unloadNamespace(package_name)
+              }
+            }
+            if (is.na(package_library) || !dir.exists(file.path(package_library, package_name))) {
+              if (!requireNamespace(package_name, quietly = TRUE)) {
+                stop(
+                  sprintf("Parallel workers could not load installed package '%s'.", package_name),
+                  call. = FALSE
+                )
+              }
+            } else if (!requireNamespace(package_name, lib.loc = package_library, quietly = TRUE)) {
               stop(
-                sprintf("Parallel workers could not load installed package '%s'.", package_name),
+                sprintf(
+                  "Parallel workers could not load installed package '%s' from '%s'.",
+                  package_name,
+                  package_library
+                ),
                 call. = FALSE
               )
             }
-          } else if (!requireNamespace(package_name, lib.loc = package_library, quietly = TRUE)) {
-            stop(
-              sprintf(
-                "Parallel workers could not load installed package '%s' from '%s'.",
-                package_name,
-                package_library
-              ),
-              call. = FALSE
+            suppressPackageStartupMessages(
+              if (is.na(package_library)) {
+                library(package_name, character.only = TRUE)
+              } else {
+                library(package_name, character.only = TRUE, lib.loc = package_library)
+              }
             )
           }
-          suppressPackageStartupMessages(
-            if (is.na(package_library)) {
-              library(package_name, character.only = TRUE)
-            } else {
-              library(package_name, character.only = TRUE, lib.loc = package_library)
-            }
-          )
 
           NULL
         }

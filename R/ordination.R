@@ -670,6 +670,11 @@ select_ordination_cluster_k <- function(cluster_scores,
       silhouette = suppressWarnings(as.numeric(.data$silhouette))
     ) |>
     dplyr::filter(is.finite(.data$k), .data$k >= 2L, is.finite(.data$silhouette))
+  if ("hull_overlap_n" %in% names(scores) &&
+    any(is.finite(scores$hull_overlap_n) & scores$hull_overlap_n == 0L)) {
+    scores <- scores |>
+      dplyr::filter(is.finite(.data$hull_overlap_n), .data$hull_overlap_n == 0L)
+  }
   if (nrow(scores) == 0) {
     return(1L)
   }
@@ -693,6 +698,105 @@ select_ordination_cluster_k <- function(cluster_scores,
     dplyr::filter(.data$silhouette >= best_s - tolerance) |>
     dplyr::arrange(dplyr::desc(.data$k))
   as.integer(eligible$k[[1]])
+}
+
+#' Count overlapping convex hulls for ordination cluster labels
+#'
+#' @param coords Two-column matrix of ordination coordinates.
+#' @param clusters Cluster labels.
+#'
+#' @return Integer count of overlapping hull pairs.
+#' @keywords internal
+#' @noRd
+ordination_hull_overlap_count <- function(coords, clusters) {
+  coords <- as.matrix(coords)
+  clusters <- as.character(clusters)
+  if (!is.matrix(coords) || ncol(coords) < 2 || length(clusters) != nrow(coords)) {
+    return(NA_integer_)
+  }
+  point_in_poly <- function(px, py, poly) {
+    n <- nrow(poly)
+    if (n < 3L) {
+      return(FALSE)
+    }
+    inside <- FALSE
+    j <- n
+    for (i in seq_len(n)) {
+      yi <- poly[i, 2]
+      yj <- poly[j, 2]
+      xi <- poly[i, 1]
+      xj <- poly[j, 1]
+      crosses <- ((yi > py) != (yj > py)) &&
+        (px < (xj - xi) * (py - yi) / ((yj - yi) + .Machine$double.eps) + xi)
+      if (isTRUE(crosses)) {
+        inside <- !inside
+      }
+      j <- i
+    }
+    inside
+  }
+  orientation <- function(a, b, c) {
+    val <- (b[2] - a[2]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[2] - b[2])
+    if (abs(val) < 1e-10) return(0L)
+    if (val > 0) 1L else 2L
+  }
+  on_segment <- function(a, b, c) {
+    b[1] <= max(a[1], c[1]) + 1e-10 &&
+      b[1] + 1e-10 >= min(a[1], c[1]) &&
+      b[2] <= max(a[2], c[2]) + 1e-10 &&
+      b[2] + 1e-10 >= min(a[2], c[2])
+  }
+  segments_intersect <- function(p1, q1, p2, q2) {
+    o1 <- orientation(p1, q1, p2)
+    o2 <- orientation(p1, q1, q2)
+    o3 <- orientation(p2, q2, p1)
+    o4 <- orientation(p2, q2, q1)
+    if (o1 != o2 && o3 != o4) return(TRUE)
+    if (o1 == 0L && on_segment(p1, p2, q1)) return(TRUE)
+    if (o2 == 0L && on_segment(p1, q2, q1)) return(TRUE)
+    if (o3 == 0L && on_segment(p2, p1, q2)) return(TRUE)
+    if (o4 == 0L && on_segment(p2, q1, q2)) return(TRUE)
+    FALSE
+  }
+  hulls <- lapply(split(seq_len(nrow(coords)), clusters), function(idx) {
+    pts <- coords[idx, 1:2, drop = FALSE]
+    pts <- pts[stats::complete.cases(pts), , drop = FALSE]
+    if (nrow(unique(pts)) < 3L) {
+      return(NULL)
+    }
+    pts[grDevices::chull(pts[, 1], pts[, 2]), , drop = FALSE]
+  })
+  hulls <- hulls[!vapply(hulls, is.null, logical(1))]
+  if (length(hulls) < 2L) {
+    return(0L)
+  }
+  overlap_n <- 0L
+  for (i in seq_len(length(hulls) - 1L)) {
+    for (j in (i + 1L):length(hulls)) {
+      a <- hulls[[i]]
+      b <- hulls[[j]]
+      vertices_inside <- any(vapply(seq_len(nrow(a)), function(ii) point_in_poly(a[ii, 1], a[ii, 2], b), logical(1))) ||
+        any(vapply(seq_len(nrow(b)), function(jj) point_in_poly(b[jj, 1], b[jj, 2], a), logical(1)))
+      edge_cross <- FALSE
+      if (!vertices_inside) {
+        for (ai in seq_len(nrow(a))) {
+          ai2 <- if (ai == nrow(a)) 1L else ai + 1L
+          for (bi in seq_len(nrow(b))) {
+            bi2 <- if (bi == nrow(b)) 1L else bi + 1L
+            if (segments_intersect(a[ai, ], a[ai2, ], b[bi, ], b[bi2, ])) {
+              edge_cross <- TRUE
+              break
+            }
+          }
+          if (edge_cross) break
+        }
+      }
+      if (vertices_inside || edge_cross) {
+        overlap_n <- overlap_n + 1L
+      }
+    }
+  }
+  overlap_n
 }
 
 #' Assign ordination clusters
@@ -720,6 +824,7 @@ assign_ordination_groups <- function(points_df,
                                      k = NULL,
                                      max_k = 8,
                                      min_silhouette = 0.10,
+                                     cluster_method = c("pam", "kmeans", "ward"),
                                      selection_rule = c("granular_silhouette", "max_silhouette"),
                                      silhouette_tolerance = 0.05,
                                      min_cluster_size = 2L,
@@ -742,6 +847,7 @@ assign_ordination_groups <- function(points_df,
   if (!is.numeric(min_silhouette) || length(min_silhouette) != 1 || !is.finite(min_silhouette)) {
     stop("'min_silhouette' must be one finite numeric value.", call. = FALSE)
   }
+  cluster_method <- match.arg(cluster_method)
   selection_rule <- match.arg(selection_rule)
   if (!is.numeric(silhouette_tolerance) ||
     length(silhouette_tolerance) != 1 ||
@@ -778,12 +884,26 @@ assign_ordination_groups <- function(points_df,
   }
 
   d <- stats::dist(coords)
-  hc <- stats::hclust(d, method = "ward.D2")
+  cluster_for_k <- function(k_value) {
+    k_value <- as.integer(k_value)
+    if (k_value <= 1L) {
+      return(rep(1L, nrow(out)))
+    }
+    if (identical(cluster_method, "ward")) {
+      hc <- stats::hclust(d, method = "ward.D2")
+      return(stats::cutree(hc, k = k_value))
+    }
+    if (identical(cluster_method, "kmeans")) {
+      km <- stats::kmeans(coords, centers = k_value, nstart = 50)
+      return(as.integer(km$cluster))
+    }
+    as.integer(cluster::pam(coords, k = k_value)$clustering)
+  }
   max_k_local <- min(as.integer(max_k), nrow(out) - 1L)
   if (!is.null(k)) {
     fixed_k <- min(as.integer(k), max_k_local)
     fixed_k <- max(1L, fixed_k)
-    cl <- if (fixed_k > 1L) stats::cutree(hc, k = fixed_k) else rep(1L, nrow(out))
+    cl <- cluster_for_k(fixed_k)
     sil_mean <- if (fixed_k > 1L) {
       sil <- cluster::silhouette(cl, d)
       mean(sil[, 3], na.rm = TRUE)
@@ -801,7 +921,7 @@ assign_ordination_groups <- function(points_df,
 
   # Search the admissible cluster counts and retain their silhouette scores.
   for (k in seq.int(2L, max_k_local)) {
-    cl <- stats::cutree(hc, k = k)
+    cl <- cluster_for_k(k)
     if (length(unique(cl)) < 2) {
       next
     }
@@ -813,7 +933,8 @@ assign_ordination_groups <- function(points_df,
     if (is.finite(sil_mean)) {
       cluster_scores[[length(cluster_scores) + 1L]] <- tibble::tibble(
         k = as.integer(k),
-        silhouette = sil_mean
+        silhouette = sil_mean,
+        hull_overlap_n = ordination_hull_overlap_count(coords, cl)
       )
     }
   }
@@ -825,7 +946,7 @@ assign_ordination_groups <- function(points_df,
     silhouette_tolerance = silhouette_tolerance
   )
 
-  cl <- if (best_k > 1L) stats::cutree(hc, k = best_k) else rep(1L, nrow(out))
+  cl <- cluster_for_k(best_k)
   best_s <- if (best_k > 1L) {
     score_tbl <- dplyr::bind_rows(cluster_scores)
     match_idx <- match(best_k, score_tbl$k)

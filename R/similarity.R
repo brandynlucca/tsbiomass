@@ -1187,6 +1187,57 @@ prepare_similarities <- function(candidate_models,
 #'
 #' @keywords internal
 #' @noRd
+normalize_phylo_species_label <- function(x) {
+  stringr::str_to_lower(stringr::str_squish(gsub("_", " ", as.character(x), fixed = TRUE)))
+}
+
+#' Map a cophenetic matrix onto queried species names
+#'
+#' @param species_names Canonical queried species names.
+#' @param cophenetic_labels Tip labels returned by Open Tree.
+#' @param cophenetic_matrix Cophenetic distance matrix matching the tip labels.
+#'
+#' @return A normalized species distance matrix.
+#'
+#' @keywords internal
+#' @noRd
+map_phylo_cophenetic_distances <- function(species_names,
+                                           cophenetic_labels,
+                                           cophenetic_matrix) {
+  species_keys <- normalize_phylo_species_label(species_names)
+  tip_keys <- normalize_phylo_species_label(cophenetic_labels)
+  out <- matrix(
+    1,
+    nrow = length(species_keys),
+    ncol = length(species_keys),
+    dimnames = list(species_keys, species_keys)
+  )
+  diag(out) <- 0
+  if (length(tip_keys) == 0L || nrow(cophenetic_matrix) == 0L) {
+    return(out)
+  }
+
+  keep <- tip_keys %in% species_keys
+  if (!any(keep)) {
+    return(out)
+  }
+  kept_keys <- tip_keys[keep]
+  kept_matrix <- cophenetic_matrix[keep, keep, drop = FALSE]
+  unique_keys <- !duplicated(kept_keys)
+  kept_keys <- kept_keys[unique_keys]
+  kept_matrix <- kept_matrix[unique_keys, unique_keys, drop = FALSE]
+  dimnames(kept_matrix) <- list(kept_keys, kept_keys)
+  match_idx <- match(species_keys, kept_keys)
+  valid_idx <- which(!is.na(match_idx))
+  if (length(valid_idx) > 0L) {
+    out[valid_idx, valid_idx] <- kept_matrix[
+      match_idx[valid_idx], match_idx[valid_idx], drop = FALSE
+    ]
+  }
+  diag(out) <- 0
+  out
+}
+
 build_phylo_dist_from_species <- function(species_vec, genus_vec = NULL) {
   sp_raw <- stringr::str_squish(as.character(species_vec))
   sp_raw[!nzchar(sp_raw)] <- NA_character_
@@ -1240,21 +1291,11 @@ build_phylo_dist_from_species <- function(species_vec, genus_vec = NULL) {
       if (!is.finite(cophen_mx) || cophen_mx <= 0) cophen_mx <- 1
 
       labels <- suppressWarnings(rotl::strip_ott_ids(colnames(cophen)))
-      labels <- stringr::str_squish(tolower(gsub("_", " ", labels, fixed = TRUE)))
-
-      phy <- matrix(1, nrow = length(uniq), ncol = length(uniq), dimnames = list(uniq, uniq))
-      diag(phy) <- 0
-      keep <- labels %in% uniq
-      if (sum(keep) >= 1) {
-        lk <- labels[keep]
-        ck <- cophen[keep, keep, drop = FALSE]
-        lu <- !duplicated(lk)
-        lk <- lk[lu]
-        ck <- ck[lu, lu, drop = FALSE]
-        dimnames(ck) <- list(lk, lk)
-        phy[lk, lk] <- ck / cophen_mx
-      }
-      phy
+      map_phylo_cophenetic_distances(
+        species_names = uniq,
+        cophenetic_labels = labels,
+        cophenetic_matrix = cophen / cophen_mx
+      )
     },
     error = function(e) NULL
   )
@@ -1263,7 +1304,7 @@ build_phylo_dist_from_species <- function(species_vec, genus_vec = NULL) {
     return(NULL)
   }
 
-  out_idx <- match(tolower(sp), rownames(phylo_mat))
+  out_idx <- match(normalize_phylo_species_label(sp), rownames(phylo_mat))
   keep_idx <- which(!is.na(out_idx))
   if (length(keep_idx) > 0) {
     out[keep_idx, keep_idx] <- phylo_mat[out_idx[keep_idx], out_idx[keep_idx], drop = FALSE]
@@ -1746,6 +1787,7 @@ construct_gower_distances <- function(similarity,
   trait_cols <- unique(c(expanded_species_cols, expanded_study_cols))
 
   result <- list(
+    distance_mode = "empirical_gower",
     species_dist = species_dist,
     study_dist = study_dist,
     species_dist_model = species_dist_model,
