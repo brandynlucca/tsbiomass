@@ -80,12 +80,12 @@
   "continental_db": {
     "fao": "fao_area",
     "habitat": "habitat_vertical",
-    "feeding_mode": "feeding_mode",
+    "feeding.mode": "feeding_mode",
     "tl": "trophic",
-    "body_shape": "body_shape",
-    "length_infinity": "length_infinity",
-    "growth_coefficient": "growth_k",
-    "length_max": "length_max"
+    "body.shape": "body_shape",
+    "length.infinity": "length_infinity",
+    "growth.coefficient": "growth_k",
+    "length.max": "length_max"
   },
   "mstraits_db": {
     "tax_genus": "genus",
