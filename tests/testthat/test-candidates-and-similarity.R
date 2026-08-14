@@ -118,6 +118,71 @@ test_that("construct_gower_distances stores distance matrices on Candidates", {
   )
 })
 
+test_that("phylogeny mapping matches Open Tree labels case-insensitively", {
+  cophenetic <- matrix(
+    c(0, 3, 6, 3, 0, 5, 6, 5, 0),
+    nrow = 3,
+    dimnames = list(
+      c("scomber_japonicus_ott1", "scomber_colias_ott2", "gadus_morhua_ott3"),
+      c("scomber_japonicus_ott1", "scomber_colias_ott2", "gadus_morhua_ott3")
+    )
+  )
+  out <- tsbiomass:::map_phylo_cophenetic_distances(
+    species_names = c("Scomber japonicus", "Scomber colias", "Gadus morhua"),
+    cophenetic_labels = c("Scomber japonicus", "Scomber colias", "Gadus morhua"),
+    cophenetic_matrix = cophenetic
+  )
+
+  expect_equal(out[1, 2], 3)
+  expect_equal(out[1, 3], 6)
+  expect_equal(unname(diag(out)), c(0, 0, 0))
+})
+
+test_that("Alchemist policy scoring uses directed learned distance without reapplying features", {
+  directed <- matrix(
+    c(0, 0.4, 0.8, 0.2, 0, 0.6, 0.7, 0.5, 0),
+    nrow = 3,
+    byrow = TRUE,
+    dimnames = list(c("a", "b", "c"), c("a", "b", "c"))
+  )
+  taxonomy <- matrix(
+    c(0, .5, 1, .5, 0, 1, 1, 1, 0),
+    nrow = 3,
+    byrow = TRUE,
+    dimnames = list(c("a", "b", "c"), c("a", "b", "c"))
+  )
+  scored <- tsbiomass:::add_anchor_distances(
+    model_eval = tibble::tibble(
+      model_id = c("b", "c"),
+      length_overlap_fraction = c(1, .1),
+      depth_overlap_fraction = c(1, .1),
+      frequency = c(38, 120)
+    ),
+    dist_obj = list(
+      distance_mode = "alchemist_super_learner",
+      learned_directed_dist = directed,
+      taxonomic_dist_model = taxonomy,
+      learned_kernel_bandwidth = .5
+    ),
+    anchor_id = "a",
+    config = tsbiomass:::default_anchor_config(list())
+  ) |>
+    tsbiomass:::add_anchor_terms(
+      anchor_freq = 38,
+      sim_obj = list(alpha = .8, k_species = 4, k_study = 4, frequency_span = c(18, 200)),
+      config = tsbiomass:::default_anchor_config(list())
+    ) |>
+    tsbiomass:::weight_anchor_models(
+      sim_obj = list(alpha = .8),
+      config = tsbiomass:::default_anchor_config(list())
+    )
+
+  expect_equal(scored$combined_distance, c(.2, .7))
+  expect_equal(scored$taxonomic_distance_to_anchor, c(.5, 1))
+  expect_equal(scored$w_combined_raw, exp(-c(.2, .7) / .5))
+  expect_true(is.finite(scored$kernel_length_term[[2]]))
+})
+
 test_that("similarity preparation and distances support species-only and study-only traits", {
   candidates <- make_candidates(seed_similarity_tuning = FALSE)
 
@@ -443,6 +508,32 @@ test_that("automatic ordination cluster selection can prefer granular near-optim
       silhouette_tolerance = 0.05
     ),
     2L
+  )
+})
+
+test_that("automatic ordination clustering avoids overlapping hull partitions", {
+  set.seed(1)
+  coords <- rbind(
+    cbind(stats::rnorm(25, -2, 0.35), stats::rnorm(25, 0, 0.35)),
+    cbind(stats::rnorm(25, 2, 0.35), stats::rnorm(25, 0, 0.35)),
+    cbind(stats::rnorm(25, 0, 0.35), stats::rnorm(25, 2, 0.35)),
+    cbind(stats::rnorm(25, 0, 0.35), stats::rnorm(25, -2, 0.35))
+  )
+  points <- tibble::tibble(
+    model_id = paste0("m", seq_len(nrow(coords))),
+    MDS1 = coords[, 1],
+    MDS2 = coords[, 2]
+  )
+
+  out <- assign_ordination_groups(points, max_k = 6)
+
+  expect_gte(length(unique(out$nmds_cluster_id)), 2)
+  expect_equal(
+    tsbiomass:::ordination_hull_overlap_count(
+      as.matrix(out[, c("MDS1", "MDS2")]),
+      out$nmds_cluster_id
+    ),
+    0
   )
 })
 
@@ -811,9 +902,13 @@ test_that("reference anchor PDFs can be set from raw empirical lengths", {
   anchors_before <- fetch_reference_anchors(candidates)
   expect_true(all(anchors_before$length_pdf == "uniform"))
 
-  candidates <- set_reference_length_pdf(
+  candidates <- set_model_metadata(
     candidates,
-    length_pdf = list("1" = c(10, 10, 20, 30))
+    tibble::tibble(
+      model_id = "1",
+      length_pdf = "user",
+      length_pdf_data = list(c(10, 10, 20, 30))
+    )
   )
 
   anchors_after <- fetch_reference_anchors(candidates)
@@ -845,9 +940,13 @@ test_that("user reference PDFs record invalid anchor length-form coefficients", 
 
   candidates <- make_candidates(seed_similarity_tuning = FALSE)
   candidates <- set_reference_anchors(candidates, model_ids = "1")
-  candidates <- set_reference_length_pdf(
+  candidates <- set_model_metadata(
     candidates,
-    length_pdf = list("1" = c(10, 12, 14, 16, 18))
+    tibble::tibble(
+      model_id = "1",
+      length_pdf = "user",
+      length_pdf_data = list(c(10, 12, 14, 16, 18))
+    )
   )
 
   candidate_models <- candidates@candidate_models

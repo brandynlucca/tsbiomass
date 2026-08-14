@@ -34,7 +34,7 @@ test_that("shared support binning preserves post-selection outputs", {
   expect_length(out$post_selection_support_bin, nrow(tbl))
 })
 
-test_that("shared support binning preserves recommendation outputs", {
+test_that("shared support binning preserves continuous support outputs", {
   tbl <- tibble::tibble(
     anchor_selection_local_distance = c(0.4, 0.3, 0.2, 0.1),
     source_n_cells = c(1, 2, 3, 4),
@@ -46,18 +46,18 @@ test_that("shared support binning preserves recommendation outputs", {
 
   out <- assign_support_bins(
     data = tbl,
-    score = recommendation_local_support_score(tbl),
-    score_name = "recommendation_support_score",
-    bin_name = "recommendation_support_bin",
+    score = continuous_support_score(tbl),
+    score_name = "continuous_support_score",
+    bin_name = "continuous_support_bin",
     n_bins = 4L,
     all_bin = "support_all",
     missing_bin = "support_missing"
   )
   expect_true(all(c(
-    "recommendation_support_score",
-    "recommendation_support_bin"
+    "continuous_support_score",
+    "continuous_support_bin"
   ) %in% names(out)))
-  expect_length(out$recommendation_support_bin, nrow(tbl))
+  expect_length(out$continuous_support_bin, nrow(tbl))
 })
 
 test_that("weighted quantile helpers match manual calls", {

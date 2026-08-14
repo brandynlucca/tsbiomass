@@ -701,6 +701,56 @@ test_that("policy heatmap drops requested anchors and policies without finite ce
   expect_false(any(grepl("^NA NA", as.character(p_component$data$component_level))))
 })
 
+test_that("component heatmap preserves row ids after dropping invalid rows", {
+  perf <- tibble::tibble(
+    anchor_species = c(
+      "Alpha alpha",
+      "Alpha alpha",
+      "Beta beta"
+    ),
+    policy = c(
+      "closest_generalized",
+      "closest_generalized",
+      "closest_within_genus"
+    ),
+    equation_branch_filter = "all",
+    error_abs_log = c(NA_real_, 0.5, 0.25),
+    valid_prediction = c(FALSE, TRUE, TRUE)
+  )
+
+  p_component <- plot_policy_component_heatmap(perf, show_values = TRUE)
+  cell <- p_component$data |>
+    dplyr::filter(
+      .data$anchor_species == "Alpha alpha",
+      .data$component == "Candidate pool",
+      .data$component_level == "Generalized models"
+    )
+
+  expect_equal(nrow(cell), 1L)
+  expect_equal(cell$median_abs_log_error[[1]], 0.5)
+})
+
+test_that("component heatmap keeps generalized cells when none are finite", {
+  perf <- tibble::tibble(
+    anchor_species = "Alpha alpha",
+    policy = "closest_within_species",
+    equation_branch_filter = "all",
+    error_abs_log = 0.25,
+    valid_prediction = TRUE
+  )
+
+  p_component <- plot_policy_component_heatmap(perf, show_values = TRUE)
+  cell <- p_component$data |>
+    dplyr::filter(
+      .data$anchor_species == "Alpha alpha",
+      .data$component == "Candidate pool",
+      .data$component_level == "Generalized models"
+    )
+
+  expect_equal(nrow(cell), 1L)
+  expect_true(is.na(cell$median_abs_log_error[[1]]))
+})
+
 test_that("policy heatmap includes each displayed species best policy under policy limits", {
   perf <- tibble::tibble(
     anchor_model_id = c("1", "1", "2", "2", "3"),

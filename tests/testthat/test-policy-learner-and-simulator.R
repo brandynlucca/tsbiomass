@@ -319,7 +319,7 @@ test_that("PolicyLearner uncertainty calibration honors explicit override args",
   expect_equal(learner@calibration$uncertainty_method_settings$rf$num_trees, 9L)
 })
 
-test_that("PolicyLearner prediction uses pooled local width conformal factors", {
+test_that("PolicyLearner prediction uses the pooled normalized conformal factor", {
   local_lookup <- policy_learner_build_local_lookup(
     tbl = tibble::tibble(
       anchor_model_id = c("1", "2", "3"),
@@ -360,6 +360,7 @@ test_that("PolicyLearner prediction uses pooled local width conformal factors", 
       ),
       q_global = 0.15,
       q_simultaneous_global = 0.25,
+      min_bin_scores = 2L,
       max_selection_tolerance = 1e-12
     )
   )
@@ -396,11 +397,11 @@ test_that("PolicyLearner prediction uses pooled local width conformal factors", 
 
   expect_equal(
     scored_lookup$meta_q_abs_log_factor_source,
-    c("species_policy_branch", "species_policy_branch_shrunk", "policy_branch")
+    rep("pooled_normalized_conformal", 3)
   )
   expect_equal(
     round(scored_lookup$meta_q_abs_log_conformal_factor, 3),
-    c(2.0, 1.6, 2.0)
+    rep(1.5, 3)
   )
 })
 

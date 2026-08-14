@@ -254,7 +254,96 @@ test_that("select_coefficient_residual_pool stays within the selected policy and
   expect_equal(nrow(pool), 0L)
 })
 
-test_that("conditional coefficient intervals lock the slope for fixed20 policies", {
+test_that("strategy uncertainty uses the policy-conditioned geometry when residual covariance is unavailable", {
+  row_now <- tibble::tibble(
+    anchor_model_id = "a1",
+    anchor_species = "Alpha alpha",
+    selected_policy = "selected_policy",
+    selected_equation_branch_filter = "all",
+    policy_slope_len = 20,
+    policy_intercept_len = -70,
+    meta_q_abs_log_total = 0.1,
+    realized_donor_fingerprint = "d1|d2"
+  )
+  candidate_models <- tibble::tibble(
+    model_id = "a1",
+    species_name = "Alpha alpha",
+    genus = "Alpha",
+    family_name = "Alphaidae",
+    frequency_khz = 38,
+    slope_len = 20,
+    intercept_len = -70,
+    study_length_min = 10,
+    study_length_max = 30
+  )
+  anchor_scores <- tibble::tibble(
+    anchor_model_id = rep("a1", 3),
+    model_id = c("d1", "d2", "d3"),
+    slope_len = c(18, 22, 40),
+    intercept_len = c(-68, -72, -95),
+    combined_distance = c(0.1, 0.2, 0.3),
+    w_adm = c(1, 1, 1),
+    study_length_min = c(10, 10, 10),
+    study_length_max = c(30, 30, 30)
+  )
+
+  ctx <- tsbiomass:::strategy_uncertainty_context(
+    row_now = row_now,
+    candidate_models = candidate_models,
+    anchor_scores = anchor_scores,
+    policy_tbl = tibble::tibble(),
+    ts_calibration = tibble::tibble(),
+    coefficient_calibration = tibble::tibble(),
+    config = list(),
+    policy_lookup = list(),
+    include_competition = FALSE,
+    length_grid_n = 5L
+  )
+
+  expect_true(is.na(ctx$coefficient_support_n))
+  expect_true(all(is.finite(ctx$coefficient_covariance)))
+  expect_identical(ctx$coefficient_covariance_source, "policy_conditional_ts_geometry")
+})
+
+test_that("coefficient interval does not silently use nearest residual calibration", {
+  row_now <- tibble::tibble(
+    anchor_model_id = "a1",
+    anchor_species = "Alpha alpha",
+    selected_policy = "selected_policy",
+    selected_equation_branch_filter = "all",
+    policy_slope_len = 20,
+    policy_intercept_len = -70,
+    meta_q_abs_log_total = 2,
+    realized_n_unique_donors = 1,
+    realized_donor_fingerprint = "d1"
+  )
+  ctx <- list(
+    coefficient_covariance = matrix(NA_real_, nrow = 2, ncol = 2),
+    coefficient_support_n = NA_real_,
+    ts_calibration_anchor_n = NA_real_
+  )
+  coefficient_calibration <- tibble::tibble(
+    anchor_model_id = c("c1", "c2", "c3"),
+    anchor_species = c("Alpha one", "Alpha two", "Alpha three"),
+    policy = "selected_policy",
+    equation_branch_filter = "all",
+    post_selection_support_bin = NA_character_,
+    local_min_combined_distance = c(0.1, 0.2, 0.3),
+    local_weighted_mean_combined_distance = c(0.1, 0.2, 0.3),
+    slope_resid = c(-2, 1, 3),
+    intercept_resid = c(-5, 2, 4)
+  )
+
+  out <- tsbiomass:::coefficient_interval_from_context(
+    row_now = row_now,
+    ctx = ctx,
+    coefficient_calibration = coefficient_calibration
+  )
+
+  expect_null(out)
+})
+
+test_that("fixed20 coefficient intervals retain empirical transfer uncertainty", {
   policy_tbl <- tibble::tibble(
     anchor_model_id = "11",
     anchor_species = "Alpha alpha",
@@ -295,9 +384,9 @@ test_that("conditional coefficient intervals lock the slope for fixed20 policies
     config = list()
   )
 
-  expect_equal(out$conditional_policy_slope_len_lo_95, 20)
-  expect_equal(out$conditional_policy_slope_len_hi_95, 20)
-  expect_equal(out$conditional_policy_slope_len_se, 0)
+  expect_lt(out$conditional_policy_slope_len_lo_95, 20)
+  expect_gt(out$conditional_policy_slope_len_hi_95, 20)
+  expect_gt(out$conditional_policy_slope_len_se, 0)
   expect_true(is.finite(out$conditional_policy_intercept_len_lo_95))
   expect_true(is.finite(out$conditional_policy_intercept_len_hi_95))
 })

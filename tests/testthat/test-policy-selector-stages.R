@@ -82,6 +82,25 @@ test_that("policy selector anchor config replaces explicit trait maps", {
   expect_equal(anchor_cfg$admissibility_species_traits, "swimbladder_type")
 })
 
+test_that("policy selector anchor config retains the admissibility frequency gap", {
+  selector <- make_selector(
+    candidates = make_candidates(seed_similarity_tuning = FALSE),
+    config = list(
+      policy = list(
+        frequency_coherence_mode = "overlap"
+      ),
+      admissibility = list(
+        frequency_gap = 60
+      )
+    )
+  )
+
+  anchor_cfg <- tsbiomass:::policy_selector_anchor_config(selector)
+
+  expect_equal(anchor_cfg$frequency_coherence_mode, "overlap")
+  expect_equal(anchor_cfg$frequency_gap, 60)
+})
+
 test_that("installed-style S3 bridges are registered for base predict and plot", {
   expect_true(is.function(utils::getS3method("predict", "tsbiomass::PolicySelector", optional = TRUE)))
   expect_true(is.function(utils::getS3method("predict", "tsbiomass::PolicyLearner", optional = TRUE)))
@@ -628,10 +647,10 @@ test_that("deterministic selection prefers empirical benchmark score before widt
   expect_true(grepl("^benchmark_screened_", selected$selection_tier[[1]]))
 })
 
-test_that("deterministic selection uses coefficient stability after score and width", {
+test_that("deterministic selection does not use coefficient diagnostics as tie breakers", {
   selected <- select_anchor_policies(tibble::tibble(
-    policy = c("free_slope_unstable", "fixed_slope_stable"),
-    equation_branch_filter = c("free_slope_only", "fixed20_only"),
+    policy = c("a_higher_coefficient_width", "z_lower_coefficient_width"),
+    equation_branch_filter = c("all", "all"),
     multiplier_pred = c(1.10, 1.12),
     valid_prediction = c(TRUE, TRUE),
     selection_valid = c(TRUE, TRUE),
@@ -646,34 +665,45 @@ test_that("deterministic selection uses coefficient stability after score and wi
     coefficient_intercept_q95 = c(20, 6)
   ))
 
-  expect_equal(selected$selected_policy[[1]], "fixed_slope_stable")
+  expect_equal(selected$selected_policy[[1]], "a_higher_coefficient_width")
 })
 
-test_that("recommendation overlap support summary respects configured traits", {
-  rows <- tibble::tibble(
-    overlap_same_species = c(TRUE, FALSE),
-    overlap_same_family = c(TRUE, TRUE),
-    overlap_same_swimbladder = c(FALSE, TRUE)
-  )
-  config <- list(
-    similarity = list(
-      species_traits = list(species_name = 1, swimbladder_type = 1),
-      study_traits = list()
-    ),
-    policy = list(
-      species_traits = list(species_name = 1, swimbladder_type = 1),
-      study_traits = list()
-    )
-  )
+test_that("selection ranks predicted score before uncertainty within score band", {
+  selected <- select_anchor_policies(tibble::tibble(
+    policy = c("better_score_wider", "worse_score_narrower"),
+    candidate_pool = c("same_family", "same_family"),
+    aggregation_method = c("nearest_by_combined_distance", "nearest_by_combined_distance"),
+    policy_family = c("single_model", "single_model"),
+    multiplier_pred = c(1.10, 1.12),
+    valid_prediction = c(TRUE, TRUE),
+    selection_valid = c(TRUE, TRUE),
+    uncertainty_eligible = c(TRUE, TRUE),
+    uncertainty_cost_log_width = c(0.20, 0.18),
+    mean_species_median_abs_log = c(0.08, 0.08),
+    local_weighted_mean_combined_distance = c(0.10, 0.10),
+    local_min_combined_distance = c(0.10, 0.10),
+    local_effective_support = c(1, 1),
+    acceptable_global = c(TRUE, TRUE),
+    equivalent_to_best_global = c(TRUE, TRUE),
+    .meta_predicted_score = c(0.05, 0.06),
+    best_mean_species_median_abs_log = c(0.05, 0.05),
+    one_se_threshold = c(0.30, 0.30)
+  ))
 
-  out <- recommendation_overlap_support_summary(rows, config = config)
+  expect_equal(selected$selected_policy[[1]], "better_score_wider")
+})
+
+test_that("ordination context accepts canonical and legacy score fields", {
+  scores <- tibble::tibble(model_id = "m1", nmds_cluster_id = "cluster_1")
 
   expect_equal(
-    names(out),
-    c("n_same_species_donors", "n_same_swimbladder_donors")
+    policy_selector_ordination_context(list(model = list(model_scores = scores)))$model_scores,
+    scores
   )
-  expect_equal(out$n_same_species_donors[[1]], 1L)
-  expect_equal(out$n_same_swimbladder_donors[[1]], 1L)
+  expect_equal(
+    policy_selector_ordination_context(list(model = list(scores = scores)))$model_scores,
+    scores
+  )
 })
 
 test_that("Scorecard and Configurer show compact console summaries", {

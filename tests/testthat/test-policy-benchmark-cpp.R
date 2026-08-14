@@ -160,6 +160,33 @@ test_that("C++ engine matches the complete production policy plan", {
   }
 })
 
+test_that("C++ engine retains generalized rows identified by missing species", {
+  eval_obj <- cpp_policy_eval_fixture()
+  generalized_idx <- c(6L, 7L, 8L)
+  eval_obj$admissible_df$species_name[generalized_idx] <- "NA NA"
+  eval_obj$admissible_df$is_group_model[generalized_idx] <- FALSE
+
+  plan <- tsbiomass:::build_policy_execution_plan(
+    policies = c("closest_generalized", "weighted_mean_generalized"),
+    policy_params = list(slope_class = c("all", "fixed20_only", "free_slope_only"))
+  )
+  compiled <- tsbiomass:::compile_policy_execution_plan_cpp(plan)
+
+  r_result <- tsbiomass:::evaluate_policies(
+    eval_obj = eval_obj,
+    execution_plan = plan
+  )
+  cpp_result <- tsbiomass:::evaluate_policies_cpp(
+    eval_obj = eval_obj,
+    compiled_plan = compiled
+  )
+
+  expect_true(all(r_result$n_models[r_result$equation_branch_filter != "fixed20_only"] > 0L))
+  expect_equal(cpp_result$n_models, r_result$n_models)
+  expect_equal(cpp_result$n_valid_models, r_result$n_valid_models)
+  expect_equal(cpp_result$multiplier_pred, r_result$multiplier_pred, tolerance = 1e-10)
+})
+
 test_that("C++ engine preserves R fallback semantics for absent distance columns", {
   policies <- c(
     "closest_across_all_admissible",
