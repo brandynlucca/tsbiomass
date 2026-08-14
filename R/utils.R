@@ -250,6 +250,94 @@ anchor_pdf_from_stored_row <- function(anchor_row) {
   normalize_anchor_pdf_input(pdf_now)
 }
 
+#' Build an anchor length PDF from supplied data or study-length metadata
+#'
+#' @param anchor_row One-row anchor table.
+#' @param config Optional normalized configuration. When supplied, its anchor
+#'   field mapping determines the study-length columns.
+#' @param n Number of points for an interval PDF.
+#' @param on_missing Whether unavailable or invalid study-length support errors
+#'   or returns an empty PDF.
+#'
+#' @return Tibble with `length_cm` and `f_len`.
+#' @keywords internal
+#' @noRd
+build_anchor_length_pdf <- function(anchor_row,
+                                    config = NULL,
+                                    n = 400L,
+                                    on_missing = c("error", "empty")) {
+  anchor_row <- tibble::as_tibble(anchor_row)
+  on_missing <- match.arg(on_missing)
+  n <- suppressWarnings(as.integer(n[[1]]))
+  if (!is.finite(n) || n < 1L) {
+    stop("'n' must be a positive integer.", call. = FALSE)
+  }
+
+  user_pdf <- anchor_pdf_from_stored_row(anchor_row)
+  if (nrow(user_pdf) > 0L) {
+    return(user_pdf)
+  }
+
+  empty_pdf <- function() {
+    tibble::tibble(length_cm = numeric(), f_len = numeric())
+  }
+  unavailable <- function(message, reason_code) {
+    if (identical(on_missing, "empty")) {
+      return(empty_pdf())
+    }
+    abort_unscorable_anchor(message, reason_code = reason_code)
+  }
+  anchor_values <- function(column) {
+    if (!column %in% names(anchor_row)) {
+      return(numeric())
+    }
+    suppressWarnings(as.numeric(anchor_row[[column]]))
+  }
+
+  if (is.null(config)) {
+    len_min_col <- "study_length_min"
+    len_max_col <- "study_length_max"
+    len_mid_col <- "study_length_midpoint"
+  } else {
+    len_min_col <- build_anchor_field(config, "length_min")
+    len_max_col <- build_anchor_field(config, "length_max")
+    len_mid_col <- build_anchor_field(config, "length_midpoint")
+  }
+
+  mins <- anchor_values(len_min_col)
+  maxs <- anchor_values(len_max_col)
+  finite_mins <- mins[is.finite(mins)]
+  finite_maxs <- maxs[is.finite(maxs)]
+  if (length(finite_mins) > 0L && length(finite_maxs) > 0L) {
+    lmin <- min(pmin(finite_mins, finite_maxs))
+    lmax <- max(pmax(finite_mins, finite_maxs))
+    if (lmin <= 0 || lmax <= 0) {
+      return(unavailable(
+        "Anchor length interval must be positive and finite.",
+        reason_code = "invalid_study_length_interval"
+      ))
+    }
+    if (lmax > lmin) {
+      grid <- seq(lmin, lmax, length.out = n)
+      return(tibble::tibble(
+        length_cm = grid,
+        f_len = rep(1 / length(grid), length(grid))
+      ))
+    }
+    return(tibble::tibble(length_cm = lmin, f_len = 1))
+  }
+
+  mids <- anchor_values(len_mid_col)
+  mids <- mids[is.finite(mids) & mids > 0]
+  if (length(mids) > 0L) {
+    return(tibble::tibble(length_cm = mids[[1]], f_len = 1))
+  }
+  unavailable(
+    "No valid anchor study length interval or midpoint was available.",
+    reason_code = "missing_study_length_support"
+  )
+}
+
 #' Emit one progress message
 #'
 #' @param progress Logical scalar.
@@ -345,24 +433,28 @@ ensure_parent_path <- function(path) {
   invisible(path)
 }
 
-#' Parse a command-line boolean
+#' Parse a strict environment flag
 #'
-#' Converts common command-line boolean strings to `TRUE` or `FALSE`.
-#'
-#' @param value Value to parse.
+#' @param value Logical scalar or one environment-string value.
 #'
 #' @return Logical scalar.
 #' @keywords internal
 #' @noRd
-command_line_true <- function(value) {
-  # Accept the common command-line truthy spellings so the script wrapper can
-  # keep its positional interface simple.
-  if (is.logical(value) && length(value) == 1 && !is.na(value)) {
+parse_environment_flag <- function(value) {
+  if (is.logical(value) && length(value) == 1L && !is.na(value)) {
     return(value)
   }
-
-  value <- tolower(stringr::str_squish(as.character(value %||% "")))
-  value %in% c("true", "t", "1", "yes", "y")
+  if (!is.character(value) || length(value) != 1L) {
+    stop("Environment flag must be one logical or character value.", call. = FALSE)
+  }
+  normalized <- stringr::str_to_lower(stringr::str_squish(value))
+  if (normalized %in% c("true", "t", "1", "yes", "y")) {
+    return(TRUE)
+  }
+  if (normalized %in% c("false", "f", "0", "no", "n")) {
+    return(FALSE)
+  }
+  stop("Environment flag must be a recognized true/false value.", call. = FALSE)
 }
 
 #' Resolve an installed template path

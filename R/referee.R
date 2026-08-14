@@ -2566,7 +2566,7 @@ referee_plot_types <- function() {
         if (nrow(one_selected) == 0 || nrow(anchor_row) == 0) {
           return(tibble::tibble())
         }
-        anchor_pdf <- anchor_pdf_from_row(anchor_row)
+        anchor_pdf <- build_anchor_length_pdf(anchor_row, on_missing = "empty")
         if (nrow(anchor_pdf) == 0) {
           return(tibble::tibble())
         }
@@ -2606,7 +2606,7 @@ referee_plot_types <- function() {
         y = "f(L)"
       ))
     }
-    anchor_pdf <- anchor_pdf_from_row(anchor_row)
+    anchor_pdf <- build_anchor_length_pdf(anchor_row, on_missing = "empty")
     if (nrow(anchor_pdf) == 0) {
       return(plot_report_placeholder(
         title = "Reference Anchor Length Density",

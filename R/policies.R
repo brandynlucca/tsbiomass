@@ -4592,8 +4592,8 @@ benchmark_cached_anchor_eval <- function(cached_anchor_evals,
 #' @param anchor_row One-row anchor table.
 #' @param candidate_models Candidate-model table.
 #' @param policy_fun Policy-extraction function.
-#' @param curve_fun Optional policy-curve function. Reserved for compatibility;
-#'   TS-error generation is handled in a separate benchmark pass.
+#' @param curve_fun Optional policy-curve function. TS-error generation is
+#'   handled in a separate benchmark pass.
 #' @param model_scores Optional ordination score table.
 #' @param species_lookup Optional species lookup table/list.
 #' @param reference_ids Optional reference-model IDs.

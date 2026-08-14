@@ -4203,63 +4203,6 @@ abort_unscorable_anchor <- function(message,
 #'
 #' @keywords internal
 #' @noRd
-build_anchor_density <- function(anchor_row,
-                                 config,
-                                 n = 400) {
-  user_pdf <- anchor_pdf_from_stored_row(anchor_row)
-  if (nrow(user_pdf) > 0) {
-    return(user_pdf)
-  }
-  # Use only the study-reported anchor length metadata. Missing study lengths
-  # remain missing rather than being imputed from species maxima.
-  len_min_col <- build_anchor_field(config, "length_min")
-  len_max_col <- build_anchor_field(config, "length_max")
-  len_mid_col <- build_anchor_field(config, "length_midpoint")
-
-  mins <- suppressWarnings(as.numeric(anchor_row[[len_min_col]]))
-  maxs <- suppressWarnings(as.numeric(anchor_row[[len_max_col]]))
-  mins <- mins[is.finite(mins)]
-  maxs <- maxs[is.finite(maxs)]
-
-  if (length(mins) > 0 && length(maxs) > 0) {
-    lmin <- min(pmin(mins, maxs))
-    lmax <- max(pmax(mins, maxs))
-
-    if (!is.finite(lmin) || !is.finite(lmax) || lmin <= 0 || lmax <= 0) {
-      abort_unscorable_anchor(
-        "Anchor length interval must be positive and finite.",
-        reason_code = "invalid_study_length_interval"
-      )
-    }
-
-    if (lmax > lmin) {
-      grid <- seq(lmin, lmax, length.out = n)
-      return(tibble::tibble(
-        length_cm = grid,
-        f_len = rep(1 / length(grid), length(grid))
-      ))
-    }
-
-    return(tibble::tibble(
-      length_cm = lmin,
-      f_len = 1
-    ))
-  }
-
-  mids <- suppressWarnings(as.numeric(anchor_row[[len_mid_col]]))
-  mids <- mids[is.finite(mids) & mids > 0]
-  if (length(mids) > 0) {
-    return(tibble::tibble(
-      length_cm = mids[[1]],
-      f_len = 1
-    ))
-  }
-  abort_unscorable_anchor(
-    "No valid anchor study length interval or midpoint was available.",
-    reason_code = "missing_study_length_support"
-  )
-}
-
 #' Compute one directional interval overlap
 #'
 #' Calculates the fraction of the anchor interval covered by the comparison
@@ -5960,7 +5903,7 @@ screen_one_anchor_admissibility <- function(anchor_row,
     candidate_models <- tibble::as_tibble(candidate_models_scored)
   }
 
-  anchor_pdf <- build_anchor_density(anchor_row, cfg)
+  anchor_pdf <- build_anchor_length_pdf(anchor_row, cfg, on_missing = "error")
   anchor_freq <- suppressWarnings(as.numeric(anchor_row[[build_anchor_field(cfg, "frequency")]][[1]]))
 
   # Score every candidate model at the anchor PDF, then derive the anchor's own

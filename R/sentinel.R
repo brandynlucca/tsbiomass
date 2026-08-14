@@ -2351,39 +2351,49 @@ sentinel_fold_configurer <- function(config,
                                      object) {
   registry_path <- object@options$config_registry_path %||% NA_character_
   policy_path <- object@options$config_policy_path %||% NA_character_
-  Configurer(
-    data = resolve_config_data(config),
+  if (length(registry_path) != 1L || is.na(registry_path) || !nzchar(registry_path)) {
+    registry_path <- NULL
+  }
+  if (length(policy_path) != 1L || is.na(policy_path) || !nzchar(policy_path)) {
+    policy_path <- NULL
+  }
+  config_data <- resolve_config_data(config)
+  # Sentinel scenarios may inherit a normalized runtime configuration. Its
+  # derived fields are rebuilt from canonical fields below.
+  derived_fields <- c(
+    "policy", "alpha", "k_species", "k_study", "frequency_coherence_mode",
+    "require_same_frequency_label", "max_frequency_gap_khz",
+    "min_length_overlap_fraction", "min_depth_overlap_fraction",
+    "missing_key_metadata_max_fraction", "length_overlap_weight",
+    "depth_overlap_weight", "frequency_coherence_weight", "core_weight_cutoff",
+    "conformal_alpha"
+  )
+  config_data[intersect(derived_fields, names(config_data))] <- NULL
+  if (is.list(config_data$similarity)) {
+    config_data$similarity[c(
+      "length_mode", "depth_mode", "frequency_mode", "length_weight",
+      "depth_weight", "frequency_weight", "frequency_gap"
+    )] <- NULL
+  }
+  if (is.list(config_data$admissibility)) {
+    config_data$admissibility[c(
+      "length_mode", "depth_mode", "frequency_mode", "length_overlap_min",
+      "depth_overlap_min", "frequency_gap"
+    )] <- NULL
+  }
+  build_configurer(
+    config = config_data,
     base_dir = as.character(object@options$config_base_dir %||% getwd())[[1]],
     registry_path = registry_path,
     policy_path = policy_path
   )
 }
 
-#' Test whether a Sentinel workflow uses the package-native object contract
-#'
-#' @param workflow_fn User workflow function.
-#'
-#' @return Logical scalar.
-#'
-#' @keywords internal
-#' @noRd
-sentinel_object_workflow <- function(workflow_fn) {
-  formal_names <- names(formals(workflow_fn)) %||% character(0)
-  any(c("candidates", "workflow_config_s7") %in% formal_names) ||
-    (length(setdiff(formal_names, "...")) <= 2L &&
-      !any(c("train_data", "test_data", "manifest_row", "sentinel") %in% formal_names))
-}
-
-#' Invoke a Sentinel workflow through its public or legacy callback contract
+#' Invoke a Sentinel workflow
 #'
 #' @param workflow_fn User workflow function.
 #' @param candidates Fold-local [Candidates] object.
 #' @param workflow_config_s7 Fold-local [Configurer] object.
-#' @param train_data,test_data Fold tables retained for legacy callbacks.
-#' @param params Scenario metadata retained for legacy callbacks.
-#' @param config Scenario config list retained for legacy callbacks.
-#' @param manifest_row One-row manifest table.
-#' @param sentinel Parent [Sentinel] object.
 #'
 #' @return Raw workflow result.
 #'
@@ -2391,27 +2401,8 @@ sentinel_object_workflow <- function(workflow_fn) {
 #' @noRd
 sentinel_invoke_workflow <- function(workflow_fn,
                                      candidates,
-                                     workflow_config_s7,
-                                     train_data,
-                                     test_data,
-                                     params,
-                                     config,
-                                     manifest_row,
-                                     sentinel) {
-  if (sentinel_object_workflow(workflow_fn)) {
-    return(workflow_fn(candidates, workflow_config_s7))
-  }
-
-  # Retain compatibility with the original expanded callback while the public
-  # interface moves to package-native objects.
-  workflow_fn(
-    train_data = train_data,
-    test_data = test_data,
-    params = params,
-    config = config,
-    manifest_row = manifest_row,
-    sentinel = sentinel
-  )
+                                     workflow_config_s7) {
+  workflow_fn(candidates, workflow_config_s7)
 }
 
 #' Normalize one Sentinel workflow return object
@@ -2696,74 +2687,50 @@ sentinel_run_one_fold <- function(object,
     ", test=", nrow(prepared$test_data)
   )
 
-  params <- merge_config_sections(
-    scenario_spec,
-    list(
-      deployment_target = as.character(
-        manifest_row$deployment_target[[1]] %||%
-          object@options$deployment_target %||%
-          "custom"
-      ),
-      split_mode = object@split_mode,
-      split_col = object@split_col,
-      holdout_id = as.character(manifest_row$holdout_id[[1]])
-    )
-  )
-  uses_object_workflow <- sentinel_object_workflow(workflow_fn)
-  fold_candidates <- NULL
-  fold_configurer <- NULL
-  if (uses_object_workflow) {
-    stage_start <- proc.time()
-    fold_cache_file <- ""
-    if ("cache_dir" %in% names(manifest_row)) {
-      cache_dir_now <- as.character(manifest_row$cache_dir[[1]] %||% "")
-      if (nzchar(cache_dir_now)) {
-        dir.create(cache_dir_now, recursive = TRUE, showWarnings = FALSE)
-        fold_cache_file <- file.path(cache_dir_now, "sentinel_fold_inputs.rds")
-      }
+  stage_start <- proc.time()
+  fold_cache_file <- ""
+  if ("cache_dir" %in% names(manifest_row)) {
+    cache_dir_now <- as.character(manifest_row$cache_dir[[1]] %||% "")
+    if (nzchar(cache_dir_now)) {
+      dir.create(cache_dir_now, recursive = TRUE, showWarnings = FALSE)
+      fold_cache_file <- file.path(cache_dir_now, "sentinel_fold_inputs.rds")
     }
-    cache_hit <- FALSE
-    if (nzchar(fold_cache_file) &&
-      file.exists(fold_cache_file) &&
-      !isTRUE(object@options$cache_refresh %||% FALSE)) {
-      cached_inputs <- readRDS(fold_cache_file)
-      fold_candidates <- cached_inputs$candidates
-      fold_configurer <- cached_inputs$configurer
-      cache_hit <- TRUE
-    } else {
-      fold_candidates <- sentinel_build_candidates(
-        candidate_models = prepared$train_data,
-        reference_anchors = prepared$test_data,
-        config = prepared$config
-      )
-      fold_configurer <- sentinel_fold_configurer(
-        config = prepared$config,
-        object = object
-      )
-      if (nzchar(fold_cache_file)) {
-        saveRDS(
-          list(
-            candidates = fold_candidates,
-            configurer = fold_configurer
-          ),
-          fold_cache_file
-        )
-      }
-    }
-    add_timing("prepare_object_workflow_inputs", stage_start, list(cache_hit = cache_hit))
   }
+  cache_hit <- FALSE
+  if (nzchar(fold_cache_file) &&
+    file.exists(fold_cache_file) &&
+    !isTRUE(object@options$cache_refresh %||% FALSE)) {
+    cached_inputs <- readRDS(fold_cache_file)
+    fold_candidates <- cached_inputs$candidates
+    fold_configurer <- cached_inputs$configurer
+    cache_hit <- TRUE
+  } else {
+    fold_candidates <- sentinel_build_candidates(
+      candidate_models = prepared$train_data,
+      reference_anchors = prepared$test_data,
+      config = prepared$config
+    )
+    fold_configurer <- sentinel_fold_configurer(
+      config = prepared$config,
+      object = object
+    )
+    if (nzchar(fold_cache_file)) {
+      saveRDS(
+        list(
+          candidates = fold_candidates,
+          configurer = fold_configurer
+        ),
+        fold_cache_file
+      )
+    }
+  }
+  add_timing("prepare_object_workflow_inputs", stage_start, list(cache_hit = cache_hit))
 
   stage_start <- proc.time()
   result <- sentinel_invoke_workflow(
     workflow_fn = workflow_fn,
     candidates = fold_candidates,
-    workflow_config_s7 = fold_configurer,
-    train_data = prepared$train_data,
-    test_data = prepared$test_data,
-    params = params,
-    config = prepared$config,
-    manifest_row = manifest_row,
-    sentinel = object
+    workflow_config_s7 = fold_configurer
   )
   add_timing("workflow", stage_start)
   stage_start <- proc.time()

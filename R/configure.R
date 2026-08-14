@@ -15,15 +15,15 @@
 #' @examples
 #' cfg <- build_configurer(list(
 #'   paths = list(
-#'     input = "input.xlsx",
-#'     output_root = "outputs",
-#'     cache_folder = "cache",
-#'     support_folder = "supplemental",
-#'     log_path = "outputs/run.log"
+#'     input_file = "input.xlsx",
+#'     out_root = "outputs",
+#'     cache_dir = "cache",
+#'     supplemental_dir = "supplemental",
+#'     log_file = "outputs/run.log"
 #'   ),
 #'   execution = list(
-#'     strict_pdf = FALSE,
-#'     run_multiplier = FALSE,
+#'     strict_length_pdf = FALSE,
+#'     run_multiplier_model = FALSE,
 #'     write_log = FALSE
 #'   ),
 #'   tuning = list(
@@ -228,6 +228,66 @@ validate_extra_config_sections <- function(config) {
   invisible(NULL)
 }
 
+#' Reject retired configuration fields
+#'
+#' @param config Raw caller-supplied configuration list.
+#'
+#' @return Invisibly returns `NULL`.
+#' @keywords internal
+#' @noRd
+reject_retired_configuration_fields <- function(config) {
+  if (!is.list(config)) {
+    return(invisible(NULL))
+  }
+
+  retired_fields <- list(
+    list(section = "paths", field = "input", replacement = "paths.input_file"),
+    list(section = "paths", field = "output_root", replacement = "paths.out_root"),
+    list(section = "paths", field = "cache_folder", replacement = "paths.cache_dir"),
+    list(section = "paths", field = "support_folder", replacement = "paths.supplemental_dir"),
+    list(section = "paths", field = "area_file", replacement = "paths.fao_polygon_csv"),
+    list(section = "paths", field = "log_path", replacement = "paths.log_file"),
+    list(section = "execution", field = "strict_pdf", replacement = "execution.strict_length_pdf"),
+    list(section = "execution", field = "run_multiplier", replacement = "execution.run_multiplier_model"),
+    list(section = NULL, field = "policy", replacement = "similarity and admissibility"),
+    list(section = NULL, field = "k_species", replacement = "similarity.kernel_scale"),
+    list(section = NULL, field = "k_study", replacement = "similarity.kernel_scale"),
+    list(section = "similarity", field = "k_species", replacement = "similarity.kernel_scale"),
+    list(section = "similarity", field = "k_study", replacement = "similarity.kernel_scale"),
+    list(section = "similarity", field = "traits", replacement = "similarity.species_traits and similarity.study_traits"),
+    list(section = "similarity", field = "length_mode", replacement = "similarity.coherence.length.mode"),
+    list(section = "similarity", field = "depth_mode", replacement = "similarity.coherence.depth.mode"),
+    list(section = "similarity", field = "frequency_mode", replacement = "similarity.coherence.frequency.mode"),
+    list(section = "similarity", field = "length_weight", replacement = "similarity.coherence.length.weight"),
+    list(section = "similarity", field = "depth_weight", replacement = "similarity.coherence.depth.weight"),
+    list(section = "similarity", field = "frequency_weight", replacement = "similarity.coherence.frequency.weight"),
+    list(section = "similarity", field = "frequency_gap", replacement = "similarity.coherence.frequency.gap"),
+    list(section = "admissibility", field = "traits", replacement = "admissibility.species_traits and admissibility.study_traits"),
+    list(section = "admissibility", field = "length_mode", replacement = "admissibility.coherence.length.mode"),
+    list(section = "admissibility", field = "depth_mode", replacement = "admissibility.coherence.depth.mode"),
+    list(section = "admissibility", field = "frequency_mode", replacement = "admissibility.coherence.frequency.mode"),
+    list(section = "admissibility", field = "length_overlap_min", replacement = "admissibility.coherence.length.min"),
+    list(section = "admissibility", field = "depth_overlap_min", replacement = "admissibility.coherence.depth.min"),
+    list(section = "admissibility", field = "frequency_gap", replacement = "admissibility.coherence.frequency.gap"),
+    list(section = "selection", field = "tolerance", replacement = "selection.equivalence_tolerance"),
+    list(section = "tuning", field = "max_models_per_species", replacement = "tuning.species_model_limit"),
+    list(section = "tuning", field = "n_resamples", replacement = "tuning.resamples")
+  )
+
+  for (spec in retired_fields) {
+    container <- if (is.null(spec$section)) config else config[[spec$section]]
+    if (is.list(container) && spec$field %in% names(container)) {
+      path <- if (is.null(spec$section)) spec$field else paste(spec$section, spec$field, sep = ".")
+      stop(
+        sprintf("Configuration field '%s' is not supported. Use '%s'.", path, spec$replacement),
+        call. = FALSE
+      )
+    }
+  }
+
+  invisible(NULL)
+}
+
 #' Normalize one explicit config payload
 #'
 #' @param config Config list supplied directly by the caller.
@@ -356,15 +416,15 @@ S7::S4_register(Configurer)
 #' @examples
 #' cfg <- build_configurer(list(
 #'   paths = list(
-#'     input = "input.xlsx",
-#'     output_root = "outputs",
-#'     cache_folder = "cache",
-#'     support_folder = "supplemental",
-#'     log_path = "outputs/run.log"
+#'     input_file = "input.xlsx",
+#'     out_root = "outputs",
+#'     cache_dir = "cache",
+#'     supplemental_dir = "supplemental",
+#'     log_file = "outputs/run.log"
 #'   ),
 #'   execution = list(
-#'     strict_pdf = FALSE,
-#'     run_multiplier = FALSE,
+#'     strict_length_pdf = FALSE,
+#'     run_multiplier_model = FALSE,
 #'     write_log = FALSE
 #'   ),
 #'   tuning = list(
@@ -1083,10 +1143,9 @@ normalize_similarity_config_shape <- function(config) {
     return(config)
   }
 
-  # Treat `similarity` as the distance-and-tuning surface and `admissibility`
-  # as the binary gate surface while keeping section ownership explicit in the
-  # normalized runtime config.
-  similarity <- config$similarity %||% config$policy %||% list()
+  # Materialize the runtime projection from the canonical similarity and
+  # admissibility sections.
+  similarity <- config$similarity %||% list()
   if (!is.list(similarity)) {
     similarity <- list()
   }
@@ -1095,82 +1154,19 @@ normalize_similarity_config_shape <- function(config) {
     admissibility <- list()
   }
 
-  policy_cfg <- config$policy %||% list()
-  if (is.null(config$similarity) && is.list(policy_cfg)) {
-    similarity <- merge_config_sections(
-      list(
-        alpha = policy_cfg$alpha %||% NULL,
-        k_species = policy_cfg$k_species %||% NULL,
-        k_study = policy_cfg$k_study %||% NULL,
-        species_traits = policy_cfg$species_traits %||% list(),
-        study_traits = policy_cfg$study_traits %||% list(),
-        conformal_alpha = policy_cfg$conformal_alpha %||% NULL,
-        coherence = list(
-          length = list(
-            mode = "overlap",
-            weight = policy_cfg$length_overlap_weight %||% NULL
-          ),
-          depth = list(
-            mode = "overlap",
-            weight = policy_cfg$depth_overlap_weight %||% NULL
-          ),
-          frequency = list(
-            mode = if (identical(policy_cfg$frequency_coherence_mode %||% "overlap", "literal")) "literal" else "overlap",
-            weight = policy_cfg$frequency_coherence_weight %||% NULL,
-            gap = policy_cfg$max_frequency_gap_khz %||% NULL
-          )
-        )
-      ),
-      similarity
-    )
-  }
-  if (is.null(config$admissibility) && is.list(policy_cfg)) {
-    admissibility <- merge_config_sections(
-      list(
-        species_traits = character(0),
-        study_traits = character(0),
-        key_metadata_max = policy_cfg$missing_key_metadata_max_fraction %||% NULL,
-        coherence = list(
-          length = list(
-            mode = "overlap",
-            min = policy_cfg$min_length_overlap_fraction %||% NULL
-          ),
-          depth = list(
-            mode = "overlap",
-            min = policy_cfg$min_depth_overlap_fraction %||% NULL
-          ),
-          frequency = list(
-            mode = if (identical(policy_cfg$frequency_coherence_mode %||% "overlap", "literal")) "literal" else "overlap",
-            gap = policy_cfg$max_frequency_gap_khz %||% NULL
-          )
-        )
-      ),
-      admissibility
-    )
-  }
-
-  if (is.list(similarity$traits)) {
-    similarity$species_traits <- similarity$species_traits %||% similarity$traits$species %||% list()
-    similarity$study_traits <- similarity$study_traits %||% similarity$traits$study %||% list()
-  }
-  if (is.list(admissibility$traits)) {
-    admissibility$species_traits <- admissibility$species_traits %||% admissibility$traits$species %||% list()
-    admissibility$study_traits <- admissibility$study_traits %||% admissibility$traits$study %||% list()
-  }
-
   coherence <- similarity$coherence %||% list()
   length_cfg <- coherence$length %||% list()
   depth_cfg <- coherence$depth %||% list()
   frequency_cfg <- coherence$frequency %||% list()
 
-  similarity$length_mode <- similarity$length_mode %||% length_cfg$mode %||% coherence$mode %||% "overlap"
-  similarity$depth_mode <- similarity$depth_mode %||% depth_cfg$mode %||% coherence$mode %||% "overlap"
-  similarity$frequency_mode <- similarity$frequency_mode %||% frequency_cfg$mode %||% coherence$mode %||% "overlap"
-  similarity$length_weight <- similarity$length_weight %||% length_cfg$weight %||% NULL
-  similarity$depth_weight <- similarity$depth_weight %||% depth_cfg$weight %||% NULL
-  similarity$frequency_weight <- similarity$frequency_weight %||% frequency_cfg$weight %||% NULL
-  similarity$frequency_gap <- similarity$frequency_gap %||% frequency_cfg$gap %||% NULL
-  similarity$kernel_scale <- similarity$kernel_scale %||% similarity$k_species %||% similarity$k_study %||% NULL
+  similarity$length_mode <- length_cfg$mode %||% "overlap"
+  similarity$depth_mode <- depth_cfg$mode %||% "overlap"
+  similarity$frequency_mode <- frequency_cfg$mode %||% "overlap"
+  similarity$length_weight <- length_cfg$weight %||% NULL
+  similarity$depth_weight <- depth_cfg$weight %||% NULL
+  similarity$frequency_weight <- frequency_cfg$weight %||% NULL
+  similarity$frequency_gap <- frequency_cfg$gap %||% NULL
+  similarity$kernel_scale <- similarity$kernel_scale %||% NULL
 
   admissibility_coherence <- admissibility$coherence %||% list()
   admissibility_length_cfg <- admissibility_coherence$length %||% list()
@@ -1178,12 +1174,12 @@ normalize_similarity_config_shape <- function(config) {
   admissibility_frequency_cfg <- admissibility_coherence$frequency %||% list()
   admissibility$species_traits <- admissibility$species_traits %||% character(0)
   admissibility$study_traits <- admissibility$study_traits %||% character(0)
-  admissibility$length_mode <- admissibility$length_mode %||% admissibility_length_cfg$mode %||% similarity$length_mode %||% "overlap"
-  admissibility$depth_mode <- admissibility$depth_mode %||% admissibility_depth_cfg$mode %||% similarity$depth_mode %||% "overlap"
-  admissibility$frequency_mode <- admissibility$frequency_mode %||% admissibility_frequency_cfg$mode %||% similarity$frequency_mode %||% "overlap"
-  admissibility$length_overlap_min <- admissibility$length_overlap_min %||% admissibility_length_cfg$min %||% NULL
-  admissibility$depth_overlap_min <- admissibility$depth_overlap_min %||% admissibility_depth_cfg$min %||% NULL
-  admissibility$frequency_gap <- admissibility$frequency_gap %||% admissibility_frequency_cfg$gap %||% similarity$frequency_gap %||% NULL
+  admissibility$length_mode <- admissibility_length_cfg$mode %||% similarity$length_mode %||% "overlap"
+  admissibility$depth_mode <- admissibility_depth_cfg$mode %||% similarity$depth_mode %||% "overlap"
+  admissibility$frequency_mode <- admissibility_frequency_cfg$mode %||% similarity$frequency_mode %||% "overlap"
+  admissibility$length_overlap_min <- admissibility_length_cfg$min %||% NULL
+  admissibility$depth_overlap_min <- admissibility_depth_cfg$min %||% NULL
+  admissibility$frequency_gap <- admissibility_frequency_cfg$gap %||% similarity$frequency_gap %||% NULL
   admissibility$key_metadata_max <- admissibility$key_metadata_max %||% NULL
 
   admissibility_frequency_mode_internal <- switch(stringr::str_to_lower(stringr::str_squish(as.character(admissibility$frequency_mode %||% "overlap")))[[1]],
@@ -1200,8 +1196,8 @@ normalize_similarity_config_shape <- function(config) {
     config$policy %||% list(),
     list(
       alpha = similarity$alpha %||% NULL,
-      k_species = similarity$kernel_scale %||% similarity$k_species %||% NULL,
-      k_study = similarity$kernel_scale %||% similarity$k_study %||% NULL,
+      k_species = similarity$kernel_scale %||% NULL,
+      k_study = similarity$kernel_scale %||% NULL,
       frequency_coherence_mode = admissibility_frequency_mode_internal,
       require_same_frequency_label = admissibility_exact_frequency,
       max_frequency_gap_khz = admissibility$frequency_gap %||% NULL,
@@ -1211,7 +1207,7 @@ normalize_similarity_config_shape <- function(config) {
       length_overlap_weight = similarity$length_weight %||% NULL,
       depth_overlap_weight = similarity$depth_weight %||% NULL,
       frequency_coherence_weight = similarity$frequency_weight %||% NULL,
-      core_weight_cutoff = similarity$core_weight_cutoff %||% policy_cfg$core_weight_cutoff %||% NULL,
+      core_weight_cutoff = similarity$core_weight_cutoff %||% NULL,
       conformal_alpha = similarity$conformal_alpha %||% NULL,
       species_traits = similarity$species_traits %||% list(),
       study_traits = similarity$study_traits %||% list(),
@@ -1259,9 +1255,8 @@ apply_cache_defaults <- function(config) {
     cache_cfg <- list()
   }
   defaults <- read_cache_defaults(cache_cfg$defaults_path %||% NULL)
-  cache_names <- merge_config_sections(defaults, cache_cfg$names %||% cache_cfg$files %||% list())
+  cache_names <- merge_config_sections(defaults, cache_cfg$names %||% list())
   cache_folder <- config$paths$cache_dir %||%
-    config$paths$cache_folder %||%
     cache_cfg$folder %||%
     "cache"
   cache_refresh <- cache_cfg$refresh %||% FALSE
@@ -1929,8 +1924,8 @@ create_configuration_template <- function(input_file = "input.xlsx",
       progress = FALSE
     ),
     tuning = list(
-      max_models_per_species = 2L,
-      n_resamples = 8L,
+      species_model_limit = 2L,
+      resamples = 8L,
       n_cores = 1L,
       seed = NULL,
       alpha_range = list(from = 0.1, to = 0.9),
@@ -2107,7 +2102,11 @@ normalize_config <- function(config,
   if (!is.character(base_dir) || length(base_dir) != 1 || !nzchar(base_dir)) {
     stop("'base_dir' must be a single non-empty path.", call. = FALSE)
   }
+  if (isTRUE(attr(config, "tsbiomass_normalized"))) {
+    return(config)
+  }
 
+  reject_retired_configuration_fields(config)
   config <- normalize_similarity_config_shape(config)
   config <- normalize_selection_config_shape(config)
 
@@ -2171,6 +2170,7 @@ normalize_config <- function(config,
   normalized_config$frequency_coherence_weight <- normalized_config$policy$frequency_coherence_weight
   normalized_config$core_weight_cutoff <- normalized_config$policy$core_weight_cutoff
   normalized_config$conformal_alpha <- normalized_config$selection$conformal_alpha %||% normalized_config$policy$conformal_alpha
+  attr(normalized_config, "tsbiomass_normalized") <- TRUE
   normalized_config
 }
 
@@ -2433,7 +2433,7 @@ validate_execution_flags <- function(execution_section,
 #' @noRd
 validate_tuning_section <- function(tuning_section) {
   # Restrict the tuning controls to finite positive numeric scalars.
-  numeric_fields <- c("max_models_per_species", "n_resamples")
+  numeric_fields <- c("species_model_limit", "resamples")
   for (field_name in numeric_fields) {
     field_value <- tuning_section[[field_name]]
     if (!is.numeric(field_value) || length(field_value) != 1 || !is.finite(field_value) || field_value < 1) {
@@ -2932,7 +2932,7 @@ validate_selection_section <- function(selection_section) {
   }
 
   numeric_fields <- c(
-    "tolerance", "one_se_multiplier", "equivalence_tolerance", "n_boot", "seed",
+    "one_se_multiplier", "equivalence_tolerance", "n_boot", "seed",
     "u_tol_rel",
     "u_tol_abs",
     "uncertainty_relative_tolerance",

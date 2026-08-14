@@ -158,22 +158,12 @@ preview_values <- function(values,
 #' @keywords internal
 #' @noRd
 parse_command_line <- function(arguments = commandArgs(trailingOnly = TRUE)) {
-  # Accept either a config-driven invocation or the positional-argument form
-  # supported by the script wrapper.
   if (length(arguments) == 0) {
-    return(list(
-      action = "run",
-      config_path = NULL,
-      input_file = NULL,
-      output_root = NULL,
-      cache_folder = NULL,
-      strict_length_pdf = NULL,
-      run_multiplier_model = NULL
-    ))
+    stop("Use '--config <path>' to supply a config YAML file.", call. = FALSE)
   }
 
   if (identical(arguments[[1]], "--write-template")) {
-    if (length(arguments) < 2 || !nzchar(arguments[[2]])) {
+    if (length(arguments) != 2 || !nzchar(arguments[[2]])) {
       stop("Use '--write-template <path>' to scaffold a config YAML file.", call. = FALSE)
     }
 
@@ -181,23 +171,16 @@ parse_command_line <- function(arguments = commandArgs(trailingOnly = TRUE)) {
   }
 
   if (identical(arguments[[1]], "--config")) {
-    if (length(arguments) < 2 || !nzchar(arguments[[2]])) {
+    if (length(arguments) != 2 || !nzchar(arguments[[2]])) {
       stop("Use '--config <path>' to supply a config YAML file.", call. = FALSE)
     }
 
     return(list(action = "run", config_path = arguments[[2]]))
   }
 
-  # Parse the positional fallback exactly once so older command lines still map
-  # onto the current config structure.
-  list(
-    action = "run",
-    config_path = NULL,
-    input_file = arguments[[1]] %||% NULL,
-    output_root = arguments[[2]] %||% NULL,
-    cache_folder = arguments[[3]] %||% NULL,
-    strict_length_pdf = arguments[[4]] %||% NULL,
-    run_multiplier_model = arguments[[5]] %||% NULL
+  stop(
+    "Unsupported command-line arguments. Use '--config <path>' or '--write-template <path>'.",
+    call. = FALSE
   )
 }
 
@@ -227,38 +210,9 @@ resolve_command_line <- function(arguments = commandArgs(trailingOnly = TRUE),
     return(write_config_yaml(cli_values$path))
   }
 
-  if (!is.null(cli_values$config_path)) {
-    return(
-      read_configuration(
-        path = cli_values$config_path,
-        base_dir = dirname(path_absolute(cli_values$config_path, base_dir = base_dir)),
-        registry_path = registry_path,
-        policy_path = policy_path
-      )
-    )
-  }
-
-  # Build the fallback positional config from the generic registry-derived
-  # baseline, then normalize it through the same validator and path resolver.
-  config_data <- create_configuration_template(
-    input_file = cli_values$input_file %||% "input.xlsx",
-    output_root = cli_values$output_root %||% "outputs",
-    cache_folder = cli_values$cache_folder %||% "cache"
-  )
-  config_data$execution$strict_length_pdf <- if (is.null(cli_values$strict_length_pdf)) {
-    config_data$execution$strict_length_pdf
-  } else {
-    command_line_true(cli_values$strict_length_pdf)
-  }
-  config_data$execution$run_multiplier_model <- if (is.null(cli_values$run_multiplier_model)) {
-    config_data$execution$run_multiplier_model
-  } else {
-    command_line_true(cli_values$run_multiplier_model)
-  }
-
-  normalize_config(
-    config = config_data,
-    base_dir = base_dir,
+  read_configuration(
+    path = cli_values$config_path,
+    base_dir = dirname(path_absolute(cli_values$config_path, base_dir = base_dir)),
     registry_path = registry_path,
     policy_path = policy_path
   )

@@ -3784,7 +3784,7 @@ anchor_local_log_sigma_calibration <- function(row_now,
   if (nrow(anchor_row) == 0) {
     return(NULL)
   }
-  anchor_pdf <- anchor_pdf_from_row(anchor_row, n = length_grid_n)
+  anchor_pdf <- build_anchor_length_pdf(anchor_row, n = length_grid_n, on_missing = "empty")
   if (nrow(anchor_pdf) == 0) {
     return(NULL)
   }
@@ -4302,44 +4302,6 @@ selection_competition_covariance <- function(policy_tbl,
   )
 }
 
-#' Build anchor PDF directly from one anchor row
-#'
-#' @param anchor_row One-row anchor table.
-#' @param n Number of support points.
-#'
-#' @return A tibble with `length_cm` and `f_len`.
-#'
-#' @keywords internal
-#' @noRd
-anchor_pdf_from_row <- function(anchor_row,
-                                n = 400L) {
-  user_pdf <- anchor_pdf_from_stored_row(anchor_row)
-  if (nrow(user_pdf) > 0) {
-    return(user_pdf)
-  }
-  mins <- suppressWarnings(as.numeric(anchor_row$study_length_min))
-  maxs <- suppressWarnings(as.numeric(anchor_row$study_length_max))
-  mids <- suppressWarnings(as.numeric(anchor_row$study_length_midpoint))
-  mins <- mins[is.finite(mins) & mins > 0]
-  maxs <- maxs[is.finite(maxs) & maxs > 0]
-  mids <- mids[is.finite(mids) & mids > 0]
-  if (length(mins) > 0 && length(maxs) > 0) {
-    lmin <- min(pmin(mins, maxs))
-    lmax <- max(pmax(mins, maxs))
-    if (is.finite(lmin) && is.finite(lmax) && lmax > lmin) {
-      grid <- seq(lmin, lmax, length.out = as.integer(n))
-      return(tibble::tibble(length_cm = grid, f_len = rep(1 / length(grid), length(grid))))
-    }
-    if (is.finite(lmin)) {
-      return(tibble::tibble(length_cm = lmin, f_len = 1))
-    }
-  }
-  if (length(mids) > 0) {
-    return(tibble::tibble(length_cm = mids[[1]], f_len = 1))
-  }
-  tibble::tibble()
-}
-
 #' Build a donor support shape over the anchor length grid
 #'
 #' @param anchor_scores Anchor-score table.
@@ -4534,7 +4496,7 @@ augment_anchor_length_context <- function(policy_tbl,
         length_support_max_cm = NA_real_
       ))
     }
-    anchor_pdf <- anchor_pdf_from_row(anchor_row, n = length_grid_n)
+    anchor_pdf <- build_anchor_length_pdf(anchor_row, n = length_grid_n, on_missing = "empty")
     if (nrow(anchor_pdf) == 0) {
       return(tibble::tibble(
         anchor_model_id = anchor_id_chr,
@@ -4945,7 +4907,7 @@ strategy_uncertainty_context <- function(row_now,
   if (nrow(anchor_row) == 0) {
     return(NULL)
   }
-  anchor_pdf <- anchor_pdf_from_row(anchor_row, n = length_grid_n)
+  anchor_pdf <- build_anchor_length_pdf(anchor_row, n = length_grid_n, on_missing = "empty")
   if (nrow(anchor_pdf) == 0) {
     return(NULL)
   }

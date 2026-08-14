@@ -328,49 +328,36 @@ seed_registry_traits <- function(models_tbl, registry_obj) {
 read_similarity_config <- function(config) {
   config_similarity_view <- function(cfg) {
     similarity_cfg <- cfg$similarity %||% list()
-    tuning_cfg <- similarity_cfg$tuning %||% cfg$tuning %||% list()
+    tuning_cfg <- cfg$tuning %||% list()
     execution_cfg <- cfg$execution %||% list()
-    policy_cfg <- similarity_cfg$policy %||% cfg$policy %||% list()
-    length_mode <- similarity_cfg$length_mode %||%
-      similarity_cfg$coherence_mode %||%
-      similarity_cfg$length_coherence_mode %||%
-      policy_cfg$length_coherence_mode %||%
-      policy_cfg$coherence_mode %||%
-      "overlap"
-    depth_mode <- similarity_cfg$depth_mode %||%
-      similarity_cfg$coherence_mode %||%
-      similarity_cfg$depth_coherence_mode %||%
-      policy_cfg$depth_coherence_mode %||%
-      policy_cfg$coherence_mode %||%
-      "overlap"
-    frequency_mode <- similarity_cfg$frequency_mode %||%
-      policy_cfg$frequency_coherence_mode %||%
-      "overlap"
-
-    if (isTRUE(similarity_cfg$exact_frequency %||% policy_cfg$require_same_frequency_label %||% FALSE)) {
-      frequency_mode <- "literal"
-    }
+    coherence_cfg <- similarity_cfg$coherence %||% list()
+    length_cfg <- coherence_cfg$length %||% list()
+    depth_cfg <- coherence_cfg$depth %||% list()
+    frequency_cfg <- coherence_cfg$frequency %||% list()
+    length_mode <- length_cfg$mode %||% "overlap"
+    depth_mode <- depth_cfg$mode %||% "overlap"
+    frequency_mode <- frequency_cfg$mode %||% "overlap"
     frequency_mode <- normalize_similarity_frequency_method(frequency_mode)
 
     list(
-      species_traits = similarity_cfg$species_traits %||% policy_cfg$species_traits %||% NULL,
-      study_traits = similarity_cfg$study_traits %||% policy_cfg$study_traits %||% NULL,
-      alpha = similarity_cfg$alpha %||% policy_cfg$alpha %||% NULL,
+      species_traits = similarity_cfg$species_traits %||% NULL,
+      study_traits = similarity_cfg$study_traits %||% NULL,
+      alpha = similarity_cfg$alpha %||% NULL,
       kernel_scale = similarity_cfg$kernel_scale %||% NULL,
-      k_species = similarity_cfg$kernel_scale %||% similarity_cfg$k_species %||% policy_cfg$k_species %||% NULL,
-      k_study = similarity_cfg$kernel_scale %||% similarity_cfg$k_study %||% policy_cfg$k_study %||% NULL,
+      k_species = similarity_cfg$kernel_scale %||% NULL,
+      k_study = similarity_cfg$kernel_scale %||% NULL,
       alpha_range = tuning_cfg$alpha_range %||% NULL,
       kernel_scale_range = tuning_cfg$kernel_scale_range %||% NULL,
-      k_species_range = tuning_cfg$kernel_scale_range %||% tuning_cfg$k_species_range %||% NULL,
-      k_study_range = tuning_cfg$kernel_scale_range %||% tuning_cfg$k_study_range %||% NULL,
+      k_species_range = tuning_cfg$kernel_scale_range %||% NULL,
+      k_study_range = tuning_cfg$kernel_scale_range %||% NULL,
       alpha_grid = tuning_cfg$alpha_grid %||% NULL,
       kernel_scale_grid = tuning_cfg$kernel_scale_grid %||% NULL,
-      k_species_grid = tuning_cfg$kernel_scale_grid %||% tuning_cfg$k_species_grid %||% NULL,
-      k_study_grid = tuning_cfg$kernel_scale_grid %||% tuning_cfg$k_study_grid %||% NULL,
-      max_models_per_species = tuning_cfg$max_models_per_species %||% tuning_cfg$species_model_limit %||% NULL,
-      n_resamples = tuning_cfg$n_resamples %||% tuning_cfg$resamples %||% NULL,
+      k_species_grid = tuning_cfg$kernel_scale_grid %||% NULL,
+      k_study_grid = tuning_cfg$kernel_scale_grid %||% NULL,
+      max_models_per_species = tuning_cfg$species_model_limit %||% NULL,
+      n_resamples = tuning_cfg$resamples %||% NULL,
       n_cores = tuning_cfg$n_cores %||% NULL,
-      seed = tuning_cfg$seed %||% cfg$seed %||% NULL,
+      seed = tuning_cfg$seed %||% NULL,
       grid_refinement_levels = tuning_cfg$grid_refinement_levels %||% NULL,
       equal_start_weights = tuning_cfg$equal_start_weights %||% FALSE,
       response_surface_top_n = tuning_cfg$response_surface_top_n %||% NULL,
@@ -380,23 +367,23 @@ read_similarity_config <- function(config) {
       progress = execution_cfg$progress %||% NULL,
       cache_path = similarity_cfg$cache_path %||% NULL,
       refresh = similarity_cfg$refresh %||% NULL,
-      exact_frequency = similarity_cfg$exact_frequency %||% policy_cfg$require_same_frequency_label %||% NULL,
-      frequency_gap = similarity_cfg$frequency_gap %||% policy_cfg$max_frequency_gap_khz %||% NULL,
+      exact_frequency = NULL,
+      frequency_gap = frequency_cfg$gap %||% NULL,
       length_coherence = list(
         method = length_mode,
-        weight = similarity_cfg$length_weight %||% similarity_cfg$coherence$length$weight %||% policy_cfg$length_overlap_weight %||% NULL,
+        weight = length_cfg$weight %||% NULL,
         range = tuning_cfg$coherence$length$range %||% NULL,
         grid = tuning_cfg$coherence$length$grid %||% NULL
       ),
       depth_coherence = list(
         method = depth_mode,
-        weight = similarity_cfg$depth_weight %||% similarity_cfg$coherence$depth$weight %||% policy_cfg$depth_overlap_weight %||% NULL,
+        weight = depth_cfg$weight %||% NULL,
         range = tuning_cfg$coherence$depth$range %||% NULL,
         grid = tuning_cfg$coherence$depth$grid %||% NULL
       ),
       frequency_coherence = list(
         method = frequency_mode,
-        weight = similarity_cfg$frequency_weight %||% similarity_cfg$coherence$frequency$weight %||% policy_cfg$frequency_coherence_weight %||% NULL,
+        weight = frequency_cfg$weight %||% NULL,
         range = tuning_cfg$coherence$frequency$range %||% NULL,
         grid = tuning_cfg$coherence$frequency$grid %||% NULL
       )
