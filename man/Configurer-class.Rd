@@ -24,15 +24,15 @@ filled from the package defaults during normalization.
 \examples{
 cfg <- build_configurer(list(
   paths = list(
-    input = "input.xlsx",
-    output_root = "outputs",
-    cache_folder = "cache",
-    support_folder = "supplemental",
-    log_path = "outputs/run.log"
+    input_file = "input.xlsx",
+    out_root = "outputs",
+    cache_dir = "cache",
+    supplemental_dir = "supplemental",
+    log_file = "outputs/run.log"
   ),
   execution = list(
-    strict_pdf = FALSE,
-    run_multiplier = FALSE,
+    strict_length_pdf = FALSE,
+    run_multiplier_model = FALSE,
     write_log = FALSE
   ),
   tuning = list(
