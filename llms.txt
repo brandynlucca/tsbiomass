@@ -134,8 +134,8 @@ Ingest and normalize candidate TS-length models.
 - [`fetch_reference_anchors()`](https://brandynlucca.github.io/tsbiomass/reference/fetch_reference_anchors.md)
   : Fetch the selected reference anchors
 
-- [`set_reference_length_pdf()`](https://brandynlucca.github.io/tsbiomass/reference/set_reference_length_pdf.md)
-  : Set user-supplied reference length PDFs
+- [`set_model_metadata()`](https://brandynlucca.github.io/tsbiomass/reference/set_model_metadata.md)
+  : Update candidate metadata by model ID
 
 - [`prepare_similarities()`](https://brandynlucca.github.io/tsbiomass/reference/prepare_similarities.md)
   : Prepare similarity inputs
@@ -333,9 +333,6 @@ Generate predictions and evaluate policy performance.
 
 - [`predict.Referee`](https://brandynlucca.github.io/tsbiomass/reference/predict.Referee.md)
   : Predict a referee scorecard
-
-- [`recommend_ts_model()`](https://brandynlucca.github.io/tsbiomass/reference/recommend_ts_model.md)
-  : Evaluate transparent recommendation policies for one target
 
 - [`Scorecard-class`](https://brandynlucca.github.io/tsbiomass/reference/Scorecard-class.md)
   [`Scorecard`](https://brandynlucca.github.io/tsbiomass/reference/Scorecard-class.md)

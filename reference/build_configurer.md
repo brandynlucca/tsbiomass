@@ -85,21 +85,7 @@ cfg <- build_configurer(list(
     method = "glm"
   )
 ))
+#> Error: Configuration field 'paths.input' is not supported. Use 'paths.input_file'.
 cfg
-#> Configurer
-#>   base_dir: /home/runner/work/tsbiomass/tsbiomass/docs/reference
-#>   input_file: /home/runner/work/tsbiomass/tsbiomass/docs/reference/input.xlsx
-#>   out_root: /home/runner/work/tsbiomass/tsbiomass/docs/reference/outputs
-#>   cache_dir: /home/runner/work/tsbiomass/tsbiomass/docs/reference/cache
-#>   species_traits: genus, family
-#>   study_traits: frequency, fao_area
-#>   active_policies: closest_within_species
-#>   slope_class: none
-#>   selection_method: glm
-#>   uncertainty_method: glm
-#>   alpha: 0.8
-#>   kernel_scale: 4
-#>   strict_length_pdf: FALSE
-#>   refresh_benchmark: FALSE
-#>   sections: paths, execution, tuning, similarity, ordination, ... (13 total)
+#> Error: object 'cfg' not found
 ```

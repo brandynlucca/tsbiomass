@@ -80,7 +80,6 @@
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/predict.Referee.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/prepare_similarities.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/read_configuration.html</loc></url>
-<url><loc>https://brandynlucca.github.io/tsbiomass/reference/recommend_ts_model.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/referee_rebuild.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/run_ordination.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/run_sentinel.html</loc></url>
@@ -91,8 +90,8 @@
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/select_policies.PolicySelector.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/select_policies.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/sentinel_apply_scenario.html</loc></url>
+<url><loc>https://brandynlucca.github.io/tsbiomass/reference/set_model_metadata.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/set_reference_anchors.html</loc></url>
-<url><loc>https://brandynlucca.github.io/tsbiomass/reference/set_reference_length_pdf.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/trait_definition.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/trait_names.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/tsb_message.html</loc></url>
