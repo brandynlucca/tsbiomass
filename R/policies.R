@@ -6905,13 +6905,16 @@ sample_meta_policy_kernel_training_rows <- function(n,
 
   had_seed <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
   old_seed <- if (had_seed) get(".Random.seed", envir = .GlobalEnv, inherits = FALSE) else NULL
-  on.exit({
-    if (had_seed) {
-      assign(".Random.seed", old_seed, envir = .GlobalEnv)
-    } else if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
-      rm(".Random.seed", envir = .GlobalEnv)
-    }
-  }, add = TRUE)
+  on.exit(
+    {
+      if (had_seed) {
+        assign(".Random.seed", old_seed, envir = .GlobalEnv)
+      } else if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+        rm(".Random.seed", envir = .GlobalEnv)
+      }
+    },
+    add = TRUE
+  )
   if (!is.null(seed)) {
     set.seed(as.integer(seed))
   }
@@ -6953,13 +6956,16 @@ sample_meta_policy_holdout_rows <- function(n,
 
   had_seed <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
   old_seed <- if (had_seed) get(".Random.seed", envir = .GlobalEnv, inherits = FALSE) else NULL
-  on.exit({
-    if (had_seed) {
-      assign(".Random.seed", old_seed, envir = .GlobalEnv)
-    } else if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
-      rm(".Random.seed", envir = .GlobalEnv)
-    }
-  }, add = TRUE)
+  on.exit(
+    {
+      if (had_seed) {
+        assign(".Random.seed", old_seed, envir = .GlobalEnv)
+      } else if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+        rm(".Random.seed", envir = .GlobalEnv)
+      }
+    },
+    add = TRUE
+  )
   if (!is.null(seed)) {
     set.seed(as.integer(seed))
   }
@@ -7974,12 +7980,15 @@ run_meta_policy_super_oof_tasks <- function(tasks,
   # the payload must be populated before makeForkCluster() is called.
   set_meta_policy_crossfit_payload(payload)
   cluster_obj <- NULL
-  on.exit({
-    if (!is.null(cluster_obj)) {
-      try(parallel::stopCluster(cluster_obj), silent = TRUE)
-    }
-    clear_meta_policy_crossfit_payload()
-  }, add = TRUE)
+  on.exit(
+    {
+      if (!is.null(cluster_obj)) {
+        try(parallel::stopCluster(cluster_obj), silent = TRUE)
+      }
+      clear_meta_policy_crossfit_payload()
+    },
+    add = TRUE
+  )
   cluster_obj <- initialize_parallel_cluster(workers = workers)
   cluster_type <- attr(cluster_obj, "cluster_type", exact = TRUE) %||% "unknown"
 
@@ -9306,8 +9315,10 @@ predict_meta_policy_score <- function(object,
 #' @keywords internal
 #' @noRd
 set_meta_policy_crossfit_payload <- function(payload) {
-  rm(list = ls(envir = .meta_policy_crossfit_payload, all.names = TRUE),
-     envir = .meta_policy_crossfit_payload)
+  rm(
+    list = ls(envir = .meta_policy_crossfit_payload, all.names = TRUE),
+    envir = .meta_policy_crossfit_payload
+  )
   list2env(payload, envir = .meta_policy_crossfit_payload)
   invisible(NULL)
 }
@@ -9321,8 +9332,10 @@ set_meta_policy_crossfit_payload <- function(payload) {
 #' @keywords internal
 #' @noRd
 clear_meta_policy_crossfit_payload <- function() {
-  rm(list = ls(envir = .meta_policy_crossfit_payload, all.names = TRUE),
-     envir = .meta_policy_crossfit_payload)
+  rm(
+    list = ls(envir = .meta_policy_crossfit_payload, all.names = TRUE),
+    envir = .meta_policy_crossfit_payload
+  )
   invisible(NULL)
 }
 
@@ -9338,7 +9351,7 @@ clear_meta_policy_crossfit_payload <- function() {
 #' @keywords internal
 #' @noRd
 run_meta_policy_crossfit_payload_fold <- function(fold_split,
-                                                 payload) {
+                                                  payload) {
   fold_start <- proc.time()
   f <- fold_split$fold_id
   train <- fold_split$train
@@ -10023,12 +10036,12 @@ run_meta_policy_crossfit_method_tasks <- function(tasks,
           pending_tasks <- queue_result$unstarted
         }
         report_progress(
-        progress,
-        sprintf(
+          progress,
+          sprintf(
             "  \u26a0 Method-fold queue failed while active tasks were [%s]; retaining completed tasks and splitting suspect set into %d group(s); %d pending task(s) remain at full worker budget: %s",
-          format_meta_policy_crossfit_method_tasks(queue_result$failed_active),
-          length(suspect_groups),
-          length(pending_tasks),
+            format_meta_policy_crossfit_method_tasks(queue_result$failed_active),
+            length(suspect_groups),
+            length(pending_tasks),
             queue_result$error
           )
         )

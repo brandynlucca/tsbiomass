@@ -737,7 +737,9 @@ ordination_hull_overlap_count <- function(coords, clusters) {
   }
   orientation <- function(a, b, c) {
     val <- (b[2] - a[2]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[2] - b[2])
-    if (abs(val) < 1e-10) return(0L)
+    if (abs(val) < 1e-10) {
+      return(0L)
+    }
     if (val > 0) 1L else 2L
   }
   on_segment <- function(a, b, c) {
@@ -751,11 +753,21 @@ ordination_hull_overlap_count <- function(coords, clusters) {
     o2 <- orientation(p1, q1, q2)
     o3 <- orientation(p2, q2, p1)
     o4 <- orientation(p2, q2, q1)
-    if (o1 != o2 && o3 != o4) return(TRUE)
-    if (o1 == 0L && on_segment(p1, p2, q1)) return(TRUE)
-    if (o2 == 0L && on_segment(p1, q2, q1)) return(TRUE)
-    if (o3 == 0L && on_segment(p2, p1, q2)) return(TRUE)
-    if (o4 == 0L && on_segment(p2, q1, q2)) return(TRUE)
+    if (o1 != o2 && o3 != o4) {
+      return(TRUE)
+    }
+    if (o1 == 0L && on_segment(p1, p2, q1)) {
+      return(TRUE)
+    }
+    if (o2 == 0L && on_segment(p1, q2, q1)) {
+      return(TRUE)
+    }
+    if (o3 == 0L && on_segment(p2, p1, q2)) {
+      return(TRUE)
+    }
+    if (o4 == 0L && on_segment(p2, q1, q2)) {
+      return(TRUE)
+    }
     FALSE
   }
   hulls <- lapply(split(seq_len(nrow(coords)), clusters), function(idx) {

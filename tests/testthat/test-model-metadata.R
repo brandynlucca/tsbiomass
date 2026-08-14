@@ -351,8 +351,8 @@ test_that("PolicySelector dispatches an external existing-species query through 
 
   testthat::local_mocked_bindings(
     augment_alchemist_query_distances = function(candidate_models,
-                                                  distance_state,
-                                                  query_model_ids) {
+                                                 distance_state,
+                                                 query_model_ids) {
       captured$learner_state <- distance_state$distance_learner
       captured$query_model_ids <- query_model_ids
       list(distance_mode = "alchemist_super_learner", query_distances_added = TRUE)

@@ -1,4 +1,4 @@
-﻿---
+---
 title: "Super Learners"
 description: >
   The three Super Learner contexts in tsbiomass: what they do, which
@@ -299,16 +299,16 @@ code_drop(
     sep = "\n"
   ),
   r = paste(
-    'list(',
-    '  alchemist = list(',
-    '    learner = list(',
+    "list(",
+    "  alchemist = list(",
+    "    learner = list(",
     '      methods = c("glm_elastic", "rf", "xgboost"),',
-    '      inner_folds = 5,',
+    "      inner_folds = 5,",
     '      outcome_transform = "log1p",',
     '      lambda_rule = "lambda.1se"',
-    '    )',
-    '  )',
-    ')',
+    "    )",
+    "  )",
+    ")",
     sep = "\n"
   )
 )
@@ -788,17 +788,17 @@ code_drop(
     sep = "\n"
   ),
   r = paste(
-    'list(',
-    '  uncertainty = list(',
+    "list(",
+    "  uncertainty = list(",
     '    method = "super_learner",',
     '    super_methods = c("glm", "glm_elastic", "rf", "xgboost", "qreg", "qrf", "gpr"),',
-    '    n_folds = 5,',
-    '    inner_folds = 3,',
+    "    n_folds = 5,",
+    "    inner_folds = 3,",
     '    outcome_col = "error_abs_log",',
     '    outcome_transform = "log1p",',
     '    lambda_rule = "lambda.min"',
-    '  )',
-    ')',
+    "  )",
+    ")",
     sep = "\n"
   )
 )
@@ -1506,15 +1506,15 @@ code_drop(
     sep = "\n"
   ),
   r = paste(
-    'list(',
-    '  selection = list(',
+    "list(",
+    "  selection = list(",
     '    method = "glm",',
-    '    n_folds = 5,',
-    '    inner_folds = 5,',
+    "    n_folds = 5,",
+    "    inner_folds = 5,",
     '    outcome_transform = "log1p",',
     '    lambda_rule = "lambda.1se"',
-    '  )',
-    ')',
+    "  )",
+    ")",
     sep = "\n"
   )
 )

@@ -116,7 +116,7 @@ alchemist_config_from_config <- function(source) {
     learner = list(
       methods = alch$learner$methods %||% ml$super_methods %||% NULL,
       inner_folds = as.integer(alch$learner$inner_folds %||%
-                                 ml$inner_folds %||% 5L),
+        ml$inner_folds %||% 5L),
       seed = if (!is.null(alch$learner$seed %||% ml$seed)) {
         as.integer(alch$learner$seed %||% ml$seed)
       } else {
@@ -162,17 +162,17 @@ normalize_alchemist_config <- function(config, candidates = NULL) {
     config <- alchemist_config_from_config(config)
   } else if (is.list(config) &&
     any(c("alchemist", "similarity", "selection", "policy", "policies")
-        %in% names(config))) {
+    %in% names(config))) {
     config <- alchemist_config_from_config(config)
-  } else if (is.character(config) && length(config) == 1
-             && file.exists(config)) {
+  } else if (is.character(config) && length(config) == 1 &&
+    file.exists(config)) {
     raw <- yaml::read_yaml(config)
     cfg_obj <- tryCatch(build_configurer(raw), error = function(e) NULL)
     config <- if (!is.null(cfg_obj)) {
       alchemist_config_from_config(cfg_obj)
-      } else {
-        raw
-      }
+    } else {
+      raw
+    }
   } else if (!is.list(config)) {
     stop(
       "'config' must be NULL, a list, a YAML path, a `Candidates`, or a `Configurer`.",
@@ -182,7 +182,7 @@ normalize_alchemist_config <- function(config, candidates = NULL) {
 
   if (is.null(config$learner)) config$learner <- list()
   config$learner$inner_folds <- as.integer(config$learner$inner_folds %||% 5L)
-  config$learner$seed <- if (!is.null(config$learner$seed)){
+  config$learner$seed <- if (!is.null(config$learner$seed)) {
     as.integer(config$learner$seed)
   } else {
     NULL
@@ -309,12 +309,12 @@ as_alchemist <- function(candidates, config = NULL, ...) {
   config <- normalize_alchemist_config(config, candidates = candidates)
 
   if (length(config$species_traits) == 0 &&
-      length(candidates@similarity_matrix) > 0) {
+    length(candidates@similarity_matrix) > 0) {
     config$species_traits <- (candidates@similarity_matrix)$species_traits %||%
       list()
   }
   if (length(config$study_traits) == 0 &&
-      length(candidates@similarity_matrix) > 0) {
+    length(candidates@similarity_matrix) > 0) {
     config$study_traits <- (candidates@similarity_matrix)$study_traits %||%
       list()
   }
@@ -373,8 +373,10 @@ alchemist_stage_cache_path <- function(config,
 #' @keywords internal
 #' @noRd
 normalize_alchemist_ocean_basin <- function(x) {
-  keywords <- c("atlantic", "pacific", "mediterranean", "indian", "southern",
-                "arctic", "inland")
+  keywords <- c(
+    "atlantic", "pacific", "mediterranean", "indian", "southern",
+    "arctic", "inland"
+  )
   x_lower <- stringr::str_to_lower(stringr::str_squish(as.character(x)))
   vapply(x_lower, function(raw) {
     if (is.na(raw) || !nzchar(raw)) {
@@ -442,8 +444,10 @@ expand_multival_col <- function(x, col_fn, tr) {
     )
     col_fn(binary)
   })
-  stats::setNames(mats, paste0(".dist_", tr, "__", gsub("[^A-Za-z0-9]", "_",
-                                                        all_vals)))
+  stats::setNames(mats, paste0(".dist_", tr, "__", gsub(
+    "[^A-Za-z0-9]", "_",
+    all_vals
+  )))
 }
 
 # - Pair-level training data -
@@ -547,8 +551,10 @@ alchemist_trait_names <- function(traits, models_df) {
 }
 
 # Taxonomic rank levels ordered from broad to specific.
-.ALCH_TAX_RANKS <- c("kingdom", "phylum", "class", "order", "family", "genus",
-                     "species")
+.ALCH_TAX_RANKS <- c(
+  "kingdom", "phylum", "class", "order", "family", "genus",
+  "species"
+)
 
 #' Compute a taxonomic/phylogenetic distance matrix for Alchemist pair features
 #'
@@ -697,8 +703,10 @@ coherence_mats <- function(models_df, coherence_cfg) {
       lo_sp <- resolve_num(resolve_col(sp_lo))
       hi_sp <- resolve_num(resolve_col(sp_hi))
       if (any(is.finite(lo_sp)) && any(is.finite(hi_sp))) {
-        result[[paste0(base_key, "_species")]] <- interval_mat(lo_sp, hi_sp,
-                                                               mode)
+        result[[paste0(base_key, "_species")]] <- interval_mat(
+          lo_sp, hi_sp,
+          mode
+        )
       }
       if (length(result) == 0L) result[[base_key]] <- NULL
       return(result)
@@ -718,9 +726,9 @@ coherence_mats <- function(models_df, coherence_cfg) {
     hi <- resolve_num(resolve_col(hi_candidates))
     mat <- if (any(is.finite(lo)) && any(is.finite(hi))) {
       interval_mat(lo, hi, mode)
-      } else {
-        NULL
-      }
+    } else {
+      NULL
+    }
     stats::setNames(list(mat), base_key)
   }
 
@@ -744,8 +752,10 @@ coherence_mats <- function(models_df, coherence_cfg) {
     if (length(valid_freq) >= 2L) {
       freq_span <- compute_frequency_span(valid_freq)
       if (is.finite(freq_span) && freq_span > 0) {
-        freq_mat <- frequency_offset_distance_matrix(freq_vals, freq_mode,
-                                                     freq_span)
+        freq_mat <- frequency_offset_distance_matrix(
+          freq_vals, freq_mode,
+          freq_span
+        )
       }
     }
   }
@@ -857,7 +867,7 @@ build_pair_feature_matrices <- function(models_df,
       tax_ranks_found
     )
     tax_col_map <- tax_col_map[!is.na(tax_col_map) & tax_col_map %in%
-                                 names(models_df)]
+      names(models_df)]
     if (length(tax_col_map) >= 1L) {
       report_progress(
         progress,
@@ -963,40 +973,50 @@ build_pair_data <- function(models_df,
   species_feature_cols <- feature_data$species_feature_cols
   n <- nrow(models_df)
 
-  slope_col <- intersect(c("slope_standard", "slope_len"),
-                         names(models_df))[[1]] %||% NULL
-  intercept_col <- intersect(c("intercept_standard", "intercept_len"),
-                             names(models_df))[[1]] %||% NULL
+  slope_col <- intersect(
+    c("slope_standard", "slope_len"),
+    names(models_df)
+  )[[1]] %||% NULL
+  intercept_col <- intersect(
+    c("intercept_standard", "intercept_len"),
+    names(models_df)
+  )[[1]] %||% NULL
   if (is.null(slope_col) || !slope_col %in% names(models_df)) {
     stop("Required slope column was not found in candidate models.",
-         call. = FALSE)
+      call. = FALSE
+    )
   }
   if (is.null(intercept_col) || !intercept_col %in% names(models_df)) {
     stop("Required intercept column was not found in candidate models.",
-         call. = FALSE)
+      call. = FALSE
+    )
   }
   slope_vals <- suppressWarnings(as.numeric(models_df[[slope_col]]))
   intercept_vals <- suppressWarnings(as.numeric(models_df[[intercept_col]]))
   slope_vals[!is.finite(slope_vals)] <- NA_real_
   intercept_vals[!is.finite(intercept_vals)] <- NA_real_
 
-  len_min_col <- intersect(c("study_length_min", "length_minimum"),
-                           names(models_df))[[1]] %||% NULL
-  len_max_col <- intersect(c("study_length_max", "length_maximum"),
-                           names(models_df))[[1]] %||% NULL
+  len_min_col <- intersect(
+    c("study_length_min", "length_minimum"),
+    names(models_df)
+  )[[1]] %||% NULL
+  len_max_col <- intersect(
+    c("study_length_max", "length_maximum"),
+    names(models_df)
+  )[[1]] %||% NULL
 
   anchor_pdfs <- lapply(seq_len(n), function(j) {
     build_anchor_pdf(
       lo = if (!is.null(len_min_col)) {
-              models_df[[len_min_col]][[j]]
-              } else {
-                NA_real_
-              },
+        models_df[[len_min_col]][[j]]
+      } else {
+        NA_real_
+      },
       hi = if (!is.null(len_max_col)) {
         models_df[[len_max_col]][[j]]
-        } else {
-          NA_real_
-        }
+      } else {
+        NA_real_
+      }
     )
   })
   n_valid_pdfs <- sum(!vapply(anchor_pdfs, is.null, logical(1)))
@@ -1263,8 +1283,10 @@ augment_alchemist_query_distances <- function(candidate_models,
     stop("The fitted Alchemist Super Learner did not produce query-distance disagreement diagnostics.", call. = FALSE)
   }
 
-  learned_dist <- matrix(NA_real_, nrow = length(model_ids), ncol = length(model_ids),
-                         dimnames = list(model_ids, model_ids))
+  learned_dist <- matrix(NA_real_,
+    nrow = length(model_ids), ncol = length(model_ids),
+    dimnames = list(model_ids, model_ids)
+  )
   shared_ids <- intersect(model_ids, rownames(existing_dist))
   learned_dist[shared_ids, shared_ids] <- existing_dist[shared_ids, shared_ids, drop = FALSE]
   if (nrow(query_pairs) > 0L) {
@@ -1276,7 +1298,8 @@ augment_alchemist_query_distances <- function(candidate_models,
   learned_disagreement <- NULL
   if (diagnostic_available) {
     learned_disagreement <- matrix(
-      NA_real_, nrow = length(model_ids), ncol = length(model_ids),
+      NA_real_,
+      nrow = length(model_ids), ncol = length(model_ids),
       dimnames = list(model_ids, model_ids)
     )
     if (nrow(query_pairs) > 0L) {
@@ -1292,8 +1315,10 @@ augment_alchemist_query_distances <- function(candidate_models,
     if (is.null(trait_mats[[".dist_tax"]])) {
       stop("The stored Alchemist taxonomic distance cannot be constructed for the query anchor.", call. = FALSE)
     }
-    taxonomic_dist_new <- matrix(NA_real_, nrow = length(model_ids), ncol = length(model_ids),
-                                 dimnames = list(model_ids, model_ids))
+    taxonomic_dist_new <- matrix(NA_real_,
+      nrow = length(model_ids), ncol = length(model_ids),
+      dimnames = list(model_ids, model_ids)
+    )
     tax_shared_ids <- intersect(model_ids, rownames(taxonomic_dist))
     taxonomic_dist_new[tax_shared_ids, tax_shared_ids] <-
       taxonomic_dist[tax_shared_ids, tax_shared_ids, drop = FALSE]
@@ -2989,8 +3014,10 @@ dropout_trait_group <- function(fcs, trait_name, pair_data, anchor_idx, donor_id
 #' @keywords internal
 #' @noRd
 set_alchemist_dropout_payload <- function(payload) {
-  rm(list = ls(envir = .alchemist_dropout_payload, all.names = TRUE),
-     envir = .alchemist_dropout_payload)
+  rm(
+    list = ls(envir = .alchemist_dropout_payload, all.names = TRUE),
+    envir = .alchemist_dropout_payload
+  )
   list2env(payload, envir = .alchemist_dropout_payload)
   invisible(NULL)
 }
@@ -3004,8 +3031,10 @@ set_alchemist_dropout_payload <- function(payload) {
 #' @keywords internal
 #' @noRd
 clear_alchemist_dropout_payload <- function() {
-  rm(list = ls(envir = .alchemist_dropout_payload, all.names = TRUE),
-     envir = .alchemist_dropout_payload)
+  rm(
+    list = ls(envir = .alchemist_dropout_payload, all.names = TRUE),
+    envir = .alchemist_dropout_payload
+  )
   invisible(NULL)
 }
 
@@ -3773,8 +3802,7 @@ alchemist_plot_types <- function() {
       return(plot_gate_composition(
         x@admissibility$all_gates %||% tibble::tibble(),
         config = x@config$config_data %||% x@candidates
-      )
-      )
+      ))
     }
     return(plot_overlap_heatmap(
       x@admissibility$all_overlap %||% tibble::tibble(),
@@ -5022,8 +5050,7 @@ anchor_overlap_suffix_candidates <- function(trait,
     species_name = "species"
   )
   trait_key <- if (trait %in% names(alias_map)) unname(alias_map[[trait]]) else trait
-  field_key <- switch(
-    trait_key,
+  field_key <- switch(trait_key,
     species = "species_name",
     species_name = "species_name",
     genus = "genus",
@@ -5042,8 +5069,7 @@ anchor_overlap_suffix_candidates <- function(trait,
     error = function(e) trait_key
   )
   candidates <- unique(c(
-    switch(
-      trait_key,
+    switch(trait_key,
       species = "species",
       species_name = "species",
       swimbladder_type = c("swimbladder", "swimbladder_type"),

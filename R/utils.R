@@ -593,7 +593,11 @@ initialize_parallel_cluster <- function(workers,
   development_path <- if (
     file.exists(file.path(namespace_path, "DESCRIPTION")) &&
       (is.na(installed_path) || !identical(namespace_path, installed_path))
-  ) namespace_path else NA_character_
+  ) {
+    namespace_path
+  } else {
+    NA_character_
+  }
   parallel::clusterExport(
     cluster_obj,
     c("library_paths", "package_name", "development_path"),

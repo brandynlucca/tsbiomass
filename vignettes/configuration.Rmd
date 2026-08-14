@@ -21,7 +21,7 @@ code_drop <- function(id, yaml, r, title = "Default configuration") {
     gsub(">", "&gt;", x, fixed = TRUE)
   }
   knitr::asis_output(sprintf(
-'<details class="code-drop">
+    '<details class="code-drop">
 <summary>&#128187; %s</summary>
 <div class="config-tabs">
 <input class="config-tab-yaml" type="radio" name="cfg-%s" id="cfg-%s-yaml" checked>
@@ -40,7 +40,8 @@ code_drop <- function(id, yaml, r, title = "Default configuration") {
 </div>
 </div>
 </details>',
-    esc(title), id, id, id, id, id, id, esc(yaml), esc(r)))
+    esc(title), id, id, id, id, id, id, esc(yaml), esc(r)
+  ))
 }
 ```
 
@@ -2343,5 +2344,6 @@ simulation:
   simulation = list(
     workers = 1
   )
-))--")
+))--"
+)
 ```

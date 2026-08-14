@@ -1218,7 +1218,8 @@ map_phylo_cophenetic_distances <- function(species_names,
   valid_idx <- which(!is.na(match_idx))
   if (length(valid_idx) > 0L) {
     out[valid_idx, valid_idx] <- kept_matrix[
-      match_idx[valid_idx], match_idx[valid_idx], drop = FALSE
+      match_idx[valid_idx], match_idx[valid_idx],
+      drop = FALSE
     ]
   }
   diag(out) <- 0

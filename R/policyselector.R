@@ -268,18 +268,18 @@ as_policyselector <- function(candidates,
       species_dist_model = as.matrix(distance_matrix$dist_matrix),
       learned_directed_dist = distance_matrix$directed_dist_matrix %||% NULL,
       taxonomic_dist_model = distance_matrix$taxonomic_dist_matrix %||% NULL,
-    learned_kernel_bandwidth = distance_matrix$learned_kernel_bandwidth %||% NULL,
-    distance_mode = "alchemist_super_learner",
-    trait_cols = distance_matrix$trait_cols %||% distance_matrix$all_traits %||% character(0),
-    distance_learner = alchemist@learner,
-    feature_cols = distance_matrix$feature_cols %||% alchemist@learner$feature_cols %||% character(0),
-    species_trait_names = distance_matrix$species_trait_names %||% character(0),
-    study_trait_names = distance_matrix$study_trait_names %||% character(0),
-    feature_type = distance_matrix$feature_type %||% NULL,
-    coherence_config = distance_matrix$coherence_config %||% NULL,
-    taxonomic_distance = distance_matrix$taxonomic_distance %||% NULL,
-    feature_normalization = distance_matrix$feature_normalization %||% NULL
-  )
+      learned_kernel_bandwidth = distance_matrix$learned_kernel_bandwidth %||% NULL,
+      distance_mode = "alchemist_super_learner",
+      trait_cols = distance_matrix$trait_cols %||% distance_matrix$all_traits %||% character(0),
+      distance_learner = alchemist@learner,
+      feature_cols = distance_matrix$feature_cols %||% alchemist@learner$feature_cols %||% character(0),
+      species_trait_names = distance_matrix$species_trait_names %||% character(0),
+      study_trait_names = distance_matrix$study_trait_names %||% character(0),
+      feature_type = distance_matrix$feature_type %||% NULL,
+      coherence_config = distance_matrix$coherence_config %||% NULL,
+      taxonomic_distance = distance_matrix$taxonomic_distance %||% NULL,
+      feature_normalization = distance_matrix$feature_normalization %||% NULL
+    )
     candidates <- candidates_with_gower_distances(alchemist@candidates, gower_bundle)
     if (length(alchemist@admissibility) > 0L) {
       candidates <- candidates_with_admissibility(candidates, alchemist@admissibility)
