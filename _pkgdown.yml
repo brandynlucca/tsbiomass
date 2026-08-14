@@ -91,7 +91,7 @@ reference:
       - candidate_models
       - set_reference_anchors
       - fetch_reference_anchors
-      - set_reference_length_pdf
+      - set_model_metadata
       - prepare_similarities
       - construct_gower_distances
 
@@ -159,7 +159,6 @@ reference:
       - Referee-class
       - referee_rebuild
       - predict.Referee
-      - recommend_ts_model
       - Scorecard-class
 
   - title: "Simulation and Validation"
