@@ -2147,7 +2147,7 @@ log_alchemist_oof_task_result <- function(result, completed_n, total_tasks, prog
   success_now <- is.null(result$error) && !is.null(result$pred)
   summary <- sprintf(
     "  %s Method-fold task complete: %d/%d [fold=%d method=%s success=%s].",
-    if (success_now) "✅" else "❌",
+    if (success_now) "\u2705" else "\u274c",
     completed_n,
     total_tasks,
     as.integer(result$fold_id),
@@ -2457,7 +2457,7 @@ run_alchemist_oof_tasks <- function(tasks, payload, workers, progress = FALSE) {
           progress,
           paste0(
             sprintf(
-              "  ❌ Method-fold task isolated after socket failure: %d/%d [fold=%d method=%s success=FALSE].",
+              "  \u274c Method-fold task isolated after socket failure: %d/%d [fold=%d method=%s success=FALSE].",
               completed_n,
               total_tasks,
               as.integer(result$fold_id),
@@ -2482,7 +2482,7 @@ run_alchemist_oof_tasks <- function(tasks, payload, workers, progress = FALSE) {
         report_progress(
           progress,
           sprintf(
-            "  ⚠ Method-fold queue failed while active tasks were [%s]; retaining completed tasks and splitting suspect set into %d group(s); %d pending task(s) remain at full worker budget: %s",
+            "  \u26a0 Method-fold queue failed while active tasks were [%s]; retaining completed tasks and splitting suspect set into %d group(s); %d pending task(s) remain at full worker budget: %s",
             format_alchemist_oof_tasks(queue_result$failed_active),
             length(suspect_groups),
             length(pending_tasks),
@@ -2703,42 +2703,22 @@ fit_super_learner <- function(training_data,
   )
 
   # ---- OOF phase: parallelise across method-fold tasks ----------------------
-  if (oof_workers > 1L && length(oof_tasks) > 1L) {
-    cl <- initialize_parallel_cluster(workers = oof_workers)
-    if (!is.null(cl)) {
-      on.exit(parallel::stopCluster(cl), add = TRUE)
-      oof_task_results <- parallel::parLapplyLB(
-        cl,
-        oof_tasks,
-        fun = run_oof_fold_task,
-        x_all = x_all,
-        y_all = y_all,
-        method_settings = method_settings,
-        seed = seed,
-        lambda_rule = lambda_rule
-      )
-    } else {
-      oof_task_results <- lapply(
-        oof_tasks,
-        run_oof_fold_task,
-        x_all = x_all,
-        y_all = y_all,
-        method_settings = method_settings,
-        seed = seed,
-        lambda_rule = lambda_rule
-      )
-    }
-  } else {
-    oof_task_results <- lapply(
-      oof_tasks,
-      run_oof_fold_task,
+  # Dispatched through a fault-isolating queue (not a bare parLapplyLB) so a
+  # single worker crash - e.g. a forked base-learner process killed by the OS
+  # for exceeding available memory - degrades just that method-fold task
+  # instead of taking down the whole forge_distances() stage.
+  oof_task_results <- run_alchemist_oof_tasks(
+    tasks = oof_tasks,
+    payload = list(
       x_all = x_all,
       y_all = y_all,
       method_settings = method_settings,
       seed = seed,
       lambda_rule = lambda_rule
-    )
-  }
+    ),
+    workers = oof_workers,
+    progress = progress
+  )
 
   oof_fold_timings <- dplyr::bind_rows(lapply(oof_task_results, function(fold_result) {
     tibble::tibble(
