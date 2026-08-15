@@ -341,6 +341,69 @@ test_that("Alchemist fit_super_learner accepts species-purged OOF splits", {
   expect_equal(length(fit$oof_ensemble_prediction), nrow(training_data))
 })
 
+test_that("Alchemist OOF method-fold socket isolation logs the stored failure message", {
+  tasks <- list(
+    list(fold_id = 1L, method = "glm", fold_spec = list(fold_id = 1L, valid_idx = 1L)),
+    list(fold_id = 2L, method = "glm", fold_spec = list(fold_id = 2L, valid_idx = 2L))
+  )
+
+  testthat::local_mocked_bindings(
+    alchemist_oof_queue_once = function(tasks,
+                                        payload,
+                                        workers,
+                                        progress = FALSE,
+                                        completed_start = 0L,
+                                        total_tasks = length(tasks),
+                                        retry_mode = FALSE) {
+      list(
+        completed = list(),
+        completed_n = completed_start,
+        failed_active = tasks,
+        unstarted = list(),
+        error = "error reading from connection"
+      )
+    },
+    .package = "tsbiomass"
+  )
+
+  output <- utils::capture.output(
+    result <- tsbiomass:::run_alchemist_oof_tasks(
+      tasks = tasks,
+      payload = list(),
+      workers = 2L,
+      progress = TRUE
+    ),
+    type = "message"
+  )
+
+  expect_length(result, 2L)
+  expect_true(all(vapply(result, function(x) is.null(x$pred), logical(1))))
+  expect_true(any(grepl("isolated after socket failure", output, fixed = TRUE)))
+  expect_true(any(grepl("socket failure isolated to this method-fold task", output, fixed = TRUE)))
+  expect_true(any(grepl("error reading from connection", output, fixed = TRUE)))
+})
+
+test_that("Alchemist fit_super_learner completes across multiple workers", {
+  training_data <- tibble::tibble(
+    .outcome = c(0.1, 0.2, 0.3, 0.2, 0.25, 0.35, 0.15, 0.3),
+    .dist_family = c(0.1, 0.2, 0.3, 0.2, 0.4, 0.5, 0.2, 0.3)
+  )
+
+  fit <- tsbiomass:::fit_super_learner(
+    training_data = training_data,
+    feature_cols = ".dist_family",
+    methods = "glm",
+    outcome_transform = "identity",
+    inner_folds = 4L,
+    seed = 1L,
+    workers = 2L,
+    progress = FALSE
+  )
+
+  expect_true(all(is.finite(fit$oof_ensemble_prediction)))
+  expect_equal(length(fit$oof_ensemble_prediction), nrow(training_data))
+})
+
 test_that("Alchemist rf honors configured forest controls", {
   testthat::skip_if_not_installed("ranger")
   set.seed(1L)
