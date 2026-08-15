@@ -5547,44 +5547,50 @@ run_policy_benchmark <- function(candidate_models,
       }
     }
   } else {
-    cluster_obj <- initialize_parallel_cluster(
-      workers = workers_
+    bench_env <- environment()
+    cluster_export_vars <- c(
+      "candidate_models_",
+      "cached_anchor_evals",
+      "curve_fun",
+      "model_scores_",
+      "species_lookup_",
+      "ref_ids",
+      "policies",
+      "policy_params_",
+      "policy_path",
+      "policy_execution_plan",
+      "compiled_policy_plan",
+      "engine_",
+      "sim_obj",
+      "dist_obj",
+      "candidate_models_scored",
+      "config_values",
+      "registry_path",
+      "include_ts_error",
+      "run_pseudo_anchor",
+      "run_species_block",
+      "run_group_block",
+      "group_block_col",
+      "group_block_label",
+      "needs_ordination_context",
+      "worker_strip_cols",
+      "policy_meta_lookup",
+      "anchor_meta_lookup"
     )
+    # A single crashed worker (native-code fault, single-process OOM kill,
+    # etc.) otherwise takes the whole benchmark down: once a cluster node
+    # dies mid-run, the master's next write to that node's connection surfaces
+    # as a bare "error writing to connection" with no indication of which
+    # anchor was responsible, and every anchor still queued behind it is
+    # lost. `.rebuild_cluster()` lets the retry logic below replace a dead
+    # cluster instead of aborting the run.
+    .rebuild_cluster <- function() {
+      cl <- initialize_parallel_cluster(workers = workers_)
+      tsb_cluster_export(cl, cluster_export_vars, envir = bench_env)
+      cl
+    }
+    cluster_obj <- .rebuild_cluster()
     on.exit(parallel::stopCluster(cluster_obj), add = TRUE)
-
-    tsb_cluster_export(
-      cluster_obj,
-      c(
-        "candidate_models_",
-        "cached_anchor_evals",
-        "curve_fun",
-        "model_scores_",
-        "species_lookup_",
-        "ref_ids",
-        "policies",
-        "policy_params_",
-        "policy_path",
-        "policy_execution_plan",
-        "compiled_policy_plan",
-        "engine_",
-        "sim_obj",
-        "dist_obj",
-        "candidate_models_scored",
-        "config_values",
-        "registry_path",
-        "include_ts_error",
-        "run_pseudo_anchor",
-        "run_species_block",
-        "run_group_block",
-        "group_block_col",
-        "group_block_label",
-        "needs_ordination_context",
-        "worker_strip_cols",
-        "policy_meta_lookup",
-        "anchor_meta_lookup"
-      ),
-      envir = environment()
-    )
 
     if (isTRUE(progress)) {
       tsb_message("Policy benchmark running in parallel with ", workers_, " workers.")
@@ -5606,6 +5612,230 @@ run_policy_benchmark <- function(candidate_models,
     if (isTRUE(progress) && processed > 0L) {
       .progress_msg(processed)
     }
+
+    worker_fun <- function(i) {
+      screen_one_anchor_admissibility <- utils::getFromNamespace("screen_one_anchor_admissibility", "tsbiomass")
+      benchmark_cached_anchor_eval <- utils::getFromNamespace("benchmark_cached_anchor_eval", "tsbiomass")
+      resolve_ordination_info <- utils::getFromNamespace("resolve_ordination_info", "tsbiomass")
+      benchmark_one_anchor <- utils::getFromNamespace("benchmark_one_anchor", "tsbiomass")
+      evaluate_policies <- utils::getFromNamespace("evaluate_policies", "tsbiomass")
+      anchor_row <- candidate_models_[i, , drop = FALSE]
+      cached_eval_obj <- benchmark_cached_anchor_eval(
+        cached_anchor_evals = cached_anchor_evals,
+        anchor_row = anchor_row,
+        config = config_values
+      )
+      adm_result <- if (!is.null(cached_eval_obj)) {
+        list(obj = cached_eval_obj, err = NULL)
+      } else {
+        tryCatch(
+          list(obj = screen_one_anchor_admissibility(
+            anchor_row = anchor_row,
+            candidate_models = candidate_models_,
+            config = config_values,
+            registry_path = registry_path,
+            sim_obj = sim_obj,
+            dist_obj = dist_obj,
+            candidate_models_scored = candidate_models_scored
+          ), err = NULL),
+          error = function(e) list(obj = NULL, err = conditionMessage(e))
+        )
+      }
+      if (is.null(adm_result$obj)) {
+        return(list(
+          bench = NULL, species_block = NULL, group_block = NULL,
+          adm_error = adm_result$err, anchor_index = i
+        ))
+      }
+      base_eval_obj <- adm_result$obj
+      ordination_info_now <- NULL
+      if (isTRUE(needs_ordination_context)) {
+        ordination_info_now <- resolve_ordination_info(
+          anchor_row = anchor_row,
+          model_scores = model_scores_,
+          species_lookup = species_lookup_,
+          config = config_values
+        )
+      }
+
+      bench_obj <- if (isTRUE(run_pseudo_anchor)) {
+        benchmark_one_anchor(
+          anchor_row = anchor_row,
+          candidate_models = candidate_models_,
+          policy_fun = evaluate_policies,
+          curve_fun = if (isTRUE(include_ts_error)) curve_fun else NULL,
+          model_scores = model_scores_,
+          species_lookup = species_lookup_,
+          reference_ids = ref_ids,
+          policies = policies,
+          policy_params = policy_params_,
+          policy_path = policy_path,
+          policy_execution_plan = policy_execution_plan,
+          engine = engine_,
+          compiled_policy_plan = compiled_policy_plan,
+          sim_obj = sim_obj,
+          dist_obj = dist_obj,
+          candidate_models_scored = candidate_models_scored,
+          eval_obj = base_eval_obj,
+          config = config_values,
+          registry_path = registry_path,
+          scheme = "pseudo_anchor",
+          species_block = FALSE,
+          ordination_info = ordination_info_now,
+          resolve_ordination = isTRUE(needs_ordination_context)
+        )
+      } else {
+        NULL
+      }
+
+      sb_obj <- if (isTRUE(run_species_block)) {
+        benchmark_one_anchor(
+          anchor_row = anchor_row,
+          candidate_models = candidate_models_,
+          policy_fun = evaluate_policies,
+          curve_fun = NULL,
+          model_scores = model_scores_,
+          species_lookup = species_lookup_,
+          reference_ids = ref_ids,
+          policies = policies,
+          policy_params = policy_params_,
+          policy_path = policy_path,
+          policy_execution_plan = policy_execution_plan,
+          engine = engine_,
+          compiled_policy_plan = compiled_policy_plan,
+          sim_obj = sim_obj,
+          dist_obj = dist_obj,
+          candidate_models_scored = candidate_models_scored,
+          eval_obj = base_eval_obj,
+          config = config_values,
+          registry_path = registry_path,
+          scheme = config_values$species_block_label,
+          species_block = TRUE,
+          ordination_info = ordination_info_now,
+          resolve_ordination = isTRUE(needs_ordination_context)
+        )
+      } else {
+        NULL
+      }
+
+      gb_obj <- NULL
+      if (isTRUE(run_group_block)) {
+        gb_obj <- benchmark_one_anchor(
+          anchor_row = anchor_row,
+          candidate_models = candidate_models_,
+          policy_fun = evaluate_policies,
+          curve_fun = NULL,
+          model_scores = model_scores_,
+          species_lookup = species_lookup_,
+          reference_ids = ref_ids,
+          policies = policies,
+          policy_params = policy_params_,
+          policy_path = policy_path,
+          policy_execution_plan = policy_execution_plan,
+          engine = engine_,
+          compiled_policy_plan = compiled_policy_plan,
+          sim_obj = sim_obj,
+          dist_obj = dist_obj,
+          candidate_models_scored = candidate_models_scored,
+          eval_obj = base_eval_obj,
+          config = config_values,
+          registry_path = registry_path,
+          scheme = group_block_label,
+          species_block = FALSE,
+          group_block_col = group_block_col,
+          ordination_info = ordination_info_now,
+          resolve_ordination = isTRUE(needs_ordination_context)
+        )
+      }
+
+      .strip_cols <- function(tbl) {
+        if (is.null(tbl) || length(worker_strip_cols) == 0L) {
+          return(tbl)
+        }
+        drop <- names(tbl) %in% worker_strip_cols
+        tbl[, !drop, drop = FALSE]
+      }
+      if (!is.null(bench_obj)) bench_obj$perf <- .strip_cols(bench_obj$perf)
+      if (!is.null(sb_obj)) sb_obj$perf <- .strip_cols(sb_obj$perf)
+      if (!is.null(gb_obj)) gb_obj$perf <- .strip_cols(gb_obj$perf)
+
+      list(
+        bench = bench_obj,
+        species_block = sb_obj,
+        group_block = gb_obj,
+        anchor_cache_id = as.character(anchor_row[[config_values$fields$model_id]][[1]])
+      )
+    }
+
+    worker_restarts <- 0L
+    max_worker_restarts <- 8L
+
+    # Dispatch one chunk, rebuilding the cluster and retrying on a dead-node
+    # failure. `parLapplyLB` is all-or-nothing: previously, if any single
+    # anchor in a batch of up to 100 killed its worker, the whole batch's
+    # results were lost even for anchors other workers had already finished,
+    # since caching only happened after the full chunk returned. Retrying
+    # bisects the failing chunk so a lone poison anchor cannot take out every
+    # anchor queued behind it; a chunk of one that still fails after a
+    # rebuild is skipped and reported instead of aborting the whole
+    # benchmark.
+    .run_chunk <- function(ids) {
+      if (length(ids) == 0L) {
+        return(list())
+      }
+      result <- tryCatch(
+        parallel::parLapplyLB(cluster_obj, as.list(ids), worker_fun),
+        error = function(e) e
+      )
+      if (!inherits(result, "error")) {
+        return(result)
+      }
+      try(parallel::stopCluster(cluster_obj), silent = TRUE)
+      worker_restarts <<- worker_restarts + 1L
+      if (worker_restarts > max_worker_restarts) {
+        stop(
+          "Policy benchmark worker cluster failed repeatedly (",
+          worker_restarts, " restarts) while processing anchor(s) ",
+          paste(as.character(candidate_models_[[id_col_nm]][ids]), collapse = ", "),
+          ". Last error: ", conditionMessage(result),
+          call. = FALSE
+        )
+      }
+      cluster_obj <<- .rebuild_cluster()
+      if (isTRUE(progress)) {
+        tsb_message(
+          "Policy benchmark worker cluster failed (", conditionMessage(result),
+          "); rebuilt cluster (restart ", worker_restarts, "/", max_worker_restarts,
+          ") and retrying ", length(ids), " anchor(s)."
+        )
+      }
+      if (length(ids) == 1L) {
+        retry_result <- tryCatch(
+          parallel::parLapplyLB(cluster_obj, as.list(ids), worker_fun),
+          error = function(e) e
+        )
+        if (!inherits(retry_result, "error")) {
+          return(retry_result)
+        }
+        anchor_cache_id_now <- as.character(candidate_models_[[id_col_nm]][[ids]])
+        tsb_message(
+          "Anchor ", anchor_cache_id_now,
+          " repeatedly crashed the worker cluster and was skipped: ",
+          conditionMessage(retry_result)
+        )
+        return(list(list(
+          bench = NULL, species_block = NULL, group_block = NULL,
+          adm_error = paste0("worker crash: ", conditionMessage(retry_result)),
+          anchor_index = ids
+        )))
+      }
+      split_at <- ceiling(length(ids) / 2L)
+      c(
+        .run_chunk(ids[seq_len(split_at)]),
+        .run_chunk(ids[seq.int(split_at + 1L, length(ids))])
+      )
+    }
+
     chunk_index <- split(
       pending_anchor_ids,
       ceiling(seq_along(pending_anchor_ids) / chunk_step)
@@ -5615,161 +5845,7 @@ run_policy_benchmark <- function(candidate_models,
       if (length(ids) == 0L) {
         next
       }
-      chunk_results <- parallel::parLapplyLB(
-        cluster_obj,
-        as.list(ids),
-        function(i) {{ screen_one_anchor_admissibility <- utils::getFromNamespace("screen_one_anchor_admissibility", "tsbiomass")
-          benchmark_cached_anchor_eval <- utils::getFromNamespace("benchmark_cached_anchor_eval", "tsbiomass")
-          resolve_ordination_info <- utils::getFromNamespace("resolve_ordination_info", "tsbiomass")
-          benchmark_one_anchor <- utils::getFromNamespace("benchmark_one_anchor", "tsbiomass")
-          evaluate_policies <- utils::getFromNamespace("evaluate_policies", "tsbiomass")
-          anchor_row <- candidate_models_[i, , drop = FALSE]
-          cached_eval_obj <- benchmark_cached_anchor_eval(
-            cached_anchor_evals = cached_anchor_evals,
-            anchor_row = anchor_row,
-            config = config_values
-          )
-          adm_result <- if (!is.null(cached_eval_obj)) {
-            list(obj = cached_eval_obj, err = NULL)
-          } else {
-            tryCatch(
-              list(obj = screen_one_anchor_admissibility(
-                anchor_row = anchor_row,
-                candidate_models = candidate_models_,
-                config = config_values,
-                registry_path = registry_path,
-                sim_obj = sim_obj,
-                dist_obj = dist_obj,
-                candidate_models_scored = candidate_models_scored
-              ), err = NULL),
-              error = function(e) list(obj = NULL, err = conditionMessage(e))
-            )
-          }
-          if (is.null(adm_result$obj)) {
-            return(list(
-              bench = NULL, species_block = NULL, group_block = NULL,
-              adm_error = adm_result$err, anchor_index = i
-            ))
-          }
-          base_eval_obj <- adm_result$obj
-          ordination_info_now <- NULL
-          if (isTRUE(needs_ordination_context)) {
-            ordination_info_now <- resolve_ordination_info(
-              anchor_row = anchor_row,
-              model_scores = model_scores_,
-              species_lookup = species_lookup_,
-              config = config_values
-            )
-          }
-
-          bench_obj <- if (isTRUE(run_pseudo_anchor)) {
-            benchmark_one_anchor(
-              anchor_row = anchor_row,
-              candidate_models = candidate_models_,
-              policy_fun = evaluate_policies,
-              curve_fun = if (isTRUE(include_ts_error)) curve_fun else NULL,
-              model_scores = model_scores_,
-              species_lookup = species_lookup_,
-              reference_ids = ref_ids,
-              policies = policies,
-              policy_params = policy_params_,
-              policy_path = policy_path,
-              policy_execution_plan = policy_execution_plan,
-              engine = engine_,
-              compiled_policy_plan = compiled_policy_plan,
-              sim_obj = sim_obj,
-              dist_obj = dist_obj,
-              candidate_models_scored = candidate_models_scored,
-              eval_obj = base_eval_obj,
-              config = config_values,
-              registry_path = registry_path,
-              scheme = "pseudo_anchor",
-              species_block = FALSE,
-              ordination_info = ordination_info_now,
-              resolve_ordination = isTRUE(needs_ordination_context)
-            )
-          } else {
-            NULL
-          }
-
-          sb_obj <- if (isTRUE(run_species_block)) {
-            benchmark_one_anchor(
-              anchor_row = anchor_row,
-              candidate_models = candidate_models_,
-              policy_fun = evaluate_policies,
-              curve_fun = NULL,
-              model_scores = model_scores_,
-              species_lookup = species_lookup_,
-              reference_ids = ref_ids,
-              policies = policies,
-              policy_params = policy_params_,
-              policy_path = policy_path,
-              policy_execution_plan = policy_execution_plan,
-              engine = engine_,
-              compiled_policy_plan = compiled_policy_plan,
-              sim_obj = sim_obj,
-              dist_obj = dist_obj,
-              candidate_models_scored = candidate_models_scored,
-              eval_obj = base_eval_obj,
-              config = config_values,
-              registry_path = registry_path,
-              scheme = config_values$species_block_label,
-              species_block = TRUE,
-              ordination_info = ordination_info_now,
-              resolve_ordination = isTRUE(needs_ordination_context)
-            )
-          } else {
-            NULL
-          }
-
-          gb_obj <- NULL
-          if (isTRUE(run_group_block)) {
-            gb_obj <- benchmark_one_anchor(
-              anchor_row = anchor_row,
-              candidate_models = candidate_models_,
-              policy_fun = evaluate_policies,
-              curve_fun = NULL,
-              model_scores = model_scores_,
-              species_lookup = species_lookup_,
-              reference_ids = ref_ids,
-              policies = policies,
-              policy_params = policy_params_,
-              policy_path = policy_path,
-              policy_execution_plan = policy_execution_plan,
-              engine = engine_,
-              compiled_policy_plan = compiled_policy_plan,
-              sim_obj = sim_obj,
-              dist_obj = dist_obj,
-              candidate_models_scored = candidate_models_scored,
-              eval_obj = base_eval_obj,
-              config = config_values,
-              registry_path = registry_path,
-              scheme = group_block_label,
-              species_block = FALSE,
-              group_block_col = group_block_col,
-              ordination_info = ordination_info_now,
-              resolve_ordination = isTRUE(needs_ordination_context)
-            )
-          }
-
-          .strip_cols <- function(tbl) {
-            if (is.null(tbl) || length(worker_strip_cols) == 0L) {
-              return(tbl)
-            }
-            drop <- names(tbl) %in% worker_strip_cols
-            tbl[, !drop, drop = FALSE]
-          }
-          if (!is.null(bench_obj)) bench_obj$perf <- .strip_cols(bench_obj$perf)
-          if (!is.null(sb_obj)) sb_obj$perf <- .strip_cols(sb_obj$perf)
-          if (!is.null(gb_obj)) gb_obj$perf <- .strip_cols(gb_obj$perf)
-
-          list(
-            bench = bench_obj,
-            species_block = sb_obj,
-            group_block = gb_obj,
-            anchor_cache_id = as.character(anchor_row[[config_values$fields$model_id]][[1]])
-          ) }}
-      )
+      chunk_results <- .run_chunk(ids)
 
       for (one_result in chunk_results) {
         if (!is.null(one_result$bench)) {
