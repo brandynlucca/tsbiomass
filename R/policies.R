@@ -5768,7 +5768,7 @@ run_policy_benchmark <- function(candidate_models,
     }
 
     worker_restarts <- 0L
-    max_worker_restarts <- 8L
+    max_worker_restarts <- 3L
 
     # Dispatch one chunk, rebuilding the cluster and retrying on a dead-node
     # failure. `parLapplyLB` is all-or-nothing: previously, if any single
@@ -5776,12 +5776,39 @@ run_policy_benchmark <- function(candidate_models,
     # results were lost even for anchors other workers had already finished,
     # since caching only happened after the full chunk returned. Retrying
     # bisects the failing chunk so a lone poison anchor cannot take out every
-    # anchor queued behind it; a chunk of one that still fails after a
-    # rebuild is skipped and reported instead of aborting the whole
-    # benchmark.
+    # anchor queued behind it.
+    #
+    # A chunk of one is never retried inside the cluster: rebuilding a fork
+    # cluster repeatedly (each cycle opens ~`workers_` new socket
+    # connections) can exhaust R's connection table before the cluster
+    # itself is actually the problem, which turns one anchor's failure into
+    # a long, still-failing cascade instead of a fast, isolated skip.
+    # Running the lone anchor directly in this process avoids that entirely
+    # and, as a side effect, surfaces the real underlying error instead of
+    # an opaque cluster connection failure if the anchor's data is at fault.
     .run_chunk <- function(ids) {
       if (length(ids) == 0L) {
         return(list())
+      }
+      if (length(ids) == 1L) {
+        direct_result <- tryCatch(
+          list(worker_fun(ids)),
+          error = function(e) e
+        )
+        if (!inherits(direct_result, "error")) {
+          return(direct_result)
+        }
+        anchor_cache_id_now <- as.character(candidate_models_[[id_col_nm]][[ids]])
+        tsb_message(
+          "Anchor ", anchor_cache_id_now,
+          " failed outside the worker cluster and was skipped: ",
+          conditionMessage(direct_result)
+        )
+        return(list(list(
+          bench = NULL, species_block = NULL, group_block = NULL,
+          adm_error = paste0("direct-run failure: ", conditionMessage(direct_result)),
+          anchor_index = ids
+        )))
       }
       result <- tryCatch(
         parallel::parLapplyLB(cluster_obj, as.list(ids), worker_fun),
@@ -5808,26 +5835,6 @@ run_policy_benchmark <- function(candidate_models,
           "); rebuilt cluster (restart ", worker_restarts, "/", max_worker_restarts,
           ") and retrying ", length(ids), " anchor(s)."
         )
-      }
-      if (length(ids) == 1L) {
-        retry_result <- tryCatch(
-          parallel::parLapplyLB(cluster_obj, as.list(ids), worker_fun),
-          error = function(e) e
-        )
-        if (!inherits(retry_result, "error")) {
-          return(retry_result)
-        }
-        anchor_cache_id_now <- as.character(candidate_models_[[id_col_nm]][[ids]])
-        tsb_message(
-          "Anchor ", anchor_cache_id_now,
-          " repeatedly crashed the worker cluster and was skipped: ",
-          conditionMessage(retry_result)
-        )
-        return(list(list(
-          bench = NULL, species_block = NULL, group_block = NULL,
-          adm_error = paste0("worker crash: ", conditionMessage(retry_result)),
-          anchor_index = ids
-        )))
       }
       split_at <- ceiling(length(ids) / 2L)
       c(
