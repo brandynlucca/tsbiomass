@@ -2001,6 +2001,501 @@ run_oof_fold_task <- function(task, x_all, y_all,
   )
 }
 
+# Namespace-local payload used by forked Alchemist OOF workers.
+.alchemist_oof_payload <- new.env(parent = emptyenv())
+
+#' Set the namespace-local Alchemist OOF payload
+#'
+#' Stores the shared feature matrix, outcome vector, and learner settings in a
+#' namespace-local environment. Fork workers inherit this environment by
+#' copy-on-write so the feature matrix is not re-serialized for every
+#' method-fold task.
+#'
+#' @param payload Named list containing `x_all`, `y_all`, `method_settings`,
+#'   `seed`, and `lambda_rule`.
+#'
+#' @return Invisibly returns `NULL`.
+#' @keywords internal
+#' @noRd
+set_alchemist_oof_payload <- function(payload) {
+  rm(
+    list = ls(envir = .alchemist_oof_payload, all.names = TRUE),
+    envir = .alchemist_oof_payload
+  )
+  list2env(payload, envir = .alchemist_oof_payload)
+  invisible(NULL)
+}
+
+#' Clear the namespace-local Alchemist OOF payload
+#'
+#' @return Invisibly returns `NULL`.
+#' @keywords internal
+#' @noRd
+clear_alchemist_oof_payload <- function() {
+  rm(
+    list = ls(envir = .alchemist_oof_payload, all.names = TRUE),
+    envir = .alchemist_oof_payload
+  )
+  invisible(NULL)
+}
+
+#' Run one Alchemist OOF method-fold task from an explicit payload
+#'
+#' @param task Named list with `method`, `fold_id`, and `fold_spec`.
+#' @param payload Named list containing `x_all`, `y_all`, `method_settings`,
+#'   `seed`, and `lambda_rule`.
+#'
+#' @return Same result shape as [run_oof_fold_task()].
+#' @keywords internal
+#' @noRd
+run_alchemist_oof_payload_task <- function(task, payload) {
+  run_oof_fold_task(
+    task,
+    x_all = payload$x_all,
+    y_all = payload$y_all,
+    method_settings = payload$method_settings,
+    seed = payload$seed,
+    lambda_rule = payload$lambda_rule
+  )
+}
+
+#' Run one inherited Alchemist OOF method-fold task
+#'
+#' Fetches the feature matrix and learner settings from the namespace-local
+#' fork-worker payload and evaluates one method-fold task.
+#'
+#' @param task Named list with `method`, `fold_id`, and `fold_spec`.
+#'
+#' @return Same result shape as [run_oof_fold_task()].
+#' @keywords internal
+#' @noRd
+run_alchemist_oof_task <- function(task) {
+  payload <- as.list(.alchemist_oof_payload)
+  run_alchemist_oof_payload_task(task, payload)
+}
+
+#' Build a failed Alchemist OOF method-fold task result
+#'
+#' Creates the same result shape as a completed method-fold task when a worker
+#' connection failure (for example, an OOM-killed forked worker) prevents the
+#' task from returning its own diagnostics.
+#'
+#' @param task Named list with `method`, `fold_id`, and `fold_spec`.
+#' @param message Failure message to attach.
+#'
+#' @return Named list matching [run_oof_fold_task()]'s result shape.
+#' @keywords internal
+#' @noRd
+failed_alchemist_oof_task <- function(task, message) {
+  fold_spec <- task$fold_spec
+  list(
+    method = as.character(task$method[[1]]),
+    fold_id = as.integer(task$fold_id %||% fold_spec$fold_id %||% NA_integer_),
+    valid_idx = as.integer(fold_spec$valid_idx %||% integer(0)),
+    n_train = NA_integer_,
+    n_valid = NA_integer_,
+    pred = NULL,
+    error = as.character(message %||% "method-fold task failed"),
+    oof_seconds = NA_real_
+  )
+}
+
+#' Format Alchemist OOF method-fold task labels
+#'
+#' @param tasks One task or a list of method-fold tasks.
+#' @param max_labels Maximum number of labels to include.
+#'
+#' @return One comma-separated task-label string.
+#' @keywords internal
+#' @noRd
+format_alchemist_oof_tasks <- function(tasks, max_labels = 12L) {
+  if (is.null(tasks) || length(tasks) == 0L) {
+    return("none")
+  }
+  if (!is.list(tasks[[1L]])) {
+    tasks <- list(tasks)
+  }
+  max_labels <- max(1L, as.integer(max_labels %||% 12L))
+  labels <- vapply(
+    tasks,
+    function(task) {
+      sprintf(
+        "fold=%d method=%s",
+        as.integer(task$fold_id %||% task$fold_spec$fold_id %||% NA_integer_),
+        as.character(task$method[[1]])
+      )
+    },
+    character(1)
+  )
+  if (length(labels) > max_labels) {
+    labels <- c(labels[seq_len(max_labels)], sprintf("... +%d more", length(labels) - max_labels))
+  }
+  paste(labels, collapse = ", ")
+}
+
+#' Log Alchemist OOF method-fold task completion
+#'
+#' @param result Method-fold task result.
+#' @param completed_n Number of completed tasks.
+#' @param total_tasks Total number of method-fold tasks.
+#' @param progress Logical. Emit progress messages.
+#'
+#' @return Invisibly returns `NULL`.
+#' @keywords internal
+#' @noRd
+log_alchemist_oof_task_result <- function(result, completed_n, total_tasks, progress = FALSE) {
+  success_now <- is.null(result$error) && !is.null(result$pred)
+  summary <- sprintf(
+    "  %s Method-fold task complete: %d/%d [fold=%d method=%s success=%s].",
+    if (success_now) "✅" else "❌",
+    completed_n,
+    total_tasks,
+    as.integer(result$fold_id),
+    as.character(result$method),
+    success_now
+  )
+  if (success_now) {
+    report_progress(progress, summary)
+  } else {
+    report_progress(
+      progress,
+      paste0(summary, "\n", as.character(result$error %||% "Unknown method-fold task failure."))
+    )
+  }
+  invisible(NULL)
+}
+
+#' Split an Alchemist OOF method-fold suspect group
+#'
+#' Bisects a suspect task group after a worker-connection failure so only the
+#' tasks that keep failing are narrowed further.
+#'
+#' @param tasks List of method-fold tasks.
+#'
+#' @return List of one or two task groups.
+#' @keywords internal
+#' @noRd
+split_alchemist_oof_suspect_group <- function(tasks) {
+  if (length(tasks) == 0L) {
+    return(list())
+  }
+  if (length(tasks) <= 1L) {
+    return(list(tasks))
+  }
+  cut <- floor(length(tasks) / 2L)
+  list(tasks[seq_len(cut)], tasks[(cut + 1L):length(tasks)])
+}
+
+#' Run one live Alchemist OOF method-fold queue
+#'
+#' Submits method-fold tasks to worker slots, collects each result as soon as
+#' it returns, and submits the next pending task to the freed worker. A socket
+#' failure returns completed results plus the in-flight and unstarted tasks so
+#' the caller can isolate the suspect set.
+#'
+#' @param tasks List of method-fold tasks.
+#' @param payload Named list containing `x_all`, `y_all`, `method_settings`,
+#'   `seed`, and `lambda_rule`.
+#' @param workers Requested worker budget.
+#' @param progress Logical. Emit progress messages.
+#' @param completed_start Count of tasks already completed before this queue.
+#' @param total_tasks Total number of method-fold tasks across all queues.
+#' @param retry_mode Logical. `TRUE` when re-running an isolated suspect group.
+#'
+#' @return List with `completed`, `completed_n`, `failed_active`, `unstarted`,
+#'   and `error`.
+#' @keywords internal
+#' @noRd
+alchemist_oof_queue_once <- function(tasks,
+                                     payload,
+                                     workers,
+                                     progress = FALSE,
+                                     completed_start = 0L,
+                                     total_tasks = length(tasks),
+                                     retry_mode = FALSE) {
+  if (length(tasks) == 0L) {
+    return(list(
+      completed = list(),
+      completed_n = as.integer(completed_start),
+      failed_active = list(),
+      unstarted = list(),
+      error = NULL
+    ))
+  }
+  workers <- max(1L, min(as.integer(workers %||% 1L), length(tasks)))
+  report_progress(
+    progress,
+    sprintf(
+      "  Method-fold queue: dispatching %d %stask(s) across %d worker(s).",
+      length(tasks),
+      if (retry_mode) "retry " else "",
+      workers
+    )
+  )
+
+  run_parent_sequential <- workers <= 1L && .Platform$OS.type != "unix"
+  if (run_parent_sequential) {
+    completed <- list()
+    completed_n <- as.integer(completed_start)
+    for (task in tasks) {
+      result <- tryCatch(
+        run_alchemist_oof_payload_task(task, payload),
+        error = function(e) failed_alchemist_oof_task(task, conditionMessage(e))
+      )
+      completed_n <- completed_n + 1L
+      log_alchemist_oof_task_result(result, completed_n, total_tasks, progress)
+      completed[[length(completed) + 1L]] <- result
+    }
+    return(list(
+      completed = completed,
+      completed_n = completed_n,
+      failed_active = list(),
+      unstarted = list(),
+      error = NULL
+    ))
+  }
+
+  set_alchemist_oof_payload(payload)
+  cluster_obj <- if (workers <= 1L && .Platform$OS.type == "unix") {
+    cl <- parallel::makeForkCluster(1L)
+    attr(cl, "cluster_type") <- "fork"
+    cl
+  } else {
+    initialize_parallel_cluster(workers = workers)
+  }
+  cluster_type <- attr(cluster_obj, "cluster_type", exact = TRUE) %||% "unknown"
+  if (!identical(cluster_type, "fork")) {
+    run_method_task <- function(task) {
+      run_alchemist_oof_payload_task(task, payload)
+    }
+    environment(run_method_task) <- list2env(
+      list(
+        payload = payload,
+        run_alchemist_oof_payload_task = run_alchemist_oof_payload_task,
+        run_oof_fold_task = run_oof_fold_task
+      ),
+      parent = baseenv()
+    )
+    tsb_cluster_export(cluster_obj, c("run_method_task"), envir = environment())
+  }
+
+  pending <- tasks
+  active <- vector("list", length(cluster_obj))
+  names(active) <- as.character(seq_along(cluster_obj))
+  parallel_send_call <- utils::getFromNamespace("sendCall", "parallel")
+  parallel_recv_one_result <- utils::getFromNamespace("recvOneResult", "parallel")
+  submit_task <- function(node_id, task) {
+    if (identical(cluster_type, "fork")) {
+      parallel_send_call(cluster_obj[[node_id]], run_alchemist_oof_task, list(task))
+    } else {
+      parallel_send_call(cluster_obj[[node_id]], run_method_task, list(task))
+    }
+    active[[as.character(node_id)]] <<- task
+    invisible(NULL)
+  }
+
+  for (node_id in seq_along(cluster_obj)) {
+    if (length(pending) == 0L) {
+      break
+    }
+    submit_task(node_id, pending[[1L]])
+    pending <- pending[-1L]
+  }
+  report_progress(
+    progress,
+    "  Method-fold queue active tasks: ",
+    format_alchemist_oof_tasks(Filter(Negate(is.null), active))
+  )
+
+  completed <- list()
+  completed_n <- as.integer(completed_start)
+  queue_error <- NULL
+  while (length(Filter(Negate(is.null), active)) > 0L) {
+    received <- tryCatch(
+      parallel_recv_one_result(cluster_obj),
+      error = function(e) e
+    )
+    if (inherits(received, "error")) {
+      queue_error <- conditionMessage(received)
+      break
+    }
+    node_id <- as.character(received$node)
+    task_done <- active[[node_id]]
+    active[node_id] <- list(NULL)
+    result <- if (inherits(received$value, "try-error") || inherits(received$value, "snow-try-error")) {
+      failed_alchemist_oof_task(
+        task_done,
+        as.character(received$value %||% "worker returned an error")
+      )
+    } else {
+      received$value
+    }
+    completed_n <- completed_n + 1L
+    log_alchemist_oof_task_result(result, completed_n, total_tasks, progress)
+    completed[[length(completed) + 1L]] <- result
+    if (length(pending) > 0L) {
+      submit_task(as.integer(node_id), pending[[1L]])
+      pending <- pending[-1L]
+    }
+  }
+
+  failed_active <- Filter(Negate(is.null), active)
+  try(parallel::stopCluster(cluster_obj), silent = TRUE)
+  clear_alchemist_oof_payload()
+  list(
+    completed = completed,
+    completed_n = completed_n,
+    failed_active = failed_active,
+    unstarted = pending,
+    error = queue_error
+  )
+}
+
+#' Run Alchemist Super Learner OOF method-fold tasks through a worker queue
+#'
+#' Executes method-fold tasks as queue items. The scheduler submits work up to
+#' the requested worker budget, collects each task as soon as a worker
+#' returns, and immediately submits the next task to the freed worker. If a
+#' worker connection fails (for example, a forked worker killed by the OS for
+#' exceeding available memory), completed task results are retained and the
+#' in-flight suspect set is bisected until only the failing task group is
+#' isolated, so one worker crash degrades that task rather than aborting the
+#' whole `forge_distances()` stage.
+#'
+#' @param tasks List of method-fold tasks.
+#' @param payload Named list containing `x_all`, `y_all`, `method_settings`,
+#'   `seed`, and `lambda_rule`.
+#' @param workers Requested worker budget.
+#' @param progress Logical. Emit progress messages.
+#'
+#' @return List of method-fold task results.
+#' @keywords internal
+#' @noRd
+run_alchemist_oof_tasks <- function(tasks, payload, workers, progress = FALSE) {
+  total_tasks <- length(tasks)
+  if (total_tasks == 0L) {
+    return(list())
+  }
+  requested_workers <- max(1L, min(as.integer(workers %||% 1L), total_tasks))
+  report_progress(
+    progress,
+    sprintf(
+      "Alchemist OOF method-fold scheduler: queue mode, %d total task(s), up to %d worker(s).",
+      total_tasks,
+      requested_workers
+    )
+  )
+
+  completed_results <- list()
+  pending_tasks <- tasks
+  retry_groups <- list()
+  completed_n <- 0L
+
+  while (length(pending_tasks) > 0L || length(retry_groups) > 0L) {
+    retry_mode <- length(retry_groups) > 0L
+    if (retry_mode) {
+      queue_tasks <- retry_groups[[1L]]
+      retry_groups <- retry_groups[-1L]
+      attempt_workers <- min(requested_workers, length(queue_tasks))
+    } else {
+      queue_tasks <- pending_tasks
+      attempt_workers <- min(requested_workers, length(queue_tasks))
+    }
+
+    if (attempt_workers <= 1L && !retry_mode) {
+      report_progress(
+        progress,
+        sprintf(
+          "  Method-fold queue: running %d task(s) sequentially.",
+          length(queue_tasks)
+        )
+      )
+      for (task in queue_tasks) {
+        result <- tryCatch(
+          run_alchemist_oof_payload_task(task, payload),
+          error = function(e) failed_alchemist_oof_task(task, conditionMessage(e))
+        )
+        completed_n <- completed_n + 1L
+        log_alchemist_oof_task_result(result, completed_n, total_tasks, progress)
+        completed_results[[length(completed_results) + 1L]] <- result
+      }
+      pending_tasks <- list()
+      next
+    }
+
+    queue_result <- alchemist_oof_queue_once(
+      tasks = queue_tasks,
+      payload = payload,
+      workers = attempt_workers,
+      progress = progress,
+      completed_start = completed_n,
+      total_tasks = total_tasks,
+      retry_mode = retry_mode
+    )
+    completed_results <- c(completed_results, queue_result$completed)
+    completed_n <- queue_result$completed_n
+    if (is.null(queue_result$error)) {
+      if (retry_mode) {
+        if (length(queue_result$unstarted) > 0L) {
+          retry_groups <- c(retry_groups, list(queue_result$unstarted))
+        }
+      } else {
+        pending_tasks <- list()
+      }
+    } else {
+      isolated_failure <- retry_mode &&
+        length(queue_result$failed_active) == 1L &&
+        length(queue_tasks) == 1L
+      if (isolated_failure) {
+        result <- failed_alchemist_oof_task(
+          queue_result$failed_active[[1L]],
+          paste("socket failure isolated to this method-fold task:", queue_result$error)
+        )
+        completed_n <- completed_n + 1L
+        completed_results[[length(completed_results) + 1L]] <- result
+        report_progress(
+          progress,
+          paste0(
+            sprintf(
+              "  ❌ Method-fold task isolated after socket failure: %d/%d [fold=%d method=%s success=FALSE].",
+              completed_n,
+              total_tasks,
+              as.integer(result$fold_id),
+              as.character(result$method)
+            ),
+            "\n",
+            as.character(result$error %||% "Unknown method-fold task failure.")
+          )
+        )
+      } else {
+        suspect_groups <- split_alchemist_oof_suspect_group(queue_result$failed_active)
+        if (retry_mode) {
+          retry_groups <- c(
+            suspect_groups,
+            if (length(queue_result$unstarted) > 0L) list(queue_result$unstarted) else list(),
+            retry_groups
+          )
+        } else {
+          retry_groups <- c(suspect_groups, retry_groups)
+          pending_tasks <- queue_result$unstarted
+        }
+        report_progress(
+          progress,
+          sprintf(
+            "  ⚠ Method-fold queue failed while active tasks were [%s]; retaining completed tasks and splitting suspect set into %d group(s); %d pending task(s) remain at full worker budget: %s",
+            format_alchemist_oof_tasks(queue_result$failed_active),
+            length(suspect_groups),
+            length(pending_tasks),
+            queue_result$error
+          )
+        )
+      }
+    }
+  }
+
+  completed_results
+}
+
 #' Run K-fold OOF predictions for one Alchemist base learner method
 #'
 #' This sequential fallback runs all K folds for one assigned method and returns
