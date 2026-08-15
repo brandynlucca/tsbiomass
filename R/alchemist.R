@@ -3118,11 +3118,6 @@ S7::method(forge_distances, Alchemist) <- function(object,
   config <- object@config
   progress <- progress %||% config$progress %||% FALSE
   feature_type <- feature_type %||% config$feature_type %||% "gower"
-  cache_path <- cache_path %||% alchemist_stage_cache_path(
-    config,
-    stage = "forge_distances",
-    suffix = feature_type
-  )
   refresh <- if (is.null(refresh)) {
     isTRUE(config$refresh %||% FALSE)
   } else {
@@ -3131,6 +3126,33 @@ S7::method(forge_distances, Alchemist) <- function(object,
     }
     isTRUE(refresh)
   }
+
+  # `object` itself may already carry a learned distance matrix - forged
+  # earlier in this session, or reloaded from a saved workflow object. The
+  # on-disk cache below is a separate mechanism keyed only on
+  # stage/feature_type, not on this object's identity or content, so its
+  # presence or absence says nothing about whether *this object* has already
+  # done the work. Without checking the object's own state first, re-forging
+  # an already-forged object silently discards its learner and distance
+  # matrix and recomputes from scratch whenever the disk cache doesn't
+  # resolve, even with `refresh = FALSE`.
+  if (!refresh &&
+    length(object@distance_matrix) > 0 &&
+    length(object@learner) > 0 &&
+    identical(object@distance_matrix$feature_type %||% NULL, feature_type)) {
+    report_progress(
+      progress,
+      "[Alchemist] Object already has forged distances for feature_type = ",
+      feature_type, "; skipping recompute."
+    )
+    return(object)
+  }
+
+  cache_path <- cache_path %||% alchemist_stage_cache_path(
+    config,
+    stage = "forge_distances",
+    suffix = feature_type
+  )
   if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
     report_progress(progress, "[Alchemist] Loading cached forged distances: ", cache_path)
     cached <- readRDS(cache_path)
