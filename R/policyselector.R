@@ -176,17 +176,50 @@ policy_selector_config_value <- function(cfg,
   NULL
 }
 
+#' Build a short, deterministic tag identifying an anchor set
+#'
+#' Used to keep prediction-cache files for different `reference_anchors`
+#' requests (e.g. the stored anchors vs. a one-off query anchor) from
+#' colliding on the same cache path.
+#'
+#' @param anchor_ids Character vector of anchor model IDs.
+#'
+#' @return A single filesystem-safe string, or `""` when `anchor_ids` is empty.
+#' @keywords internal
+#' @noRd
+policy_selector_anchor_fingerprint <- function(anchor_ids) {
+  ids <- sort(unique(as.character(anchor_ids)))
+  ids <- ids[!is.na(ids) & nzchar(ids)]
+  if (length(ids) == 0L) {
+    return("")
+  }
+  joined <- paste(ids, collapse = "-")
+  safe <- gsub("[^A-Za-z0-9_-]", "_", joined)
+  if (nchar(safe) <= 60L) {
+    return(safe)
+  }
+  # Long or high-cardinality anchor sets: fall back to a short deterministic
+  # checksum instead of a human-readable ID list.
+  bytes <- as.integer(charToRaw(joined))
+  checksum <- sprintf("%08x", sum(bytes * seq_along(bytes)) %% .Machine$integer.max)
+  paste0("n", length(ids), "_", checksum)
+}
+
 #' Resolve a policy-prediction cache path
 #'
 #' @param cache_path Base prediction-cache path.
 #' @param learner Optional [PolicyLearner] object.
+#' @param anchor_ids Optional character vector of requested anchor model IDs.
+#'   Included in the resolved path so different anchor sets (e.g. the stored
+#'   reference anchors vs. a one-off query anchor) never share a cache file.
 #'
 #' @return A variant-specific cache path, or `NULL`.
 #'
 #' @keywords internal
 #' @noRd
 policy_selector_prediction_cache_path <- function(cache_path,
-                                                  learner = NULL) {
+                                                  learner = NULL,
+                                                  anchor_ids = NULL) {
   if (is.null(cache_path)) {
     return(NULL)
   }
@@ -197,6 +230,10 @@ policy_selector_prediction_cache_path <- function(cache_path,
     "learner"
   } else {
     "selector"
+  }
+  anchor_tag <- policy_selector_anchor_fingerprint(anchor_ids)
+  if (nzchar(anchor_tag)) {
+    variant <- paste0(variant, "_", anchor_tag)
   }
   ext <- tools::file_ext(cache_path)
   stem <- if (nzchar(ext)) {
@@ -1187,7 +1224,16 @@ S7::method(select_policies, PolicySelector) <- function(object,
   if (!is.null(learner) && !is_s7_instance(learner, "PolicyLearner")) {
     stop("'learner' must be NULL or a `PolicyLearner` object.", call. = FALSE)
   }
-  prediction_cache_path <- policy_selector_prediction_cache_path(cache_path, learner = learner)
+  requested_anchor_ids <- if ("model_id" %in% names(anchors_tbl)) {
+    sort(unique(as.character(anchors_tbl$model_id)))
+  } else {
+    character(0)
+  }
+  prediction_cache_path <- policy_selector_prediction_cache_path(
+    cache_path,
+    learner = learner,
+    anchor_ids = requested_anchor_ids
+  )
   if (!is.null(prediction_cache_path) && file.exists(prediction_cache_path) && !isTRUE(refresh)) {
     report_progress(progress, "Loading cached policy predictions from ", prediction_cache_path, ".")
     cached_predictions <- readRDS(prediction_cache_path)
@@ -1197,7 +1243,22 @@ S7::method(select_policies, PolicySelector) <- function(object,
         call. = FALSE
       )
     }
-    return(cached_predictions)
+    # The cache path already encodes the requested anchor set, but guard
+    # against stale files written before that behavior existed (or a rare
+    # fingerprint collision) by also checking the cached content directly.
+    cached_anchor_ids <- if ("anchor_model_id" %in% names(cached_predictions@selections)) {
+      sort(unique(as.character(cached_predictions@selections$anchor_model_id)))
+    } else {
+      character(0)
+    }
+    if (length(requested_anchor_ids) > 0L && identical(requested_anchor_ids, cached_anchor_ids)) {
+      return(cached_predictions)
+    }
+    report_progress(
+      progress,
+      "Cached policy predictions at ", prediction_cache_path,
+      " were built for a different anchor set; recomputing instead of reusing them."
+    )
   }
   learner_random_intercepts <- if (is_s7_instance(learner, "PolicyLearner")) {
     policy_learner_selection_random_intercepts(learner@config)

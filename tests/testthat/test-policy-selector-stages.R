@@ -223,7 +223,10 @@ test_that("PolicySelector prediction bundles are cached and reused", {
     .package = "tsbiomass"
   )
   first <- predict(selector)
-  selector_cache <- tsbiomass:::policy_selector_prediction_cache_path(cache_base)
+  selector_cache <- tsbiomass:::policy_selector_prediction_cache_path(
+    cache_base,
+    anchor_ids = candidates@reference_anchors$model_id
+  )
   expect_true(file.exists(selector_cache))
 
   testthat::local_mocked_bindings(
