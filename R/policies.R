@@ -5577,26 +5577,46 @@ run_policy_benchmark <- function(candidate_models,
       "policy_meta_lookup",
       "anchor_meta_lookup"
     )
-    # A single crashed worker (native-code fault, single-process OOM kill,
-    # etc.) otherwise takes the whole benchmark down: once a cluster node
-    # dies mid-run, the master's next write to that node's connection surfaces
-    # as a bare "error writing to connection" with no indication of which
-    # anchor was responsible, and every anchor still queued behind it is
-    # lost. `.rebuild_cluster()` lets the retry logic below replace a dead
-    # cluster instead of aborting the run.
-    .rebuild_cluster <- function() {
+    .build_cluster <- function() {
       cl <- initialize_parallel_cluster(workers = workers_)
       tsb_cluster_export(cl, cluster_export_vars, envir = bench_env)
       cl
     }
-    cluster_obj <- .rebuild_cluster()
-    on.exit(parallel::stopCluster(cluster_obj), add = TRUE)
+    cluster_obj <- .build_cluster()
+    # stopCluster() shuts a worker down by sending it a message over its own
+    # connection. If that connection is already broken - which is exactly
+    # the failure handled below - the shutdown message can never be
+    # delivered, so the dead worker is left running indefinitely, still
+    # holding its own memory and file descriptors. `.kill_cluster_processes`
+    # forcefully kills the underlying OS processes directly instead of
+    # relying on that connection.
+    .kill_cluster_processes <- function(cl) {
+      try(parallel::stopCluster(cl), silent = TRUE)
+      self_pid <- Sys.getpid()
+      child_pids <- tryCatch(
+        as.integer(trimws(system2(
+          "ps", c("--no-headers", "-o", "pid", "--ppid", as.character(self_pid)),
+          stdout = TRUE, stderr = FALSE
+        ))),
+        error = function(e) integer(0)
+      )
+      for (pid in child_pids[is.finite(child_pids)]) {
+        try(tools::pskill(pid, signal = tools::SIGKILL), silent = TRUE)
+      }
+      invisible(NULL)
+    }
+    on.exit(.kill_cluster_processes(cluster_obj), add = TRUE)
 
     if (isTRUE(progress)) {
       tsb_message("Policy benchmark running in parallel with ", workers_, " workers.")
     }
 
-    chunk_step <- max(as.integer(workers_) * 4L, min(100L, total_anchors))
+    # Dispatch one batch per worker at a time rather than the larger batches
+    # used previously. A cluster failure kills the whole in-flight batch's
+    # results and stops the benchmark (see .run_chunk below), so a smaller
+    # batch means a much shorter, more useful list of suspect anchors if
+    # that happens - `workers_` anchors to inspect instead of up to 100.
+    chunk_step <- as.integer(workers_)
     pending_anchor_ids <- integer(0)
     processed <- 0L
     for (i in seq_len(total_anchors)) {
@@ -5767,80 +5787,62 @@ run_policy_benchmark <- function(candidate_models,
       )
     }
 
-    worker_restarts <- 0L
-    max_worker_restarts <- 3L
-
-    # Dispatch one chunk, rebuilding the cluster and retrying on a dead-node
-    # failure. `parLapplyLB` is all-or-nothing: previously, if any single
-    # anchor in a batch of up to 100 killed its worker, the whole batch's
-    # results were lost even for anchors other workers had already finished,
-    # since caching only happened after the full chunk returned. Retrying
-    # bisects the failing chunk so a lone poison anchor cannot take out every
-    # anchor queued behind it.
+    # `parLapplyLB` is all-or-nothing: if a worker crashes, the whole
+    # in-flight chunk's results are lost, and the master's next attempt to
+    # talk to that worker surfaces as a bare, unhelpful connection error -
+    # not a real R error naming the anchor responsible. Rebuilding the
+    # cluster and retrying was tried and made things worse: each rebuild
+    # leaks more forked processes on top of whatever the dead cluster
+    # already leaked (stopCluster() can't cleanly shut a worker down once
+    # its own connection is what broke), and on this remote, tunnelled
+    # session that process growth was enough to destabilize the connection
+    # itself, not just the R computation. So this now fails once, fast: the
+    # dead cluster is force-killed immediately and the whole benchmark
+    # stops. No retries, no rebuilding, no serial fallback.
     #
-    # A chunk of one is never retried inside the cluster: rebuilding a fork
-    # cluster repeatedly (each cycle opens ~`workers_` new socket
-    # connections) can exhaust R's connection table before the cluster
-    # itself is actually the problem, which turns one anchor's failure into
-    # a long, still-failing cascade instead of a fast, isolated skip.
-    # Running the lone anchor directly in this process avoids that entirely
-    # and, as a side effect, surfaces the real underlying error instead of
-    # an opaque cluster connection failure if the anchor's data is at fault.
+    # By the time a cluster dies, the connection can already be corrupted
+    # enough that even the stop() message describing which anchors were in
+    # flight may not reliably reach the console/log - that happened here.
+    # So each chunk's anchor IDs are written to a plain file *before*
+    # dispatch, synchronously, independent of any cluster or console
+    # connection. If the process dies, that file still names the anchors
+    # that were being processed at the time, even if nothing else survives.
+    inflight_log_path <- if (!is.null(cache_shard_dir)) {
+      file.path(dirname(cache_shard_dir), "benchmark_inflight_anchors.log")
+    } else {
+      file.path(tempdir(), "benchmark_inflight_anchors.log")
+    }
+
     .run_chunk <- function(ids) {
       if (length(ids) == 0L) {
         return(list())
       }
-      if (length(ids) == 1L) {
-        direct_result <- tryCatch(
-          list(worker_fun(ids)),
-          error = function(e) e
-        )
-        if (!inherits(direct_result, "error")) {
-          return(direct_result)
-        }
-        anchor_cache_id_now <- as.character(candidate_models_[[id_col_nm]][[ids]])
-        tsb_message(
-          "Anchor ", anchor_cache_id_now,
-          " failed outside the worker cluster and was skipped: ",
-          conditionMessage(direct_result)
-        )
-        return(list(list(
-          bench = NULL, species_block = NULL, group_block = NULL,
-          adm_error = paste0("direct-run failure: ", conditionMessage(direct_result)),
-          anchor_index = ids
-        )))
-      }
+      chunk_anchor_ids <- as.character(candidate_models_[[id_col_nm]][ids])
+      cat(
+        format(Sys.time(), "%Y-%m-%d %H:%M:%S"), " DISPATCHING ", length(ids),
+        " anchor(s): ", paste(chunk_anchor_ids, collapse = ", "), "\n",
+        file = inflight_log_path, append = TRUE, sep = ""
+      )
       result <- tryCatch(
         parallel::parLapplyLB(cluster_obj, as.list(ids), worker_fun),
         error = function(e) e
       )
-      if (!inherits(result, "error")) {
-        return(result)
-      }
-      try(parallel::stopCluster(cluster_obj), silent = TRUE)
-      worker_restarts <<- worker_restarts + 1L
-      if (worker_restarts > max_worker_restarts) {
+      if (inherits(result, "error")) {
+        .kill_cluster_processes(cluster_obj)
         stop(
-          "Policy benchmark worker cluster failed repeatedly (",
-          worker_restarts, " restarts) while processing anchor(s) ",
-          paste(as.character(candidate_models_[[id_col_nm]][ids]), collapse = ", "),
-          ". Last error: ", conditionMessage(result),
+          "Policy benchmark worker cluster died (", conditionMessage(result),
+          ") while processing anchor(s): ", paste(chunk_anchor_ids, collapse = ", "),
+          ". This list was also written to ", inflight_log_path,
+          " before dispatch, in case this message does not make it out intact.",
           call. = FALSE
         )
       }
-      cluster_obj <<- .rebuild_cluster()
-      if (isTRUE(progress)) {
-        tsb_message(
-          "Policy benchmark worker cluster failed (", conditionMessage(result),
-          "); rebuilt cluster (restart ", worker_restarts, "/", max_worker_restarts,
-          ") and retrying ", length(ids), " anchor(s)."
-        )
-      }
-      split_at <- ceiling(length(ids) / 2L)
-      c(
-        .run_chunk(ids[seq_len(split_at)]),
-        .run_chunk(ids[seq.int(split_at + 1L, length(ids))])
+      cat(
+        format(Sys.time(), "%Y-%m-%d %H:%M:%S"), " COMPLETED ", length(ids),
+        " anchor(s): ", paste(chunk_anchor_ids, collapse = ", "), "\n",
+        file = inflight_log_path, append = TRUE, sep = ""
       )
+      result
     }
 
     chunk_index <- split(
