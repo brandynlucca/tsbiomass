@@ -1572,12 +1572,19 @@ S7::method(select_policies, PolicySelector) <- function(object,
       NULL
     }
     if (is.null(eval_obj)) {
+      # predict() is forward application, not benchmarking: an anchor here
+      # may be a genuinely novel species with no TS-length model of its own
+      # (that is the whole point of querying it), so it must not be required
+      # to have finite backscatter the way a benchmark anchor is. Donor
+      # admissibility, policy aggregation, and the resulting coefficient/
+      # TS-length outputs never depend on the anchor's own backscatter.
       eval_obj <- try(screen_one_anchor_admissibility(
         anchor_row = anchor_row,
         candidate_models = prediction_candidates,
         config = cfg,
         registry_path = registry_path,
-        excluded_model_ids = prediction_excluded_model_ids
+        excluded_model_ids = prediction_excluded_model_ids,
+        require_backscatter = FALSE
       ), silent = TRUE)
     }
     if (inherits(eval_obj, "try-error")) {

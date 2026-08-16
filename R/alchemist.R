@@ -6327,6 +6327,17 @@ build_admissible_pool <- function(model_eval,
 #' @param excluded_model_ids Optional character vector of model IDs that should
 #'   be excluded from the donor pool after the anchor's own calibration terms
 #'   are derived from the full scored table.
+#' @param require_backscatter Logical scalar. When `TRUE` (the default,
+#'   matching prior behavior), an anchor with no finite positive backscatter
+#'   of its own aborts screening - correct for benchmarking, where the
+#'   anchor's own known TS-length model is the ground truth a replacement
+#'   multiplier is scored against. Set `FALSE` for forward prediction on a
+#'   genuinely novel anchor with no TS-length model of its own (e.g. a query
+#'   species being predicted, not benchmarked): donor admissibility, policy
+#'   aggregation, and the resulting coefficient/TS-length outputs never
+#'   depend on the anchor's own backscatter - only the derived
+#'   `biomass_multiplier_if_replace` column does, and that already degrades
+#'   to `NA` rather than erroring when `anchor_sigma` is non-finite.
 #'
 #' @return A list with `anchor_pdf`, `anchor_sigma`, `model_eval`,
 #'   `admissible_df`, `sim_obj`, and `dist_obj`.
@@ -6340,7 +6351,8 @@ screen_one_anchor_admissibility <- function(anchor_row,
                                             sim_obj = NULL,
                                             dist_obj = NULL,
                                             candidate_models_scored = NULL,
-                                            excluded_model_ids = NULL) {
+                                            excluded_model_ids = NULL,
+                                            require_backscatter = TRUE) {
   # Resolve the similarity prep and distance objects once, then layer the
   # anchor-specific overlap and admissibility diagnostics on top of them.
   if (!is.data.frame(anchor_row) || nrow(anchor_row) != 1) {
@@ -6442,7 +6454,7 @@ screen_one_anchor_admissibility <- function(anchor_row,
   } else {
     ""
   }
-  if (!is.finite(anchor_sigma) || anchor_sigma <= 0) {
+  if ((!is.finite(anchor_sigma) || anchor_sigma <= 0) && isTRUE(require_backscatter)) {
     anchor_species <- if (build_anchor_field(cfg, "species_name") %in% names(anchor_row)) {
       as.character(anchor_row[[build_anchor_field(cfg, "species_name")]][[1]])
     } else {
@@ -6465,6 +6477,9 @@ screen_one_anchor_admissibility <- function(anchor_row,
       stage = "anchor_backscatter"
     )
   }
+  # A non-finite anchor_sigma is left as-is when require_backscatter is
+  # FALSE. `biomass_multiplier_if_replace` below already degrades to NA in
+  # that case, and nothing else in this function depends on anchor_sigma.
 
   # Keep the anchor rows available long enough to derive the reference
   # backscatter term, then drop any declared reference anchors before donor
