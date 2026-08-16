@@ -654,6 +654,34 @@ test_that("full anchor screening rejects missing query equation coefficients", {
   )
 })
 
+test_that("screening a novel-species query with no backscatter still finds an admissible donor pool", {
+  candidates <- make_candidates(seed_similarity_tuning = FALSE)
+  new_anchor <- candidates@candidate_models |>
+    dplyr::filter(.data$model_id == 1L) |>
+    dplyr::slice(1L) |>
+    dplyr::mutate(
+      model_id = 993L,
+      model_id_chr = "993",
+      slope_standard = NA_real_,
+      intercept_standard = NA_real_
+    )
+  cfg <- minimal_config_data()
+  cfg$admissibility$coherence$depth$min <- NA_real_
+
+  eval_obj <- tsbiomass:::screen_one_anchor_admissibility(
+    anchor_row = new_anchor,
+    candidate_models = candidates@candidate_models,
+    config = cfg,
+    registry_path = trait_registry_path(),
+    excluded_model_ids = "993",
+    require_backscatter = FALSE
+  )
+
+  expect_true(is.na(eval_obj$anchor_sigma))
+  expect_gt(nrow(eval_obj$admissible_df), 0)
+  expect_true(all(is.na(eval_obj$admissible_df$biomass_multiplier_if_replace)))
+})
+
 test_that("full anchor screening rejects malformed direct query PDF data", {
   candidates <- make_candidates(seed_similarity_tuning = FALSE)
   new_anchor <- candidates@candidate_models |>

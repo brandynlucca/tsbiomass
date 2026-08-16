@@ -6255,7 +6255,8 @@ weight_anchor_models <- function(model_eval,
 #' @keywords internal
 #' @noRd
 build_admissible_pool <- function(model_eval,
-                                  config) {
+                                  config,
+                                  require_backscatter = TRUE) {
   # Restrict to admissible weighted rows first, then de-duplicate support at
   # the study-cell level before final admissible weights are normalized.
   study_cell_col <- build_anchor_field(config, "study_cell")
@@ -6269,8 +6270,14 @@ build_admissible_pool <- function(model_eval,
     }
   }
 
-  admissible_df <- model_eval_ |>
-    dplyr::filter(.data$admissible, is.finite(.data$w_combined), .data$w_combined > 0, is.finite(.data$biomass_multiplier_if_replace)) |>
+  admissible_df <- if (isTRUE(require_backscatter)) {
+    model_eval_ |>
+      dplyr::filter(.data$admissible, is.finite(.data$w_combined), .data$w_combined > 0, is.finite(.data$biomass_multiplier_if_replace))
+  } else {
+    model_eval_ |>
+      dplyr::filter(.data$admissible, is.finite(.data$w_combined), .data$w_combined > 0)
+  }
+  admissible_df <- admissible_df |>
     dplyr::mutate(!!study_cell_col := dplyr::coalesce(.data[[study_cell_col]], .data[[id_chr_col]])) |>
     dplyr::arrange(dplyr::desc(.data$w_combined))
 
@@ -6519,7 +6526,8 @@ screen_one_anchor_admissibility <- function(anchor_row,
 
   admissible_df <- build_admissible_pool(
     model_eval = model_eval,
-    config = cfg
+    config = cfg,
+    require_backscatter = require_backscatter
   )
 
   list(
