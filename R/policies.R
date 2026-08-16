@@ -1027,11 +1027,11 @@ build_policy_group_definition <- function(group_key,
     active_study_traits <- active_study_traits[!is.na(active_study_traits) & nzchar(active_study_traits)]
     study_trait_keys <- intersect(study_trait_keys, active_study_traits)
   }
-  conjunction_filter_traits <- c(
+  conjunction_filter_traits <- unique(c(
     taxonomic_traits,
     species_trait_keys,
     study_trait_keys
-  )
+  ))
   first_token <- tokens[[1]]
   if (length(tokens) == 1 && first_token %in% special_keys) {
     return(special_group_lookup[[first_token]])
