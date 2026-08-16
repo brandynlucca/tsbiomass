@@ -425,6 +425,105 @@ test_that("PolicySelector dispatches an external existing-species query through 
   )
 })
 
+test_that("a referee scorecard builds for an external query anchor when the selector already has its own reference anchors", {
+  candidates <- make_candidates(
+    seed_similarity_tuning = FALSE,
+    gower_distances = list(
+      distance_mode = "alchemist_super_learner",
+      distance_learner = structure(list(), class = "Mahalanobis")
+    ),
+    admissibility = list(all_scores = minimal_admissibility_scores()),
+    reference_anchors = minimal_candidate_models() |>
+      dplyr::filter(.data$model_id %in% c(1L, 2L))
+  )
+  selector <- make_selector(
+    candidates = candidates,
+    benchmark = list(policy_perf = minimal_policy_performance()),
+    uncertainty = minimal_uncertainty(),
+    selection = list(final_ref = minimal_selection_ref())
+  )
+  learner <- PolicyLearner(
+    selector = selector,
+    config = list(),
+    training_data = tibble::tibble(),
+    crossfit = list(),
+    fitted_model = list(model = structure(list(method = "glm"), class = "tsb_meta_policy_learner")),
+    calibration = list(
+      width_model = list(model = NULL),
+      width_factor_global = 1,
+      width_factor_simultaneous_global = 1,
+      uncertainty_prediction_source = "point_score_fallback",
+      support_cutpoints = c(0, 0.5, 1),
+      n_bins = 2L,
+      support_bin_labels = c(
+        support_bin_1 = "Lower support",
+        support_bin_2 = "Higher support"
+      ),
+      bin_quantiles = tibble::tibble(
+        post_selection_support_bin = c("support_bin_1", "support_bin_2"),
+        q_abs_log = c(0.10, 0.20),
+        simultaneous_species_max_q_abs_log = c(0.20, 0.30)
+      ),
+      q_global = 0.15,
+      q_simultaneous_global = 0.25,
+      max_selection_tolerance = 1e-12
+    )
+  )
+  new_anchor <- candidates@candidate_models |>
+    dplyr::filter(.data$model_id == 1L) |>
+    dplyr::slice(1L) |>
+    dplyr::mutate(model_id = 999L, model_id_chr = "999")
+
+  testthat::local_mocked_bindings(
+    augment_alchemist_query_distances = function(candidate_models, distance_state, query_model_ids) {
+      list(distance_mode = "alchemist_super_learner", query_distances_added = TRUE)
+    },
+    screen_one_anchor_admissibility = function(anchor_row, candidate_models, ...) {
+      list()
+    },
+    evaluate_policies = function(...) {
+      tibble::tibble(
+        policy = "closest_within_species",
+        multiplier_pred = 1.1,
+        n_valid_models = 2L,
+        local_weighted_mean_combined_distance = 0.1,
+        local_effective_support = 2,
+        local_structural_q_abs_log = 0.05
+      )
+    },
+    summarize_evaluation = function(...) {
+      tibble::tibble(
+        consensus_multiplier = 1.1,
+        multiplier_q05 = 1.0,
+        multiplier_q50 = 1.1,
+        multiplier_q95 = 1.2,
+        local_support_mass = 0.8,
+        local_effective_support = 2
+      )
+    },
+    predict_meta_policy_score = function(object, new_policy_tbl) {
+      new_policy_tbl$.meta_predicted_score <- rep(0.1, nrow(new_policy_tbl))
+      new_policy_tbl$.meta_score_diagnostic_available <- rep(FALSE, nrow(new_policy_tbl))
+      new_policy_tbl$.meta_score_weighted_disagreement <- rep(NA_real_, nrow(new_policy_tbl))
+      new_policy_tbl
+    },
+    .package = "tsbiomass"
+  )
+
+  predictions <- predict(
+    selector,
+    learner = learner,
+    reference_anchors = new_anchor,
+    reuse_admissibility = FALSE
+  )
+  expect_equal(predictions@selections$anchor_model_id, "999")
+  expect_true(predictions@selections$anchor_is_external)
+
+  scorecard <- predict(as_referee(selector, learner = learner, predictions = predictions))
+  expect_s7_class(scorecard, Scorecard)
+  expect_equal(scorecard@selected$anchor_model_id, "999")
+})
+
 test_that("PolicySelector dispatches an external query through prepared empirical Gower state", {
   candidates <- make_candidates(
     seed_similarity_tuning = FALSE,

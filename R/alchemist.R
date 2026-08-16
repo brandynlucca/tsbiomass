@@ -3127,15 +3127,6 @@ S7::method(forge_distances, Alchemist) <- function(object,
     isTRUE(refresh)
   }
 
-  # `object` itself may already carry a learned distance matrix - forged
-  # earlier in this session, or reloaded from a saved workflow object. The
-  # on-disk cache below is a separate mechanism keyed only on
-  # stage/feature_type, not on this object's identity or content, so its
-  # presence or absence says nothing about whether *this object* has already
-  # done the work. Without checking the object's own state first, re-forging
-  # an already-forged object silently discards its learner and distance
-  # matrix and recomputes from scratch whenever the disk cache doesn't
-  # resolve, even with `refresh = FALSE`.
   if (!refresh &&
     length(object@distance_matrix) > 0 &&
     length(object@learner) > 0 &&
@@ -6327,17 +6318,9 @@ build_admissible_pool <- function(model_eval,
 #' @param excluded_model_ids Optional character vector of model IDs that should
 #'   be excluded from the donor pool after the anchor's own calibration terms
 #'   are derived from the full scored table.
-#' @param require_backscatter Logical scalar. When `TRUE` (the default,
-#'   matching prior behavior), an anchor with no finite positive backscatter
-#'   of its own aborts screening - correct for benchmarking, where the
-#'   anchor's own known TS-length model is the ground truth a replacement
-#'   multiplier is scored against. Set `FALSE` for forward prediction on a
-#'   genuinely novel anchor with no TS-length model of its own (e.g. a query
-#'   species being predicted, not benchmarked): donor admissibility, policy
-#'   aggregation, and the resulting coefficient/TS-length outputs never
-#'   depend on the anchor's own backscatter - only the derived
-#'   `biomass_multiplier_if_replace` column does, and that already degrades
-#'   to `NA` rather than erroring when `anchor_sigma` is non-finite.
+#' @param require_backscatter Logical scalar. If `TRUE` (default), an anchor
+#'   with no finite positive backscatter of its own aborts screening. Set
+#'   `FALSE` to allow screening anchors with no TS-length model of their own.
 #'
 #' @return A list with `anchor_pdf`, `anchor_sigma`, `model_eval`,
 #'   `admissible_df`, `sim_obj`, and `dist_obj`.
@@ -6477,9 +6460,6 @@ screen_one_anchor_admissibility <- function(anchor_row,
       stage = "anchor_backscatter"
     )
   }
-  # A non-finite anchor_sigma is left as-is when require_backscatter is
-  # FALSE. `biomass_multiplier_if_replace` below already degrades to NA in
-  # that case, and nothing else in this function depends on anchor_sigma.
 
   # Keep the anchor rows available long enough to derive the reference
   # backscatter term, then drop any declared reference anchors before donor

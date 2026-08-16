@@ -5583,13 +5583,6 @@ run_policy_benchmark <- function(candidate_models,
       cl
     }
     cluster_obj <- .build_cluster()
-    # stopCluster() shuts a worker down by sending it a message over its own
-    # connection. If that connection is already broken - which is exactly
-    # the failure handled below - the shutdown message can never be
-    # delivered, so the dead worker is left running indefinitely, still
-    # holding its own memory and file descriptors. `.kill_cluster_processes`
-    # forcefully kills the underlying OS processes directly instead of
-    # relying on that connection.
     .kill_cluster_processes <- function(cl) {
       try(parallel::stopCluster(cl), silent = TRUE)
       self_pid <- Sys.getpid()
@@ -5611,11 +5604,6 @@ run_policy_benchmark <- function(candidate_models,
       tsb_message("Policy benchmark running in parallel with ", workers_, " workers.")
     }
 
-    # Dispatch one batch per worker at a time rather than the larger batches
-    # used previously. A cluster failure kills the whole in-flight batch's
-    # results and stops the benchmark (see .run_chunk below), so a smaller
-    # batch means a much shorter, more useful list of suspect anchors if
-    # that happens - `workers_` anchors to inspect instead of up to 100.
     chunk_step <- as.integer(workers_)
     pending_anchor_ids <- integer(0)
     processed <- 0L
@@ -5787,26 +5775,8 @@ run_policy_benchmark <- function(candidate_models,
       )
     }
 
-    # `parLapplyLB` is all-or-nothing: if a worker crashes, the whole
-    # in-flight chunk's results are lost, and the master's next attempt to
-    # talk to that worker surfaces as a bare, unhelpful connection error -
-    # not a real R error naming the anchor responsible. Rebuilding the
-    # cluster and retrying was tried and made things worse: each rebuild
-    # leaks more forked processes on top of whatever the dead cluster
-    # already leaked (stopCluster() can't cleanly shut a worker down once
-    # its own connection is what broke), and on this remote, tunnelled
-    # session that process growth was enough to destabilize the connection
-    # itself, not just the R computation. So this now fails once, fast: the
-    # dead cluster is force-killed immediately and the whole benchmark
-    # stops. No retries, no rebuilding, no serial fallback.
-    #
-    # By the time a cluster dies, the connection can already be corrupted
-    # enough that even the stop() message describing which anchors were in
-    # flight may not reliably reach the console/log - that happened here.
-    # So each chunk's anchor IDs are written to a plain file *before*
-    # dispatch, synchronously, independent of any cluster or console
-    # connection. If the process dies, that file still names the anchors
-    # that were being processed at the time, even if nothing else survives.
+    # Anchor IDs are logged before dispatch since a cluster death can corrupt
+    # the console connection before the stop() message reaches it.
     inflight_log_path <- if (!is.null(cache_shard_dir)) {
       file.path(dirname(cache_shard_dir), "benchmark_inflight_anchors.log")
     } else {

@@ -426,7 +426,8 @@ make_candidates <- function(seed_similarity_tuning = TRUE,
                             similarity_matrix = list(),
                             gower_distances = list(),
                             ordination = list(),
-                            admissibility = list()) {
+                            admissibility = list(),
+                            reference_anchors = NULL) {
   models <- minimal_candidate_models()
   species_db <- models |>
     dplyr::distinct(.data$species_name, .data$genus, .data$family, .data$order, .data$swimbladder_type, .data$fao_area, .data$ocean_basin)
@@ -445,7 +446,7 @@ make_candidates <- function(seed_similarity_tuning = TRUE,
     source_dbs = list(),
     species_db = species_db,
     candidate_models = models,
-    reference_anchors = models[0, , drop = FALSE],
+    reference_anchors = if (is.null(reference_anchors)) models[0, , drop = FALSE] else reference_anchors,
     similarity_matrix = similarity_matrix,
     gower_distances = gower_distances,
     ordination = ordination,

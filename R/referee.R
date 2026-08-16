@@ -371,11 +371,6 @@ validate_referee_provenance <- function(selector,
   intervals_tbl <- tibble::as_tibble(predictions@intervals)
   consensus_tbl <- tibble::as_tibble(predictions@consensus)
 
-  # An anchor that fails screening entirely (all requested anchors invalid,
-  # e.g. every donor pool came back empty) never appends any interval rows,
-  # so `intervals_tbl` can legitimately be a zero-row, zero-column tibble.
-  # That is a valid "nothing to report" result, not a malformed one, so the
-  # column check only applies once there is at least one row to validate.
   if (!all(c("anchor_model_id", "anchor_species") %in% names(selected_tbl)) &&
     nrow(selected_tbl) > 0) {
     stop("`predictions` must contain 'anchor_model_id' and 'anchor_species'.", call. = FALSE)
@@ -434,13 +429,13 @@ validate_referee_provenance <- function(selector,
   }
   allowed_anchor_ids <- unique(c(anchor_ids, external_ids))
 
-  if (!setequal(selected_anchor_ids, allowed_anchor_ids)) {
+  if (!all(selected_anchor_ids %in% allowed_anchor_ids)) {
     stop(
       "`predictions` does not match the selector's reference-anchor ids.",
       call. = FALSE
     )
   }
-  if (!setequal(consensus_anchor_ids, allowed_anchor_ids)) {
+  if (!all(consensus_anchor_ids %in% allowed_anchor_ids)) {
     stop(
       "`predictions` does not match the selector's reference-anchor ids.",
       call. = FALSE
