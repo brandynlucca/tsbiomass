@@ -1345,12 +1345,18 @@ summarize_evaluation <- function(eval_obj,
     probs = probs
   )
 
+  # sum(..., na.rm=TRUE) over all-NA input silently returns 0; guard so it returns NA instead.
+  finite_replace <- is.finite(eval_obj$admissible_df$biomass_multiplier_if_replace)
   tibble::tibble(
     n_admissible = nrow(eval_obj$admissible_df),
-    consensus_multiplier = sum(
-      eval_obj$admissible_df$w_adm * eval_obj$admissible_df$biomass_multiplier_if_replace,
-      na.rm = TRUE
-    ),
+    consensus_multiplier = if (any(finite_replace)) {
+      sum(
+        eval_obj$admissible_df$w_adm * eval_obj$admissible_df$biomass_multiplier_if_replace,
+        na.rm = TRUE
+      )
+    } else {
+      NA_real_
+    },
     multiplier_q05 = q[[1]],
     multiplier_q50 = q[[2]],
     multiplier_q95 = q[[3]],
