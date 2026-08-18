@@ -37,3 +37,5 @@ docs/
 .codex_*
 *.out
 *.gcda
+.Rcheck-lib/
+inst/scripts
