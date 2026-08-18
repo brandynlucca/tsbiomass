@@ -1,0 +1,24 @@
+name: Build webR Repository
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build WebAssembly Package
+        run: |
+          mkdir -p inst/docs/webr_repo
+          docker run --rm -v "${PWD}:/pkg" -v "${PWD}/inst/docs/webr_repo:/output" -w /output ghcr.io/r-wasm/webr R -e "rwasm::build('/pkg')"
+
+      - name: Upload Built Wasm Repo as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webr_repo
+          path: inst/docs/webr_repo/
