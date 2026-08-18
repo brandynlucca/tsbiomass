@@ -308,8 +308,8 @@ as_policyselector <- function(candidates,
       learned_kernel_bandwidth = distance_matrix$learned_kernel_bandwidth %||% NULL,
       distance_mode = "alchemist_super_learner",
       trait_cols = distance_matrix$trait_cols %||% distance_matrix$all_traits %||% character(0),
-      distance_learner = alchemist@learner,
-      feature_cols = distance_matrix$feature_cols %||% alchemist@learner$feature_cols %||% character(0),
+      distance_learner = canonicalize_distance_learner(alchemist@learner),
+      feature_cols = distance_matrix$feature_cols %||% resolve_distance_learner(alchemist@learner)$feature_cols %||% character(0),
       species_trait_names = distance_matrix$species_trait_names %||% character(0),
       study_trait_names = distance_matrix$study_trait_names %||% character(0),
       feature_type = distance_matrix$feature_type %||% NULL,
@@ -1091,6 +1091,8 @@ S7::method(select_policies, PolicySelector) <- function(object,
   if (is.null(reference_anchors) && length(positional_dots) > 0L) {
     reference_anchors <- positional_dots[[1L]]
   }
+  # Resolve slot presence
+  learner <- resolve_policy_learner(learner)
   cfg <- merge_config_sections(object@config, policy_selector_config_data(config))
   progress <- progress %||%
     policy_selector_config_value(cfg, "progress", sections = c("selection", "benchmark")) %||%
@@ -1131,9 +1133,6 @@ S7::method(select_policies, PolicySelector) <- function(object,
   if (is.null(policies) &&
     is_s7_instance(learner, "PolicyLearner")) {
     # The meta-learner should score the full benchmarked policy set by default.
-    # Keeping the prediction pass pinned to `cfg$policies$active` silently drops
-    # benchmarked policy families and can leave anchors with no non-empty donor
-    # pool even though valid broad policies exist in the benchmark tables.
     active_policies <- NULL
   }
   ordination_context <- policy_selector_ordination_context(
@@ -1147,11 +1146,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
   benchmark_policy_tbl <- tibble::as_tibble((object@benchmark)$policy_perf %||% tibble::tibble())
   if (nrow(select_tbl) == 0L &&
     nrow(tibble::as_tibble((object@benchmark)$species_block_perf %||% tibble::tibble())) > 0L) {
-    # Older selector checkpoints can reach prediction with uncertainty already
-    # calibrated but without a persisted global selection summary. Rebuild the
-    # benchmark-derived selection reference table on demand so anchor-time
-    # scoring still has access to the one-SE acceptability and bootstrap
-    # stability diagnostics.
+    # Rebuild the benchmark-derived selection reference table
     selection_obj <- run_policy_selection(
       species_performance_table = tibble::as_tibble((object@benchmark)$species_block_perf %||% tibble::tibble()),
       candidate_models = object@candidates@candidate_models %||% tibble::tibble(),
@@ -1647,7 +1642,12 @@ S7::method(select_policies, PolicySelector) <- function(object,
         anchor_model_id = anchor_id,
         anchor_species = anchor_species,
         anchor_is_external = anchor_is_external,
-        valid_prediction = is.finite(.data$multiplier_pred) & .data$multiplier_pred > 0
+        # External anchors have no anchor_sigma, so a finite coefficient counts as valid instead.
+        valid_prediction = dplyr::if_else(
+          dplyr::coalesce(anchor_is_external, FALSE),
+          is.finite(.data$policy_slope_len) & is.finite(.data$policy_intercept_len),
+          is.finite(.data$multiplier_pred) & .data$multiplier_pred > 0
+        )
       )
     for (random_intercept in anchor_random_intercepts) {
       policy_tbl[[random_intercept]] <- rep(
@@ -4267,8 +4267,8 @@ run_policy_selection <- function(species_performance_table,
 
   # Reuse the cached selection object when available unless a refresh was
   # explicitly requested.
-  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
-    return(readRDS(cache_path))
+  if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
+    return(tsb_cache_read(cache_path))
   }
 
   # Inline the policy-selection defaults here so the function resolves its own
@@ -4366,8 +4366,7 @@ run_policy_selection <- function(species_performance_table,
   # Cache the in-memory selection summaries only when a cache path was
   # supplied.
   if (!is.null(cache_path)) {
-    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(result, cache_path)
+    tsb_cache_write(result, cache_path)
   }
 
   result

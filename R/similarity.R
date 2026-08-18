@@ -4379,9 +4379,9 @@ tune_similarities <- function(candidate_models,
 
   # Return the cached tuning object immediately when available unless the
   # caller explicitly requested a refresh.
-  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
+  if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
     report_progress(progress, "Loading cached similarity tuning from ", cache_path, ".")
-    cached_result <- readRDS(cache_path)
+    cached_result <- tsb_cache_read(cache_path)
     if (!isTRUE(similarity_tuning_cache_current(cached_result))) {
       report_progress(progress, "Cached similarity tuning is stale and will be rebuilt.")
     } else {
@@ -4760,8 +4760,7 @@ tune_similarities <- function(candidate_models,
 
   # Persist the tuned object for reuse when a cache path was requested.
   if (!is.null(cache_path)) {
-    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(result, cache_path)
+    tsb_cache_write(result, cache_path)
   }
 
   if (!is.null(candidates_obj)) {
@@ -4849,8 +4848,8 @@ tune_similarity_resamples <- function(candidate_models,
   max_models_per_species <- as.integer(max_models_per_species)
 
   # Reuse an existing cache unless the caller explicitly requested a refresh.
-  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
-    return(readRDS(cache_path))
+  if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
+    return(tsb_cache_read(cache_path))
   }
 
   # Resolve the baseline similarity inputs once so every resample uses the
@@ -4940,8 +4939,7 @@ tune_similarity_resamples <- function(candidate_models,
 
   # Cache the assembled resampling result only after all resamples finish.
   if (!is.null(cache_path)) {
-    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(result, cache_path)
+    tsb_cache_write(result, cache_path)
   }
 
   result

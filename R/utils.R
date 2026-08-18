@@ -433,6 +433,54 @@ ensure_parent_path <- function(path) {
   invisible(path)
 }
 
+#' Test whether a cache file exists, in either the qs2 or rds form
+#'
+#' @param path Character scalar base cache path (as passed to `saveRDS()`).
+#'
+#' @return Logical scalar.
+#' @keywords internal
+#' @noRd
+tsb_cache_exists <- function(path) {
+  is.character(path) && length(path) == 1 && nzchar(path) &&
+    (file.exists(paste0(path, ".qs2")) || file.exists(path))
+}
+
+#' Read a cache file, preferring the qs2 sibling file when present
+#'
+#' @param path Character scalar base cache path (as passed to `saveRDS()`).
+#'
+#' @return The deserialized object.
+#' @keywords internal
+#' @noRd
+tsb_cache_read <- function(path) {
+  qs_path <- paste0(path, ".qs2")
+  if (requireNamespace("qs2", quietly = TRUE) && file.exists(qs_path)) {
+    return(qs2::qs_read(qs_path))
+  }
+  readRDS(path)
+}
+
+#' Write a cache file, using qs2 (as a `path`-suffixed sibling) when available
+#'
+#' Never touches `path` itself when qs2 is used, so an existing plain-rds
+#' cache at `path` is left intact and still readable by older code.
+#'
+#' @param x Object to cache.
+#' @param path Character scalar base cache path (as passed to `saveRDS()`).
+#'
+#' @return `path`, invisibly.
+#' @keywords internal
+#' @noRd
+tsb_cache_write <- function(x, path) {
+  ensure_parent_path(path)
+  if (requireNamespace("qs2", quietly = TRUE)) {
+    qs2::qs_save(x, paste0(path, ".qs2"))
+    return(invisible(path))
+  }
+  saveRDS(x, path)
+  invisible(path)
+}
+
 #' Parse a strict environment flag
 #'
 #' @param value Logical scalar or one environment-string value.

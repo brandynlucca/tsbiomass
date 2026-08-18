@@ -55,8 +55,8 @@ run_sensitivity_tests <- function(sensitivity_specs,
 
   # Reuse a cached sensitivity benchmark map when available unless a refresh
   # was explicitly requested.
-  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
-    return(readRDS(cache_path))
+  if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
+    return(tsb_cache_read(cache_path))
   }
 
   # Inline the small set of sensitivity defaults here instead of routing them
@@ -195,8 +195,7 @@ run_sensitivity_tests <- function(sensitivity_specs,
 
   # Cache the full scenario benchmark map only when a cache path was supplied.
   if (!is.null(cache_path)) {
-    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(sens_map, cache_path)
+    tsb_cache_write(sens_map, cache_path)
   }
 
   sens_map

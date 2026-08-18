@@ -102,8 +102,8 @@ fetch_worms <- function(species, cache_path = NULL, refresh = FALSE) {
 
   # Reuse an existing cache only when the caller explicitly supplied one and
   # requested non-refresh behavior.
-  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
-    return(readRDS(cache_path))
+  if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
+    return(tsb_cache_read(cache_path))
   }
 
   out <- lapply(species_, function(sp) {
@@ -195,8 +195,7 @@ fetch_worms <- function(species, cache_path = NULL, refresh = FALSE) {
   # Persist the fetched result exactly as returned so repeated calls can avoid
   # extra API traffic.
   if (!is.null(cache_path)) {
-    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(out, cache_path)
+    tsb_cache_write(out, cache_path)
   }
 
   out
@@ -591,8 +590,8 @@ fetch_fishbase <- function(species, cache_path = NULL, refresh = FALSE) {
 
   # Reuse an existing cache only when the caller explicitly supplied one and
   # requested non-refresh behavior.
-  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
-    return(readRDS(cache_path))
+  if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
+    return(tsb_cache_read(cache_path))
   }
 
   # Seed one output row per queried species so direct genus/species identity is
@@ -908,8 +907,7 @@ fetch_fishbase <- function(species, cache_path = NULL, refresh = FALSE) {
   # Persist the fetched result exactly as returned so repeated calls can avoid
   # extra API traffic.
   if (!is.null(cache_path)) {
-    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(out, cache_path)
+    tsb_cache_write(out, cache_path)
   }
 
   out
@@ -1010,8 +1008,8 @@ read_pelagic_db <- function(species,
 
   # Reuse an existing cache only when the caller explicitly supplied one and
   # requested non-refresh behavior.
-  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
-    return(readRDS(cache_path))
+  if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
+    return(tsb_cache_read(cache_path))
   }
 
   # Seed one registry-aligned row per queried species so direct genus/species
@@ -1283,8 +1281,7 @@ read_pelagic_db <- function(species,
   # Persist the fetched result exactly as returned so repeated calls can avoid
   # re-reading the same local source files.
   if (!is.null(cache_path)) {
-    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(out, cache_path)
+    tsb_cache_write(out, cache_path)
   }
 
   out
@@ -1385,8 +1382,8 @@ read_azores_db <- function(species,
 
   # Reuse an existing cache only when the caller explicitly supplied one and
   # requested non-refresh behavior.
-  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
-    return(readRDS(cache_path))
+  if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
+    return(tsb_cache_read(cache_path))
   }
 
   # Seed one registry-aligned row per queried species so direct genus/species
@@ -1575,8 +1572,7 @@ read_azores_db <- function(species,
   # Persist the fetched result exactly as returned so repeated calls can avoid
   # re-reading the same local source file.
   if (!is.null(cache_path)) {
-    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(out, cache_path)
+    tsb_cache_write(out, cache_path)
   }
 
   out
@@ -1678,8 +1674,8 @@ read_continental_db <- function(species,
 
   # Reuse an existing cache only when the caller explicitly supplied one and
   # requested non-refresh behavior.
-  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
-    return(readRDS(cache_path))
+  if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
+    return(tsb_cache_read(cache_path))
   }
 
   # Seed one registry-aligned row per queried species so direct genus/species
@@ -1856,8 +1852,7 @@ read_continental_db <- function(species,
   # Persist the fetched result exactly as returned so repeated calls can avoid
   # re-reading the same local source file.
   if (!is.null(cache_path)) {
-    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(out, cache_path)
+    tsb_cache_write(out, cache_path)
   }
 
   out
@@ -1959,8 +1954,8 @@ read_mstraits_db <- function(species,
 
   # Reuse an existing cache only when the caller explicitly supplied one and
   # requested non-refresh behavior.
-  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
-    return(readRDS(cache_path))
+  if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
+    return(tsb_cache_read(cache_path))
   }
 
   # Seed one registry-aligned row per queried species so direct genus/species
@@ -2158,8 +2153,7 @@ read_mstraits_db <- function(species,
   # Persist the processed result exactly as returned so repeated calls can
   # avoid re-reading the `.RData` source.
   if (!is.null(cache_path)) {
-    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(out, cache_path)
+    tsb_cache_write(out, cache_path)
   }
 
   out
@@ -2707,8 +2701,7 @@ enrich_species_db <- function(db_list,
   # Persist the enriched species table exactly as returned when the caller
   # explicitly supplies a cache path.
   if (!is.null(cache_path)) {
-    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(out, cache_path)
+    tsb_cache_write(out, cache_path)
   }
 
   out
@@ -2771,8 +2764,8 @@ prepare_traits <- function(species_db,
 
   # Reuse an existing cache only when the caller explicitly supplied one and
   # requested non-refresh behavior.
-  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
-    return(readRDS(cache_path))
+  if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
+    return(tsb_cache_read(cache_path))
   }
 
   # Read the registry once so both the species and study trait handling follow
@@ -3155,8 +3148,7 @@ prepare_traits <- function(species_db,
   # Persist the prepared merged table exactly as returned when the caller
   # explicitly supplies a cache path.
   if (!is.null(cache_path)) {
-    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(out, cache_path)
+    tsb_cache_write(out, cache_path)
   }
 
   out

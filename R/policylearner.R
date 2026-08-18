@@ -66,6 +66,58 @@ PolicyLearner <- S7::new_class(
 
 S7::S4_register(PolicyLearner)
 
+#' Wrap a `PolicyLearner` in a reference-semantic environment
+#'
+#' A fitted `PolicyLearner` gets attached to both `referee@learner`/
+#' `conjurer@learner` and whatever top-level pipeline variable holds it.
+#' Without this, each S7 reconstruction that stores it copies the full
+#' `crossfit`/`fitted_model`/`calibration` payload. Wrapping it once, at the
+#' point it is attached into `Referee`/`Conjurer`, and passing the wrapper
+#' around instead lets both attachment sites share one reference within a
+#' session. Mirrors `share_distance_learner()` (see `R/alchemist.R`).
+#'
+#' @param learner A `PolicyLearner` object, or `NULL`.
+#'
+#' @return `learner` wrapped in a `tsb_shared_policy_learner` environment, or
+#'   `NULL` if `learner` is `NULL`. Idempotent: wrapping an already-wrapped
+#'   learner returns it unchanged.
+#'
+#' @keywords internal
+#' @noRd
+share_policy_learner <- function(learner) {
+  if (is.null(learner)) {
+    return(NULL)
+  }
+  if (inherits(learner, "tsb_shared_policy_learner")) {
+    return(learner)
+  }
+  env <- new.env(parent = emptyenv())
+  env$learner <- learner
+  class(env) <- "tsb_shared_policy_learner"
+  env
+}
+
+#' Unwrap a possibly-shared `PolicyLearner` reference
+#'
+#' Accepts either the environment-wrapped form produced by
+#' `share_policy_learner()` or a raw (unwrapped) `PolicyLearner`, so callers
+#' that build a `Referee`/`Conjurer` learner slot by hand (tests, pre-fix
+#' cached objects) keep working unchanged.
+#'
+#' @param x A `tsb_shared_policy_learner` environment, a raw `PolicyLearner`,
+#'   or `NULL`.
+#'
+#' @return The raw `PolicyLearner`, or `NULL`.
+#'
+#' @keywords internal
+#' @noRd
+resolve_policy_learner <- function(x) {
+  if (inherits(x, "tsb_shared_policy_learner")) {
+    return(x$learner)
+  }
+  x
+}
+
 #' Test whether an object is a `PolicyLearner` instance
 #'
 #' Rebuild a `PolicyLearner`

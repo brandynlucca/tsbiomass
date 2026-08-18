@@ -164,8 +164,9 @@ Referee <- S7::new_class(
           return("`selector` must be a `PolicySelector` object.")
         }
         if (!is.null(self@learner) &&
-          !is_s7_instance(self@learner, "PolicyLearner")) {
-          return("`learner` must be NULL or a `PolicyLearner` object.")
+          !is_s7_instance(self@learner, "PolicyLearner") &&
+          !inherits(self@learner, "tsb_shared_policy_learner")) {
+          return("`learner` must be NULL, a `PolicyLearner` object, or a wrapped learner reference.")
         }
         if (!is.null(self@predictions) &&
           !is_s7_instance(self@predictions, "PolicyPredictions")) {
@@ -192,6 +193,44 @@ S7::S4_register(Referee)
 #' component objects.
 #'
 #' @param object A [Referee] object.
+#' Collapse a selector's distance learner onto its canonical shared reference
+#'
+#' `referee_rebuild()` is the point in the package where a `Referee` most
+#' commonly gets reconstructed from independently-sourced pieces - including,
+#' in principle, a `selector` whose `Alchemist` fit was reloaded from a cache
+#' file in a different session than whatever else is being combined with it
+#' here. `share_distance_learner()` already guarantees a single reference
+#' within one continuous session; this is the complementary step for
+#' artifacts built in separate sessions that share the same underlying fit
+#' (same fingerprint) being brought together. See
+#' `canonicalize_distance_learner()` for the (cheap, fingerprint-only)
+#' comparison this relies on.
+#'
+#' @param selector A [PolicySelector] object, or anything else (returned
+#'   unchanged).
+#'
+#' @return `selector`, with its stored distance learner swapped for the
+#'   canonical shared reference if one was already registered this session.
+#' @keywords internal
+#' @noRd
+canonicalize_referee_distance_learner <- function(selector) {
+  if (!is_s7_instance(selector, "PolicySelector")) {
+    return(selector)
+  }
+  gower <- selector@candidates@gower_distances
+  if (!is.list(gower) || !"distance_learner" %in% names(gower)) {
+    return(selector)
+  }
+  learner_now <- gower$distance_learner
+  canonical <- canonicalize_distance_learner(learner_now)
+  if (identical(canonical, learner_now)) {
+    return(selector)
+  }
+  gower$distance_learner <- canonical
+  selector@candidates@gower_distances <- gower
+  selector
+}
+
 #' @param selector Optional replacement [PolicySelector].
 #' @param learner Optional replacement [PolicyLearner].
 #' @param predictions Optional replacement [PolicyPredictions].
@@ -208,8 +247,14 @@ referee_rebuild <- function(object,
                             config = NULL,
                             scorecard = NULL) {
   selector <- selector %||% object@selector
-  learner <- learner %||% object@learner
+  selector <- canonicalize_referee_distance_learner(selector)
   predictions <- predictions %||% object@predictions
+  learner_now <- resolve_policy_learner(learner %||% object@learner)
+  if (!is.null(predictions) && is_s7_instance(learner_now, "PolicyLearner")) {
+    # Re-slim so re-attaching the full learner here can't re-inflate it.
+    learner_now <- slim_referee_learner(learner_now, keep_prediction_state = FALSE)
+  }
+  learner <- share_policy_learner(learner_now)
   config <- config %||% object@config
   scorecard <- scorecard %||% object@scorecard
   Referee(
@@ -329,6 +374,7 @@ as_referee <- function(selector,
     !is_s7_instance(predictions, "PolicyPredictions")) {
     stop("'predictions' must be NULL or a `PolicyPredictions` object.", call. = FALSE)
   }
+  selector <- canonicalize_referee_distance_learner(selector)
   if (!is.null(predictions)) {
     # Once predictions exist, trim the retained selector and learner state so
     # the Referee does not duplicate the full upstream workflow payload.
@@ -340,7 +386,7 @@ as_referee <- function(selector,
 
   Referee(
     selector = selector,
-    learner = learner,
+    learner = share_policy_learner(learner),
     predictions = predictions,
     config = policy_selector_config_data(config),
     scorecard = empty_scorecard()
@@ -942,14 +988,15 @@ build_recommendation_cards <- function(selected_tbl,
 #' @noRd
 build_surrogate_rules <- function(object,
                                   selection_diagnostics = tibble::tibble()) {
+  learner_now <- resolve_policy_learner(object@learner)
   # Refuse surrogate modeling unless the learner exists and the tree backend is available.
-  if (!is_s7_instance(object@learner, "PolicyLearner") ||
+  if (!is_s7_instance(learner_now, "PolicyLearner") ||
     !requireNamespace("rpart", quietly = TRUE)) {
     return(tibble::tibble())
   }
 
   # Prefer learner calibration rows and fall back to explicit diagnostics when needed.
-  source_tbl <- tibble::as_tibble(object@learner@calibration$selected %||% tibble::tibble())
+  source_tbl <- tibble::as_tibble(learner_now@calibration$selected %||% tibble::tibble())
   if (nrow(source_tbl) == 0) {
     source_tbl <- tibble::as_tibble(selection_diagnostics)
   }
@@ -1133,11 +1180,12 @@ build_referee_scorecard <- function(object,
   ordination_scores <- ordination_context$model_scores
   ordination_species_lookup <- ordination_context$species_lookup
   policy_cfg <- selector@config$policy %||% selector@config
+  learner_now <- resolve_policy_learner(object@learner)
   learner_selected_calibration <- if (is_s7_instance(
-    object@learner,
+    learner_now,
     "PolicyLearner"
   )) {
-    tibble::as_tibble(object@learner@calibration$selected %||% tibble::tibble())
+    tibble::as_tibble(learner_now@calibration$selected %||% tibble::tibble())
   } else {
     tibble::tibble()
   }
@@ -1176,7 +1224,7 @@ build_referee_scorecard <- function(object,
     benchmark_selected_calibration <- derive_benchmark_selected_calibration(
       policy_perf = benchmark_policy_perf,
       config = policy_cfg,
-      learner = object@learner
+      learner = learner_now
     )
   }
   ts_calibration_source <- if (nrow(selected_tbl) > 0) {
@@ -1425,7 +1473,7 @@ build_referee_scorecard <- function(object,
     summarize_species_policy_performance((selector@benchmark)$species_block_perf %||% tibble::tibble()),
     allow_partial = allow_partial
   )
-  selection_source <- if (is_s7_instance(object@learner, "PolicyLearner")) {
+  selection_source <- if (is_s7_instance(resolve_policy_learner(object@learner), "PolicyLearner")) {
     "meta_policy_selection"
   } else {
     "deterministic_policy_selection"
@@ -1577,8 +1625,9 @@ build_referee_scorecard <- function(object,
 
   prediction_bundle <- predictions %||% object@predictions
   if (is.null(prediction_bundle)) {
-    prediction_bundle <- if (is_s7_instance(object@learner, "PolicyLearner")) {
-      stats::predict(object@selector, learner = object@learner, progress = progress)
+    learner_now <- resolve_policy_learner(object@learner)
+    prediction_bundle <- if (is_s7_instance(learner_now, "PolicyLearner")) {
+      stats::predict(object@selector, learner = learner_now, progress = progress)
     } else {
       stats::predict(object@selector, progress = progress)
     }

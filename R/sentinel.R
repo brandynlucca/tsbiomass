@@ -2408,13 +2408,20 @@ sentinel_invoke_workflow <- function(workflow_fn,
 #' Normalize one Sentinel workflow return object
 #'
 #' @param result Raw workflow return object.
+#' @param keep_artifacts Logical scalar. When `FALSE` (the default), the
+#'   `scorecard`/`workflow` artifact bundle is never built at all - not built
+#'   and discarded, just never built - since it embeds a complete `Referee`
+#'   (including that fold's own fitted distance-learner Super Learner) and
+#'   every fold pays for materializing it whether or not it's ever saved. Pass
+#'   `TRUE` only when the caller is actually going to keep the result (e.g. a
+#'   `case_study` fold with `save_case_artifacts` on).
 #'
 #' @return A normalized list with `metrics`, `selected`, `intervals`, and
 #'   `artifacts`.
 #'
 #' @keywords internal
 #' @noRd
-sentinel_normalize_result <- function(result) {
+sentinel_normalize_result <- function(result, keep_artifacts = FALSE) {
   # Accept either an explicit metric table or a standard selected/intervals
   # bundle that Sentinel can summarize automatically. Package-native workflow
   # functions may directly return a Referee or Scorecard.
@@ -2428,7 +2435,11 @@ sentinel_normalize_result <- function(result) {
     result <- list(
       selected = scorecard@selected,
       intervals = scorecard@intervals,
-      artifacts = list(scorecard = scorecard, workflow = workflow_artifact)
+      artifacts = if (isTRUE(keep_artifacts)) {
+        list(scorecard = scorecard, workflow = workflow_artifact)
+      } else {
+        NULL
+      }
     )
   }
   if (!is.list(result)) {
@@ -2698,9 +2709,9 @@ sentinel_run_one_fold <- function(object,
   }
   cache_hit <- FALSE
   if (nzchar(fold_cache_file) &&
-    file.exists(fold_cache_file) &&
+    tsb_cache_exists(fold_cache_file) &&
     !isTRUE(object@options$cache_refresh %||% FALSE)) {
-    cached_inputs <- readRDS(fold_cache_file)
+    cached_inputs <- tsb_cache_read(fold_cache_file)
     fold_candidates <- cached_inputs$candidates
     fold_configurer <- cached_inputs$configurer
     cache_hit <- TRUE
@@ -2715,7 +2726,7 @@ sentinel_run_one_fold <- function(object,
       object = object
     )
     if (nzchar(fold_cache_file)) {
-      saveRDS(
+      tsb_cache_write(
         list(
           candidates = fold_candidates,
           configurer = fold_configurer
@@ -2733,8 +2744,12 @@ sentinel_run_one_fold <- function(object,
     workflow_config_s7 = fold_configurer
   )
   add_timing("workflow", stage_start)
+  # Decide before normalizing whether this fold's artifact bundle is kept.
+  keep_case_artifacts <- isTRUE(object@options$save_case_artifacts) &&
+    isTRUE(manifest_row$case_study[[1]])
+
   stage_start <- proc.time()
-  result <- sentinel_normalize_result(result)
+  result <- sentinel_normalize_result(result, keep_artifacts = keep_case_artifacts)
   add_timing("normalize_result", stage_start)
 
   # Attach fold metadata to the normalized metric table before writing it.
@@ -2764,8 +2779,7 @@ sentinel_run_one_fold <- function(object,
 
   # Persist one canonical case-study bundle so downstream inspection can rely
   # on stable field names even when the workflow also supplies custom artifacts.
-  save_artifacts <- isTRUE(object@options$save_case_artifacts) &&
-    isTRUE(manifest_row$case_study[[1]]) &&
+  save_artifacts <- keep_case_artifacts &&
     (!is.null(result$artifacts) || !is.null(result$selected) || !is.null(result$intervals))
   if (save_artifacts) {
     stage_start <- proc.time()

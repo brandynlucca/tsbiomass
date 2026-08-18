@@ -1033,8 +1033,8 @@ run_nested_policy_validation <- function(candidate_models,
   if (!is.list(config_)) {
     stop("'config' must be a list.", call. = FALSE)
   }
-  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
-    return(readRDS(cache_path))
+  if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
+    return(tsb_cache_read(cache_path))
   }
   if (!is.numeric(workers) || length(workers) != 1 || !is.finite(workers) || workers < 1) {
     stop("'workers' must be one finite number >= 1.", call. = FALSE)
@@ -1144,8 +1144,7 @@ run_nested_policy_validation <- function(candidate_models,
   )
 
   if (!is.null(cache_path)) {
-    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(result, cache_path)
+    tsb_cache_write(result, cache_path)
   }
 
   result
@@ -6678,8 +6677,8 @@ run_anchor_conformal <- function(policy_perf,
 
   # Reuse the cached conformal object when available unless a refresh was
   # explicitly requested.
-  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
-    return(readRDS(cache_path))
+  if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
+    return(tsb_cache_read(cache_path))
   }
 
   conf_cal <- compute_conformal_scores(
@@ -6725,8 +6724,7 @@ run_anchor_conformal <- function(policy_perf,
   # Cache the in-memory conformal summaries only when a cache path was
   # supplied.
   if (!is.null(cache_path)) {
-    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(result, cache_path)
+    tsb_cache_write(result, cache_path)
   }
 
   result

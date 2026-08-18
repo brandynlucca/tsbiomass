@@ -58,8 +58,9 @@ Conjurer <- S7::new_class(
           return("`selector` must be a `PolicySelector` object.")
         }
         if (!is.null(self@learner) &&
-          !is_s7_instance(self@learner, "PolicyLearner")) {
-          return("`learner` must be NULL or a `PolicyLearner` object.")
+          !is_s7_instance(self@learner, "PolicyLearner") &&
+          !inherits(self@learner, "tsb_shared_policy_learner")) {
+          return("`learner` must be NULL, a `PolicyLearner` object, or a wrapped learner reference.")
         }
         if (!is.list(self@config)) {
           return("`config` must be a list.")
@@ -112,7 +113,7 @@ conjurer_rebuild <- function(object,
                              summary = object@summary) {
   Conjurer(
     selector = selector,
-    learner = learner,
+    learner = share_policy_learner(learner),
     config = config,
     results = results,
     manifest = tibble::as_tibble(manifest),
@@ -149,7 +150,7 @@ as_conjurer <- function(selector,
 
   Conjurer(
     selector = selector,
-    learner = learner,
+    learner = share_policy_learner(learner),
     config = policy_selector_config_data(config),
     results = list(),
     manifest = tibble::tibble(),
@@ -668,7 +669,7 @@ conjurer_trait_draw_results <- function(object,
     # Disable only the missingness gate for the uncertainty-propagation draw.
     draw_predictions <- predict_s7(
       draw_selector,
-      learner = object@learner,
+      learner = resolve_policy_learner(object@learner),
       config = conjurer_draw_config(
         cfg = merge_config_sections(
           object@selector@config,
@@ -937,7 +938,7 @@ conjurer_summarize_draws <- function(selected_draws,
 
   # Build the operational baseline prediction once for later switch-rate totals.
   report_progress(progress, "Conjurer: building baseline predictions.")
-  baseline_predictions <- predict_s7(object@selector, learner = object@learner)
+  baseline_predictions <- predict_s7(object@selector, learner = resolve_policy_learner(object@learner))
 
   trait_results <- list()
   manifest_rows <- list()

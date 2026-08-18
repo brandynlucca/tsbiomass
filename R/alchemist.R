@@ -207,7 +207,8 @@ Alchemist <- S7::new_class(
   properties = list(
     candidates = S7::new_property(S7::class_any),
     config = S7::new_property(S7::class_list),
-    learner = S7::new_property(S7::class_list),
+    # class_any: list() pre-fit, or a tsb_shared_distance_learner env after.
+    learner = S7::new_property(S7::class_any),
     distance_matrix = S7::new_property(S7::class_list),
     trait_importance = S7::new_property(S7::class_list),
     ordination = S7::new_property(S7::class_list),
@@ -222,8 +223,8 @@ Alchemist <- S7::new_class(
         if (!is.list(self@config)) {
           return("`config` must be a list.")
         }
-        if (!is.list(self@learner)) {
-          return("`learner` must be a list.")
+        if (!is.list(self@learner) && !inherits(self@learner, "tsb_shared_distance_learner")) {
+          return("`learner` must be a list or a wrapped distance-learner reference.")
         }
         if (!is.list(self@distance_matrix)) {
           return("`distance_matrix` must be a list.")
@@ -1187,7 +1188,7 @@ alchemist_query_pair_features <- function(candidate_models,
     feature_normalization = distance_state$feature_normalization,
     progress = FALSE
   )
-  learner <- distance_state$distance_learner
+  learner <- resolve_distance_learner(distance_state$distance_learner)
   feature_cols <- as.character(learner$feature_cols)
   if (length(feature_cols) == 0L) {
     stop("The stored Alchemist learner has no feature columns.", call. = FALSE)
@@ -1240,7 +1241,7 @@ augment_alchemist_query_distances <- function(candidate_models,
   if (!identical(distance_state$distance_mode %||% "", "alchemist_super_learner")) {
     stop("Alchemist query-distance augmentation requires an Alchemist distance bundle.", call. = FALSE)
   }
-  learner <- distance_state$distance_learner
+  learner <- resolve_distance_learner(distance_state$distance_learner)
   if (is.null(learner)) {
     stop("Alchemist query-distance prediction requires the fitted distance learner.", call. = FALSE)
   }
@@ -3073,6 +3074,102 @@ fit_mahalanobis <- function(training_data, feature_cols,
   )
 }
 
+# - shared distance-learner reference helpers -
+
+#' Wrap a fitted Alchemist distance learner in a reference-semantic container
+#'
+#' The fitted Super Learner ensemble is large (can exceed 1 GB). It gets
+#' threaded into `Candidates@gower_distances$distance_learner` at multiple
+#' pipeline stages (`screen_admissibility()`, `as_policyselector()`), and each
+#' of those `Candidates`/`PolicySelector`/`Referee` objects is reconstructed
+#' via S7 constructors as the workflow progresses. Ordinary R copy-on-write
+#' keeps repeated list/S7-slot assignments as one shared object only as long
+#' as nothing in between forces a copy - a single cache round-trip
+#' (`saveRDS()`/`readRDS()`) anywhere in the chain silently turns "the same
+#' learner passed along" into a second physical copy. Wrapping it in an
+#' environment at the point it's fit, instead, makes every copy built from
+#' that point forward - within one live process, however many S7
+#' reconstructions or cache hits happen along the way - resolve back to one
+#' stored value, because environments have true reference semantics that R's
+#' serialization format preserves explicitly.
+#'
+#' @param learner Fitted Alchemist distance-learner object, or `NULL`.
+#' @param fingerprint Optional stable identity string for this fit (e.g. the
+#'   `forge_distances()` cache path). Used by [canonicalize_distance_learner()]
+#'   to collapse independently-reloaded copies of the *same* fit - from
+#'   separate sessions - back onto one shared reference when artifacts get
+#'   combined later. `NULL` is fine; it just means that collapsing can't
+#'   happen for this particular value.
+#'
+#' @return An environment wrapping `learner`, or `NULL` if `learner` is `NULL`.
+#' @keywords internal
+#' @noRd
+share_distance_learner <- function(learner, fingerprint = NULL) {
+  if (is.null(learner)) {
+    return(NULL)
+  }
+  if (inherits(learner, "tsb_shared_distance_learner")) {
+    return(learner)
+  }
+  env <- new.env(parent = emptyenv())
+  env$learner <- learner
+  env$fingerprint <- fingerprint
+  class(env) <- "tsb_shared_distance_learner"
+  env
+}
+
+#' Unwrap a fitted Alchemist distance learner
+#'
+#' Accepts either the environment-wrapped form produced by
+#' `share_distance_learner()` or a raw (unwrapped) learner object, so callers
+#' that construct a `gower_distances`/`distance_state` list by hand (tests,
+#' pre-fix cached objects) keep working unchanged.
+#'
+#' @param x Wrapped or raw distance-learner value, or `NULL`.
+#'
+#' @return The raw learner object, or `NULL`.
+#' @keywords internal
+#' @noRd
+resolve_distance_learner <- function(x) {
+  if (inherits(x, "tsb_shared_distance_learner")) {
+    return(x$learner)
+  }
+  x
+}
+
+# Session-scoped registry for canonicalize_distance_learner() below.
+.tsb_distance_learner_registry <- new.env(parent = emptyenv())
+
+#' Collapse a distance learner onto its canonical shared reference, if known
+#'
+#' Within one continuous session, `share_distance_learner()` at the fit point
+#' already guarantees a single reference. This function additionally handles
+#' the case where the *same* underlying fit was independently reloaded from
+#' disk in separate sessions (each `readRDS()`/`qs2::qs_read()` necessarily
+#' creates its own new environment) and those separately-built artifacts are
+#' now being combined in one later session. It only ever compares a short
+#' fingerprint string - never the fitted learner's contents - so this is cheap
+#' enough to call defensively on every reconstruction.
+#'
+#' @param x Wrapped or raw distance-learner value, or `NULL`.
+#'
+#' @return `x`, or the canonical wrapper already registered for the same
+#'   fingerprint if one exists.
+#' @keywords internal
+#' @noRd
+canonicalize_distance_learner <- function(x) {
+  if (!inherits(x, "tsb_shared_distance_learner") || is.null(x$fingerprint)) {
+    return(x)
+  }
+  key <- x$fingerprint
+  existing <- .tsb_distance_learner_registry[[key]]
+  if (is.null(existing)) {
+    .tsb_distance_learner_registry[[key]] <- x
+    return(x)
+  }
+  existing
+}
+
 # - forge_distances -
 
 #' Learn the distance matrix for an `Alchemist`
@@ -3144,9 +3241,9 @@ S7::method(forge_distances, Alchemist) <- function(object,
     stage = "forge_distances",
     suffix = feature_type
   )
-  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
+  if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
     report_progress(progress, "[Alchemist] Loading cached forged distances: ", cache_path)
-    cached <- readRDS(cache_path)
+    cached <- tsb_cache_read(cache_path)
     if (.is_alchemist(cached)) {
       return(cached)
     }
@@ -3346,9 +3443,10 @@ S7::method(forge_distances, Alchemist) <- function(object,
     ordination = list(),
     admissibility = list()
   )
-  out <- alchemist_rebuild(object, learner = sl_fit)
+  # Wrap once, here, at the fit point (see share_distance_learner()).
+  out <- alchemist_rebuild(object, learner = share_distance_learner(sl_fit, fingerprint = cache_path))
   if (!is.null(cache_path)) {
-    saveRDS(out, cache_path)
+    tsb_cache_write(out, cache_path)
     report_progress(progress, "[Alchemist] Saved forged distances cache: ", cache_path)
   }
   out
@@ -3627,7 +3725,7 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
   progress <- progress %||% object@config$progress %||% FALSE
   workers <- as.integer(workers %||% object@config$distill_workers %||% 1L)
 
-  sl_fit <- object@learner
+  sl_fit <- resolve_distance_learner(object@learner)
   pair_data <- object@distance_matrix$pair_data
   feature_cols <- object@distance_matrix$feature_cols
   anchor_idx <- pair_data$.anchor_idx
@@ -4017,7 +4115,8 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
                                             cache_path = NULL,
                                             refresh = NULL,
                                             progress = NULL,
-                                            registry_path = NULL) {
+                                            registry_path = NULL,
+                                            keep_training_data = FALSE) {
   if (length(alchemist@distance_matrix) == 0L) {
     stop("Run `forge_distances()` before `screen_admissibility()`.", call. = FALSE)
   }
@@ -4034,8 +4133,8 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
     learned_kernel_bandwidth = dm$learned_kernel_bandwidth %||% NULL,
     distance_mode = "alchemist_super_learner",
     trait_cols = dm$trait_cols %||% dm$all_traits %||% character(0),
-    distance_learner = alchemist@learner,
-    feature_cols = dm$feature_cols %||% alchemist@learner$feature_cols %||% character(0),
+    distance_learner = canonicalize_distance_learner(alchemist@learner),
+    feature_cols = dm$feature_cols %||% resolve_distance_learner(alchemist@learner)$feature_cols %||% character(0),
     species_trait_names = dm$species_trait_names %||% character(0),
     study_trait_names = dm$study_trait_names %||% character(0),
     feature_type = dm$feature_type %||% NULL,
@@ -4064,7 +4163,15 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
     result
   }
 
-  alchemist_rebuild(alchemist, admissibility = admissibility_result)
+  # pair_data/trait_mats are training-only inputs to forge_distances(); once
+  # admissibility screening has run, only distill_traits() still needs them.
+  distance_matrix_out <- dm
+  if (!isTRUE(keep_training_data)) {
+    distance_matrix_out$pair_data <- NULL
+    distance_matrix_out$trait_mats <- NULL
+  }
+
+  alchemist_rebuild(alchemist, admissibility = admissibility_result, distance_matrix = distance_matrix_out)
 }
 
 # - print / show -
@@ -6554,6 +6661,10 @@ screen_one_anchor_admissibility <- function(anchor_row,
 #' @param refresh Logical scalar. If `TRUE`, ignore any existing cache.
 #' @param progress Logical scalar controlling stage messages.
 #' @param registry_path Optional path to the trait-registry JSON.
+#' @param keep_training_data Logical scalar. When `candidate_models` is an
+#'   [Alchemist], the returned object drops `pair_data`/`trait_mats` (the
+#'   distance-learner training-only inputs) by default; pass `TRUE` to keep
+#'   them, e.g. to still call [distill_traits()] afterward.
 #'
 #' @return When `candidate_models` is a [Candidates] object, returns that
 #'   object containing the admissibility-screen result.
@@ -6579,7 +6690,8 @@ screen_admissibility <- function(reference_anchors = NULL,
                                  cache_path = NULL,
                                  refresh = NULL,
                                  progress = NULL,
-                                 registry_path = NULL) {
+                                 registry_path = NULL,
+                                 keep_training_data = FALSE) {
   reference_anchors_ <- reference_anchors
   candidate_models_ <- if (missing(candidate_models)) NULL else candidate_models
   config_ <- config
@@ -6594,7 +6706,8 @@ screen_admissibility <- function(reference_anchors = NULL,
         cache_path = cache_path_,
         refresh = refresh_,
         progress = progress_,
-        registry_path = registry_path
+        registry_path = registry_path,
+        keep_training_data = keep_training_data
       ))
     }
     if (is_s7_instance(reference_anchors_, "Candidates")) {
@@ -6615,7 +6728,8 @@ screen_admissibility <- function(reference_anchors = NULL,
       cache_path = cache_path_,
       refresh = refresh_,
       progress = progress_,
-      registry_path = registry_path
+      registry_path = registry_path,
+      keep_training_data = keep_training_data
     ))
   }
 
@@ -6651,9 +6765,9 @@ screen_admissibility <- function(reference_anchors = NULL,
     stop("'candidate_models' must be a data frame or tibble.", call. = FALSE)
   }
 
-  if (!is.null(cache_path_) && file.exists(cache_path_) && !refresh_) {
+  if (!is.null(cache_path_) && tsb_cache_exists(cache_path_) && !refresh_) {
     report_progress(progress_, "Loading cached anchor admissibility from ", cache_path_, ".")
-    cached_result <- readRDS(cache_path_)
+    cached_result <- tsb_cache_read(cache_path_)
     if (!admissibility_bundle_is_current(cached_result, config_)) {
       report_progress(
         progress_,
@@ -6900,8 +7014,7 @@ screen_admissibility <- function(reference_anchors = NULL,
   # Cache the full in-memory result so diagnostics can be reused without
   # re-running the full anchor-by-anchor screen.
   if (!is.null(cache_path)) {
-    dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(result, cache_path)
+    tsb_cache_write(result, cache_path)
   }
 
   if (!is.null(candidates_obj)) {
