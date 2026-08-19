@@ -13,7 +13,8 @@ screen_admissibility(
   cache_path = NULL,
   refresh = NULL,
   progress = NULL,
-  registry_path = NULL
+  registry_path = NULL,
+  keep_training_data = FALSE
 )
 ```
 
@@ -52,6 +53,16 @@ screen_admissibility(
 - registry_path:
 
   Optional path to the trait-registry JSON.
+
+- keep_training_data:
+
+  Logical scalar. When `candidate_models` is an
+  [Alchemist](https://brandynlucca.github.io/tsbiomass/reference/Alchemist-class.md),
+  the returned object drops `pair_data`/`trait_mats` (the
+  distance-learner training-only inputs) by default; pass `TRUE` to keep
+  them, e.g. to still call
+  [`distill_traits()`](https://brandynlucca.github.io/tsbiomass/reference/distill_traits.md)
+  afterward.
 
 ## Value
 

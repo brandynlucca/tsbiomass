@@ -67,7 +67,8 @@ the bound score, overlap, gate, and anchor-summary tables.</p>
 <span>  cache_path <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  refresh <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  progress <span class="op">=</span> <span class="cn">NULL</span>,</span>
-<span>  registry_path <span class="op">=</span> <span class="cn">NULL</span></span>
+<span>  registry_path <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  keep_training_data <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -103,6 +104,13 @@ object, this may be left <code>NULL</code> to use its reference anchors.</p></dd
 
 <dt id="arg-registry-path">registry_path<a class="anchor" aria-label="anchor" href="#arg-registry-path"></a></dt>
 <dd><p>Optional path to the trait-registry JSON.</p></dd>
+
+
+<dt id="arg-keep-training-data">keep_training_data<a class="anchor" aria-label="anchor" href="#arg-keep-training-data"></a></dt>
+<dd><p>Logical scalar. When <code>candidate_models</code> is an
+<a href="Alchemist-class.html">Alchemist</a>, the returned object drops <code>pair_data</code>/<code>trait_mats</code> (the
+distance-learner training-only inputs) by default; pass <code>TRUE</code> to keep
+them, e.g. to still call <code><a href="distill_traits.html">distill_traits()</a></code> afterward.</p></dd>
 
 </dl></div>
     <div class="section level2">
