@@ -11,7 +11,8 @@ screen_admissibility(
   cache_path = NULL,
   refresh = NULL,
   progress = NULL,
-  registry_path = NULL
+  registry_path = NULL,
+  keep_training_data = FALSE
 )
 }
 \arguments{
@@ -30,6 +31,11 @@ object, this may be left \code{NULL} to use its reference anchors.}
 \item{progress}{Logical scalar controlling stage messages.}
 
 \item{registry_path}{Optional path to the trait-registry JSON.}
+
+\item{keep_training_data}{Logical scalar. When \code{candidate_models} is an
+\link{Alchemist}, the returned object drops \code{pair_data}/\code{trait_mats} (the
+distance-learner training-only inputs) by default; pass \code{TRUE} to keep
+them, e.g. to still call \code{\link[=distill_traits]{distill_traits()}} afterward.}
 }
 \value{
 When \code{candidate_models} is a \link{Candidates} object, returns that
