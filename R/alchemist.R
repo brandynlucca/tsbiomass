@@ -3163,7 +3163,9 @@ canonicalize_distance_learner <- function(x) {
   }
   key <- x$fingerprint
   existing <- .tsb_distance_learner_registry[[key]]
-  if (is.null(existing)) {
+  # The fingerprint is a cache path, not a data hash
+  if (is.null(existing) ||
+    !identical(sort(existing$learner$feature_cols), sort(x$learner$feature_cols))) {
     .tsb_distance_learner_registry[[key]] <- x
     return(x)
   }
