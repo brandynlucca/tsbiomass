@@ -1907,8 +1907,8 @@ S7::method(print_generic, Referee) <- function(x, ...) {
   cat("Referee\n")
   cat("  anchors: ", nrow(x@selector@candidates@reference_anchors), "\n", sep = "")
   cat("  prediction_ready: ", if (is.null(x@predictions)) "no" else "yes", "\n", sep = "")
-  cat("  scorecard_ready: ", if (nrow(x@scorecard@status) == 0 && nrow(x@scorecard) == 0) "no" else "yes", "\n", sep = "")
-  cat("  selected_rows: ", nrow(x@scorecard), "\n", sep = "")
+  cat("  scorecard_ready: ", if (nrow(x@scorecard@status) == 0 && nrow(x@scorecard@selected) == 0) "no" else "yes", "\n", sep = "")
+  cat("  selected_rows: ", nrow(x@scorecard@selected), "\n", sep = "")
   cat("  status_rows: ", nrow(x@scorecard@status), "\n", sep = "")
   invisible(x)
 }
