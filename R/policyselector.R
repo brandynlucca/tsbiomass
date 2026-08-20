@@ -1640,25 +1640,28 @@ S7::method(select_policies, PolicySelector) <- function(object,
       policy_path = policy_path
     ) |>
       normalize_policy_columns()
-    # `if_else()` evaluates both branches. Preserve external-anchor validation
-    # for compact/mock policy tables that legitimately omit coefficients.
-    if (!"policy_slope_len" %in% names(policy_tbl)) {
-      policy_tbl$policy_slope_len <- NA_real_
-    }
-    if (!"policy_intercept_len" %in% names(policy_tbl)) {
-      policy_tbl$policy_intercept_len <- NA_real_
-    }
+    # Keep compact/mock policy tables usable: `dplyr::if_else()` evaluates
+    # both branches, so a missing coefficient column cannot appear inside it.
+    # Record the original schema; the following base `if` avoids touching
+    # absent columns without adding artificial placeholder columns.
+    has_policy_coefficients <- all(c(
+      "policy_slope_len", "policy_intercept_len"
+    ) %in% names(policy_tbl))
     policy_tbl <- policy_tbl |>
       dplyr::mutate(
         anchor_model_id = anchor_id,
         anchor_species = anchor_species,
         anchor_is_external = anchor_is_external,
         # External anchors have no anchor_sigma, so a finite coefficient counts as valid instead.
-        valid_prediction = dplyr::if_else(
-          dplyr::coalesce(anchor_is_external, FALSE),
-          is.finite(.data$policy_slope_len) & is.finite(.data$policy_intercept_len),
+        valid_prediction = if (has_policy_coefficients) {
+          dplyr::if_else(
+            dplyr::coalesce(anchor_is_external, FALSE),
+            is.finite(.data$policy_slope_len) & is.finite(.data$policy_intercept_len),
+            is.finite(.data$multiplier_pred) & .data$multiplier_pred > 0
+          )
+        } else {
           is.finite(.data$multiplier_pred) & .data$multiplier_pred > 0
-        )
+        }
       )
     for (random_intercept in anchor_random_intercepts) {
       policy_tbl[[random_intercept]] <- rep(

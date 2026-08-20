@@ -1404,7 +1404,11 @@ build_alchemist_oof_splits <- function(training_data,
     return(lapply(sort(unique(foldid)), function(fold_now) {
       list(
         fold_id = as.integer(fold_now),
-        holdout_groups = unique(as.character(training_data$.split_group[foldid == fold_now])),
+        holdout_groups = if (".split_group" %in% names(training_data)) {
+          unique(as.character(training_data$.split_group[foldid == fold_now]))
+        } else {
+          character(0)
+        },
         train_idx = which(foldid != fold_now),
         valid_idx = which(foldid == fold_now)
       )
