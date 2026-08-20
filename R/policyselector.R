@@ -219,7 +219,8 @@ policy_selector_anchor_fingerprint <- function(anchor_ids) {
 #' @noRd
 policy_selector_prediction_cache_path <- function(cache_path,
                                                   learner = NULL,
-                                                  anchor_ids = NULL) {
+                                                  anchor_ids = NULL,
+                                                  admissibility_tag = NULL) {
   if (is.null(cache_path)) {
     return(NULL)
   }
@@ -235,6 +236,10 @@ policy_selector_prediction_cache_path <- function(cache_path,
   if (nzchar(anchor_tag)) {
     variant <- paste0(variant, "_", anchor_tag)
   }
+  if (!is.null(admissibility_tag) && length(admissibility_tag) == 1L &&
+    !is.na(admissibility_tag) && nzchar(admissibility_tag)) {
+    variant <- paste0(variant, "_adm_", admissibility_tag)
+  }
   ext <- tools::file_ext(cache_path)
   stem <- if (nzchar(ext)) {
     sub(paste0("\\.", ext, "$"), "", basename(cache_path))
@@ -245,6 +250,140 @@ policy_selector_prediction_cache_path <- function(cache_path,
     dirname(cache_path),
     paste0(stem, "_", variant, if (nzchar(ext)) paste0(".", ext) else "")
   )
+}
+
+#' Normalize prediction-time admissibility overrides
+#'
+#' Extracts only donor-screening settings from either a compact anchor-config
+#' list or an `admissibility` configuration fragment. Distance fitting and
+#' policy-learning settings are intentionally not accepted here.
+#'
+#' @param override List of query-specific admissibility settings.
+#'
+#' @return A compact anchor-config override list.
+#'
+#' @keywords internal
+#' @noRd
+policy_selector_normalize_admissibility_override <- function(override) {
+  if (is.null(override) || length(override) == 0L) return(list())
+  if (!is.list(override)) {
+    stop("'admissibility_override' must be NULL, a profile name, or a list.", call. = FALSE)
+  }
+
+  adm <- override$admissibility %||% list()
+  coherence <- override$coherence %||% adm$coherence %||% list()
+  first_present <- function(...) {
+    for (value in list(...)) if (!is.null(value)) return(value)
+    NULL
+  }
+  exact_frequency <- first_present(override$exact_frequency, adm$exact_frequency)
+  frequency_mode <- first_present(
+    override$frequency_coherence_mode, override$frequency_mode,
+    adm$frequency_mode, (coherence$frequency %||% list())$mode
+  )
+  if (isTRUE(exact_frequency) && is.null(frequency_mode)) {
+    frequency_mode <- "literal"
+  }
+  out <- list(
+    min_length_overlap_fraction = first_present(
+      override$min_length_overlap_fraction, override$length_overlap_min,
+      adm$length_overlap_min, (coherence$length %||% list())$min
+    ),
+    min_depth_overlap_fraction = first_present(
+      override$min_depth_overlap_fraction, override$depth_overlap_min,
+      adm$depth_overlap_min, (coherence$depth %||% list())$min
+    ),
+    missing_key_metadata_max_fraction = first_present(
+      override$missing_key_metadata_max_fraction, override$key_metadata_max,
+      adm$key_metadata_max
+    ),
+    frequency_coherence_mode = frequency_mode,
+    frequency_gap = first_present(
+      override$frequency_gap, adm$frequency_gap,
+      (coherence$frequency %||% list())$gap
+    ),
+    exact_frequency = exact_frequency,
+    admissibility_species_traits = first_present(
+      override$admissibility_species_traits, adm$species_traits
+    ),
+    admissibility_study_traits = first_present(
+      override$admissibility_study_traits, adm$study_traits
+    )
+  )
+  out[!vapply(out, is.null, logical(1))]
+}
+
+#' Resolve one external-query admissibility override
+#'
+#' @param cfg Merged prediction configuration.
+#' @param anchor_row One-row reference-anchor table.
+#' @param override Optional inline override or profile name.
+#'
+#' @return List containing the profile label and compact override values.
+#'
+#' @keywords internal
+#' @noRd
+policy_selector_resolve_admissibility_override <- function(cfg,
+                                                           anchor_row,
+                                                           override = NULL) {
+  profile_registry <- ((cfg$prediction %||% list())$admissibility_profiles %||% list())
+  requested <- override
+  if (is.null(requested) && "admissibility_profile" %in% names(anchor_row)) {
+    requested <- as.character(anchor_row$admissibility_profile[[1]] %||% NA_character_)
+    if (is.na(requested) || !nzchar(requested)) requested <- NULL
+  }
+
+  profile_name <- NA_character_
+  profile_values <- list()
+  inline_values <- list()
+  if (is.character(requested)) {
+    if (length(requested) != 1L || is.na(requested) || !nzchar(requested)) {
+      stop("An admissibility profile name must be one non-empty string.", call. = FALSE)
+    }
+    profile_name <- requested
+  } else if (is.list(requested)) {
+    profile_name <- requested$profile %||% requested$admissibility_profile %||% NA_character_
+    inline_values <- requested
+    inline_values$profile <- NULL
+    inline_values$admissibility_profile <- NULL
+    if (!is.character(profile_name) || length(profile_name) != 1L || is.na(profile_name) || !nzchar(profile_name)) {
+      profile_name <- NA_character_
+    }
+  } else if (!is.null(requested)) {
+    stop("'admissibility_override' must be NULL, a profile name, or a list.", call. = FALSE)
+  }
+
+  if (!is.na(profile_name)) {
+    if (!profile_name %in% names(profile_registry)) {
+      stop(sprintf("Unknown prediction admissibility profile '%s'.", profile_name), call. = FALSE)
+    }
+    profile_values <- profile_registry[[profile_name]]
+    if (!is.list(profile_values)) {
+      stop(sprintf("Prediction admissibility profile '%s' must be a list.", profile_name), call. = FALSE)
+    }
+  }
+
+  values <- merge_config_sections(
+    policy_selector_normalize_admissibility_override(profile_values),
+    policy_selector_normalize_admissibility_override(inline_values)
+  )
+  list(profile = profile_name, values = values, applied = length(values) > 0L)
+}
+
+#' Build a deterministic tag for prediction-time donor screens
+#'
+#' @param overrides Resolved per-anchor admissibility overrides.
+#'
+#' @return Character scalar or an empty string.
+#'
+#' @keywords internal
+#' @noRd
+policy_selector_admissibility_fingerprint <- function(overrides) {
+  if (length(overrides) == 0L || !any(vapply(overrides, function(x) isTRUE(x$applied), logical(1)))) {
+    return("")
+  }
+  bytes <- as.integer(serialize(overrides, connection = NULL, version = 2L))
+  sprintf("%08x", sum(bytes * seq_along(bytes)) %% .Machine$integer.max)
 }
 
 #' Rebuild a `PolicySelector`
@@ -1010,6 +1149,12 @@ S7::method(select_policies, PolicySelector) <- function(object,
 #' @param reference_anchors Optional anchor table override.
 #' @param policies Optional character vector of policy names.
 #' @param config Optional config override.
+#' @param admissibility_override Optional query-time donor-screen override.
+#'   Supply either a profile name defined in
+#'   `prediction.admissibility_profiles`, or a list containing admissibility
+#'   settings such as `min_length_overlap_fraction`. The override is applied
+#'   only while screening the supplied anchors; it never refits stored
+#'   distance, policy, or uncertainty models.
 #' @param policy_params Optional policy-parameter overrides.
 #' @param policy_path Optional policy-registry path.
 #' @param registry_path Optional trait-registry path.
@@ -1035,6 +1180,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
                                      reference_anchors = NULL,
                                      policies = NULL,
                                      config = NULL,
+                                     admissibility_override = NULL,
                                      policy_params = list(),
                                      policy_path = NULL,
                                      registry_path = NULL,
@@ -1055,6 +1201,9 @@ S7::method(select_policies, PolicySelector) <- function(object,
   }
   if ("config" %in% names(dots)) {
     config <- dots[["config"]]
+  }
+  if ("admissibility_override" %in% names(dots)) {
+    admissibility_override <- dots[["admissibility_override"]]
   }
   if ("policy_params" %in% names(dots)) {
     policy_params <- dots[["policy_params"]]
@@ -1141,6 +1290,14 @@ S7::method(select_policies, PolicySelector) <- function(object,
   model_scores <- ordination_context$model_scores
   species_lookup <- ordination_context$species_lookup
   anchor_cfg <- policy_selector_anchor_config(object, config = cfg)
+  resolved_admissibility_overrides <- lapply(
+    seq_len(nrow(anchors_tbl)),
+    function(i) policy_selector_resolve_admissibility_override(
+      cfg = cfg,
+      anchor_row = anchors_tbl[i, , drop = FALSE],
+      override = admissibility_override
+    )
+  )
   conf_tbl <- tibble::as_tibble(uncertainty_obj$conf_cal %||% tibble::tibble())
   select_tbl <- tibble::as_tibble(selection_obj$final_ref %||% tibble::tibble())
   benchmark_policy_tbl <- tibble::as_tibble((object@benchmark)$policy_perf %||% tibble::tibble())
@@ -1227,11 +1384,12 @@ S7::method(select_policies, PolicySelector) <- function(object,
   prediction_cache_path <- policy_selector_prediction_cache_path(
     cache_path,
     learner = learner,
-    anchor_ids = requested_anchor_ids
+    anchor_ids = requested_anchor_ids,
+    admissibility_tag = policy_selector_admissibility_fingerprint(resolved_admissibility_overrides)
   )
-  if (!is.null(prediction_cache_path) && file.exists(prediction_cache_path) && !isTRUE(refresh)) {
+  if (!is.null(prediction_cache_path) && tsb_cache_exists(prediction_cache_path) && !isTRUE(refresh)) {
     report_progress(progress, "Loading cached policy predictions from ", prediction_cache_path, ".")
-    cached_predictions <- readRDS(prediction_cache_path)
+    cached_predictions <- tsb_cache_read(prediction_cache_path)
     if (!is_s7_instance(cached_predictions, "PolicyPredictions")) {
       stop(
         "Cached policy predictions are not a `PolicyPredictions` object; rerun with `refresh = TRUE`.",
@@ -1537,6 +1695,9 @@ S7::method(select_policies, PolicySelector) <- function(object,
   # summaries onto those anchor-policy predictions.
   for (i in seq_len(n_anchors)) {
     anchor_row <- anchors_tbl[i, , drop = FALSE]
+    admissibility_override_i <- resolved_admissibility_overrides[[i]]
+    anchor_cfg_i <- merge_config_sections(anchor_cfg, admissibility_override_i$values)
+    reuse_admissibility_i <- isTRUE(reuse_admissibility) && !admissibility_override_i$applied
     anchor_id <- if ("model_id" %in% names(anchor_row)) {
       as.character(anchor_row$model_id[[1]])
     } else {
@@ -1549,7 +1710,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
       "[Predict]   [", i, "/", n_anchors, "] ", anchor_species, " (", anchor_id, ")"
     )
 
-    cached_failure <- if (isTRUE(reuse_admissibility)) {
+    cached_failure <- if (reuse_admissibility_i) {
       policy_selector_cached_anchor_failure(object, anchor_row)
     } else {
       tibble::tibble()
@@ -1559,7 +1720,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
         as.character(cached_failure$failure_message[[1]]),
         class = "try-error"
       )
-    } else if (isTRUE(reuse_admissibility)) {
+    } else if (reuse_admissibility_i) {
       policy_selector_cached_anchor_evaluation(
         object = object,
         anchor_row = anchor_row,
@@ -1572,7 +1733,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
       eval_obj <- try(screen_one_anchor_admissibility(
         anchor_row = anchor_row,
         candidate_models = prediction_candidates,
-        config = cfg,
+        config = anchor_cfg_i,
         registry_path = registry_path,
         excluded_model_ids = prediction_excluded_model_ids,
         require_backscatter = FALSE
@@ -1608,11 +1769,17 @@ S7::method(select_policies, PolicySelector) <- function(object,
           "deterministic_global_screen"
         },
         prediction_error_message = as.character(eval_obj)[[1]]
-      )
+      ) |>
+        dplyr::mutate(
+          admissibility_profile = admissibility_override_i$profile,
+          admissibility_override_applied = admissibility_override_i$applied
+        )
       consensus_multiplier_rows[[length(consensus_multiplier_rows) + 1]] <- tibble::tibble(
         anchor_model_id = anchor_id,
         anchor_species = anchor_species,
-        anchor_is_external = anchor_is_external
+        anchor_is_external = anchor_is_external,
+        admissibility_profile = admissibility_override_i$profile,
+        admissibility_override_applied = admissibility_override_i$applied
       )
       report_progress(
         progress,
@@ -1640,6 +1807,8 @@ S7::method(select_policies, PolicySelector) <- function(object,
       policy_path = policy_path
     ) |>
       normalize_policy_columns()
+    policy_tbl$admissibility_profile <- admissibility_override_i$profile
+    policy_tbl$admissibility_override_applied <- admissibility_override_i$applied
     # Keep compact/mock policy tables usable: `dplyr::if_else()` evaluates
     # both branches, so a missing coefficient column cannot appear inside it.
     # Record the original schema; the following base `if` avoids touching
@@ -1725,8 +1894,13 @@ S7::method(select_policies, PolicySelector) <- function(object,
           "coefficient_stability_n.coefref"
         )))
     }
-    # Collapse exact donor-equivalent candidates before scoring or selection.
-    policy_tbl <- canonicalize_equivalent_policy_rows(policy_tbl)
+    # Do not collapse donor-equivalent policy rows before selection. Policy
+    # labels can carry distinct benchmark and branch-calibration records even
+    # when they happen to resolve to the same donor for this anchor. Replacing
+    # one label with a more-specific label before scoring changes its learned
+    # score and can remove a policy that is inside the anchor score band.
+    # Keep every configured policy/branch available to the score-band and
+    # burden rule; the selected row is the authoritative representation.
 
     # Keep the deterministic globally screened policy row
     if (is_s7_instance(learner, "PolicyLearner")) {
@@ -1836,12 +2010,16 @@ S7::method(select_policies, PolicySelector) <- function(object,
     } else {
       selected_row <- apply_selected_interval_columns(selected_row)
     }
+    selected_row$admissibility_profile <- rep(admissibility_override_i$profile, nrow(selected_row))
+    selected_row$admissibility_override_applied <- rep(admissibility_override_i$applied, nrow(selected_row))
 
     consensus_row <- summarize_evaluation(eval_obj) |>
       dplyr::mutate(
         anchor_model_id = anchor_id,
         anchor_species = anchor_species,
         anchor_is_external = anchor_is_external,
+        admissibility_profile = admissibility_override_i$profile,
+        admissibility_override_applied = admissibility_override_i$applied,
         .before = 1
       )
 
@@ -1865,7 +2043,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
   )
   if (!is.null(prediction_cache_path)) {
     dir.create(dirname(prediction_cache_path), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(predictions, prediction_cache_path)
+    tsb_cache_write(predictions, prediction_cache_path)
     report_progress(progress, "Saved policy predictions cache to ", prediction_cache_path, ".")
   }
   predictions
@@ -3304,11 +3482,21 @@ select_anchor_policies <- function(policy_tbl,
   if (!is.finite(min_validation_error)) {
     min_validation_error <- NA_real_
   }
-  score_threshold <- min_validation_error
+  score_slack <- suppressWarnings(as.numeric(score_tol_abs %||% NA_real_))
+  if (!is.finite(score_slack)) {
+    score_slack <- suppressWarnings(min(
+      policy_tbl_$one_se_threshold - policy_tbl_$best_mean_species_median_abs_log,
+      na.rm = TRUE
+    ))
+  }
+  if (!is.finite(score_slack)) {
+    score_slack <- 0
+  }
+  score_threshold <- min_validation_error + pmax(0, one_se_multiplier * score_slack)
   best_score_rows <- score_ranked |>
-    dplyr::filter(.data$anchor_selection_validation_error == min_validation_error)
+    dplyr::filter(.data$anchor_selection_validation_error <= score_threshold)
 
-  # Resolve exact target-score ties with the predeclared lexicographic burden.
+  # Resolve score-equivalent target policies with the predeclared burden.
   selected <- order_policy_assumption_burden(best_score_rows)
 
   selected |>
@@ -3316,7 +3504,7 @@ select_anchor_policies <- function(policy_tbl,
     dplyr::mutate(
       selected_policy = .data$policy,
       selected_policy_display = .data$policy,
-      selection_tier = paste0(tier, "_point_score"),
+      selection_tier = paste0(tier, "_score_band_burden"),
       anchor_selection_min_validation_error = min_validation_error,
       anchor_selection_validation_threshold = score_threshold,
       anchor_selection_min_uncertainty_width = NA_real_,
@@ -3329,6 +3517,19 @@ select_anchor_policies <- function(policy_tbl,
 #' @noRd
 order_policy_assumption_burden <- function(policy_tbl) {
   tbl <- tibble::as_tibble(policy_tbl)
+  for (field in c(
+    "local_weighted_q90_combined_distance",
+    "local_structural_q_abs_log",
+    "local_weighted_mean_combined_distance",
+    "local_effective_species_support",
+    "local_effective_support",
+    "anchor_selection_validation_error",
+    "bootstrap_median_rank"
+  )) {
+    if (!field %in% names(tbl)) {
+      tbl[[field]] <- NA_real_
+    }
+  }
   finite_or_inf <- function(x) {
     out <- suppressWarnings(as.numeric(x))
     out[!is.finite(out)] <- Inf

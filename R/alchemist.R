@@ -588,6 +588,21 @@ tax_dist_mat <- function(models_df, tax_col_map) {
     if (length(value) == 0L || is.na(value) || !nzchar(value)) NULL else value
   }
 
+  rank_cols <- unname(tax_col_map[tax_col_map %in% names(models_df)])
+  n_ranks <- length(rank_cols)
+  if (n_ranks == 0L) {
+    return(NULL)
+  }
+  deepest <- matrix(0L, nrow = n, ncol = n)
+  for (r in seq_len(n_ranks)) {
+    vals <- stringr::str_squish(as.character(models_df[[rank_cols[[r]]]]))
+    vals[!nzchar(vals)] <- NA_character_
+    agree <- outer(vals, vals, function(a, b) !is.na(a) & !is.na(b) & (a == b))
+    deepest[agree] <- r
+  }
+  rank_mat <- 1 - deepest / n_ranks
+  diag(rank_mat) <- 0
+
   # - Primary: Tree-of-Life phylogenetic distances -
   species_col <- tax_map_value("species") %||% tax_map_value("species_name")
   genus_col <- tax_map_value("genus")
@@ -604,29 +619,22 @@ tax_dist_mat <- function(models_df, tax_col_map) {
       error = function(e) NULL
     )
     if (!is.null(phylo_mat)) {
-      attr(phylo_mat, "taxonomic_distance_method") <- "open_tree_cophenetic"
-      return(phylo_mat)
+      resolved <- attr(phylo_mat, "phylo_resolved")
+      if (length(resolved) != n) resolved <- rep(FALSE, n)
+      resolved[is.na(resolved)] <- FALSE
+      # A rank fallback must replace the whole matrix, rather than only
+      # unresolved pairs. Mixing a normalized tree distance with a rank
+      # distance creates a non-comparable scale that can invert donor ranks.
+      if (all(resolved) && all(is.finite(phylo_mat))) {
+        attr(phylo_mat, "taxonomic_distance_method") <- "open_tree_cophenetic"
+        return(phylo_mat)
+      }
     }
   }
 
   # - Fallback: rank-based distance -
-  rank_cols <- unname(tax_col_map[tax_col_map %in% names(models_df)])
-  n_ranks <- length(rank_cols)
-  if (n_ranks == 0L) {
-    return(NULL)
-  }
-
-  deepest <- matrix(0L, nrow = n, ncol = n)
-  for (r in seq_len(n_ranks)) {
-    vals <- stringr::str_squish(as.character(models_df[[rank_cols[[r]]]]))
-    vals[!nzchar(vals)] <- NA_character_
-    agree <- outer(vals, vals, function(a, b) !is.na(a) & !is.na(b) & (a == b))
-    deepest[agree] <- r
-  }
-  mat <- 1 - deepest / n_ranks
-  diag(mat) <- 0
-  attr(mat, "taxonomic_distance_method") <- "rank_fallback"
-  mat
+  attr(rank_mat, "taxonomic_distance_method") <- "rank_fallback"
+  rank_mat
 }
 
 #' Compute pairwise coherence distance matrices
@@ -5405,14 +5413,16 @@ apply_anchor_gates <- function(candidate_models,
 
   out <- tibble::as_tibble(candidate_models)
   out$gate_not_self <- out[[id_col]] != anchor_id
+  gate_species_traits <- config$admissibility_species_traits %||% config$species_traits %||% character(0)
+  gate_study_traits <- config$admissibility_study_traits %||% config$study_traits %||% character(0)
   gate_specs <- data.frame(
     trait_name = c(
-      as.character(config$species_traits %||% character(0)),
-      as.character(config$study_traits %||% character(0))
+      as.character(gate_species_traits),
+      as.character(gate_study_traits)
     ),
     trait_scope = c(
-      rep("species", length(config$species_traits %||% character(0))),
-      rep("study", length(config$study_traits %||% character(0)))
+      rep("species", length(gate_species_traits)),
+      rep("study", length(gate_study_traits))
     ),
     stringsAsFactors = FALSE
   )

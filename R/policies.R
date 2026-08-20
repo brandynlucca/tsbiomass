@@ -5048,9 +5048,9 @@ run_policy_benchmark <- function(candidate_models,
   }
   # Reuse the cached benchmark object when available unless the caller asked
   # for a refresh.
-  if (!is.null(cache_path) && file.exists(cache_path) && !refresh) {
+  if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
     report_progress(progress, "Loading cached policy benchmark from ", cache_path, ".")
-    return(readRDS(cache_path))
+    return(tsb_cache_read(cache_path))
   }
 
   # Inline the benchmark defaults here so the benchmark layer does not carry a
@@ -5188,10 +5188,10 @@ run_policy_benchmark <- function(candidate_models,
       return(NULL)
     }
     cache_file_now <- .anchor_cache_file(anchor_id)
-    if (!file.exists(cache_file_now)) {
+    if (!tsb_cache_exists(cache_file_now)) {
       return(NULL)
     }
-    readRDS(cache_file_now)
+    tsb_cache_read(cache_file_now)
   }
 
   # Persist one anchor bundle atomically so interrupted runs do not leave
@@ -5203,11 +5203,14 @@ run_policy_benchmark <- function(candidate_models,
     }
     cache_file_now <- .anchor_cache_file(anchor_id)
     cache_tmp_now <- paste0(cache_file_now, ".tmp")
-    saveRDS(anchor_result, cache_tmp_now)
-    if (file.exists(cache_file_now)) {
-      file.remove(cache_file_now)
+    tsb_cache_write(anchor_result, cache_tmp_now)
+    cache_ext <- if (file.exists(paste0(cache_tmp_now, ".qs"))) ".qs" else ""
+    cache_tmp_file <- paste0(cache_tmp_now, cache_ext)
+    cache_final_file <- paste0(cache_file_now, cache_ext)
+    if (file.exists(cache_final_file)) {
+      file.remove(cache_final_file)
     }
-    file.rename(cache_tmp_now, cache_file_now)
+    file.rename(cache_tmp_file, cache_final_file)
     invisible(NULL)
   }
 
@@ -5985,7 +5988,7 @@ run_policy_benchmark <- function(candidate_models,
   # cache path.
   if (!is.null(cache_path)) {
     dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
-    saveRDS(result, cache_path)
+    tsb_cache_write(result, cache_path)
   }
 
   result

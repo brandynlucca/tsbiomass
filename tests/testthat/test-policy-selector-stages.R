@@ -101,6 +101,81 @@ test_that("policy selector anchor config retains the admissibility frequency gap
   expect_equal(anchor_cfg$frequency_gap, 60)
 })
 
+test_that("prediction-time admissibility profiles rescreen anchors without refitting", {
+  candidates <- set_reference_anchors(make_candidates(), selector = list(regional_body = "SWFSC"))
+  selector <- make_selector(
+    candidates = candidates,
+    benchmark = list(policy_perf = minimal_policy_performance()),
+    uncertainty = minimal_uncertainty(),
+    selection = list(final_ref = minimal_selection_ref()),
+    config = list(
+      prediction = list(
+        admissibility_profiles = list(
+          strict_overlap = list(
+            admissibility = list(
+              coherence = list(
+                length = list(min = 0.75),
+                depth = list(min = 0.50)
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+  seen_configs <- list()
+
+  testthat::local_mocked_bindings(
+    screen_one_anchor_admissibility = function(..., config) {
+      seen_configs[[length(seen_configs) + 1L]] <<- config
+      list()
+    },
+    evaluate_policies = function(...) {
+      tibble::tibble(
+        policy = c("closest_within_species", "weighted_mean_within_genus"),
+        multiplier_pred = c(1.10, 1.30)
+      )
+    },
+    summarize_evaluation = function(...) {
+      tibble::tibble(
+        consensus_multiplier = 1.20,
+        local_support_mass = 0.80,
+        local_effective_support = 3.00
+      )
+    },
+    .package = "tsbiomass"
+  )
+
+  predictions <- predict(
+    selector,
+    admissibility_override = "strict_overlap",
+    refresh = TRUE
+  )
+
+  expect_length(seen_configs, nrow(candidates@reference_anchors))
+  expect_true(all(vapply(seen_configs, function(x) identical(x$min_length_overlap_fraction, 0.75), logical(1))))
+  expect_true(all(vapply(seen_configs, function(x) identical(x$min_depth_overlap_fraction, 0.50), logical(1))))
+  expect_true(all(predictions@intervals$admissibility_profile == "strict_overlap"))
+  expect_true(all(predictions@selections$admissibility_override_applied))
+})
+
+test_that("anchor-provided admissibility profiles resolve independently", {
+  cfg <- list(
+    prediction = list(
+      admissibility_profiles = list(
+        strict = list(min_length_overlap_fraction = 0.80)
+      )
+    )
+  )
+  anchor <- tibble::tibble(admissibility_profile = "strict")
+
+  resolved <- tsbiomass:::policy_selector_resolve_admissibility_override(cfg, anchor)
+
+  expect_equal(resolved$profile, "strict")
+  expect_true(resolved$applied)
+  expect_equal(resolved$values$min_length_overlap_fraction, 0.80)
+})
+
 test_that("installed-style S3 bridges are registered for base predict and plot", {
   expect_true(is.function(utils::getS3method("predict", "tsbiomass::PolicySelector", optional = TRUE)))
   expect_true(is.function(utils::getS3method("predict", "tsbiomass::PolicyLearner", optional = TRUE)))
@@ -227,7 +302,7 @@ test_that("PolicySelector prediction bundles are cached and reused", {
     cache_base,
     anchor_ids = candidates@reference_anchors$model_id
   )
-  expect_true(file.exists(selector_cache))
+  expect_true(tsb_cache_exists(selector_cache))
 
   testthat::local_mocked_bindings(
     screen_one_anchor_admissibility = function(...) {
@@ -696,7 +771,7 @@ test_that("selection ranks predicted score before uncertainty within score band"
   expect_equal(selected$selected_policy[[1]], "better_score_wider")
 })
 
-test_that("selection does not use interval width or distance after the score screen", {
+test_that("selection resolves score-equivalent policies by assumption burden", {
   selected <- select_anchor_policies(tibble::tibble(
     policy = c("better_score_wider", "worse_score_narrower"),
     multiplier_pred = c(1.10, 1.12),
@@ -711,7 +786,8 @@ test_that("selection does not use interval width or distance after the score scr
     bootstrap_median_rank = c(2, 1)
   ), score_tol_abs = 0.10)
 
-  expect_equal(selected$selected_policy[[1]], "better_score_wider")
+  expect_equal(selected$selected_policy[[1]], "worse_score_narrower")
+  expect_match(selected$selection_tier[[1]], "score_band_burden")
   expect_true(is.na(selected$anchor_selection_min_uncertainty_width[[1]]))
 })
 
@@ -731,7 +807,7 @@ test_that("target selection does not treat across-policy score spread as a one-S
   ))
 
   expect_equal(selected$selected_policy[[1]], "point_best")
-  expect_match(selected$selection_tier[[1]], "point_score")
+  expect_match(selected$selection_tier[[1]], "score_band_burden")
 })
 
 test_that("policy intervals use the calibrated radius once", {
@@ -747,6 +823,16 @@ test_that("policy intervals use the calibrated radius once", {
   expect_equal(intervals$q_abs_log_total, 0.2)
   expect_equal(intervals$multiplier_lo, 2 * exp(-0.2))
   expect_equal(intervals$multiplier_hi, 2 * exp(0.2))
+})
+
+test_that("coefficient and TS scalars ignore a stale displayed-width field", {
+  scalars <- strategy_q_scalars(tibble::tibble(
+    multiplier_pred = 2,
+    q_abs_log = 0.2,
+    interval_log_width = 9
+  ))
+
+  expect_equal(scalars$q95, 0.2)
 })
 
 test_that("ordination context accepts canonical and legacy score fields", {

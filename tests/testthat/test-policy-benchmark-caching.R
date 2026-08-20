@@ -250,12 +250,12 @@ test_that("policy benchmark can resume from anchor cache shards without monolith
   )
 
   shard_dir <- paste0(cache_path, "_parts")
-  shard_files <- list.files(shard_dir, pattern = "^anchor_.*\\.rds$", full.names = TRUE)
-  expect_true(file.exists(cache_path))
+  shard_files <- list.files(shard_dir, pattern = "^anchor_.*\\.rds\\.qs$", full.names = TRUE)
+  expect_true(tsb_cache_exists(cache_path))
   expect_true(dir.exists(shard_dir))
   expect_equal(length(shard_files), nrow(candidates@candidate_models))
 
-  file.remove(cache_path)
+  suppressWarnings(file.remove(paste0(cache_path, ".qs"), cache_path))
 
   testthat::local_mocked_bindings(
     screen_one_anchor_admissibility = function(...) {
@@ -299,7 +299,7 @@ test_that("policy benchmark can resume from anchor cache shards without monolith
   )
 
   expect_equal(nrow(out_first$policy_perf), nrow(out_second$policy_perf))
-  expect_true(file.exists(cache_path))
+  expect_true(tsb_cache_exists(cache_path))
 })
 
 test_that("policy benchmark rebuilds TS-error output from cached anchor shards", {
@@ -367,7 +367,7 @@ test_that("policy benchmark rebuilds TS-error output from cached anchor shards",
   )
 
   expect_equal(nrow(out_first$policy_ts_error), 1L)
-  file.remove(cache_path)
+  suppressWarnings(file.remove(paste0(cache_path, ".qs"), cache_path))
 
   testthat::local_mocked_bindings(
     screen_one_anchor_admissibility = function(...) {

@@ -1565,7 +1565,9 @@ policy_learner_uncertainty_screen_inputs <- function(object,
     meta_selected,
     anchor_lookup = anchor_lookup
   )
-  width_feature_cols <- policy_learner_uncertainty_feature_cols(cfg, meta_selected)
+  # Selected-policy conformal radii are the displayed uncertainties. Do not
+  # fit a second learned-width model that can override them after selection.
+  width_feature_cols <- character()
   width_group_col <- if ("anchor_species" %in% names(meta_selected)) {
     "anchor_species"
   } else {
@@ -2202,13 +2204,8 @@ policy_learner_select_calibration_rows <- function(tbl,
     dplyr::filter(
       .data$.meta_predicted_score <= .data$.meta_score_threshold
     ) |>
-    dplyr::arrange(
-      .data$.meta_predicted_score,
-      .data$policy,
-      .data$equation_branch_filter,
-      .by_group = TRUE
-    ) |>
-    dplyr::slice(1) |>
+    dplyr::group_modify(~ order_policy_assumption_burden(.x) |>
+      dplyr::slice(1)) |>
     dplyr::ungroup()
 }
 
@@ -2967,9 +2964,9 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     median_interval_log_width = if (is.finite(meta_q_global)) 2 * meta_q_global else NA_real_
   )
 
-  width_feature_cols <- policy_learner_uncertainty_feature_cols(cfg, meta_selected)
-  # Resolve the uncertainty learner independently from the selection learner so
-  # calibration can use a simpler or differently tuned model family.
+  # The selected policy's calibrated radius is propagated directly. A second
+  # post-selection width learner is intentionally not fitted.
+  width_feature_cols <- character()
   width_method <- uncertainty_method %||% policy_selector_config_value(
     cfg, "method",
     sections = c("uncertainty", "policy_learner")
@@ -3258,15 +3255,12 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       width_prediction_source <- "point_score_fallback"
     }
   } else {
-    width_fit_error <- "No conditional-uncertainty feature columns were available."
-    width_warning <- paste(
-      "Falling back to point-score-scaled uncertainty because no",
-      "conditional-uncertainty feature columns were available."
-    )
+    width_fit_error <- NULL
+    width_warning <- NULL
     width_selected <- meta_selected |>
-      dplyr::mutate(.width_predicted_q_abs_log = pmax(.data$.meta_predicted_score, 0))
-    width_model <- list(model = NULL, feature_cols = width_feature_cols, method = width_method)
-    width_prediction_source <- "point_score_fallback"
+      dplyr::mutate(.width_predicted_q_abs_log = 1)
+    width_model <- list(model = NULL, feature_cols = character(), method = NA_character_)
+    width_prediction_source <- "retired_selected_policy_width"
   }
 
   if (!is.null(width_warning)) {
@@ -3734,10 +3728,8 @@ policy_learner_ensemble_disagreement_uncertainty <- function(tbl,
   )
   scored <- dplyr::bind_cols(scored, disagreement_components)
 
-  width_model_now <- cal_obj$width_model$model %||% NULL
-  configured_width_source <- cal_obj$uncertainty_prediction_source %||%
-    cal_obj$width_prediction_source %||%
-    NA_character_
+  width_model_now <- NULL
+  configured_width_source <- "retired_selected_policy_width"
   if (identical(configured_width_source, "global_selected_conformal")) {
     scored$.width_predicted_q_abs_log <- rep(1, nrow(scored))
     meta_width_source <- "global_selected_conformal"
@@ -3761,18 +3753,12 @@ policy_learner_ensemble_disagreement_uncertainty <- function(tbl,
   # u_hat(v_i) remains anchor- and policy-conditioned. The normalized
   # conformal quantile is pooled over held-out selected strategies, as defined
   # in the methods; sparse policy-only multipliers are not part of R_i.
-  global_width_factor <- suppressWarnings(as.numeric(cal_obj$width_factor_global %||% NA_real_))
-  if (!is.finite(global_width_factor) || global_width_factor <= 0) {
-    stop(
-      "Post-selection uncertainty is unavailable because its held-out conformal calibration factor is missing or invalid. Re-run `calibrate_uncertainty()` before predicting intervals.",
-      call. = FALSE
-    )
-  }
+  global_width_factor <- 1
   pooled_width_n <- suppressWarnings(as.numeric(
     nrow(tibble::as_tibble(cal_obj$selected %||% tibble::tibble()))
   ))
   scored$meta_q_abs_log_conformal_factor <- rep(global_width_factor, nrow(scored))
-  scored$meta_q_abs_log_factor_source <- rep("pooled_normalized_conformal", nrow(scored))
+  scored$meta_q_abs_log_factor_source <- rep("retired_selected_policy_width", nrow(scored))
   scored$meta_q_abs_log_factor_n_scores <- rep(pooled_width_n, nrow(scored))
 
   local_q_lookup <- cal_obj$local_q_lookup %||% NULL
@@ -3939,23 +3925,77 @@ policy_learner_ensemble_disagreement_uncertainty <- function(tbl,
       selection_tier = "meta_policy_lexicographic_selection"
     ) |>
     dplyr::ungroup()
+  # Legacy `meta_*` fields are retained for backward-compatible exports only.
+  # They must be exact aliases of the selected policy's conformal interval,
+  # never a post-selection learned-width override.
+  for (radius_col in c("q_abs_log_total", "q_abs_log_conformal", "q_abs_log")) {
+    if (!radius_col %in% names(scored)) {
+      scored[[radius_col]] <- NA_real_
+    }
+  }
+  selected_radius <- dplyr::coalesce(
+    suppressWarnings(as.numeric(scored$q_abs_log_total)),
+    suppressWarnings(as.numeric(scored$q_abs_log_conformal)),
+    suppressWarnings(as.numeric(scored$q_abs_log))
+  )
+  scored <- scored |>
+    dplyr::mutate(
+      q_abs_log_total = selected_radius,
+      multiplier_lo = dplyr::if_else(
+        .data$valid_prediction & is.finite(selected_radius),
+        .data$multiplier_pred * exp(-selected_radius),
+        NA_real_
+      ),
+      multiplier_hi = dplyr::if_else(
+        .data$valid_prediction & is.finite(selected_radius),
+        .data$multiplier_pred * exp(selected_radius),
+        NA_real_
+      ),
+      interval_log_width = dplyr::if_else(
+        .data$valid_prediction & is.finite(selected_radius),
+        2 * selected_radius,
+        NA_real_
+      ),
+      meta_q_abs_log_width = selected_radius,
+      meta_q_abs_log_width_total = selected_radius,
+      meta_q_abs_log = selected_radius,
+      meta_q_abs_log_total = selected_radius,
+      meta_q_abs_log_simultaneous = selected_radius,
+      meta_q_abs_log_simultaneous_total = selected_radius,
+      meta_q_abs_log_conformal_factor = 1,
+      meta_q_abs_log_factor_source = "selected_policy_conformal",
+      meta_q_abs_log_factor_n_scores = NA_real_,
+      meta_interval_calibration = "selected_policy_conformal",
+      meta_uncertainty_source = "selected_policy_conformal",
+      meta_uncertainty_fallback = FALSE,
+      meta_uncertainty_warning = NA_character_,
+      meta_q_abs_log_calibration = selected_radius,
+      meta_q_abs_log_score = .data$.meta_predicted_score,
+      meta_q_abs_log_simultaneous_calibration = selected_radius,
+      meta_simultaneous_interval_factor = dplyr::if_else(
+        is.finite(selected_radius), exp(selected_radius), NA_real_
+      ),
+      meta_post_selection_multiplier_lo = .data$multiplier_lo,
+      meta_post_selection_multiplier_hi = .data$multiplier_hi,
+      meta_post_selection_interval_log_width = .data$interval_log_width,
+      meta_interval_factor = dplyr::if_else(
+        is.finite(selected_radius), exp(selected_radius), NA_real_
+      )
+    )
   scored <- scored |>
     dplyr::mutate(
       .policy_row_id = seq_len(dplyr::n()),
       meta_policy_predicted_score = .data$.meta_predicted_score,
-      uncertainty_cost_log_width = .data$meta_post_selection_interval_log_width,
+      uncertainty_cost_log_width = .data$interval_log_width,
       uncertainty_eligible = dplyr::coalesce(.data$valid_prediction, FALSE) &
-        is.finite(.data$meta_post_selection_interval_log_width) &
-        .data$meta_post_selection_interval_log_width > 0
+        is.finite(.data$interval_log_width) &
+        .data$interval_log_width > 0
     )
 
   selected_rows <- scored |>
     dplyr::group_split(.data$anchor_model_id, .data$anchor_species, .keep = TRUE) |>
     purrr::map_dfr(function(.x) {
       selection_tbl <- .x
-      if (isTRUE(use_direct_support_bin_intervals)) {
-        selection_tbl$.meta_predicted_score <- selection_tbl$uncertainty_cost_log_width
-      }
       select_anchor_policies(
         policy_tbl = selection_tbl,
         uncertainty_rule = uncertainty_rule,

@@ -1226,6 +1226,68 @@ map_phylo_cophenetic_distances <- function(species_names,
   out
 }
 
+#' Map Open Tree tree distances through OTT identifiers
+#'
+#' Unlike display-name matching, OTT identifiers retain an unambiguous link
+#' when the Open Tree matcher places a submitted binomial at an ancestor taxon
+#' such as a genus. Unmatched rows remain `NA` so callers can apply a declared
+#' rank-based fallback rather than treating them as maximally distant.
+#'
+#' @param species_names Submitted species labels.
+#' @param matched Open Tree TNRS results containing `search_string` and
+#'   `ott_id`.
+#' @param cophenetic_labels Open Tree induced-subtree node labels.
+#' @param cophenetic_matrix Tree-distance matrix.
+#'
+#' @return Numeric matrix with mapping diagnostics in attributes.
+#'
+#' @keywords internal
+#' @noRd
+map_phylo_cophenetic_ott_distances <- function(species_names,
+                                               matched,
+                                               cophenetic_labels,
+                                               cophenetic_matrix) {
+  species_keys <- normalize_phylo_species_label(species_names)
+  matched <- tibble::as_tibble(matched)
+  required <- c("search_string", "ott_id")
+  if (!all(required %in% names(matched))) {
+    stop("Open Tree matches must contain search_string and ott_id.", call. = FALSE)
+  }
+  matched_keys <- normalize_phylo_species_label(matched$search_string)
+  matched_idx <- match(species_keys, matched_keys)
+  query_ott <- as.character(matched$ott_id[matched_idx])
+  canonical_col <- intersect(c("unique_name", "matched_name", "search_string"), names(matched))[[1]]
+  query_canonical <- normalize_phylo_species_label(matched[[canonical_col]][matched_idx])
+  tip_ott <- stringr::str_match(as.character(cophenetic_labels), "(?:^|[_ ])ott([0-9]+)$")[, 2]
+  tip_keys <- normalize_phylo_species_label(
+    gsub("(?:_| )ott[0-9]+$", "", as.character(cophenetic_labels), perl = TRUE)
+  )
+  tip_idx <- match(query_ott, tip_ott)
+  name_idx <- match(query_canonical, tip_keys)
+  tip_idx[is.na(tip_idx)] <- name_idx[is.na(tip_idx)]
+  resolved <- !is.na(tip_idx)
+
+  out <- matrix(
+    NA_real_,
+    nrow = length(species_keys),
+    ncol = length(species_keys),
+    dimnames = list(species_keys, species_keys)
+  )
+  keep_idx <- which(resolved)
+  if (length(keep_idx) > 0L) {
+    out[keep_idx, keep_idx] <- cophenetic_matrix[
+      tip_idx[keep_idx], tip_idx[keep_idx], drop = FALSE
+    ]
+  }
+  diag(out) <- 0
+  mapped_node_id <- tip_ott[tip_idx]
+  mapped_node_id[is.na(mapped_node_id) & resolved] <- tip_keys[tip_idx][is.na(mapped_node_id) & resolved]
+  attr(out, "phylo_resolved") <- resolved
+  attr(out, "phylo_ott_id") <- mapped_node_id
+  attr(out, "phylo_species_key") <- species_keys
+  out
+}
+
 build_phylo_dist_from_species <- function(species_vec, genus_vec = NULL) {
   sp_raw <- stringr::str_squish(as.character(species_vec))
   sp_raw[!nzchar(sp_raw)] <- NA_character_
@@ -1274,15 +1336,19 @@ build_phylo_dist_from_species <- function(species_vec, genus_vec = NULL) {
       }
 
       subtree <- suppressWarnings(rotl::tol_induced_subtree(ott_ids = matched$ott_id))
-      cophen <- suppressWarnings(ape::cophenetic.phylo(subtree))
-      cophen_mx <- max(cophen, na.rm = TRUE)
-      if (!is.finite(cophen_mx) || cophen_mx <= 0) cophen_mx <- 1
+      tree_dist <- suppressWarnings(ape::dist.nodes(subtree))
+      tree_dist_mx <- max(tree_dist, na.rm = TRUE)
+      if (!is.finite(tree_dist_mx) || tree_dist_mx <= 0) tree_dist_mx <- 1
+      tree_labels <- c(subtree$tip.label, subtree$node.label)
+      if (length(tree_labels) != nrow(tree_dist)) {
+        return(NULL)
+      }
 
-      labels <- suppressWarnings(rotl::strip_ott_ids(colnames(cophen)))
-      map_phylo_cophenetic_distances(
+      map_phylo_cophenetic_ott_distances(
         species_names = uniq,
-        cophenetic_labels = labels,
-        cophenetic_matrix = cophen / cophen_mx
+        matched = matched,
+        cophenetic_labels = tree_labels,
+        cophenetic_matrix = tree_dist / tree_dist_mx
       )
     },
     error = function(e) NULL
@@ -1298,6 +1364,9 @@ build_phylo_dist_from_species <- function(species_vec, genus_vec = NULL) {
     out[keep_idx, keep_idx] <- phylo_mat[out_idx[keep_idx], out_idx[keep_idx], drop = FALSE]
   }
   diag(out) <- 0
+  attr(out, "phylo_resolved") <- attr(phylo_mat, "phylo_resolved")[out_idx]
+  attr(out, "phylo_ott_id") <- attr(phylo_mat, "phylo_ott_id")[out_idx]
+  attr(out, "phylo_species_key") <- normalize_phylo_species_label(sp)
   out
 }
 

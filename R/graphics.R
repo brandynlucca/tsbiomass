@@ -3878,21 +3878,21 @@ plot_anchor_summary <- function(integrated_tbl,
   # admissible-pool intervals on one log-scale axis.
   integrated_df <- tibble::as_tibble(integrated_tbl)
   q_log <- dplyr::coalesce(
-    if ("meta_q_abs_log_total" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$meta_q_abs_log_total)) else rep(NA_real_, nrow(integrated_df)),
     if ("q_abs_log_total" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$q_abs_log_total)) else rep(NA_real_, nrow(integrated_df)),
-    if ("meta_q_abs_log" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$meta_q_abs_log)) else rep(NA_real_, nrow(integrated_df)),
-    if ("q_abs_log" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$q_abs_log)) else rep(NA_real_, nrow(integrated_df))
+    if ("q_abs_log_conformal" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$q_abs_log_conformal)) else rep(NA_real_, nrow(integrated_df)),
+    if ("q_abs_log" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$q_abs_log)) else rep(NA_real_, nrow(integrated_df)),
+    if ("meta_q_abs_log_total" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$meta_q_abs_log_total)) else rep(NA_real_, nrow(integrated_df))
   )
   multiplier_pred <- suppressWarnings(as.numeric(integrated_df$multiplier_pred))
   integrated_df$multiplier_lo <- dplyr::coalesce(
-    if ("meta_post_selection_multiplier_lo" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$meta_post_selection_multiplier_lo)) else rep(NA_real_, nrow(integrated_df)),
-    if ("multiplier_lo" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$multiplier_lo)) else rep(NA_real_, nrow(integrated_df))
+    if ("multiplier_lo" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$multiplier_lo)) else rep(NA_real_, nrow(integrated_df)),
+    if ("meta_post_selection_multiplier_lo" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$meta_post_selection_multiplier_lo)) else rep(NA_real_, nrow(integrated_df))
   )
   miss_lo <- !is.finite(integrated_df$multiplier_lo) & is.finite(multiplier_pred) & multiplier_pred > 0 & is.finite(q_log) & q_log > 0
   integrated_df$multiplier_lo[miss_lo] <- multiplier_pred[miss_lo] * exp(-q_log[miss_lo])
   integrated_df$multiplier_hi <- dplyr::coalesce(
-    if ("meta_post_selection_multiplier_hi" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$meta_post_selection_multiplier_hi)) else rep(NA_real_, nrow(integrated_df)),
-    if ("multiplier_hi" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$multiplier_hi)) else rep(NA_real_, nrow(integrated_df))
+    if ("multiplier_hi" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$multiplier_hi)) else rep(NA_real_, nrow(integrated_df)),
+    if ("meta_post_selection_multiplier_hi" %in% names(integrated_df)) suppressWarnings(as.numeric(integrated_df$meta_post_selection_multiplier_hi)) else rep(NA_real_, nrow(integrated_df))
   )
   miss_hi <- !is.finite(integrated_df$multiplier_hi) & is.finite(multiplier_pred) & multiplier_pred > 0 & is.finite(q_log) & q_log > 0
   integrated_df$multiplier_hi[miss_hi] <- multiplier_pred[miss_hi] * exp(q_log[miss_hi])
@@ -4879,8 +4879,8 @@ plot_multiplier_vs_expected_length <- function(anchor_tbl) {
     "anchor_species",
     "expected_length_cm",
     "multiplier_pred",
-    "meta_post_selection_multiplier_lo",
-    "meta_post_selection_multiplier_hi"
+    "multiplier_lo",
+    "multiplier_hi"
   )
   if (nrow(plot_df) == 0 || !all(required_cols %in% names(plot_df))) {
     return(ggplot2::ggplot() +
@@ -4892,10 +4892,10 @@ plot_multiplier_vs_expected_length <- function(anchor_tbl) {
       !is.na(.data$anchor_species) & nzchar(.data$anchor_species),
       is.finite(.data$expected_length_cm),
       is.finite(.data$multiplier_pred),
-      is.finite(.data$meta_post_selection_multiplier_lo),
-      is.finite(.data$meta_post_selection_multiplier_hi),
-      .data$meta_post_selection_multiplier_lo > 0,
-      .data$meta_post_selection_multiplier_hi > 0,
+      is.finite(.data$multiplier_lo),
+      is.finite(.data$multiplier_hi),
+      .data$multiplier_lo > 0,
+      .data$multiplier_hi > 0,
       .data$multiplier_pred > 0
     )
   if (nrow(plot_df) == 0) {
@@ -4909,8 +4909,8 @@ plot_multiplier_vs_expected_length <- function(anchor_tbl) {
     ggplot2::aes(
       x = .data$expected_length_cm,
       y = .data$multiplier_pred,
-      ymin = .data$meta_post_selection_multiplier_lo,
-      ymax = .data$meta_post_selection_multiplier_hi,
+      ymin = .data$multiplier_lo,
+      ymax = .data$multiplier_hi,
       label = .data$anchor_species
     )
   ) +
@@ -5024,21 +5024,21 @@ plot_all_intervals <- function(interval_tbl,
   # one-reference interval comparison.
   plot_df <- tibble::as_tibble(interval_tbl)
   q_log <- dplyr::coalesce(
-    if ("meta_q_abs_log_total" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_q_abs_log_total)) else rep(NA_real_, nrow(plot_df)),
     if ("q_abs_log_total" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$q_abs_log_total)) else rep(NA_real_, nrow(plot_df)),
-    if ("meta_q_abs_log" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_q_abs_log)) else rep(NA_real_, nrow(plot_df)),
-    if ("q_abs_log" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$q_abs_log)) else rep(NA_real_, nrow(plot_df))
+    if ("q_abs_log_conformal" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$q_abs_log_conformal)) else rep(NA_real_, nrow(plot_df)),
+    if ("q_abs_log" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$q_abs_log)) else rep(NA_real_, nrow(plot_df)),
+    if ("meta_q_abs_log_total" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_q_abs_log_total)) else rep(NA_real_, nrow(plot_df))
   )
   multiplier_pred <- suppressWarnings(as.numeric(plot_df$multiplier_pred))
   plot_df$multiplier_lo <- dplyr::coalesce(
-    if ("meta_post_selection_multiplier_lo" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_lo)) else rep(NA_real_, nrow(plot_df)),
-    if ("multiplier_lo" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$multiplier_lo)) else rep(NA_real_, nrow(plot_df))
+    if ("multiplier_lo" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$multiplier_lo)) else rep(NA_real_, nrow(plot_df)),
+    if ("meta_post_selection_multiplier_lo" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_lo)) else rep(NA_real_, nrow(plot_df))
   )
   miss_lo <- !is.finite(plot_df$multiplier_lo) & is.finite(multiplier_pred) & multiplier_pred > 0 & is.finite(q_log) & q_log > 0
   plot_df$multiplier_lo[miss_lo] <- multiplier_pred[miss_lo] * exp(-q_log[miss_lo])
   plot_df$multiplier_hi <- dplyr::coalesce(
-    if ("meta_post_selection_multiplier_hi" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_hi)) else rep(NA_real_, nrow(plot_df)),
-    if ("multiplier_hi" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$multiplier_hi)) else rep(NA_real_, nrow(plot_df))
+    if ("multiplier_hi" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$multiplier_hi)) else rep(NA_real_, nrow(plot_df)),
+    if ("meta_post_selection_multiplier_hi" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_hi)) else rep(NA_real_, nrow(plot_df))
   )
   miss_hi <- !is.finite(plot_df$multiplier_hi) & is.finite(multiplier_pred) & multiplier_pred > 0 & is.finite(q_log) & q_log > 0
   plot_df$multiplier_hi[miss_hi] <- multiplier_pred[miss_hi] * exp(q_log[miss_hi])
@@ -5223,21 +5223,21 @@ plot_interval_panel <- function(interval_tbl) {
   # drawing the combined panel.
   plot_df <- tibble::as_tibble(interval_tbl)
   q_log <- dplyr::coalesce(
-    if ("meta_q_abs_log_total" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_q_abs_log_total)) else rep(NA_real_, nrow(plot_df)),
     if ("q_abs_log_total" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$q_abs_log_total)) else rep(NA_real_, nrow(plot_df)),
-    if ("meta_q_abs_log" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_q_abs_log)) else rep(NA_real_, nrow(plot_df)),
-    if ("q_abs_log" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$q_abs_log)) else rep(NA_real_, nrow(plot_df))
+    if ("q_abs_log_conformal" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$q_abs_log_conformal)) else rep(NA_real_, nrow(plot_df)),
+    if ("q_abs_log" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$q_abs_log)) else rep(NA_real_, nrow(plot_df)),
+    if ("meta_q_abs_log_total" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_q_abs_log_total)) else rep(NA_real_, nrow(plot_df))
   )
   multiplier_pred <- suppressWarnings(as.numeric(plot_df$multiplier_pred))
   plot_df$multiplier_lo <- dplyr::coalesce(
-    if ("meta_post_selection_multiplier_lo" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_lo)) else rep(NA_real_, nrow(plot_df)),
-    if ("multiplier_lo" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$multiplier_lo)) else rep(NA_real_, nrow(plot_df))
+    if ("multiplier_lo" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$multiplier_lo)) else rep(NA_real_, nrow(plot_df)),
+    if ("meta_post_selection_multiplier_lo" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_lo)) else rep(NA_real_, nrow(plot_df))
   )
   miss_lo <- !is.finite(plot_df$multiplier_lo) & is.finite(multiplier_pred) & multiplier_pred > 0 & is.finite(q_log) & q_log > 0
   plot_df$multiplier_lo[miss_lo] <- multiplier_pred[miss_lo] * exp(-q_log[miss_lo])
   plot_df$multiplier_hi <- dplyr::coalesce(
-    if ("meta_post_selection_multiplier_hi" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_hi)) else rep(NA_real_, nrow(plot_df)),
-    if ("multiplier_hi" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$multiplier_hi)) else rep(NA_real_, nrow(plot_df))
+    if ("multiplier_hi" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$multiplier_hi)) else rep(NA_real_, nrow(plot_df)),
+    if ("meta_post_selection_multiplier_hi" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_hi)) else rep(NA_real_, nrow(plot_df))
   )
   miss_hi <- !is.finite(plot_df$multiplier_hi) & is.finite(multiplier_pred) & multiplier_pred > 0 & is.finite(q_log) & q_log > 0
   plot_df$multiplier_hi[miss_hi] <- multiplier_pred[miss_hi] * exp(q_log[miss_hi])

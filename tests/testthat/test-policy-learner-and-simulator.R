@@ -43,7 +43,7 @@ test_that("PolicyLearner stores crossfit, fit, and calibration state", {
   ) %in% names(learner@calibration)))
 })
 
-test_that("PolicyLearner warns and records explicit uncertainty fallback state", {
+test_that("PolicyLearner retires the post-selection width learner", {
   selector <- make_selector(benchmark = list(species_block_perf = minimal_policy_performance()))
   learner <- as_policylearner(selector)
 
@@ -69,15 +69,12 @@ test_that("PolicyLearner warns and records explicit uncertainty fallback state",
   learner@config$selection <- list(method = "glm")
   learner@config$uncertainty <- list(method = "glm", feature_cols = character())
 
-  expect_warning(
-    learner <- calibrate_uncertainty(learner, min_bin_scores = 1L),
-    "Falling back to point-score-scaled uncertainty"
-  )
-  expect_equal(learner@calibration$uncertainty_prediction_source, "point_score_fallback")
-  expect_true(is.character(learner@calibration$uncertainty_warning))
+  learner <- calibrate_uncertainty(learner, min_bin_scores = 1L)
+  expect_equal(learner@calibration$uncertainty_prediction_source, "retired_selected_policy_width")
+  expect_null(learner@calibration$uncertainty_warning)
 })
 
-test_that("PolicyLearner uncertainty calibration respects uncertainty-specific learner settings", {
+test_that("PolicyLearner does not fit a post-selection uncertainty learner", {
   selector <- make_selector(benchmark = list(species_block_perf = minimal_policy_performance()))
   learner <- as_policylearner(selector)
 
@@ -132,10 +129,10 @@ test_that("PolicyLearner uncertainty calibration respects uncertainty-specific l
 
   learner <- calibrate_uncertainty(learner, min_bin_scores = 1L)
 
-  expect_equal(captured$crossfit_super_methods, "rf")
-  expect_equal(captured$fit_super_methods, "rf")
-  expect_equal(captured$crossfit_num_trees, 7L)
-  expect_equal(captured$fit_num_trees, 7L)
+  expect_null(captured$crossfit_super_methods)
+  expect_null(captured$fit_super_methods)
+  expect_null(captured$crossfit_num_trees)
+  expect_null(captured$fit_num_trees)
   expect_equal(learner@calibration$uncertainty_super_methods, "rf")
   expect_equal(learner@calibration$uncertainty_method_settings$rf$num_trees, 7L)
 })
@@ -272,7 +269,7 @@ test_that("PolicyLearner selection fit respects selection-specific learner setti
   expect_equal(learner@fitted_model$selection_super_methods, c("glm", "rf"))
 })
 
-test_that("PolicyLearner uncertainty calibration honors explicit override args", {
+test_that("PolicyLearner ignores width-learner override args", {
   selector <- make_selector(benchmark = list(species_block_perf = minimal_policy_performance()))
   learner <- as_policylearner(selector)
 
@@ -333,17 +330,17 @@ test_that("PolicyLearner uncertainty calibration honors explicit override args",
     uncertainty_method_settings = list(rf = list(num_trees = 9L))
   )
 
-  expect_equal(captured$crossfit_method, "super_learner")
-  expect_equal(captured$fit_method, "super_learner")
-  expect_equal(captured$crossfit_super_methods, "rf")
-  expect_equal(captured$fit_super_methods, "rf")
-  expect_equal(captured$crossfit_num_trees, 9L)
-  expect_equal(captured$fit_num_trees, 9L)
+  expect_null(captured$crossfit_method)
+  expect_null(captured$fit_method)
+  expect_null(captured$crossfit_super_methods)
+  expect_null(captured$fit_super_methods)
+  expect_null(captured$crossfit_num_trees)
+  expect_null(captured$fit_num_trees)
   expect_equal(learner@calibration$uncertainty_super_methods, "rf")
   expect_equal(learner@calibration$uncertainty_method_settings$rf$num_trees, 9L)
 })
 
-test_that("PolicyLearner prediction uses the pooled normalized conformal factor", {
+test_that("PolicyLearner prediction preserves the selected policy conformal radius", {
   local_lookup <- policy_learner_build_local_lookup(
     tbl = tibble::tibble(
       anchor_model_id = c("1", "2", "3"),
@@ -396,6 +393,7 @@ test_that("PolicyLearner prediction uses the pooled normalized conformal factor"
     policy = c("closest_within_species", "weighted_mean_within_genus", "closest_within_species"),
     equation_branch_filter = c("all", "all", "all"),
     multiplier_pred = c(1.10, 1.15, 1.20),
+    q_abs_log = c(0.11, 0.12, 0.13),
     n_valid_models = c(3L, 3L, 3L),
     local_weighted_mean_combined_distance = c(0.10, 0.12, 0.15),
     local_effective_support = c(3.0, 2.0, 3.0),
@@ -421,11 +419,11 @@ test_that("PolicyLearner prediction uses the pooled normalized conformal factor"
 
   expect_equal(
     scored_lookup$meta_q_abs_log_factor_source,
-    rep("pooled_normalized_conformal", 3)
+    rep("selected_policy_conformal", 3)
   )
   expect_equal(
     round(scored_lookup$meta_q_abs_log_conformal_factor, 3),
-    rep(1.5, 3)
+    rep(1, 3)
   )
 })
 
@@ -464,13 +462,10 @@ test_that("PolicyLearner calibration uses modeled clipped outcomes when availabl
     .package = "tsbiomass"
   )
 
-  expect_warning(
-    learner <- calibrate_uncertainty(
-      learner,
-      max_selection_tolerance = 1e-12,
-      min_bin_scores = 1L
-    ),
-    "Falling back to point-score-scaled uncertainty"
+  learner <- calibrate_uncertainty(
+    learner,
+    max_selection_tolerance = 1e-12,
+    min_bin_scores = 1L
   )
 
   expect_equal(learner@calibration$outcome_col, ".outcome_raw")
@@ -514,6 +509,7 @@ test_that("PolicyLearner predict ranks and selects anchor-policy rows", {
     anchor_species = c("Alpha alpha", "Alpha alpha", "Gamma gamma", "Gamma gamma"),
     policy = c("closest_within_species", "weighted_mean_within_genus", "closest_within_species", "weighted_mean_within_genus"),
     multiplier_pred = c(1.10, 1.30, 1.15, 1.25),
+    q_abs_log = c(0.11, 0.31, 0.21, 0.06),
     n_valid_models = c(3L, 4L, 2L, 5L),
     local_weighted_mean_combined_distance = c(0.10, 0.25, 0.15, 0.20),
     local_effective_support = c(3.0, 4.0, 2.0, 5.0),
@@ -534,7 +530,7 @@ test_that("PolicyLearner predict ranks and selects anchor-policy rows", {
   expect_true("post_selection_support_label" %in% names(scored))
   expect_setequal(unique(scored$post_selection_support_label), c("Lower support", "Higher support"))
   expect_equal(sum(scored$is_selected), 2)
-  expect_equal(scored$policy[scored$is_selected], c("closest_within_species", "closest_within_species"))
+  expect_equal(scored$policy[scored$is_selected], c("closest_within_species", "weighted_mean_within_genus"))
   expect_true(all(c(
     "meta_q_abs_log_width",
     "meta_q_abs_log_conformal_factor",
@@ -555,11 +551,12 @@ test_that("PolicyLearner predict ranks and selects anchor-policy rows", {
     scored$meta_post_selection_multiplier_hi,
     scored$multiplier_pred * exp(scored$meta_q_abs_log_total)
   )
-  expect_true(all(startsWith(scored$meta_uncertainty_source, "direct_")))
+  expect_equal(scored$meta_uncertainty_source, rep("selected_policy_conformal", nrow(scored)))
+  expect_equal(scored$meta_q_abs_log_total, scored$q_abs_log)
   alpha_rows <- scored[scored$anchor_model_id == "1", , drop = FALSE]
-  expect_gte(
+  expect_equal(
     alpha_rows$meta_q_abs_log_total[alpha_rows$policy == "weighted_mean_within_genus"],
-    alpha_rows$meta_q_abs_log_total[alpha_rows$policy == "closest_within_species"]
+    0.31
   )
 })
 

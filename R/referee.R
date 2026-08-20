@@ -2198,12 +2198,12 @@ scorecard_plot_types <- function() {
       paste0(plot_df$selected_policy_display, " [", branch_display, "]")
     )
     plot_df$multiplier_lo <- dplyr::coalesce(
-      if ("meta_post_selection_multiplier_lo" %in% names(plot_df)) as.numeric(plot_df$meta_post_selection_multiplier_lo) else rep(NA_real_, nrow(plot_df)),
-      if ("multiplier_lo" %in% names(plot_df)) as.numeric(plot_df$multiplier_lo) else rep(NA_real_, nrow(plot_df))
+      if ("multiplier_lo" %in% names(plot_df)) as.numeric(plot_df$multiplier_lo) else rep(NA_real_, nrow(plot_df)),
+      if ("meta_post_selection_multiplier_lo" %in% names(plot_df)) as.numeric(plot_df$meta_post_selection_multiplier_lo) else rep(NA_real_, nrow(plot_df))
     )
     plot_df$multiplier_hi <- dplyr::coalesce(
-      if ("meta_post_selection_multiplier_hi" %in% names(plot_df)) as.numeric(plot_df$meta_post_selection_multiplier_hi) else rep(NA_real_, nrow(plot_df)),
-      if ("multiplier_hi" %in% names(plot_df)) as.numeric(plot_df$multiplier_hi) else rep(NA_real_, nrow(plot_df))
+      if ("multiplier_hi" %in% names(plot_df)) as.numeric(plot_df$multiplier_hi) else rep(NA_real_, nrow(plot_df)),
+      if ("meta_post_selection_multiplier_hi" %in% names(plot_df)) as.numeric(plot_df$meta_post_selection_multiplier_hi) else rep(NA_real_, nrow(plot_df))
     )
     plot_df <- plot_df |>
       dplyr::filter(

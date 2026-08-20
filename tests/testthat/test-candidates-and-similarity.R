@@ -138,6 +138,30 @@ test_that("phylogeny mapping matches Open Tree labels case-insensitively", {
   expect_equal(unname(diag(out)), c(0, 0, 0))
 })
 
+test_that("phylogeny mapping retains genus-level Open Tree placements by OTT ID", {
+  cophenetic <- matrix(
+    c(0, 2, 6, 2, 0, 5, 6, 5, 0),
+    nrow = 3,
+    dimnames = list(
+      c("allosmerus_elongatus_ott568680", "osmerus_ott36124", "clupea_harengus_ott1005932"),
+      c("allosmerus_elongatus_ott568680", "osmerus_ott36124", "clupea_harengus_ott1005932")
+    )
+  )
+  out <- tsbiomass:::map_phylo_cophenetic_ott_distances(
+    species_names = c("Allosmerus elongatus", "Osmerus mordax", "Clupea harengus"),
+    matched = tibble::tibble(
+      search_string = c("Allosmerus elongatus", "Osmerus mordax", "Clupea harengus"),
+      ott_id = c(568680, 36124, 1005932)
+    ),
+    cophenetic_labels = colnames(cophenetic),
+    cophenetic_matrix = cophenetic
+  )
+
+  expect_equal(out[1, 2], 2)
+  expect_equal(out[1, 3], 6)
+  expect_true(all(attr(out, "phylo_resolved")))
+})
+
 test_that("Alchemist policy scoring uses directed learned distance without reapplying features", {
   directed <- matrix(
     c(0, 0.4, 0.8, 0.2, 0, 0.6, 0.7, 0.5, 0),
