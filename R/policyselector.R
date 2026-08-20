@@ -1038,10 +1038,10 @@ S7::method(select_policies, PolicySelector) <- function(object,
                                      policy_params = list(),
                                      policy_path = NULL,
                                      registry_path = NULL,
-                                      learner = NULL,
-                                      use_support_bin_intervals = NULL,
-                                       max_selection_tolerance = NULL,
-                                      reuse_admissibility = TRUE,
+                                     learner = NULL,
+                                     use_support_bin_intervals = NULL,
+                                     max_selection_tolerance = NULL,
+                                     reuse_admissibility = TRUE,
                                      cache_path = NULL,
                                      refresh = NULL,
                                      progress = NULL,
@@ -3024,11 +3024,11 @@ add_policy_intervals <- function(policy_tbl,
 #' @noRd
 select_anchor_policies <- function(policy_tbl,
                                    uncertainty_rule = "tolerance",
-                                    u_tol_rel = 0.25,
-                                    u_tol_abs = 0.05,
-                                    score_tol_abs = NULL,
-                                    one_se_multiplier = 1,
-                                    local_distance_tolerance = 1e-12) {
+                                   u_tol_rel = 0.25,
+                                   u_tol_abs = 0.05,
+                                   score_tol_abs = NULL,
+                                   one_se_multiplier = 1,
+                                   local_distance_tolerance = 1e-12) {
   policy_tbl_ <- tibble::as_tibble(policy_tbl)
   if (nrow(policy_tbl_) == 0) {
     return(policy_tbl_)

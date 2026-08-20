@@ -4596,7 +4596,7 @@ strategy_q_scalars <- function(row_now) {
   if (!is.finite(q95) || q95 <= 0) {
     q95 <- suppressWarnings(as.numeric(
       row_now$q_abs_log_total[[1]] %||%
-      row_now$q_abs_log_conformal[[1]] %||%
+        row_now$q_abs_log_conformal[[1]] %||%
         row_now$q_abs_log[[1]] %||%
         NA_real_
     ))
