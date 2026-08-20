@@ -1022,7 +1022,7 @@ test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
   }, logical(1))))
 })
 
-test_that("plot_selected_intervals prefers learner post-selection interval columns", {
+test_that("plot_selected_intervals uses the selected-policy interval columns", {
   plot_tbl <- tibble::tibble(
     anchor_species = "Alpha alpha",
     multiplier_pred = 2.0,
@@ -1039,8 +1039,8 @@ test_that("plot_selected_intervals prefers learner post-selection interval colum
   errorbar_data <- built[["data"]][[2]]
 
   expect_equal(errorbar_data$y[[1]], log10(2.0), tolerance = 1e-8)
-  expect_equal(errorbar_data$ymin[[1]], log10(1.8), tolerance = 1e-8)
-  expect_equal(errorbar_data$ymax[[1]], log10(2.2), tolerance = 1e-8)
+  expect_equal(errorbar_data$ymin[[1]], log10(0.5), tolerance = 1e-8)
+  expect_equal(errorbar_data$ymax[[1]], log10(5.0), tolerance = 1e-8)
 })
 
 test_that("TS interval display columns are centered on selected policy curve", {

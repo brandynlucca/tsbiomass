@@ -3669,8 +3669,19 @@ select_ts_calibration_curve <- function(ts_calibration,
       .data$policy == !!policy_value,
       .data$equation_branch_filter == !!branch_value
     )
-  if (nrow(pool_now) == 0 || dplyr::n_distinct(pool_now$anchor_model_id) < 2L) {
+  if (nrow(pool_now) == 0) {
     return(tibble::tibble())
+  }
+  has_anchor_ids <- "anchor_model_id" %in% names(pool_now)
+
+  # Older saved workflows store an already-calibrated policy/branch profile
+  # rather than row-level residual records. That profile is still valid input
+  # for interpolation on the target grid; requiring unavailable anchor IDs and
+  # raw residual columns would incorrectly discard all length variation.
+  has_raw_residual_records <- has_anchor_ids &&
+    all(c("ts_error", "log_sigma_residual") %in% names(pool_now))
+  if (!has_raw_residual_records) {
+    return(pool_now)
   }
 
   # When donor-locality fields are available, keep only the nearest anchor
@@ -3696,7 +3707,7 @@ select_ts_calibration_curve <- function(ts_calibration,
     ),
     names(pool_now)
   )
-  if (length(locality_cols) > 0L &&
+  if (has_anchor_ids && length(locality_cols) > 0L &&
     dplyr::n_distinct(pool_now$anchor_model_id) >= min_anchor_neighbors) {
     anchor_pool <- pool_now |>
       dplyr::group_by(.data$anchor_model_id) |>
@@ -4578,18 +4589,15 @@ augment_anchor_coefficient_context <- function(policy_tbl,
 strategy_q_scalars <- function(row_now) {
   q95 <- suppressWarnings(as.numeric(
     (
-      row_now$meta_post_selection_interval_log_width[[1]] %||%
-        row_now$interval_log_width[[1]] %||%
+      row_now$interval_log_width[[1]] %||%
         NA_real_
     ) / 2
   ))
   if (!is.finite(q95) || q95 <= 0) {
     q95 <- suppressWarnings(as.numeric(
-      row_now$meta_q_abs_log_total[[1]] %||%
-        row_now$q_abs_log_conformal[[1]] %||%
-        row_now$meta_q_abs_log[[1]] %||%
+      row_now$q_abs_log_total[[1]] %||%
+      row_now$q_abs_log_conformal[[1]] %||%
         row_now$q_abs_log[[1]] %||%
-        row_now$q_abs_log_total[[1]] %||%
         NA_real_
     ))
   }
@@ -4598,13 +4606,11 @@ strategy_q_scalars <- function(row_now) {
       row_now$multiplier_pred[[1]] %||% NA_real_
     ))
     multiplier_lo <- suppressWarnings(as.numeric(
-      row_now$meta_post_selection_multiplier_lo[[1]] %||%
-        row_now$multiplier_lo[[1]] %||%
+      row_now$multiplier_lo[[1]] %||%
         NA_real_
     ))
     multiplier_hi <- suppressWarnings(as.numeric(
-      row_now$meta_post_selection_multiplier_hi[[1]] %||%
-        row_now$multiplier_hi[[1]] %||%
+      row_now$multiplier_hi[[1]] %||%
         NA_real_
     ))
     if (is.finite(multiplier_pred) &&
@@ -5003,23 +5009,10 @@ strategy_uncertainty_context <- function(row_now,
     coefficient_covariance_source <- "empirical_selected_policy_residuals"
   }
 
+  # Competing strategies are a selection audit. Their coefficient dispersion is
+  # not uncertainty of the selected strategy and must not widen its covariance.
   competition_support_n <- competition_sigma$n %||% NA_real_
-  if (!is.null(competition_sigma) &&
-    is.matrix(competition_sigma$covariance) &&
-    all(is.finite(competition_sigma$covariance))) {
-    raw_covariance <- if (is.null(raw_covariance)) {
-      competition_sigma$covariance
-    } else {
-      raw_covariance + competition_sigma$covariance
-    }
-    coefficient_covariance_source <- if (is.na(coefficient_covariance_source)) {
-      "near_tie_competition"
-    } else {
-      paste0(coefficient_covariance_source, "+near_tie_competition")
-    }
-  }
-
-  support_candidates <- c(coefficient_support_n, competition_support_n)
+  support_candidates <- c(coefficient_support_n)
   support_candidates <- support_candidates[is.finite(support_candidates)]
   coefficient_support_n <- if (length(support_candidates) > 0) {
     min(support_candidates)
@@ -5278,7 +5271,6 @@ strategy_uncertainty_context <- function(row_now,
       out <- rep(1, length(length_grid))
     }
     out[!is.finite(out) | out <= 0] <- 1
-    out <- out * support_shape
     out_mean <- stats::weighted.mean(out, pdf_weights, na.rm = TRUE)
     if (!is.finite(out_mean) || out_mean <= 0) {
       out_mean <- mean(out[is.finite(out)], na.rm = TRUE)

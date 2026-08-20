@@ -2709,11 +2709,18 @@ policy_summary_rows <- function(rows,
 #' @noRd
 policy_support_summary <- function(rows,
                                    policy_def,
-                                   summary_rows = NULL) {
+                                   summary_rows = NULL,
+                                   structural_rows = NULL) {
   # These diagnostics expose how local the selected donor pool is for the
-  # current anchor. They are intentionally separate from historical conformal
-  # calibration so final strategy selection can balance both quantities.
-  keep_rows <- summary_rows %||% policy_summary_rows(rows, policy_def)
+  # current anchor. Their weights must match the policy estimate itself:
+  # using admissibility weights for an equal-weight mean hides distant donors
+  # that materially contribute to the resulting equation.
+  summary_rows <- summary_rows %||% policy_summary_rows(rows, policy_def)
+  keep_rows <- structural_rows %||% policy_structural_rows(
+    rows,
+    policy_def,
+    summary_rows = summary_rows
+  )
 
   finite_min <- function(x) {
     x <- suppressWarnings(as.numeric(x))
@@ -2725,14 +2732,13 @@ policy_support_summary <- function(rows,
     x <- x[is.finite(x)]
     if (length(x) == 0) NA_real_ else stats::median(x)
   }
-  weighted_mean_col <- function(value_col,
-                                weight_col = "w_adm") {
+  weighted_mean_col <- function(value_col) {
     if (!value_col %in% names(keep_rows)) {
       return(NA_real_)
     }
     x <- suppressWarnings(as.numeric(keep_rows[[value_col]]))
-    if (weight_col %in% names(keep_rows)) {
-      w <- suppressWarnings(as.numeric(keep_rows[[weight_col]]))
+    if (".structural_weight" %in% names(keep_rows)) {
+      w <- suppressWarnings(as.numeric(keep_rows$.structural_weight))
     } else {
       w <- rep(1, length(x))
     }
@@ -2742,11 +2748,24 @@ policy_support_summary <- function(rows,
     }
     stats::weighted.mean(x[ok], w[ok], na.rm = TRUE)
   }
+  weighted_q_col <- function(value_col, prob = 0.90) {
+    if (!value_col %in% names(keep_rows)) {
+      return(NA_real_)
+    }
+    x <- suppressWarnings(as.numeric(keep_rows[[value_col]]))
+    if (".structural_weight" %in% names(keep_rows)) {
+      w <- suppressWarnings(as.numeric(keep_rows$.structural_weight))
+    } else {
+      w <- rep(1, length(x))
+    }
+    q <- weighted_quantile(x, w, probs = prob)
+    if (length(q) == 0L) NA_real_ else as.numeric(q[[1]])
+  }
 
-  weights <- if ("w_adm" %in% names(keep_rows)) {
-    normalized_weights(keep_rows$w_adm)
+  weights <- if (".structural_weight" %in% names(keep_rows)) {
+    normalized_weights(keep_rows$.structural_weight)
   } else {
-    numeric(0)
+    normalized_weights(rep(1, nrow(keep_rows)))
   }
   donor_id_col <- if ("model_id" %in% names(keep_rows)) {
     "model_id"
@@ -2767,6 +2786,21 @@ policy_support_summary <- function(rows,
   } else {
     1 / sum(weights^2)
   }
+  # Repeated equations from one species are not independent biological support.
+  # Preserve model-level support above, and expose the species-collapsed value
+  # separately for the anchor-equivalence burden tie-breaker.
+  species_col <- c("species", "species_name", "scientific_name")
+  species_col <- species_col[species_col %in% names(keep_rows)]
+  species_col <- if (length(species_col) == 0L) NA_character_ else species_col[[1]]
+  effective_species_n <- if (is.na(species_col) || length(weights) == 0L) {
+    NA_real_
+  } else {
+    species_id <- as.character(keep_rows[[species_col]])
+    species_id[is.na(species_id) | !nzchar(species_id)] <- "<missing-species>"
+    species_weight <- rowsum(weights, group = species_id, reorder = FALSE)[, 1]
+    species_weight <- normalized_weights(species_weight)
+    if (length(species_weight) == 0L) NA_real_ else 1 / sum(species_weight^2)
+  }
 
   slope20 <- slope20_indicator(keep_rows)
   base_summary <- list(
@@ -2774,6 +2808,7 @@ policy_support_summary <- function(rows,
     local_min_combined_distance = if ("combined_distance" %in% names(keep_rows)) finite_min(keep_rows$combined_distance) else NA_real_,
     local_median_combined_distance = if ("combined_distance" %in% names(keep_rows)) finite_median(keep_rows$combined_distance) else NA_real_,
     local_weighted_mean_combined_distance = weighted_mean_col("combined_distance"),
+    local_weighted_q90_combined_distance = weighted_q_col("combined_distance"),
     local_weighted_mean_learned_distance_disagreement = weighted_mean_col("learned_distance_disagreement"),
     local_max_learned_distance_disagreement = if ("learned_distance_disagreement" %in% names(keep_rows)) {
       values <- suppressWarnings(as.numeric(keep_rows$learned_distance_disagreement))
@@ -2789,11 +2824,16 @@ policy_support_summary <- function(rows,
     },
     local_min_trait_gower_distance = if ("trait_gower_distance" %in% names(keep_rows)) finite_min(keep_rows$trait_gower_distance) else NA_real_,
     local_weighted_mean_trait_gower_distance = weighted_mean_col("trait_gower_distance"),
+    local_weighted_q90_trait_gower_distance = weighted_q_col("trait_gower_distance"),
+    local_min_taxonomic_distance = if ("taxonomic_distance_to_anchor" %in% names(keep_rows)) finite_min(keep_rows$taxonomic_distance_to_anchor) else NA_real_,
+    local_weighted_mean_taxonomic_distance = weighted_mean_col("taxonomic_distance_to_anchor"),
+    local_weighted_q90_taxonomic_distance = weighted_q_col("taxonomic_distance_to_anchor"),
     local_min_species_distance = if ("d_species" %in% names(keep_rows)) finite_min(keep_rows$d_species) else NA_real_,
     local_weighted_mean_species_distance = weighted_mean_col("d_species"),
     local_mean_length_overlap = weighted_mean_col("length_overlap_fraction"),
     local_mean_depth_overlap = weighted_mean_col("depth_overlap_fraction"),
     local_effective_support = effective_n,
+    local_effective_species_support = effective_species_n,
     local_max_weight = if (length(weights) == 0) NA_real_ else max(weights, na.rm = TRUE),
     realized_n_unique_donors = if (is.na(donor_id_col)) NA_integer_ else as.integer(length(unique(as.character(keep_rows[[donor_id_col]])))),
     realized_donor_fingerprint = donor_fingerprint
@@ -3538,6 +3578,7 @@ policy_donor_payload_cpp <- function(eval_obj) {
     depth_overlap = numeric_col("depth_overlap_fraction"),
     donor_multiplier = numeric_col("biomass_multiplier_if_replace"),
     donor_id = character_col(c("model_id", "model_id_chr")),
+    donor_species = character_col(c("species", "species_name", "scientific_name")),
     overlap = overlap
   )
 }
@@ -3753,7 +3794,8 @@ evaluate_policies <- function(eval_obj,
       policy_support_summary(
         donor_rows_valid,
         policy_def,
-        summary_rows = summary_rows
+        summary_rows = summary_rows,
+        structural_rows = structural_rows
       ),
       policy_structural_summary(
         rows = donor_rows_valid,
@@ -6004,6 +6046,17 @@ resolve_meta_policy_group_col <- function(policy_perf,
       stop(sprintf("Column '%s' was not found in 'policy_perf'.", group_col), call. = FALSE)
     }
     return(group_col)
+  }
+
+  # Meta-policy predictions are deployed to reference species that were not
+  # observed as anchors during training. Keep every result from an anchor
+  # species in the same outer fold so cross-fit performance has that meaning.
+  if ("anchor_species" %in% names(policy_perf)) {
+    anchor_species <- as.character(policy_perf$anchor_species)
+    available_species <- anchor_species[!is.na(anchor_species) & nzchar(anchor_species)]
+    if (dplyr::n_distinct(available_species) >= 2L) {
+      return("anchor_species")
+    }
   }
 
   context_cols <- meta_policy_context_columns(policy_perf)

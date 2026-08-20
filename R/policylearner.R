@@ -200,7 +200,27 @@ as_policylearner <- function(selector,
     tibble::as_tibble(selector@benchmark$species_block_perf %||% tibble::tibble()),
     error = function(e) tibble::tibble()
   )
+  global_strategy_library <- policy_learner_global_strategy_library(selector)
+  global_strategy_library_status <- attr(global_strategy_library, "status") %||% "unavailable"
   if (nrow(species_block_perf) > 0) {
+    # The global benchmark screen defines the strategy library G_i.  The
+    # ranking learner must be trained on that same library; filtering only at
+    # anchor prediction time changes the estimand and lets rejected policies
+    # influence all fitted score surfaces.
+    if (nrow(global_strategy_library) > 0) {
+      screened_perf <- species_block_perf |>
+        normalize_policy_columns() |>
+        dplyr::semi_join(
+          global_strategy_library,
+          by = c("policy", "equation_branch_filter")
+        )
+      if (nrow(screened_perf) > 0) {
+        species_block_perf <- screened_perf
+        global_strategy_library_status <- "applied"
+      } else {
+        global_strategy_library_status <- "screen_no_matching_benchmark_rows"
+      }
+    }
     random_intercepts <- policy_learner_selection_random_intercepts(merged_config)
     species_block_perf <- attach_meta_policy_random_intercepts(
       policy_perf = species_block_perf,
@@ -262,10 +282,63 @@ as_policylearner <- function(selector,
     selector = NULL,
     config = merged_config,
     training_data = tibble::tibble(),
-    crossfit = list(species_block_perf = species_block_perf),
+    crossfit = list(
+      species_block_perf = species_block_perf,
+      global_strategy_library = global_strategy_library,
+      global_strategy_library_status = global_strategy_library_status
+    ),
     fitted_model = list(),
     calibration = list()
   )
+}
+
+#' Extract the globally acceptable policy/branch library for a learner
+#'
+#' The global one-SE/bootstrap screen defines the policy library that the
+#' anchor-level learner is allowed to rank.  Older or sparse selector objects
+#' can lack this screen, in which case an empty library deliberately signals
+#' that all available benchmark rows must be retained for backward-compatible
+#' fitting.
+#'
+#' @param selector A `PolicySelector` object.
+#'
+#' @return A distinct policy/branch tibble. Its `status` attribute records
+#'   whether a usable global screen was available.
+#'
+#' @keywords internal
+#' @noRd
+policy_learner_global_strategy_library <- function(selector) {
+  empty_library <- function(status) {
+    out <- tibble::tibble(
+      policy = character(0),
+      equation_branch_filter = character(0)
+    )
+    attr(out, "status") <- status
+    out
+  }
+  if (!is_s7_instance(selector, "PolicySelector")) {
+    return(empty_library("selector_unavailable"))
+  }
+  selection_ref <- tryCatch(
+    selector@selection$final_ref %||% selector@selection$select_ref %||% tibble::tibble(),
+    error = function(e) tibble::tibble()
+  )
+  selection_ref <- tryCatch(
+    normalize_policy_columns(tibble::as_tibble(selection_ref)),
+    error = function(e) tibble::tibble()
+  )
+  required <- c("policy", "equation_branch_filter", "acceptable_global")
+  if (nrow(selection_ref) == 0 || !all(required %in% names(selection_ref))) {
+    return(empty_library("global_screen_unavailable"))
+  }
+  library <- selection_ref |>
+    dplyr::filter(dplyr::coalesce(.data$acceptable_global, FALSE)) |>
+    dplyr::distinct(.data$policy, .data$equation_branch_filter)
+  if (nrow(library) == 0) {
+    return(empty_library("global_screen_empty"))
+  }
+  attr(library, "status") <- "global_screen_available"
+  library
 }
 
 #' Resolve `PolicyLearner` config values
@@ -1493,7 +1566,11 @@ policy_learner_uncertainty_screen_inputs <- function(object,
     anchor_lookup = anchor_lookup
   )
   width_feature_cols <- policy_learner_uncertainty_feature_cols(cfg, meta_selected)
-  width_group_col <- crossfit_obj$group_col %||% NULL
+  width_group_col <- if ("anchor_species" %in% names(meta_selected)) {
+    "anchor_species"
+  } else {
+    crossfit_obj$group_col %||% NULL
+  }
   if (!is.null(width_group_col) && !width_group_col %in% names(meta_selected)) {
     width_group_col <- NULL
   }
@@ -2271,7 +2348,11 @@ policy_learner_uncertainty_crossfit_plan <- function(object,
     fallback = (object@fitted_model)$selection_super_methods %||%
       crossfit_obj$selection_super_methods
   )
-  width_group_col <- crossfit_obj$group_col %||% NULL
+  width_group_col <- if ("anchor_species" %in% names(meta_selected)) {
+    "anchor_species"
+  } else {
+    crossfit_obj$group_col %||% NULL
+  }
   if (!is.null(width_group_col) && !width_group_col %in% names(meta_selected)) {
     width_group_col <- NULL
   }
@@ -2906,7 +2987,11 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     fallback = (object@fitted_model)$selection_super_methods %||%
       crossfit_obj$selection_super_methods
   )
-  width_group_col <- crossfit_obj$group_col %||% NULL
+  width_group_col <- if ("anchor_species" %in% names(meta_selected)) {
+    "anchor_species"
+  } else {
+    crossfit_obj$group_col %||% NULL
+  }
   if (!is.null(width_group_col) && !width_group_col %in% names(meta_selected)) {
     width_group_col <- NULL
   }
@@ -2991,8 +3076,24 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
         width_active_methods,
         method_settings = uncertainty_method_settings
       )
-      width_crossfit_result <- if (!is.null(uncertainty_crossfit_result) &&
-        identical(as.character(method_now), as.character(width_method))) {
+      reuse_external_crossfit <- !is.null(uncertainty_crossfit_result) &&
+        identical(as.character(method_now), as.character(width_method))
+      if (reuse_external_crossfit) {
+        external_predictions <- tibble::as_tibble(
+          uncertainty_crossfit_result$predictions %||% tibble::tibble()
+        )
+        external_width <- suppressWarnings(
+          as.numeric(external_predictions$.meta_predicted_score)
+        )
+        if (sum(is.finite(external_width) & external_width > 0) < min_width_rows) {
+          reuse_external_crossfit <- FALSE
+          width_warning <<- paste(
+            "Discarded the scheduled conditional-uncertainty cross-fit because it did not produce",
+            "enough strictly positive held-out width predictions; recalculating it locally."
+          )
+        }
+      }
+      width_crossfit_result <- if (reuse_external_crossfit) {
         uncertainty_crossfit_result
       } else {
         crossfit_meta_policy_learner(
@@ -3049,6 +3150,13 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
         dplyr::mutate(
           .width_predicted_q_abs_log = pmax(.data$.meta_predicted_score, 0)
         )
+      if (sum(is.finite(width_predictions$.width_predicted_q_abs_log) &
+        width_predictions$.width_predicted_q_abs_log > 0) < min_width_rows) {
+        stop(
+          "Conditional-uncertainty cross-fitting produced too few strictly positive held-out width predictions.",
+          call. = FALSE
+        )
+      }
 
       join_keys <- intersect(
         c("anchor_model_id", "anchor_species", "policy", "equation_branch_filter"),
@@ -3074,7 +3182,12 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
 
     width_methods_to_try <- unique(c(
       width_method,
-      (object@fitted_model)$selection_method %||% crossfit_obj$selection_method
+      (object@fitted_model)$selection_method %||% crossfit_obj$selection_method,
+      # Widths must remain a learned conditional function.  A complex
+      # Super Learner can legitimately collapse to zero on a small selected
+      # calibration set; retain a stable positive regression retry before
+      # considering the explicit score-based emergency fallback below.
+      "glm"
     ))
     width_methods_to_try <- width_methods_to_try[
       !is.na(width_methods_to_try) & nzchar(width_methods_to_try)
@@ -3211,6 +3324,14 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     dplyr::pull(width_ratio)
   width_factor_simultaneous_global <- width_factor_simultaneous_values |>
     conformal_quantile(alpha = alpha)
+  if (nrow(width_calibration) < min_width_rows ||
+    !is.finite(width_factor_global) || width_factor_global <= 0 ||
+    !is.finite(width_factor_simultaneous_global) || width_factor_simultaneous_global <= 0) {
+    stop(
+      "Post-selection uncertainty calibration failed: no valid conformal scale could be estimated from held-out selected strategies.",
+      call. = FALSE
+    )
+  }
 
   # Build pooled local conformal factors so thin policy/species cells borrow
   # strength from the global width ratio instead of using one raw local ratio.
@@ -3312,6 +3433,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       outcome_col = calibration_outcome_col,
       raw_outcome_col = outcome_col,
       max_selection_tolerance = max_selection_tolerance,
+      selection_calibration_rule = "point_score",
       use_support_bin_intervals = policy_selector_config_value(
         cfg,
         "use_support_bin_intervals",
@@ -3639,9 +3761,12 @@ policy_learner_ensemble_disagreement_uncertainty <- function(tbl,
   # u_hat(v_i) remains anchor- and policy-conditioned. The normalized
   # conformal quantile is pooled over held-out selected strategies, as defined
   # in the methods; sparse policy-only multipliers are not part of R_i.
-  global_width_factor <- suppressWarnings(as.numeric(cal_obj$width_factor_global %||% 1))
+  global_width_factor <- suppressWarnings(as.numeric(cal_obj$width_factor_global %||% NA_real_))
   if (!is.finite(global_width_factor) || global_width_factor <= 0) {
-    global_width_factor <- 1
+    stop(
+      "Post-selection uncertainty is unavailable because its held-out conformal calibration factor is missing or invalid. Re-run `calibrate_uncertainty()` before predicting intervals.",
+      call. = FALSE
+    )
   }
   pooled_width_n <- suppressWarnings(as.numeric(
     nrow(tibble::as_tibble(cal_obj$selected %||% tibble::tibble()))
@@ -3741,7 +3866,10 @@ policy_learner_ensemble_disagreement_uncertainty <- function(tbl,
           pmax(.data$.meta_predicted_score, 0)
         )
       ),
-      meta_q_abs_log_conformal_factor = dplyr::coalesce(.data$meta_q_abs_log_conformal_factor, cal_obj$width_factor_global, 1),
+      meta_q_abs_log_conformal_factor = dplyr::coalesce(
+        .data$meta_q_abs_log_conformal_factor,
+        cal_obj$width_factor_global
+      ),
       meta_q_abs_log_width_total = .data$meta_q_abs_log_width * .data$meta_q_abs_log_conformal_factor,
       meta_q_abs_log = .data$meta_q_abs_log_width_total,
       meta_interval_calibration = paste0(
@@ -3768,19 +3896,14 @@ policy_learner_ensemble_disagreement_uncertainty <- function(tbl,
         .data$meta_q_abs_log_width * .data$meta_q_abs_log_simultaneous_factor
       ),
       meta_q_abs_log_simultaneous_calibration = .data$meta_q_abs_log_simultaneous,
-      meta_q_abs_log_total = sqrt(
-        .data$meta_q_abs_log_width_total^2 +
-          dplyr::coalesce(.data$q_abs_log_structural, 0)^2 +
-          .data$meta_q_abs_log_disagreement^2
-      ),
-      meta_q_abs_log_simultaneous_total = sqrt(
-        pmax(
-          .data$meta_q_abs_log_width_total,
-          dplyr::coalesce(.data$meta_q_abs_log_simultaneous, .data$meta_q_abs_log_width * .data$meta_q_abs_log_simultaneous_factor),
-          na.rm = TRUE
-        )^2 +
-          dplyr::coalesce(.data$q_abs_log_structural, 0)^2 +
-          .data$meta_q_abs_log_disagreement^2
+      meta_q_abs_log_total = .data$meta_q_abs_log_width_total,
+      meta_q_abs_log_simultaneous_total = pmax(
+        .data$meta_q_abs_log_width_total,
+        dplyr::coalesce(
+          .data$meta_q_abs_log_simultaneous,
+          .data$meta_q_abs_log_width * .data$meta_q_abs_log_simultaneous_factor
+        ),
+        na.rm = TRUE
       ),
       meta_simultaneous_interval_factor = dplyr::if_else(
         is.finite(.data$meta_q_abs_log_simultaneous_total),
@@ -3870,7 +3993,10 @@ policy_learner_ensemble_disagreement_uncertainty <- function(tbl,
     ) |>
     dplyr::distinct()
 
+  # Candidate tables may be re-scored after an earlier recommendation pass.
+  # Remove that stale flag before attaching the current selection result.
   scored <- scored |>
+    dplyr::select(-dplyr::any_of("is_selected")) |>
     dplyr::left_join(
       selected_rows |>
         dplyr::select(

@@ -696,6 +696,59 @@ test_that("selection ranks predicted score before uncertainty within score band"
   expect_equal(selected$selected_policy[[1]], "better_score_wider")
 })
 
+test_that("selection does not use interval width or distance after the score screen", {
+  selected <- select_anchor_policies(tibble::tibble(
+    policy = c("better_score_wider", "worse_score_narrower"),
+    multiplier_pred = c(1.10, 1.12),
+    valid_prediction = c(TRUE, TRUE),
+    selection_valid = c(TRUE, TRUE),
+    uncertainty_eligible = c(TRUE, TRUE),
+    uncertainty_cost_log_width = c(0.40, 0.05),
+    mean_species_median_abs_log = c(0.08, 0.08),
+    local_weighted_mean_combined_distance = c(0.30, 0.01),
+    acceptable_global = c(TRUE, TRUE),
+    .meta_predicted_score = c(0.05, 0.06),
+    bootstrap_median_rank = c(2, 1)
+  ), score_tol_abs = 0.10)
+
+  expect_equal(selected$selected_policy[[1]], "better_score_wider")
+  expect_true(is.na(selected$anchor_selection_min_uncertainty_width[[1]]))
+})
+
+test_that("target selection does not treat across-policy score spread as a one-SE band", {
+  selected <- select_anchor_policies(tibble::tibble(
+    policy = c("point_best", "lower_burden_competitor"),
+    equation_branch_filter = "all",
+    multiplier_pred = 1,
+    valid_prediction = TRUE,
+    selection_valid = TRUE,
+    acceptable_global = TRUE,
+    .meta_predicted_score = c(0.40, 0.405),
+    local_weighted_q90_combined_distance = c(1.1, 0.8),
+    local_structural_q_abs_log = c(0.7, 0),
+    local_weighted_mean_combined_distance = c(1.0, 0.8),
+    local_effective_species_support = c(3, 1)
+  ))
+
+  expect_equal(selected$selected_policy[[1]], "point_best")
+  expect_match(selected$selection_tier[[1]], "point_score")
+})
+
+test_that("policy intervals use the calibrated radius once", {
+  intervals <- tsbiomass:::add_policy_intervals(tibble::tibble(
+    multiplier_pred = 2,
+    q_abs_log = 0.2,
+    local_structural_q_abs_log = 0.9,
+    valid_prediction = TRUE
+  ))
+
+  expect_equal(intervals$q_abs_log_conformal, 0.2)
+  expect_equal(intervals$q_abs_log_structural, 0.9)
+  expect_equal(intervals$q_abs_log_total, 0.2)
+  expect_equal(intervals$multiplier_lo, 2 * exp(-0.2))
+  expect_equal(intervals$multiplier_hi, 2 * exp(0.2))
+})
+
 test_that("ordination context accepts canonical and legacy score fields", {
   scores <- tibble::tibble(model_id = "m1", nmds_cluster_id = "cluster_1")
 

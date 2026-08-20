@@ -140,6 +140,30 @@ test_that("PolicyLearner uncertainty calibration respects uncertainty-specific l
   expect_equal(learner@calibration$uncertainty_method_settings$rf$num_trees, 7L)
 })
 
+test_that("PolicyLearner trains only on the globally acceptable strategy library", {
+  perf <- minimal_policy_performance()
+  selector <- make_selector(
+    benchmark = list(species_block_perf = perf),
+    selection = list(final_ref = minimal_selection_ref())
+  )
+
+  learner <- as_policylearner(selector)
+  stored <- policy_learner_species_perf(learner)
+
+  expect_equal(learner@crossfit$global_strategy_library_status, "applied")
+  expect_equal(nrow(stored), sum(perf$policy == "closest_within_species"))
+  expect_true(all(stored$policy == "closest_within_species"))
+  global_library <- learner@crossfit$global_strategy_library
+  attr(global_library, "status") <- NULL
+  expect_equal(
+    global_library,
+    tibble::tibble(
+      policy = "closest_within_species",
+      equation_branch_filter = "all"
+    )
+  )
+})
+
 test_that("PolicyLearner uncertainty screening infers missing selection validity", {
   cfg <- minimal_config_data()
   cfg$selection$method <- "super_learner"
@@ -479,6 +503,8 @@ test_that("PolicyLearner predict ranks and selects anchor-policy rows", {
       ),
       q_global = 0.15,
       q_simultaneous_global = 0.25,
+      width_factor_global = 1,
+      width_factor_simultaneous_global = 1,
       max_selection_tolerance = 1e-12
     )
   )
@@ -882,7 +908,8 @@ test_that("policy summaries can reuse precomputed donor subsets", {
   support <- tsbiomass:::policy_support_summary(
     rows = tibble::tibble(),
     policy_def = list(aggregation_method = "kernel_weighted_mean"),
-    summary_rows = summary_rows
+    summary_rows = summary_rows,
+    structural_rows = structural_rows
   )
   structural <- tsbiomass:::policy_structural_summary(
     rows = tibble::tibble(),
@@ -896,6 +923,35 @@ test_that("policy summaries can reuse precomputed donor subsets", {
   expect_true(is.finite(support$local_effective_support[[1]]))
   expect_true(is.finite(structural$donor_slope_sd[[1]]))
   expect_true(is.finite(structural$local_structural_q_abs_log[[1]]))
+})
+
+test_that("unweighted policy locality uses the policy's equal donor weights", {
+  donors <- tibble::tibble(
+    model_id = c("near", "far"),
+    species = c("Species near", "Species far"),
+    slope_len = c(20, 20),
+    intercept_len = c(-70, -70),
+    w_adm = c(0.99, 0.01),
+    combined_distance = c(0.1, 10.0),
+    taxonomic_distance_to_anchor = c(0.1, 0.8),
+    d_species = c(0.1, 0.8),
+    .structural_weight = c(1, 1)
+  )
+
+  support <- tsbiomass:::policy_support_summary(
+    rows = tibble::tibble(),
+    policy_def = list(aggregation_method = "arithmetic_mean"),
+    summary_rows = donors,
+    structural_rows = donors
+  )
+
+  expect_equal(support$local_effective_support[[1]], 2)
+  expect_equal(support$local_effective_species_support[[1]], 2)
+  expect_equal(support$local_weighted_mean_combined_distance[[1]], 5.05)
+  expect_equal(support$local_weighted_q90_combined_distance[[1]], 10)
+  expect_equal(support$local_weighted_mean_taxonomic_distance[[1]], 0.45)
+  expect_equal(support$local_weighted_q90_taxonomic_distance[[1]], 0.8)
+  expect_equal(support$local_weighted_mean_species_distance[[1]], 0.45)
 })
 
 test_that("PolicySimulator stores sensitivity reruns and exposes bound tables", {
@@ -978,4 +1034,17 @@ test_that("sensitivity generics return stored simulator outputs directly", {
 
   expect_equal(construct_sensitivity_table(simulator)$scenario[[1]], "baseline")
   expect_equal(collect_sensitivity_results(simulator)$select_ref$policy[[1]], "closest_within_species")
+})
+
+test_that("meta-policy cross-fitting defaults to anchor species", {
+  perf <- tibble::tibble(
+    policy = c("mean", "nearest", "mean", "nearest"),
+    anchor_species = c("species_a", "species_a", "species_b", "species_b"),
+    anchor_model_id = c("a1", "a1", "b1", "b1")
+  )
+
+  expect_equal(
+    tsbiomass:::resolve_meta_policy_group_col(perf),
+    "anchor_species"
+  )
 })

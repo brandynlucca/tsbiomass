@@ -97,10 +97,14 @@ test_that("C++ policy engine matches the R oracle column by column", {
   numeric_cols <- c(
     "policy_slope_len", "policy_intercept_len", "policy_sigma_bs_mean", "multiplier_pred",
     "local_min_combined_distance", "local_median_combined_distance",
-    "local_weighted_mean_combined_distance", "local_min_trait_gower_distance",
-    "local_weighted_mean_trait_gower_distance", "local_min_species_distance",
+    "local_weighted_mean_combined_distance", "local_weighted_q90_combined_distance",
+    "local_min_trait_gower_distance", "local_weighted_mean_trait_gower_distance",
+    "local_weighted_q90_trait_gower_distance", "local_min_taxonomic_distance",
+    "local_weighted_mean_taxonomic_distance", "local_weighted_q90_taxonomic_distance",
+    "local_min_species_distance",
     "local_weighted_mean_species_distance", "local_mean_length_overlap",
-    "local_mean_depth_overlap", "local_effective_support", "local_max_weight",
+    "local_mean_depth_overlap", "local_effective_support",
+    "local_effective_species_support", "local_max_weight",
     "donor_slope_sd", "donor_intercept_sd", "donor_slope_iqr", "donor_intercept_iqr",
     "donor_log_multiplier_abs_dev_median", "donor_log_multiplier_abs_dev_q90",
     "donor_log_sigma_abs_dev_median", "donor_log_sigma_abs_dev_q90",
@@ -151,7 +155,9 @@ test_that("C++ engine matches the complete production policy plan", {
 
   numeric_cols <- c(
     "policy_slope_len", "policy_intercept_len", "policy_sigma_bs_mean", "multiplier_pred",
-    "local_weighted_mean_combined_distance", "local_effective_support",
+    "local_weighted_mean_combined_distance", "local_weighted_q90_combined_distance",
+    "local_weighted_mean_taxonomic_distance", "local_weighted_q90_taxonomic_distance",
+    "local_effective_support", "local_effective_species_support",
     "donor_log_multiplier_abs_dev_q90", "donor_log_sigma_abs_dev_q90",
     "donor_curve_rmse_q90", "local_structural_q_abs_log"
   )

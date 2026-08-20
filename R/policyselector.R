@@ -1038,10 +1038,10 @@ S7::method(select_policies, PolicySelector) <- function(object,
                                      policy_params = list(),
                                      policy_path = NULL,
                                      registry_path = NULL,
-                                     learner = NULL,
-                                     use_support_bin_intervals = NULL,
-                                     max_selection_tolerance = NULL,
-                                     reuse_admissibility = TRUE,
+                                      learner = NULL,
+                                      use_support_bin_intervals = NULL,
+                                       max_selection_tolerance = NULL,
+                                      reuse_admissibility = TRUE,
                                      cache_path = NULL,
                                      refresh = NULL,
                                      progress = NULL,
@@ -1518,6 +1518,8 @@ S7::method(select_policies, PolicySelector) <- function(object,
     cfg, "local_distance_tolerance",
     sections = c("selection", "policy")
   ) %||% 1e-12
+  # A selected policy keeps its own calibrated interval
+  apply_selected_interval_columns <- function(selected_row) selected_row
 
   all_policy_intervals <- list()
   selected_policy_rows <- list()
@@ -1637,7 +1639,16 @@ S7::method(select_policies, PolicySelector) <- function(object,
       policy_params = policy_params,
       policy_path = policy_path
     ) |>
-      normalize_policy_columns() |>
+      normalize_policy_columns()
+    # `if_else()` evaluates both branches. Preserve external-anchor validation
+    # for compact/mock policy tables that legitimately omit coefficients.
+    if (!"policy_slope_len" %in% names(policy_tbl)) {
+      policy_tbl$policy_slope_len <- NA_real_
+    }
+    if (!"policy_intercept_len" %in% names(policy_tbl)) {
+      policy_tbl$policy_intercept_len <- NA_real_
+    }
+    policy_tbl <- policy_tbl |>
       dplyr::mutate(
         anchor_model_id = anchor_id,
         anchor_species = anchor_species,
@@ -1712,15 +1723,9 @@ S7::method(select_policies, PolicySelector) <- function(object,
         )))
     }
     # Collapse exact donor-equivalent candidates before scoring or selection.
-    # When multiple policy labels resolve to the same realized donor set and
-    # therefore the same predicted multiplier/coefficients for this anchor,
-    # keep only the most specific representation instead of letting broader
-    # aliases compete as distinct options.
     policy_tbl <- canonicalize_equivalent_policy_rows(policy_tbl)
 
-    # Either keep the deterministic globally screened policy row, or hand the
-    # anchor-policy table to the meta-policy learner and retain the learner's
-    # score-minimizing rows for this anchor.
+    # Keep the deterministic globally screened policy row
     if (is_s7_instance(learner, "PolicyLearner")) {
       policy_tbl <- stats::predict(
         learner,
@@ -1738,7 +1743,8 @@ S7::method(select_policies, PolicySelector) <- function(object,
       ) |>
         dplyr::mutate(
           selected_policy_display = dplyr::coalesce(.data$selected_policy_display, .data$policy_display, .data$selected_policy),
-          selection_tier = dplyr::coalesce(.data$selection_tier, "meta_policy_selection")
+          selection_tier = dplyr::coalesce(.data$selection_tier, "meta_policy_selection"),
+          post_selection_calibration_status = "stored_policy_calibration"
         )
       if (".policy_row_id" %in% names(policy_tbl) && ".policy_row_id" %in% names(selected_row)) {
         selected_ids <- selected_row$.policy_row_id
@@ -1825,36 +1831,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
         }
       )
     } else {
-      if (all(c(
-        "meta_post_selection_multiplier_lo",
-        "meta_post_selection_multiplier_hi",
-        "meta_post_selection_interval_log_width",
-        "meta_q_abs_log_total"
-      ) %in% names(selected_row))) {
-        selected_row <- selected_row |>
-          dplyr::mutate(
-            multiplier_lo = dplyr::coalesce(
-              suppressWarnings(as.numeric(.data$meta_post_selection_multiplier_lo)),
-              suppressWarnings(as.numeric(.data$multiplier_lo))
-            ),
-            multiplier_hi = dplyr::coalesce(
-              suppressWarnings(as.numeric(.data$meta_post_selection_multiplier_hi)),
-              suppressWarnings(as.numeric(.data$multiplier_hi))
-            ),
-            interval_log_width = dplyr::coalesce(
-              suppressWarnings(as.numeric(.data$meta_post_selection_interval_log_width)),
-              suppressWarnings(as.numeric(.data$interval_log_width))
-            ),
-            q_abs_log_total = dplyr::coalesce(
-              suppressWarnings(as.numeric(.data$meta_q_abs_log_total)),
-              suppressWarnings(as.numeric(.data$q_abs_log_total))
-            ),
-            uncertainty_cost_log_width = dplyr::coalesce(
-              suppressWarnings(as.numeric(.data$meta_post_selection_interval_log_width)),
-              suppressWarnings(as.numeric(.data$uncertainty_cost_log_width))
-            )
-          )
-      }
+      selected_row <- apply_selected_interval_columns(selected_row)
     }
 
     consensus_row <- summarize_evaluation(eval_obj) |>
@@ -2920,19 +2897,14 @@ first_non_missing_character <- function(x) {
 #' Add calibrated interval columns to anchor-policy rows
 #'
 #' Attaches the calibrated prediction interval to each policy row. The
-#' operational interval combines the conformal log-radius (`q_col`) and the
-#' donor structural spread (`local_structural_q_abs_log`) in quadrature:
-#' `q_total = sqrt(q_conformal^2 + (weight * q_structural)^2)`.
-#' Structural spread - the 90th-percentile weighted deviation of donor
-#' log-backscatter values from the policy prediction - penalises strategies
-#' that rely on heterogeneous donor pools (e.g. ocean-basin means), ensuring
-#' that narrower, more homogeneous donor sets are preferred when their
-#' conformal error is similar.
+#' displayed interval is the calibrated conformal log-radius (`q_col`). Donor
+#' structural spread (`local_structural_q_abs_log`) is retained as an audit and
+#' as a generic proxy-burden tie-breaker; it is not added to the calibrated
+#' radius a second time.
 #'
 #' @param policy_tbl Anchor-policy prediction table.
-#' @param structural_uncertainty_weight Multiplicative weight applied to the
-#'   structural spread component before combining with the conformal radius.
-#'   Default 1 gives equal weight to both sources.
+#' @param structural_uncertainty_weight Deprecated and ignored. Structural
+#'   disagreement is not combined with the calibrated policy radius.
 #' @param q_col Name of the conformal log-radius column.
 #' @param prediction_col Name of the predicted biomass multiplier column.
 #'
@@ -2983,21 +2955,12 @@ add_policy_intervals <- function(policy_tbl,
   } else {
     rep(NA_real_, nrow(out))
   }
-  # Treat missing structural spread as zero so conformal alone drives the
-  # interval when structural information is unavailable.
-  q_structural_eff <- dplyr::coalesce(q_structural_raw, 0)
-  # RSS combination: structural spread penalises heterogeneous donor pools so
-  # that broad ensemble strategies (ocean-basin mean, all-admissible mean) carry
-  # wider operational intervals than same-species or same-genus strategies with
-  # homogeneous donors.
-  q_total <- sqrt(q_conformal^2 + (structural_uncertainty_weight * q_structural_eff)^2)
+  q_total <- q_conformal
 
   out$q_abs_log_conformal <- q_conformal
   out$q_abs_log_structural <- q_structural_raw
   out$q_abs_log_total <- q_total
-  # Use the full operational uncertainty for displayed multiplier bounds.
-  # Decision-support outputs must reflect the same total uncertainty budget
-  # used downstream in selection and scorecard summaries.
+  # Display the selected policy's calibrated radius exactly once.
   q_display <- q_total
   out$multiplier_lo <- dplyr::if_else(
     out$valid_prediction & is.finite(q_display),
@@ -3058,19 +3021,14 @@ add_policy_intervals <- function(policy_tbl,
 #' @noRd
 select_anchor_policies <- function(policy_tbl,
                                    uncertainty_rule = "tolerance",
-                                   u_tol_rel = 0.25,
-                                   u_tol_abs = 0.05,
-                                   score_tol_abs = NULL,
-                                   one_se_multiplier = 1,
-                                   local_distance_tolerance = 1e-12) {
+                                    u_tol_rel = 0.25,
+                                    u_tol_abs = 0.05,
+                                    score_tol_abs = NULL,
+                                    one_se_multiplier = 1,
+                                    local_distance_tolerance = 1e-12) {
   policy_tbl_ <- tibble::as_tibble(policy_tbl)
   if (nrow(policy_tbl_) == 0) {
     return(policy_tbl_)
-  }
-
-  one_se_multiplier_ <- suppressWarnings(as.numeric(one_se_multiplier[[1]] %||% NA_real_))
-  if (!is.finite(one_se_multiplier_)) {
-    one_se_multiplier_ <- 1
   }
 
   if (!"valid_prediction" %in% names(policy_tbl_)) {
@@ -3114,6 +3072,15 @@ select_anchor_policies <- function(policy_tbl,
   }
   if (!"local_effective_support" %in% names(policy_tbl_)) {
     policy_tbl_$local_effective_support <- NA_real_
+  }
+  if (!"local_effective_species_support" %in% names(policy_tbl_)) {
+    policy_tbl_$local_effective_species_support <- NA_real_
+  }
+  if (!"local_weighted_q90_combined_distance" %in% names(policy_tbl_)) {
+    policy_tbl_$local_weighted_q90_combined_distance <- NA_real_
+  }
+  if (!"local_structural_q_abs_log" %in% names(policy_tbl_)) {
+    policy_tbl_$local_structural_q_abs_log <- NA_real_
   }
   if (!"acceptable_global" %in% names(policy_tbl_)) {
     policy_tbl_$acceptable_global <- NA
@@ -3244,26 +3211,11 @@ select_anchor_policies <- function(policy_tbl,
     }
   )
 
-  eligible <- policy_tbl_ |>
-    dplyr::filter(
-      .data$selection_valid,
-      dplyr::coalesce(.data$uncertainty_eligible, FALSE),
-      is.finite(.data$uncertainty_cost_log_width)
-    )
+  candidate_tbl <- policy_tbl_ |>
+    dplyr::filter(.data$selection_valid)
+  tier <- "benchmark_screened_score_only"
 
-  calibrated <- policy_tbl_ |>
-    dplyr::filter(
-      .data$selection_valid,
-      is.finite(.data$uncertainty_cost_log_width)
-    )
-
-  if (nrow(eligible) > 0) {
-    candidate_tbl <- eligible
-    tier <- "benchmark_screened_calibrated_uncertainty"
-  } else if (nrow(calibrated) > 0) {
-    candidate_tbl <- calibrated
-    tier <- "benchmark_screened_below_coverage_target"
-  } else {
+  if (nrow(candidate_tbl) == 0) {
     selected <- policy_tbl_ |>
       dplyr::filter(.data$selection_valid) |>
       dplyr::arrange(
@@ -3349,124 +3301,53 @@ select_anchor_policies <- function(policy_tbl,
   if (!is.finite(min_validation_error)) {
     min_validation_error <- NA_real_
   }
-  score_tol_abs_ <- suppressWarnings(as.numeric(score_tol_abs[[1]] %||% NA_real_))
-  # The prediction-band SE is computed on the anchor-specific predicted scores,
-  # matching the methods draft's \hat{s}_{t|i} one-SE rule.
-  score_threshold <- if (is.finite(min_validation_error)) {
-    if (is.finite(score_tol_abs_)) {
-      min_validation_error + pmax(0, score_tol_abs_)
-    } else {
-      min_validation_error + pmax(
-        0,
-        one_se_multiplier_ *
-          uncertainty_width_se(score_ranked$anchor_selection_validation_error)
-      )
-    }
-  } else {
-    NA_real_
-  }
+  score_threshold <- min_validation_error
+  best_score_rows <- score_ranked |>
+    dplyr::filter(.data$anchor_selection_validation_error == min_validation_error)
 
-  if (is.finite(min_validation_error)) {
-    best_score_rows <- score_ranked |>
-      dplyr::filter(
-        .data$anchor_selection_validation_error <= score_threshold
-      )
-  } else {
-    best_score_rows <- score_ranked
-  }
-
-  selected <- best_score_rows
-
-  # Similarity is part of the transfer estimand. Once policies are
-  # indistinguishable within the anchor-specific score band, discard policies
-  # requiring larger donor-to-anchor leaps before uncertainty breaks the
-  # remaining tie.
-  finite_distance <- selected |>
-    dplyr::filter(is.finite(.data$anchor_selection_local_distance))
-  if (nrow(finite_distance) > 0) {
-    min_distance <- suppressWarnings(
-      min(finite_distance$anchor_selection_local_distance, na.rm = TRUE)
-    )
-    if (is.finite(min_distance)) {
-      distance_filtered <- selected |>
-        dplyr::filter(
-          is.finite(.data$anchor_selection_local_distance),
-          .data$anchor_selection_local_distance <= min_distance + local_distance_tolerance
-        )
-      if (nrow(distance_filtered) > 0) {
-        selected <- distance_filtered
-        tier <- paste0(tier, "_local_distance")
-      }
-    }
-  }
-
-  min_width <- suppressWarnings(
-    min(selected$uncertainty_cost_log_width, na.rm = TRUE)
-  )
-  if (!is.finite(min_width)) {
-    return(candidate_tbl[0, , drop = FALSE])
-  }
-
-  width_threshold <- uncertainty_width_threshold(
-    min_width = min_width,
-    uncertainty_rule = uncertainty_rule,
-    u_tol_abs = u_tol_abs,
-    u_tol_rel = u_tol_rel,
-    width_se = uncertainty_width_se(selected$uncertainty_cost_log_width),
-    one_se_multiplier = one_se_multiplier_
-  )
-  if (is.finite(width_threshold)) {
-    width_filtered <- selected |>
-      dplyr::filter(
-        is.finite(.data$uncertainty_cost_log_width),
-        .data$uncertainty_cost_log_width <= width_threshold
-      )
-    if (nrow(width_filtered) > 0) {
-      selected <- width_filtered
-      tier <- paste0(tier, "_uncertainty_threshold")
-    }
-  }
-
-  selected$anchor_selection_broad_aggregate <- policy_is_broad_aggregate(
-    policy = selected$policy,
-    candidate_pool = if ("candidate_pool" %in% names(selected)) {
-      selected$candidate_pool
-    } else {
-      NULL
-    },
-    aggregation_method = if ("aggregation_method" %in% names(selected)) {
-      selected$aggregation_method
-    } else {
-      NULL
-    }
-  )
-  narrower_candidates <- selected |>
-    dplyr::filter(!.data$anchor_selection_broad_aggregate)
-  if (nrow(narrower_candidates) > 0) {
-    selected <- narrower_candidates
-    tier <- paste0(tier, "_specificity_sanity")
-  }
-
-  selected <- selected |>
-    dplyr::arrange(
-      .data$anchor_selection_validation_error,
-      .data$bootstrap_median_rank,
-      .data$uncertainty_cost_log_width,
-      .data$anchor_selection_local_distance,
-      .data$specificity_rank,
-      .data$policy
-    )
+  # Resolve exact target-score ties with the predeclared lexicographic burden.
+  selected <- order_policy_assumption_burden(best_score_rows)
 
   selected |>
     dplyr::slice(1) |>
     dplyr::mutate(
       selected_policy = .data$policy,
       selected_policy_display = .data$policy,
-      selection_tier = tier,
+      selection_tier = paste0(tier, "_point_score"),
       anchor_selection_min_validation_error = min_validation_error,
       anchor_selection_validation_threshold = score_threshold,
-      anchor_selection_min_uncertainty_width = min_width,
-      anchor_selection_uncertainty_threshold = width_threshold
+      anchor_selection_min_uncertainty_width = NA_real_,
+      anchor_selection_uncertainty_threshold = NA_real_
+    )
+}
+
+#' Order empirically equivalent policies by explicit proxy burden
+#' @keywords internal
+#' @noRd
+order_policy_assumption_burden <- function(policy_tbl) {
+  tbl <- tibble::as_tibble(policy_tbl)
+  finite_or_inf <- function(x) {
+    out <- suppressWarnings(as.numeric(x))
+    out[!is.finite(out)] <- Inf
+    out
+  }
+  support <- suppressWarnings(as.numeric(tbl$local_effective_species_support))
+  support[!is.finite(support) | support <= 0] <- suppressWarnings(as.numeric(tbl$local_effective_support))[!is.finite(support) | support <= 0]
+  sparse_support <- 1 / sqrt(support)
+  sparse_support[!is.finite(sparse_support)] <- Inf
+  tbl$anchor_selection_burden_q90_distance <- finite_or_inf(tbl$local_weighted_q90_combined_distance)
+  tbl$anchor_selection_burden_disagreement <- finite_or_inf(tbl$local_structural_q_abs_log)
+  tbl$anchor_selection_burden_mean_distance <- finite_or_inf(tbl$local_weighted_mean_combined_distance)
+  tbl$anchor_selection_burden_sparse_support <- sparse_support
+  tbl |>
+    dplyr::arrange(
+      .data$anchor_selection_burden_q90_distance,
+      .data$anchor_selection_burden_disagreement,
+      .data$anchor_selection_burden_mean_distance,
+      .data$anchor_selection_burden_sparse_support,
+      .data$anchor_selection_validation_error,
+      .data$bootstrap_median_rank,
+      .data$policy
     )
 }
 

@@ -15,6 +15,10 @@ inline bool finite_num(double x) {
   return R_finite(x);
 }
 
+double weighted_quantile_step(const std::vector<double>& values,
+                              const std::vector<double>& weights,
+                              double probability);
+
 double finite_min(const NumericVector& x, const std::vector<int>& idx) {
   double out = R_PosInf;
   bool found = false;
@@ -55,6 +59,32 @@ double weighted_mean(const NumericVector& x,
     }
   }
   return denominator > 0.0 ? numerator / denominator : NA_REAL;
+}
+
+double indexed_weighted_mean(const NumericVector& x,
+                             const std::vector<int>& idx,
+                             const std::vector<double>& weights) {
+  double numerator = 0.0;
+  double denominator = 0.0;
+  for (std::size_t j = 0; j < idx.size() && j < weights.size(); ++j) {
+    double value = x[idx[j]];
+    double weight = weights[j];
+    if (finite_num(value) && finite_num(weight) && weight > 0.0) {
+      numerator += value * weight;
+      denominator += weight;
+    }
+  }
+  return denominator > 0.0 ? numerator / denominator : NA_REAL;
+}
+
+double indexed_weighted_quantile(const NumericVector& x,
+                                 const std::vector<int>& idx,
+                                 const std::vector<double>& weights,
+                                 double probability) {
+  std::vector<double> values;
+  values.reserve(idx.size());
+  for (int i : idx) values.push_back(x[i]);
+  return weighted_quantile_step(values, weights, probability);
 }
 
 std::vector<double> normalized_weights(const NumericVector& raw_weight,
@@ -269,13 +299,15 @@ SEXP cpp_evaluate_policy_plan(List donors,
   NumericVector depth_overlap = donors["depth_overlap"];
   NumericVector donor_multiplier = donors["donor_multiplier"];
   CharacterVector donor_id = donors["donor_id"];
+  CharacterVector donor_species = donors["donor_species"];
   LogicalMatrix overlap = donors["overlap"];
 
   IntegerVector pool_id = plan["pool_id"];
   IntegerVector aggregation_code = plan["aggregation_code"];
   int n_plan = pool_id.size();
   int n_donor = slope.size();
-  if (pool_masks.ncol() != n_donor || aggregation_code.size() != n_plan) {
+  if (pool_masks.ncol() != n_donor || aggregation_code.size() != n_plan ||
+      donor_species.size() != n_donor) {
     stop("Compiled policy-plan dimensions do not match donor payload.");
   }
 
@@ -322,12 +354,15 @@ SEXP cpp_evaluate_policy_plan(List donors,
   NumericVector multiplier(n_plan, NA_REAL);
   IntegerVector n_valid_models(n_plan);
   NumericVector min_combined(n_plan, NA_REAL), median_combined(n_plan, NA_REAL), weighted_combined(n_plan, NA_REAL);
+  NumericVector weighted_q90_combined(n_plan, NA_REAL);
   NumericVector min_trait(n_plan, NA_REAL), weighted_trait(n_plan, NA_REAL);
+  NumericVector weighted_q90_trait(n_plan, NA_REAL);
+  NumericVector min_taxonomic(n_plan, NA_REAL), weighted_taxonomic(n_plan, NA_REAL), weighted_q90_taxonomic(n_plan, NA_REAL);
   NumericVector min_species(n_plan, NA_REAL), weighted_species(n_plan, NA_REAL);
   NumericVector weighted_learned_disagreement(n_plan, NA_REAL), max_learned_disagreement(n_plan, NA_REAL);
   LogicalVector learned_diagnostic_available_out(n_plan, false);
   NumericVector mean_length_overlap(n_plan, NA_REAL), mean_depth_overlap(n_plan, NA_REAL);
-  NumericVector effective_support(n_plan, NA_REAL), max_weight(n_plan, NA_REAL);
+  NumericVector effective_support(n_plan, NA_REAL), effective_species_support(n_plan, NA_REAL), max_weight(n_plan, NA_REAL);
   IntegerVector unique_donors(n_plan), n_slope20(n_plan), n_non_slope20(n_plan);
   CharacterVector donor_fingerprints(n_plan);
   LogicalVector constructed(n_plan);
@@ -427,14 +462,28 @@ SEXP cpp_evaluate_policy_plan(List donors,
       summary_idx = valid;
     }
     n_valid_models[p] = summary_idx.size();
+    // All diagnostics must follow the weights that construct this policy's
+    // equation. In particular, arithmetic means give every donor equal
+    // influence; using admissibility weights here conceals distant donors.
+    bool equal_structural_weight = method == 6 || (method >= 1 && method <= 4);
+    std::vector<double> support_weights = normalized_weights(
+      weight,
+      summary_idx,
+      equal_structural_weight
+    );
     min_combined[p] = finite_min(combined, summary_idx);
     median_combined[p] = finite_median(combined, summary_idx);
-    weighted_combined[p] = weighted_mean(combined, weight, summary_idx);
+    weighted_combined[p] = indexed_weighted_mean(combined, summary_idx, support_weights);
+    weighted_q90_combined[p] = indexed_weighted_quantile(combined, summary_idx, support_weights, 0.90);
     min_trait[p] = finite_min(trait, summary_idx);
-    weighted_trait[p] = weighted_mean(trait, weight, summary_idx);
+    weighted_trait[p] = indexed_weighted_mean(trait, summary_idx, support_weights);
+    weighted_q90_trait[p] = indexed_weighted_quantile(trait, summary_idx, support_weights, 0.90);
+    min_taxonomic[p] = finite_min(taxonomic, summary_idx);
+    weighted_taxonomic[p] = indexed_weighted_mean(taxonomic, summary_idx, support_weights);
+    weighted_q90_taxonomic[p] = indexed_weighted_quantile(taxonomic, summary_idx, support_weights, 0.90);
     min_species[p] = finite_min(species, summary_idx);
-    weighted_species[p] = weighted_mean(species, weight, summary_idx);
-    weighted_learned_disagreement[p] = weighted_mean(learned_disagreement, weight, summary_idx);
+    weighted_species[p] = indexed_weighted_mean(species, summary_idx, support_weights);
+    weighted_learned_disagreement[p] = indexed_weighted_mean(learned_disagreement, summary_idx, support_weights);
     double max_disagreement = R_NegInf;
     bool has_disagreement = false;
     for (int i : summary_idx) {
@@ -454,10 +503,9 @@ SEXP cpp_evaluate_policy_plan(List donors,
       }
       learned_diagnostic_available_out[p] = all_available;
     }
-    mean_length_overlap[p] = weighted_mean(length_overlap, weight, summary_idx);
-    mean_depth_overlap[p] = weighted_mean(depth_overlap, weight, summary_idx);
+    mean_length_overlap[p] = indexed_weighted_mean(length_overlap, summary_idx, support_weights);
+    mean_depth_overlap[p] = indexed_weighted_mean(depth_overlap, summary_idx, support_weights);
 
-    std::vector<double> support_weights = normalized_weights(weight, summary_idx, false);
     if (!support_weights.empty()) {
       double sum_sq = 0.0;
       double max_now = 0.0;
@@ -502,6 +550,21 @@ SEXP cpp_evaluate_policy_plan(List donors,
         structural_idx,
         method == 6 || (method >= 1 && method <= 4)
       );
+      std::unordered_map<std::string, double> species_weights;
+      for (std::size_t k = 0; k < structural_idx.size(); ++k) {
+        int i = structural_idx[k];
+        std::string species_id = CharacterVector::is_na(donor_species[i])
+          ? "<missing-species>" : as<std::string>(donor_species[i]);
+        if (species_id.empty()) species_id = "<missing-species>";
+        species_weights[species_id] += structural_weights[k];
+      }
+      double species_weight_sumsq = 0.0;
+      for (const auto& species_weight : species_weights) {
+        species_weight_sumsq += species_weight.second * species_weight.second;
+      }
+      if (species_weight_sumsq > 0.0) {
+        effective_species_support[p] = 1.0 / species_weight_sumsq;
+      }
       slope_sd[p] = finite_sd(slope, structural_idx);
       intercept_sd[p] = finite_sd(intercept, structural_idx);
       slope_iqr[p] = finite_iqr(slope, structural_idx);
@@ -553,16 +616,22 @@ SEXP cpp_evaluate_policy_plan(List donors,
     _["local_min_combined_distance"] = min_combined,
     _["local_median_combined_distance"] = median_combined,
     _["local_weighted_mean_combined_distance"] = weighted_combined,
+    _["local_weighted_q90_combined_distance"] = weighted_q90_combined,
     _["local_weighted_mean_learned_distance_disagreement"] = weighted_learned_disagreement,
     _["local_max_learned_distance_disagreement"] = max_learned_disagreement,
     _["learned_distance_diagnostic_available"] = learned_diagnostic_available_out,
     _["local_min_trait_gower_distance"] = min_trait,
     _["local_weighted_mean_trait_gower_distance"] = weighted_trait,
+    _["local_weighted_q90_trait_gower_distance"] = weighted_q90_trait,
+    _["local_min_taxonomic_distance"] = min_taxonomic,
+    _["local_weighted_mean_taxonomic_distance"] = weighted_taxonomic,
+    _["local_weighted_q90_taxonomic_distance"] = weighted_q90_taxonomic,
     _["local_min_species_distance"] = min_species,
     _["local_weighted_mean_species_distance"] = weighted_species,
     _["local_mean_length_overlap"] = mean_length_overlap,
     _["local_mean_depth_overlap"] = mean_depth_overlap,
     _["local_effective_support"] = effective_support,
+    _["local_effective_species_support"] = effective_species_support,
     _["local_max_weight"] = max_weight,
     _["realized_n_unique_donors"] = unique_donors,
     _["realized_donor_fingerprint"] = donor_fingerprints,
@@ -636,9 +705,9 @@ SEXP cpp_build_benchmark_ts_errors(List anchors,
   }
   if (policy_name.size() != n_policy || branch_name.size() != n_policy ||
       policy_slope.size() != n_policy || policy_intercept.size() != n_policy ||
-      local_min_distance.size() != n_policy || local_weighted_distance.size() != n_policy ||
-      local_effective_support.size() != n_policy || local_length_overlap.size() != n_policy ||
-      local_depth_overlap.size() != n_policy) {
+       local_min_distance.size() != n_policy || local_weighted_distance.size() != n_policy ||
+       local_effective_support.size() != n_policy || local_length_overlap.size() != n_policy ||
+       local_depth_overlap.size() != n_policy) {
     stop("Policy TS-error payload columns have inconsistent lengths.");
   }
 

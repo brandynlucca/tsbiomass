@@ -3712,18 +3712,12 @@ plot_selected_intervals <- function(sel_tbl,
   plot_df <- tibble::as_tibble(sel_tbl)
   plot_df$selected_policy_display <- resolve_selected_policy_names(plot_df)
   q_log <- dplyr::coalesce(
-    if ("meta_q_abs_log_total" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_q_abs_log_total)) else rep(NA_real_, nrow(plot_df)),
     if ("q_abs_log_total" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$q_abs_log_total)) else rep(NA_real_, nrow(plot_df)),
-    if ("meta_q_abs_log" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$meta_q_abs_log)) else rep(NA_real_, nrow(plot_df)),
+    if ("q_abs_log_conformal" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$q_abs_log_conformal)) else rep(NA_real_, nrow(plot_df)),
     if ("q_abs_log" %in% names(plot_df)) suppressWarnings(as.numeric(plot_df$q_abs_log)) else rep(NA_real_, nrow(plot_df))
   )
   multiplier_pred <- suppressWarnings(as.numeric(plot_df$multiplier_pred))
   plot_df$multiplier_lo <- dplyr::coalesce(
-    if ("meta_post_selection_multiplier_lo" %in% names(plot_df)) {
-      suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_lo))
-    } else {
-      rep(NA_real_, nrow(plot_df))
-    },
     if ("multiplier_lo" %in% names(plot_df)) {
       suppressWarnings(as.numeric(plot_df$multiplier_lo))
     } else {
@@ -3735,11 +3729,6 @@ plot_selected_intervals <- function(sel_tbl,
     is.finite(q_log) & q_log > 0
   plot_df$multiplier_lo[derive_lo] <- multiplier_pred[derive_lo] * exp(-q_log[derive_lo])
   plot_df$multiplier_hi <- dplyr::coalesce(
-    if ("meta_post_selection_multiplier_hi" %in% names(plot_df)) {
-      suppressWarnings(as.numeric(plot_df$meta_post_selection_multiplier_hi))
-    } else {
-      rep(NA_real_, nrow(plot_df))
-    },
     if ("multiplier_hi" %in% names(plot_df)) {
       suppressWarnings(as.numeric(plot_df$multiplier_hi))
     } else {
@@ -4396,8 +4385,6 @@ plot_ts_panel <- function(curve_tbl,
       }
     }
   }
-  curve_tbl <- center_ts_interval_columns(curve_tbl)
-
   # Draw non-overlapping shells for the nested intervals. This avoids the
   # misleading mixed colours produced by stacking translucent full ribbons.
   band_tbl <- dplyr::bind_rows(
@@ -4971,7 +4958,6 @@ plot_multiplier_length_spectrum <- function(curve_tbl,
       curve_tbl$ts_hi_95 <- hi_now
     }
   }
-  curve_tbl <- center_ts_interval_columns(curve_tbl, levels = "95")
   needed <- c(reference_col, "length_cm", "ts_anchor", "ts_pred", "ts_lo_95", "ts_hi_95")
   if (nrow(curve_tbl) == 0 || !all(needed %in% names(curve_tbl))) {
     return(plot_report_placeholder(

@@ -630,15 +630,15 @@ scorecard_normalize_multiplier_columns <- function(tbl) {
   )))
   multiplier_lo <- suppressWarnings(as.numeric(scorecard_pick(
     tbl,
-    c("meta_post_selection_multiplier_lo", "multiplier_lo")
+    c("multiplier_lo")
   )))
   multiplier_hi <- suppressWarnings(as.numeric(scorecard_pick(
     tbl,
-    c("meta_post_selection_multiplier_hi", "multiplier_hi")
+    c("multiplier_hi")
   )))
   interval_log_width <- suppressWarnings(as.numeric(scorecard_pick(
     tbl,
-    c("meta_post_selection_interval_log_width", "interval_log_width")
+    c("interval_log_width")
   )))
 
   can_derive_width <- is.finite(multiplier_lo) &
@@ -685,7 +685,7 @@ build_recommendation_cards <- function(selected_tbl,
   # Derive the warning cut points used to annotate wide or weakly supported recommendations.
   width_values <- suppressWarnings(as.numeric(scorecard_pick(
     selected_tbl_,
-    c("meta_post_selection_interval_log_width", "interval_log_width")
+    c("interval_log_width")
   )))
   support_values <- suppressWarnings(as.numeric(scorecard_pick(
     selected_tbl_,
@@ -716,7 +716,7 @@ build_recommendation_cards <- function(selected_tbl,
     )))
     intervals_work$interval_log_width_resolved <- suppressWarnings(as.numeric(scorecard_pick(
       intervals_work,
-      c("meta_post_selection_interval_log_width", "interval_log_width")
+      c("interval_log_width")
     )))
     intervals_work$local_distance_resolved <- suppressWarnings(as.numeric(scorecard_pick(
       intervals_work,
@@ -774,11 +774,11 @@ build_recommendation_cards <- function(selected_tbl,
   cards$biomass_multiplier <- suppressWarnings(as.numeric(scorecard_pick(cards, c("multiplier_pred"))))
   cards$biomass_multiplier_lo <- suppressWarnings(as.numeric(scorecard_pick(
     cards,
-    c("meta_post_selection_multiplier_lo", "multiplier_lo")
+    c("multiplier_lo")
   )))
   cards$biomass_multiplier_hi <- suppressWarnings(as.numeric(scorecard_pick(
     cards,
-    c("meta_post_selection_multiplier_hi", "multiplier_hi")
+    c("multiplier_hi")
   )))
   cards$predicted_transfer_error <- suppressWarnings(as.numeric(scorecard_pick(
     cards,
@@ -786,15 +786,15 @@ build_recommendation_cards <- function(selected_tbl,
   )))
   cards$total_uncertainty_log <- suppressWarnings(as.numeric(scorecard_pick(
     cards,
-    c("meta_q_abs_log_total", "q_abs_log_total")
+    c("q_abs_log_total", "q_abs_log_conformal", "q_abs_log")
   )))
   cards$uncertainty_budget_log <- suppressWarnings(as.numeric(scorecard_pick(
     cards,
-    c("meta_q_abs_log_total", "q_abs_log_total")
+    c("q_abs_log_total", "q_abs_log_conformal", "q_abs_log")
   )))
   cards$interval_log_width <- suppressWarnings(as.numeric(scorecard_pick(
     cards,
-    c("meta_post_selection_interval_log_width", "interval_log_width")
+    c("interval_log_width")
   )))
   cards$uncertainty_source <- as.character(scorecard_pick(
     cards,
