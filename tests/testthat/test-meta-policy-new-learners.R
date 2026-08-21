@@ -151,6 +151,16 @@ test_that("method-fold socket isolation logs the stored failure message", {
   expect_true(any(grepl("error reading from connection", output, fixed = TRUE)))
 })
 
+test_that("stochtree method-fold tasks request the PSOCK-safe backend", {
+  expect_false(tsbiomass:::meta_policy_method_tasks_require_psock(list(
+    list(fold_id = 1L, method = "rf"),
+    list(fold_id = 1L, method = "qrf")
+  )))
+  expect_true(tsbiomass:::meta_policy_method_tasks_require_psock(list(
+    list(fold_id = 1L, method = "vfbart")
+  )))
+})
+
 test_that("final Super Learner OOF scheduler sets fork payload before cluster creation", {
   on.exit(tsbiomass:::clear_meta_policy_crossfit_payload(), add = TRUE)
   tasks <- list(

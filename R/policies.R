@@ -9879,6 +9879,11 @@ split_meta_policy_crossfit_suspect_group <- function(tasks) {
   list(tasks[seq_len(cut)], tasks[(cut + 1L):length(tasks)])
 }
 
+meta_policy_method_tasks_require_psock <- function(tasks) {
+  methods <- vapply(tasks, function(task) as.character(task$method %||% NA_character_), character(1))
+  any(methods %in% c("bart", "xbart", "wsbart", "vfbart", "rebart"), na.rm = TRUE)
+}
+
 #' Run one live meta-policy method-fold queue
 #'
 #' Submits method-fold tasks to worker slots, collects each result as soon as it
@@ -9947,15 +9952,26 @@ run_meta_policy_crossfit_method_queue_once <- function(tasks,
     ))
   }
 
+  force_psock <- meta_policy_method_tasks_require_psock(tasks)
   set_meta_policy_crossfit_payload(payload)
-  cluster_obj <- if (workers <= 1L && .Platform$OS.type == "unix") {
+  cluster_obj <- if (workers <= 1L && .Platform$OS.type == "unix" && !isTRUE(force_psock)) {
     cl <- parallel::makeForkCluster(1L)
     attr(cl, "cluster_type") <- "fork"
     cl
   } else {
-    initialize_parallel_cluster(workers = workers)
+    initialize_parallel_cluster(
+      workers = workers,
+      backend = if (isTRUE(force_psock)) "psock" else "auto",
+      force_cluster = isTRUE(force_psock)
+    )
   }
   cluster_type <- attr(cluster_obj, "cluster_type", exact = TRUE) %||% "unknown"
+  if (isTRUE(force_psock) && identical(cluster_type, "psock")) {
+    report_progress(
+      progress,
+      "  Method-fold queue backend: PSOCK for stochtree BART-family task(s)."
+    )
+  }
   if (!identical(cluster_type, "fork")) {
     run_method_task <- function(task) {
       run_meta_policy_crossfit_method_payload_task(task, payload)

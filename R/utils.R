@@ -575,7 +575,9 @@ installed_script_path <- function(name) {
 #' @noRd
 initialize_parallel_cluster <- function(workers,
                                         package_name = "tsbiomass",
-                                        worker_output = FALSE) {
+                                        worker_output = FALSE,
+                                        backend = c("auto", "fork", "psock"),
+                                        force_cluster = FALSE) {
   # Keep the parallel setup logic in one place so benchmark and sensitivity
   # reruns both initialize workers the same way.
   if (!is.numeric(workers) || length(workers) != 1 || !is.finite(workers) || workers < 1) {
@@ -587,9 +589,13 @@ initialize_parallel_cluster <- function(workers,
   if (!is.logical(worker_output) || length(worker_output) != 1L || is.na(worker_output)) {
     stop("'worker_output' must be TRUE or FALSE.", call. = FALSE)
   }
+  if (!is.logical(force_cluster) || length(force_cluster) != 1L || is.na(force_cluster)) {
+    stop("'force_cluster' must be TRUE or FALSE.", call. = FALSE)
+  }
+  backend <- match.arg(backend)
 
   workers <- as.integer(workers)
-  if (workers <= 1L) {
+  if (workers <= 1L && !isTRUE(force_cluster)) {
     return(NULL)
   }
 
@@ -598,7 +604,7 @@ initialize_parallel_cluster <- function(workers,
   # PSOCK is used on Windows where fork is unavailable.
   # Wrap in tryCatch to fall back gracefully in environments that disable
   # forking (e.g. some RStudio configurations on macOS).
-  if (.Platform$OS.type == "unix") {
+  if (.Platform$OS.type == "unix" && !identical(backend, "psock")) {
     cluster_obj <- tryCatch(
       parallel::makeForkCluster(workers),
       error = function(e) NULL
@@ -606,6 +612,9 @@ initialize_parallel_cluster <- function(workers,
     if (!is.null(cluster_obj)) {
       attr(cluster_obj, "cluster_type") <- "fork"
       return(cluster_obj)
+    }
+    if (identical(backend, "fork")) {
+      stop("Failed to initialize a fork cluster.", call. = FALSE)
     }
   }
 
