@@ -176,6 +176,21 @@ test_that("anchor-provided admissibility profiles resolve independently", {
   expect_equal(resolved$values$min_length_overlap_fraction, 0.80)
 })
 
+test_that("inline admissibility trait overrides do not partially match nested sections", {
+  resolved <- tsbiomass:::policy_selector_normalize_admissibility_override(list(
+    min_length_overlap_fraction = 0.01,
+    min_depth_overlap_fraction = 0.01,
+    admissibility_species_traits = c("swimbladder_type", "ocean_basin")
+  ))
+
+  expect_equal(resolved$min_length_overlap_fraction, 0.01)
+  expect_equal(resolved$min_depth_overlap_fraction, 0.01)
+  expect_equal(
+    resolved$admissibility_species_traits,
+    c("swimbladder_type", "ocean_basin")
+  )
+})
+
 test_that("installed-style S3 bridges are registered for base predict and plot", {
   expect_true(is.function(utils::getS3method("predict", "tsbiomass::PolicySelector", optional = TRUE)))
   expect_true(is.function(utils::getS3method("predict", "tsbiomass::PolicyLearner", optional = TRUE)))

@@ -2031,7 +2031,9 @@ create_configuration_template <- function(input_file = "input.xlsx",
       outcome_transform = "log1p",
       lambda_rule = "lambda.1se",
       loss = "squared_error",
-      max_selection_tolerance = 1e-12,
+      # NULL preserves the benchmark one-SE score band. A finite value is an
+      # explicit caller override, not the default selection behavior.
+      max_selection_tolerance = NULL,
       refresh = FALSE
     ),
     simulation = list(

@@ -212,6 +212,12 @@ resolve_selected_policy_values <- function(policy_data) {
 resolve_policy_display_names <- function(policy_data) {
   # Build human-readable policy labels from explicit displays or policy fields.
   policy_data <- tibble::as_tibble(policy_data)
+  if ("policy_display" %in% names(policy_data)) {
+    existing_display <- as.character(policy_data$policy_display)
+    if (!any(policy_display_value_missing(existing_display))) {
+      return(existing_display)
+    }
+  }
   branch_values <- resolve_policy_branch_filters(policy_data)
   fallback_values <- rep(NA_character_, nrow(policy_data))
 
@@ -6203,6 +6209,28 @@ sanitize_meta_policy_feature_cols <- function(feature_cols) {
     "policy_intercept_len_hi_95",
     "policy_sigma_bs_mean",
     "policy_is_constructed_ensemble",
+    # Raw donor counts are shortcuts for aggregate policies. Effective support
+    # remains available because it reflects realized weights rather than the
+    # number of available models.
+    "n_models",
+    "n_valid_models",
+    "realized_n_unique_donors",
+    "local_n_slope20",
+    "local_n_non_slope20",
+    "local_n_same_species",
+    "local_n_same_genus",
+    "local_n_same_family",
+    "local_n_same_order",
+    "local_n_same_ocean_basin",
+    "local_n_same_fao_area",
+    "local_n_same_body_shape",
+    "local_n_same_habitat_horizontal",
+    "local_n_same_length_metric",
+    "local_n_same_pressure_corrected",
+    "local_n_same_equation_form",
+    "local_n_same_season",
+    "local_n_same_swimbladder",
+    "local_n_same_derivation",
     "q_abs_log",
     "q_abs_log_conformal",
     "q_abs_log_total",

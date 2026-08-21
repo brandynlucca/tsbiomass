@@ -327,17 +327,17 @@ policy_learner_global_strategy_library <- function(selector) {
     normalize_policy_columns(tibble::as_tibble(selection_ref)),
     error = function(e) tibble::tibble()
   )
-  required <- c("policy", "equation_branch_filter", "acceptable_global")
+  required <- c("policy", "equation_branch_filter", "acceptable_one_se")
   if (nrow(selection_ref) == 0 || !all(required %in% names(selection_ref))) {
     return(empty_library("global_screen_unavailable"))
   }
   library <- selection_ref |>
-    dplyr::filter(dplyr::coalesce(.data$acceptable_global, FALSE)) |>
+    dplyr::filter(dplyr::coalesce(.data$acceptable_one_se, FALSE)) |>
     dplyr::distinct(.data$policy, .data$equation_branch_filter)
   if (nrow(library) == 0) {
     return(empty_library("global_screen_empty"))
   }
-  attr(library, "status") <- "global_screen_available"
+  attr(library, "status") <- "one_se_screen_available"
   library
 }
 
@@ -1542,9 +1542,12 @@ policy_learner_uncertainty_screen_inputs <- function(object,
   } else {
     ".outcome"
   }
-  max_selection_tolerance <- as.numeric(
+  max_selection_tolerance <- suppressWarnings(as.numeric(
     policy_selector_config_value(cfg, "max_selection_tolerance", sections = c("selection", "policy_learner"))
-  )
+  ))
+  if (length(max_selection_tolerance) != 1L || !is.finite(max_selection_tolerance)) {
+    max_selection_tolerance <- NA_real_
+  }
   one_se_multiplier <- as.numeric(
     policy_selector_config_value(cfg, "one_se_multiplier", sections = c("selection", "policy")) %||% 1
   )
@@ -2150,6 +2153,10 @@ policy_learner_select_calibration_rows <- function(tbl,
   if (nrow(tbl) == 0) {
     return(tbl)
   }
+  max_selection_tolerance <- suppressWarnings(as.numeric(max_selection_tolerance))
+  if (length(max_selection_tolerance) != 1L || !is.finite(max_selection_tolerance)) {
+    max_selection_tolerance <- NA_real_
+  }
   if (!"selection_valid" %in% names(tbl)) {
     if ("n_valid_models" %in% names(tbl)) {
       tbl$selection_valid <- is.finite(tbl$n_valid_models) &
@@ -2301,11 +2308,14 @@ policy_learner_uncertainty_crossfit_plan <- function(object,
   } else {
     predictions$selection_valid <- is.finite(predictions$.meta_predicted_score)
   }
-  max_selection_tolerance <- as.numeric(
+  max_selection_tolerance <- suppressWarnings(as.numeric(
     max_selection_tolerance %||%
       cal_obj$max_selection_tolerance %||%
       policy_selector_config_value(cfg, "max_selection_tolerance", sections = c("selection", "policy_learner"))
-  )
+  ))
+  if (length(max_selection_tolerance) != 1L || !is.finite(max_selection_tolerance)) {
+    max_selection_tolerance <- NA_real_
+  }
   one_se_multiplier <- as.numeric(
     policy_selector_config_value(cfg, "one_se_multiplier", sections = c("selection", "policy")) %||% 1
   )
@@ -2799,11 +2809,14 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     predictions$selection_valid <- is.finite(predictions$.meta_predicted_score)
   }
 
-  max_selection_tolerance <- as.numeric(
+  max_selection_tolerance <- suppressWarnings(as.numeric(
     max_selection_tolerance %||%
       cal_obj$max_selection_tolerance %||%
       policy_selector_config_value(cfg, "max_selection_tolerance", sections = c("selection", "policy_learner"))
-  )
+  ))
+  if (length(max_selection_tolerance) != 1L || !is.finite(max_selection_tolerance)) {
+    max_selection_tolerance <- NA_real_
+  }
   one_se_multiplier <- as.numeric(
     policy_selector_config_value(cfg, "one_se_multiplier", sections = c("selection", "policy")) %||% 1
   )
@@ -3728,8 +3741,9 @@ policy_learner_ensemble_disagreement_uncertainty <- function(tbl,
   )
   scored <- dplyr::bind_cols(scored, disagreement_components)
 
-  width_model_now <- NULL
-  configured_width_source <- "retired_selected_policy_width"
+  width_model_state <- cal_obj$width_model %||% cal_obj$uncertainty_model %||% list()
+  width_model_now <- width_model_state$model %||% NULL
+  configured_width_source <- width_model_state$method %||% "conditional_score_scale"
   if (identical(configured_width_source, "global_selected_conformal")) {
     scored$.width_predicted_q_abs_log <- rep(1, nrow(scored))
     meta_width_source <- "global_selected_conformal"
@@ -3750,15 +3764,18 @@ policy_learner_ensemble_disagreement_uncertainty <- function(tbl,
   scored$meta_q_abs_log_factor_n_scores <- rep(NA_real_, nrow(scored))
 
   # The formal post-selection interval is R_i = nu_(1-alpha) * u_hat(v_i).
-  # u_hat(v_i) remains anchor- and policy-conditioned. The normalized
-  # conformal quantile is pooled over held-out selected strategies, as defined
-  # in the methods; sparse policy-only multipliers are not part of R_i.
-  global_width_factor <- 1
+  # The local lookup calibrates the normalized held-out residual ratio for the
+  # selected policy/anchor context, with the held-out global ratio only as its
+  # shrinkage fallback.
+  global_width_factor <- suppressWarnings(as.numeric(cal_obj$width_factor_global))
+  if (length(global_width_factor) != 1L || !is.finite(global_width_factor) || global_width_factor <= 0) {
+    global_width_factor <- 1
+  }
   pooled_width_n <- suppressWarnings(as.numeric(
     nrow(tibble::as_tibble(cal_obj$selected %||% tibble::tibble()))
   ))
   scored$meta_q_abs_log_conformal_factor <- rep(global_width_factor, nrow(scored))
-  scored$meta_q_abs_log_factor_source <- rep("retired_selected_policy_width", nrow(scored))
+  scored$meta_q_abs_log_factor_source <- rep("global_normalized_residual", nrow(scored))
   scored$meta_q_abs_log_factor_n_scores <- rep(pooled_width_n, nrow(scored))
 
   local_q_lookup <- cal_obj$local_q_lookup %||% NULL
@@ -3788,6 +3805,28 @@ policy_learner_ensemble_disagreement_uncertainty <- function(tbl,
     "unavailable_local_diagnostic"
   )
 
+  local_width_lookup <- cal_obj$local_width_lookup %||% NULL
+  if (is.list(local_width_lookup) && length(local_width_lookup) > 0L) {
+    scored_local_width <- policy_learner_apply_local_lookup(
+      tbl = scored,
+      lookup = local_width_lookup,
+      value_col = "meta_q_abs_log_conformal_factor",
+      source_col = "meta_q_abs_log_factor_source",
+      n_col = "meta_q_abs_log_factor_n_scores"
+    )
+    scored$meta_q_abs_log_conformal_factor <- dplyr::coalesce(
+      suppressWarnings(as.numeric(scored_local_width$meta_q_abs_log_conformal_factor)),
+      global_width_factor
+    )
+    scored$meta_q_abs_log_factor_source <- dplyr::coalesce(
+      as.character(scored_local_width$meta_q_abs_log_factor_source),
+      "global_normalized_residual"
+    )
+    scored$meta_q_abs_log_factor_n_scores <- suppressWarnings(
+      as.numeric(scored_local_width$meta_q_abs_log_factor_n_scores)
+    )
+  }
+
   # Compute the anchor-level minimum predicted score once, then join it back so
   # groups with no valid predictions stay explicit and do not trigger empty-set
   # minima during the selection step.
@@ -3805,10 +3844,13 @@ policy_learner_ensemble_disagreement_uncertainty <- function(tbl,
       .groups = "drop"
     )
 
-  max_selection_tolerance <- as.numeric(
+  max_selection_tolerance <- suppressWarnings(as.numeric(
     max_selection_tolerance %||%
       policy_selector_config_value(cfg, "max_selection_tolerance", sections = c("selection", "policy_learner"))
-  )
+  ))
+  if (length(max_selection_tolerance) != 1L || !is.finite(max_selection_tolerance)) {
+    max_selection_tolerance <- NA_real_
+  }
   uncertainty_rule <- normalize_uncertainty_rule(
     policy_selector_config_value(cfg, "uncertainty_rule", sections = c("selection", "policy")) %||% "tolerance"
   )
@@ -3925,21 +3967,13 @@ policy_learner_ensemble_disagreement_uncertainty <- function(tbl,
       selection_tier = "meta_policy_lexicographic_selection"
     ) |>
     dplyr::ungroup()
-  # Legacy `meta_*` fields are retained for backward-compatible exports only.
-  # They must be exact aliases of the selected policy's conformal interval,
-  # never a post-selection learned-width override.
-  for (radius_col in c("q_abs_log_total", "q_abs_log_conformal", "q_abs_log")) {
-    if (!radius_col %in% names(scored)) {
-      scored[[radius_col]] <- NA_real_
-    }
-  }
-  selected_radius <- dplyr::coalesce(
-    suppressWarnings(as.numeric(scored$q_abs_log_total)),
-    suppressWarnings(as.numeric(scored$q_abs_log_conformal)),
-    suppressWarnings(as.numeric(scored$q_abs_log))
-  )
+  # The learner-calibrated conditional radius is authoritative. In particular,
+  # never restore a selector-attached pooled policy/branch radius here.
+  selected_radius <- suppressWarnings(as.numeric(scored$meta_q_abs_log_total))
   scored <- scored |>
     dplyr::mutate(
+      q_abs_log = selected_radius,
+      q_abs_log_conformal = selected_radius,
       q_abs_log_total = selected_radius,
       multiplier_lo = dplyr::if_else(
         .data$valid_prediction & is.finite(selected_radius),

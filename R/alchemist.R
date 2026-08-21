@@ -1078,21 +1078,11 @@ build_pair_data <- function(models_df,
 
   report_progress(
     progress,
-    "  [Alchemist] Assembling donor-anchor model pairs (excluding same-species)..."
+    "  [Alchemist] Assembling non-self donor-anchor model pairs..."
   )
   valid_mask <- is.finite(donor_sigma_mat) & donor_sigma_mat > 0
   diag(valid_mask) <- FALSE
   pair_idx <- which(valid_mask, arr.ind = TRUE)
-  if (nrow(pair_idx) > 0L) {
-    donor_idx <- pair_idx[, 1L]
-    anchor_idx <- pair_idx[, 2L]
-    keep_idx <- !(
-      !is.na(species_names[donor_idx]) &
-        !is.na(species_names[anchor_idx]) &
-        species_names[donor_idx] == species_names[anchor_idx]
-    )
-    pair_idx <- pair_idx[keep_idx, , drop = FALSE]
-  }
 
   if (nrow(pair_idx) == 0L) {
     stop("No valid donor-anchor pairs found for distance learning.", call. = FALSE)
@@ -3253,7 +3243,9 @@ S7::method(forge_distances, Alchemist) <- function(object,
   cache_path <- cache_path %||% alchemist_stage_cache_path(
     config,
     stage = "forge_distances",
-    suffix = feature_type
+    # Pair-training version: v2 includes distinct conspecific model pairs
+    # while still excluding identity pairs through `diag(valid_mask) <- FALSE`.
+    suffix = paste(feature_type, "nonself_pairs_v2", sep = "_")
   )
   if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
     report_progress(progress, "[Alchemist] Loading cached forged distances: ", cache_path)
@@ -3304,7 +3296,7 @@ S7::method(forge_distances, Alchemist) <- function(object,
   report_progress(
     progress,
     "[Alchemist] Stage 1/4: Building pairwise training data ",
-    "(up to ~", n_models * (n_models - 1L), " cross-species pairs",
+    "(up to ~", n_models * (n_models - 1L), " non-self pairs",
     if (has_coh) " + coherence features" else "",
     if (taxonomic_distance) " + taxonomic distance" else "",
     ")..."

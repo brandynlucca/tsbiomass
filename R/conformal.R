@@ -4871,8 +4871,7 @@ calibrated_coefficient_covariance <- function(length_grid,
 #' @param policy_lookup Policy lookup table.
 #' @param policy_path Optional policy registry path.
 #' @param include_competition Logical; include near-tied competitors.
-#' @param lock_fixed_slope Deprecated. Fixed-slope strategies retain coefficient
-#'   prediction uncertainty from their leave-species-out residuals.
+#' @param lock_fixed_slope Logical; force zero slope variance for fixed-slope branches.
 #' @param length_grid_n Number of support points.
 #' @param ts_band_method TS-band construction method.
 #'
@@ -5010,6 +5009,17 @@ strategy_uncertainty_context <- function(row_now,
     min(support_candidates)
   } else {
     NA_real_
+  }
+
+  if (isTRUE(lock_fixed_slope) && isTRUE(is_fixed_branch)) {
+    if (is.null(raw_covariance) || !all(is.finite(raw_covariance))) {
+      raw_covariance <- matrix(c(0, 0, 0, 1), nrow = 2, ncol = 2)
+    } else {
+      raw_covariance <- suppressWarnings(as.matrix(raw_covariance))
+      raw_covariance[1, ] <- c(0, 0)
+      raw_covariance[, 1] <- c(0, 0)
+      raw_covariance[2, 2] <- pmax(raw_covariance[2, 2], 1e-8)
+    }
   }
 
   if (!is.null(raw_covariance) && all(is.finite(raw_covariance))) {
@@ -6047,7 +6057,7 @@ build_ts_conformal_panel_data <- function(selected_tbl,
       policy_lookup = policy_lookup,
       policy_path = policy_path,
       include_competition = FALSE,
-      lock_fixed_slope = FALSE,
+      lock_fixed_slope = TRUE,
       length_grid_n = length_grid_n,
       ts_band_method = ts_band_method
     )
@@ -6188,7 +6198,7 @@ augment_policy_coefficient_intervals <- function(policy_tbl,
       policy_lookup = policy_lookup,
       policy_path = policy_path,
       include_competition = FALSE,
-      lock_fixed_slope = FALSE,
+      lock_fixed_slope = TRUE,
       length_grid_n = length_grid_n
     )
     out <- coefficient_interval_from_context(
@@ -6361,7 +6371,7 @@ augment_conditional_coeff_intervals <- function(policy_tbl,
       policy_lookup = policy_lookup,
       policy_path = policy_path,
       include_competition = FALSE,
-      lock_fixed_slope = FALSE,
+      lock_fixed_slope = TRUE,
       length_grid_n = length_grid_n
     )
     out <- coefficient_interval_from_context(
@@ -6523,7 +6533,7 @@ augment_policy_ts_envelope_summary <- function(policy_tbl,
       policy_lookup = policy_lookup,
       policy_path = policy_path,
       include_competition = FALSE,
-      lock_fixed_slope = FALSE,
+      lock_fixed_slope = TRUE,
       length_grid_n = length_grid_n
     )
     if (is.null(ctx_now)) {

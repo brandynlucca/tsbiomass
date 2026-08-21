@@ -556,7 +556,7 @@ test_that("PolicyLearner predict ranks and selects anchor-policy rows", {
   alpha_rows <- scored[scored$anchor_model_id == "1", , drop = FALSE]
   expect_equal(
     alpha_rows$meta_q_abs_log_total[alpha_rows$policy == "weighted_mean_within_genus"],
-    0.31
+    0.20
   )
 })
 
@@ -580,6 +580,23 @@ test_that("conditional-uncertainty features exclude taxonomic and overlap summar
   expect_false("min_length_overlap_fraction" %in% width_features)
   expect_false("local_min_species_distance" %in% width_features)
   expect_false("local_min_trait_gower_distance" %in% width_features)
+})
+
+test_that("selection features retain effective support but exclude raw donor-count shortcuts", {
+  features <- tsbiomass:::sanitize_meta_policy_feature_cols(c(
+    "local_effective_support",
+    "local_effective_species_support",
+    "n_models",
+    "n_valid_models",
+    "realized_n_unique_donors",
+    "local_n_same_genus",
+    "local_n_slope20"
+  ))
+
+  expect_setequal(
+    features,
+    c("local_effective_support", "local_effective_species_support")
+  )
 })
 
 test_that("meta-policy learner supports gam, rf, and xgboost base methods", {

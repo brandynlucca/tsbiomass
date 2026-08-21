@@ -270,44 +270,50 @@ policy_selector_normalize_admissibility_override <- function(override) {
     stop("'admissibility_override' must be NULL, a profile name, or a list.", call. = FALSE)
   }
 
-  adm <- override$admissibility %||% list()
-  coherence <- override$coherence %||% adm$coherence %||% list()
+  # `$` partially matches list names.  An inline
+  # `admissibility_species_traits` field must not be mistaken for the nested
+  # `admissibility` section.
+  field <- function(x, name) {
+    if (is.list(x) && name %in% names(x)) x[[name]] else NULL
+  }
+  adm <- field(override, "admissibility") %||% list()
+  coherence <- field(override, "coherence") %||% field(adm, "coherence") %||% list()
   first_present <- function(...) {
     for (value in list(...)) if (!is.null(value)) return(value)
     NULL
   }
-  exact_frequency <- first_present(override$exact_frequency, adm$exact_frequency)
+  exact_frequency <- first_present(field(override, "exact_frequency"), field(adm, "exact_frequency"))
   frequency_mode <- first_present(
-    override$frequency_coherence_mode, override$frequency_mode,
-    adm$frequency_mode, (coherence$frequency %||% list())$mode
+    field(override, "frequency_coherence_mode"), field(override, "frequency_mode"),
+    field(adm, "frequency_mode"), field(field(coherence, "frequency") %||% list(), "mode")
   )
   if (isTRUE(exact_frequency) && is.null(frequency_mode)) {
     frequency_mode <- "literal"
   }
   out <- list(
     min_length_overlap_fraction = first_present(
-      override$min_length_overlap_fraction, override$length_overlap_min,
-      adm$length_overlap_min, (coherence$length %||% list())$min
+      field(override, "min_length_overlap_fraction"), field(override, "length_overlap_min"),
+      field(adm, "length_overlap_min"), field(field(coherence, "length") %||% list(), "min")
     ),
     min_depth_overlap_fraction = first_present(
-      override$min_depth_overlap_fraction, override$depth_overlap_min,
-      adm$depth_overlap_min, (coherence$depth %||% list())$min
+      field(override, "min_depth_overlap_fraction"), field(override, "depth_overlap_min"),
+      field(adm, "depth_overlap_min"), field(field(coherence, "depth") %||% list(), "min")
     ),
     missing_key_metadata_max_fraction = first_present(
-      override$missing_key_metadata_max_fraction, override$key_metadata_max,
-      adm$key_metadata_max
+      field(override, "missing_key_metadata_max_fraction"), field(override, "key_metadata_max"),
+      field(adm, "key_metadata_max")
     ),
     frequency_coherence_mode = frequency_mode,
     frequency_gap = first_present(
-      override$frequency_gap, adm$frequency_gap,
-      (coherence$frequency %||% list())$gap
+      field(override, "frequency_gap"), field(adm, "frequency_gap"),
+      field(field(coherence, "frequency") %||% list(), "gap")
     ),
     exact_frequency = exact_frequency,
     admissibility_species_traits = first_present(
-      override$admissibility_species_traits, adm$species_traits
+      field(override, "admissibility_species_traits"), field(adm, "species_traits")
     ),
     admissibility_study_traits = first_present(
-      override$admissibility_study_traits, adm$study_traits
+      field(override, "admissibility_study_traits"), field(adm, "study_traits")
     )
   )
   out[!vapply(out, is.null, logical(1))]
@@ -1839,7 +1845,10 @@ S7::method(select_policies, PolicySelector) <- function(object,
       )
     }
 
-    if (nrow(conf_ref_tbl) > 0) {
+    # A PolicyLearner supplies the selected policy's conditional calibrated
+    # radius. Do not attach the legacy pooled policy/branch radius first: it
+    # would otherwise take precedence over the learner's calibrated value.
+    if (!is_s7_instance(learner, "PolicyLearner") && nrow(conf_ref_tbl) > 0) {
       policy_tbl <- policy_tbl |>
         dplyr::left_join(conf_ref_tbl, by = c("policy", "equation_branch_filter"))
     } else {
@@ -3419,9 +3428,9 @@ select_anchor_policies <- function(policy_tbl,
     return(selected)
   }
 
-  # Respect the precomputed global benchmark acceptability screen before any
-  # anchor-specific ranking. The ranking learner is trained to order globally
-  # acceptable strategies, not to rescue strategies that failed that screen.
+  # The predeclared global one-SE screen defines the benchmark policy library.
+  # Bootstrap summaries remain diagnostics; they must not veto a candidate
+  # before its target-specific predicted error and burden are considered.
   if ("acceptable_global" %in% names(candidate_tbl) &&
     any(!is.na(candidate_tbl$acceptable_global))) {
     globally_acceptable <- candidate_tbl |>
@@ -3554,6 +3563,7 @@ order_policy_assumption_burden <- function(policy_tbl) {
       .data$policy
     )
 }
+
 
 #' Summarize one species-block benchmark table
 #'
@@ -3863,7 +3873,7 @@ build_selection_table <- function(species_performance_table,
       one_se_threshold = threshold,
       acceptable_one_se = .data$mean_species_median_abs_log <= threshold,
       acceptable_bootstrap = dplyr::coalesce(.data$bootstrap_prob_within_threshold, 0) >= 0.50,
-      acceptable_global = .data$acceptable_one_se & .data$acceptable_bootstrap,
+      acceptable_global = .data$acceptable_one_se,
       equivalence_tolerance = as.numeric(equivalence_tolerance)
     ) |>
     dplyr::arrange(

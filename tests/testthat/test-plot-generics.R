@@ -806,6 +806,21 @@ test_that("policy display resolvers rebuild unusable NA labels", {
   expect_true(grepl("species", selected_component_display[[1]], ignore.case = TRUE))
 })
 
+test_that("policy display resolver preserves complete stored labels without rebuilding", {
+  testthat::local_mocked_bindings(
+    policy_display_label = function(...) stop("fallback label construction should not run"),
+    .package = "tsbiomass"
+  )
+
+  display <- resolve_policy_display_names(tibble::tibble(
+    policy_display = c("Species nearest [all slopes]", "Family averaged [fixed slope]"),
+    policy = c("closest_within_species", "unweighted_mean_within_family"),
+    equation_branch_filter = c("all", "fixed20_only")
+  ))
+
+  expect_equal(display, c("Species nearest [all slopes]", "Family averaged [fixed slope]"))
+})
+
 test_that("plot.PolicyPredictions dispatches selected intervals and policy competition", {
   predictions <- PolicyPredictions(
     intervals = tibble::tibble(

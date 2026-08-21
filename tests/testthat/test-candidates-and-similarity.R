@@ -853,6 +853,32 @@ test_that("similarity tuning basis excludes same-species donors from scoring", {
   expect_false(isTRUE(score_basis$same_species_mask[1, 3]))
 })
 
+test_that("Alchemist distance training retains distinct conspecific model pairs", {
+  models <- tibble::tibble(
+    model_id = c("a1", "a2", "b1"),
+    species_name = c("Alpha alpha", "Alpha alpha", "Beta beta"),
+    species = c("alpha", "alpha", "beta"),
+    fao_area = c("77", "77", "61"),
+    slope_standard = c(20, 20, 21),
+    intercept_standard = c(-70, -69, -68),
+    study_length_min = c(10, 10, 10),
+    study_length_max = c(30, 30, 30)
+  )
+
+  out <- tsbiomass:::build_pair_data(
+    models_df = models,
+    species_trait_names = "species",
+    study_trait_names = "fao_area",
+    coherence_cfg = list(),
+    feature_type = "difference"
+  )
+  pairs <- out$training_data
+
+  expect_true(any(pairs$.donor_idx == 1L & pairs$.anchor_idx == 2L))
+  expect_true(any(pairs$.donor_idx == 2L & pairs$.anchor_idx == 1L))
+  expect_false(any(pairs$.donor_idx == pairs$.anchor_idx))
+})
+
 test_that("anchor density uses study interval or midpoint without Lmax fallback", {
   cfg <- tsbiomass:::default_anchor_config()
 

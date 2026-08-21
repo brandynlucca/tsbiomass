@@ -343,7 +343,7 @@ test_that("coefficient interval does not silently use nearest residual calibrati
   expect_null(out)
 })
 
-test_that("fixed20 coefficient intervals retain empirical transfer uncertainty", {
+test_that("fixed20 coefficient intervals retain empirical intercept uncertainty", {
   policy_tbl <- tibble::tibble(
     anchor_model_id = "11",
     anchor_species = "Alpha alpha",
@@ -384,9 +384,9 @@ test_that("fixed20 coefficient intervals retain empirical transfer uncertainty",
     config = list()
   )
 
-  expect_lt(out$conditional_policy_slope_len_lo_95, 20)
-  expect_gt(out$conditional_policy_slope_len_hi_95, 20)
-  expect_gt(out$conditional_policy_slope_len_se, 0)
+  expect_equal(out$conditional_policy_slope_len_lo_95, 20)
+  expect_equal(out$conditional_policy_slope_len_hi_95, 20)
+  expect_equal(out$conditional_policy_slope_len_se, 0)
   expect_true(is.finite(out$conditional_policy_intercept_len_lo_95))
   expect_true(is.finite(out$conditional_policy_intercept_len_hi_95))
 })
