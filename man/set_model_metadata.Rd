@@ -9,9 +9,9 @@ set_model_metadata(object, updates, model_id_col = "model_id")
 \arguments{
 \item{object}{A \link{Candidates} object.}
 
-\item{updates}{A data frame with a \code{model_id} column and one or more
-metadata columns to replace. List-columns, including \code{length_pdf_data},
-are supported.}
+\item{updates}{A data frame with a \code{model_id} column and one or more metadata
+columns to replace. List-columns, including \code{length_pdf_data}, are
+supported.}
 
 \item{model_id_col}{Candidate-model identifier column. Defaults to
 \code{"model_id"}.}
@@ -20,8 +20,11 @@ are supported.}
 Updated \link{Candidates} object with derived state invalidated.
 }
 \description{
-Applies explicit metadata edits to candidate-model rows keyed by model ID and
-keeps matching selected reference anchors synchronized.
+Applies explicit metadata edits to selected rows of a \link{Candidates} object.
+Every supplied \code{model_id} must identify exactly one candidate model. Matching
+selected reference-anchor rows are updated in lockstep. Because candidate
+metadata determines the prepared similarity and distance geometry, all
+derived similarity, distance, ordination, and admissibility state is cleared.
 }
 \examples{
 \dontrun{
@@ -34,4 +37,5 @@ candidates <- set_model_metadata(
   )
 )
 }
+
 }

@@ -4715,10 +4715,79 @@ coefficient_shape_modifier <- function(covariance,
 #'
 #' @keywords internal
 #' @noRd
+biomass_functional_sensitivity <- function(length_grid,
+                                           pdf_weights,
+                                           slope_hat,
+                                           intercept_hat) {
+  x <- suppressWarnings(as.numeric(log10(length_grid)))
+  pdf_weights <- suppressWarnings(as.numeric(pdf_weights))
+  slope_hat <- suppressWarnings(as.numeric(slope_hat)[1])
+  intercept_hat <- suppressWarnings(as.numeric(intercept_hat)[1])
+  keep <- is.finite(x)
+  if (!length(length_grid) || !length(x)) {
+    return(rep(NA_real_, 2L))
+  }
+  if (length(pdf_weights) != length(length_grid) || !any(is.finite(pdf_weights) & pdf_weights > 0)) {
+    pdf_weights <- rep(1 / length(length_grid), length(length_grid))
+  } else {
+    pdf_weights[!is.finite(pdf_weights) | pdf_weights < 0] <- 0
+    pdf_weights <- pdf_weights / sum(pdf_weights, na.rm = TRUE)
+  }
+  if (!is.finite(slope_hat) || !is.finite(intercept_hat) || sum(keep) < 3L) {
+    return(rep(NA_real_, 2L))
+  }
+  ts_hat <- slope_hat * x[keep] + intercept_hat
+  sigma_hat <- 10^(ts_hat / 10)
+  w <- pdf_weights[keep]
+  denom <- sum(sigma_hat * w, na.rm = TRUE)
+  if (!is.finite(denom) || denom <= 0) {
+    return(rep(NA_real_, 2L))
+  }
+  normalized_sigma_weights <- sigma_hat * w / denom
+  (log(10) / 10) * as.numeric(crossprod(normalized_sigma_weights, cbind(x[keep], 1)))
+}
+
+#' Scale a coefficient covariance shape to a biomass log-radius
+#'
+#' @keywords internal
+#' @noRd
+scale_covariance_to_biomass_radius <- function(covariance,
+                                               length_grid,
+                                               pdf_weights,
+                                               slope_hat,
+                                               intercept_hat,
+                                               q95_log_scalar) {
+  covariance <- suppressWarnings(as.matrix(covariance))
+  q95_log_scalar <- suppressWarnings(as.numeric(q95_log_scalar))
+  if (!is.matrix(covariance) || !identical(dim(covariance), c(2L, 2L)) ||
+    any(!is.finite(covariance)) || !is.finite(q95_log_scalar) || q95_log_scalar <= 0) {
+    return(1)
+  }
+  g <- biomass_functional_sensitivity(
+    length_grid = length_grid,
+    pdf_weights = pdf_weights,
+    slope_hat = slope_hat,
+    intercept_hat = intercept_hat
+  )
+  if (length(g) != 2L || any(!is.finite(g))) {
+    return(1)
+  }
+  v0 <- as.numeric(t(g) %*% covariance %*% g)
+  z95 <- stats::qnorm(0.975)
+  if (!is.finite(v0) || v0 <= 0 || !is.finite(z95) || z95 <= 0) {
+    return(1)
+  }
+  q95_log_scalar / (z95 * sqrt(v0))
+}
+
+#' @keywords internal
+#' @noRd
 rescale_coefficient_covariance <- function(covariance,
                                            length_grid,
                                            pdf_weights,
-                                           q95_scalar) {
+                                           q95_scalar,
+                                           slope_hat = NA_real_,
+                                           intercept_hat = NA_real_) {
   covariance <- suppressWarnings(as.matrix(covariance))
   x <- suppressWarnings(as.numeric(log10(length_grid)))
   pdf_weights <- suppressWarnings(as.numeric(pdf_weights))
@@ -4741,11 +4810,14 @@ rescale_coefficient_covariance <- function(covariance,
   z95 <- stats::qnorm(0.975)
   half_width <- z95 * pred_sd
   avg_half_width <- stats::weighted.mean(half_width, pdf_weights[keep], na.rm = TRUE)
-  scale_factor <- if (is.finite(q95_scalar) && q95_scalar > 0 && is.finite(avg_half_width) && avg_half_width > 0) {
-    q95_scalar / avg_half_width
-  } else {
-    1
-  }
+  scale_factor <- scale_covariance_to_biomass_radius(
+    covariance = covariance,
+    length_grid = length_grid,
+    pdf_weights = pdf_weights,
+    slope_hat = slope_hat,
+    intercept_hat = intercept_hat,
+    q95_log_scalar = q95_scalar
+  )
   shape_modifier <- rep(NA_real_, length(length_grid))
   shape_modifier[keep] <- if (is.finite(avg_half_width) && avg_half_width > 0) {
     half_width / avg_half_width
@@ -4809,7 +4881,9 @@ coefficient_covariance_is_sane <- function(covariance,
 #' @noRd
 calibrated_coefficient_covariance <- function(length_grid,
                                               pdf_weights,
-                                              q95_scalar) {
+                                              q95_scalar,
+                                              slope_hat = NA_real_,
+                                              intercept_hat = NA_real_) {
   x <- suppressWarnings(as.numeric(log10(length_grid)))
   pdf_weights <- suppressWarnings(as.numeric(pdf_weights))
   q95_scalar <- suppressWarnings(as.numeric(q95_scalar))
@@ -4842,8 +4916,15 @@ calibrated_coefficient_covariance <- function(length_grid,
   z95 <- stats::qnorm(0.975)
   shape_half_width <- z95 * pred_sd_shape
   avg_half_width <- stats::weighted.mean(shape_half_width, w, na.rm = TRUE)
-  scale_factor <- if (is.finite(q95_scalar) && q95_scalar > 0 && is.finite(avg_half_width) && avg_half_width > 0) {
-    q95_scalar / avg_half_width
+  scale_factor <- if (is.finite(q95_scalar) && q95_scalar > 0) {
+    scale_covariance_to_biomass_radius(
+      covariance = Sigma_shape,
+      length_grid = length_grid,
+      pdf_weights = pdf_weights,
+      slope_hat = slope_hat,
+      intercept_hat = intercept_hat,
+      q95_log_scalar = q95_scalar
+    )
   } else {
     0
   }
@@ -5027,7 +5108,9 @@ strategy_uncertainty_context <- function(row_now,
       covariance = raw_covariance,
       length_grid = length_grid,
       pdf_weights = pdf_weights,
-      q95_scalar = q_scalars_ts$q95
+      q95_scalar = q_scalars$q95,
+      slope_hat = slope_hat,
+      intercept_hat = intercept_hat
     )
     Sigma <- sigma_result$covariance
     shape_modifier <- sigma_result$shape_modifier
@@ -5039,7 +5122,9 @@ strategy_uncertainty_context <- function(row_now,
     covariance_result <- calibrated_coefficient_covariance(
       length_grid = length_grid,
       pdf_weights = pdf_weights,
-      q95_scalar = q_scalars_ts$q95
+      q95_scalar = q_scalars$q95,
+      slope_hat = slope_hat,
+      intercept_hat = intercept_hat
     )
     shape_modifier <- covariance_result$shape_modifier
     Sigma <- covariance_result$covariance
@@ -5096,11 +5181,7 @@ strategy_uncertainty_context <- function(row_now,
       row_now$selected_q_abs_log_n[[1]] %||%
       NA_real_
   ))
-  support_shape_strength <- if (is.finite(shape_strength_n) && shape_strength_n > 0) {
-    pmin(1, shape_strength_n / shape_strength_target)
-  } else {
-    0
-  }
+  support_shape_strength <- 0
   shape_strength_source <- as.character(
     if ("meta_q_abs_log_source" %in% names(row_now)) {
       row_now$meta_q_abs_log_source[[1]]

@@ -559,15 +559,13 @@ alchemist_trait_names <- function(traits, models_df) {
 
 #' Compute a taxonomic/phylogenetic distance matrix for Alchemist pair features
 #'
-#' Attempts to build a continuous phylogenetic distance matrix using the Open
-#' Tree of Life API (`rotl`), exactly as `build_phylo_dist_from_species()` does
-#' in the similarity module. Falls back to a deterministic rank-based distance
-#' (`1 - deepest_shared_rank / n_ranks`) when rotl is unavailable or fails to
-#' match enough species.
+#' Builds a continuous phylogenetic distance matrix using Open Tree of Life.
+#' The raw OpenTree Newick is parsed directly so singleton/internal taxon
+#' placements are retained; this is required for taxa that are matched by TNRS
+#' but represented in the synthetic tree at a higher node.
 #'
 #' @param models_df Data frame of candidate models. Must contain at least one
-#'   of `species_name`, `species`, `genus`. Recognised taxonomic rank columns
-#'   (family, genus, species, etc.) are used for the rank-based fallback.
+#'   of `species_name`, or `species` plus `genus`.
 #' @param tax_col_map Named character vector mapping canonical rank names to
 #'   actual column names in `models_df` (e.g. `c(family="family",
 #'   genus="genus", species="species_name")`). Ordered broadest-to-specific.
@@ -577,6 +575,204 @@ alchemist_trait_names <- function(traits, models_df) {
 #'
 #' @keywords internal
 #' @noRd
+alchemist_species_labels <- function(models_df, tax_col_map) {
+  n <- nrow(models_df)
+  valid_binomial_label <- function(x) {
+    parts <- strsplit(x, "\\s+")
+    vapply(parts, function(z) {
+      if (length(z) < 2L) {
+        return(FALSE)
+      }
+      first_two <- z[seq_len(2L)]
+      all(nzchar(first_two)) &&
+        !any(toupper(first_two) %in% c("NA", "N/A", "UNKNOWN", "NULL"))
+    }, logical(1))
+  }
+  species_name_col <- if ("species_name" %in% names(models_df)) {
+    "species_name"
+  } else if ("scientific_name" %in% names(models_df)) {
+    "scientific_name"
+  } else {
+    NA_character_
+  }
+  labels <- rep(NA_character_, n)
+  if (!is.na(species_name_col)) {
+    labels <- stringr::str_squish(as.character(models_df[[species_name_col]]))
+    labels[!nzchar(labels) | labels == "NA"] <- NA_character_
+  }
+
+  needs_constructed <- is.na(labels)
+  species_col <- if ("species" %in% names(tax_col_map)) {
+    unname(tax_col_map[["species"]])
+  } else if ("species" %in% names(models_df)) {
+    "species"
+  } else {
+    NA_character_
+  }
+  genus_col <- if ("genus" %in% names(tax_col_map)) {
+    unname(tax_col_map[["genus"]])
+  } else if ("genus" %in% names(models_df)) {
+    "genus"
+  } else {
+    NA_character_
+  }
+  if (any(needs_constructed) &&
+    !is.na(species_col) && species_col %in% names(models_df)) {
+    sp <- stringr::str_squish(as.character(models_df[[species_col]]))
+    sp[!nzchar(sp) | sp == "NA"] <- NA_character_
+    constructed <- sp
+    has_binomial <- !is.na(sp) & grepl("\\s+", sp)
+    if (!is.na(genus_col) && genus_col %in% names(models_df)) {
+      gn <- stringr::str_squish(as.character(models_df[[genus_col]]))
+      gn[!nzchar(gn) | gn == "NA"] <- NA_character_
+      can_build <- !has_binomial & !is.na(gn) & !is.na(sp)
+      constructed[can_build] <- stringr::str_squish(paste(gn[can_build], sp[can_build]))
+    }
+    labels[needs_constructed] <- constructed[needs_constructed]
+  }
+  labels[!is.na(labels) & !valid_binomial_label(labels)] <- NA_character_
+  labels
+}
+
+#' Fetch OpenTree node distances for submitted species labels
+#'
+#' @keywords internal
+#' @noRd
+alchemist_open_tree_node_distance <- function(species_labels) {
+  species_labels <- stringr::str_squish(as.character(species_labels))
+  species_labels[!nzchar(species_labels) | species_labels == "NA"] <- NA_character_
+  n <- length(species_labels)
+  out <- matrix(NA_real_, nrow = n, ncol = n)
+  diag(out) <- 0
+  if (n < 2L || sum(!is.na(species_labels)) < 2L) {
+    attr(out, "taxonomic_distance_method") <- "open_tree_unavailable"
+    return(out)
+  }
+  if (!requireNamespace("rotl", quietly = TRUE) ||
+    !requireNamespace("ape", quietly = TRUE)) {
+    attr(out, "taxonomic_distance_method") <- "open_tree_unavailable"
+    return(out)
+  }
+
+  labels_key <- stringr::str_to_lower(species_labels)
+  unique_labels <- unique(species_labels[!is.na(species_labels)])
+  tnrs <- tryCatch(
+    rotl::tnrs_match_names(unique_labels, do_approximate_matching = FALSE),
+    error = function(e) NULL
+  )
+  if (is.null(tnrs)) {
+    attr(out, "taxonomic_distance_method") <- "open_tree_failed"
+    return(out)
+  }
+  matched <- tibble::as_tibble(tnrs)
+  if (!all(c("search_string", "ott_id") %in% names(matched))) {
+    attr(out, "taxonomic_distance_method") <- "open_tree_failed"
+    return(out)
+  }
+  matched <- matched |>
+    dplyr::mutate(
+      .query_key = stringr::str_to_lower(stringr::str_squish(.data$search_string)),
+      .ott_id_chr = as.character(.data$ott_id)
+    ) |>
+    dplyr::filter(!is.na(.data$ott_id), nzchar(.data$.ott_id_chr)) |>
+    dplyr::distinct(.data$.query_key, .keep_all = TRUE)
+  if (nrow(matched) < 2L) {
+    attr(out, "taxonomic_distance_method") <- "open_tree_failed"
+    return(out)
+  }
+
+  tree_file <- tempfile(fileext = ".tre")
+  on.exit(unlink(tree_file), add = TRUE)
+  ok_tree <- tryCatch(
+    rotl::tol_induced_subtree(
+      ott_ids = matched$ott_id,
+      label_format = "name_and_id",
+      file = tree_file
+    ),
+    error = function(e) FALSE
+  )
+  if (!isTRUE(ok_tree) || !file.exists(tree_file)) {
+    attr(out, "taxonomic_distance_method") <- "open_tree_failed"
+    return(out)
+  }
+  newick <- paste(readLines(tree_file, warn = FALSE), collapse = "")
+  tree <- tryCatch(ape::read.tree(text = newick), error = function(e) NULL)
+  if (is.null(tree) || is.null(tree$edge) || length(tree$tip.label) < 2L) {
+    attr(out, "taxonomic_distance_method") <- "open_tree_failed"
+    return(out)
+  }
+  tree <- tryCatch(ape::compute.brlen(tree, method = "Grafen"), error = function(e) tree)
+  node_dist <- tryCatch(ape::dist.nodes(tree), error = function(e) NULL)
+  if (is.null(node_dist) || !is.matrix(node_dist)) {
+    attr(out, "taxonomic_distance_method") <- "open_tree_failed"
+    return(out)
+  }
+  tree_labels <- c(tree$tip.label, tree$node.label)
+  if (length(tree_labels) != nrow(node_dist)) {
+    attr(out, "taxonomic_distance_method") <- "open_tree_failed"
+    return(out)
+  }
+  dimnames(node_dist) <- list(tree_labels, tree_labels)
+
+  find_label_by_ott <- function(ott_id) {
+    ott_id <- as.character(ott_id)
+    if (is.na(ott_id) || !nzchar(ott_id)) {
+      return(NA_character_)
+    }
+    hit <- grep(paste0("ott", ott_id, "([^0-9]|$)"), tree_labels, value = TRUE)
+    if (length(hit) > 0L) hit[[1L]] else NA_character_
+  }
+  find_label_by_node <- function(node_id) {
+    node_id <- as.character(node_id)
+    if (is.na(node_id) || !nzchar(node_id)) {
+      return(NA_character_)
+    }
+    node_id_num <- sub("^ott", "", node_id)
+    find_label_by_ott(node_id_num)
+  }
+  node_cache <- new.env(parent = emptyenv())
+  node_id_for_ott <- function(ott_id) {
+    key <- as.character(ott_id)
+    if (exists(key, node_cache, inherits = FALSE)) {
+      return(get(key, node_cache, inherits = FALSE))
+    }
+    info <- tryCatch(rotl::tol_node_info(ott_id = ott_id), error = function(e) NULL)
+    node_id <- if (is.list(info) && !is.null(info$node_id)) {
+      as.character(info$node_id)
+    } else {
+      NA_character_
+    }
+    assign(key, node_id, envir = node_cache)
+    node_id
+  }
+
+  matched$distance_label <- vapply(matched$ott_id, find_label_by_ott, character(1))
+  missing_label <- is.na(matched$distance_label) | !matched$distance_label %in% tree_labels
+  if (any(missing_label)) {
+    node_ids <- vapply(matched$ott_id[missing_label], node_id_for_ott, character(1))
+    matched$distance_label[missing_label] <- vapply(node_ids, find_label_by_node, character(1))
+  }
+
+  label_lookup <- stats::setNames(matched$distance_label, matched$.query_key)
+  row_labels <- unname(label_lookup[labels_key])
+  valid <- !is.na(row_labels) & row_labels %in% tree_labels
+  if (sum(valid) >= 2L) {
+    out[valid, valid] <- node_dist[row_labels[valid], row_labels[valid], drop = FALSE]
+    finite_positive <- out[is.finite(out) & out > 0]
+    if (length(finite_positive) > 0L) {
+      scale <- max(finite_positive, na.rm = TRUE)
+      if (is.finite(scale) && scale > 0) {
+        out[is.finite(out)] <- out[is.finite(out)] / scale
+        attr(out, "taxonomic_distance_scale") <- scale
+      }
+    }
+  }
+  diag(out) <- 0
+  attr(out, "taxonomic_distance_method") <- "open_tree_node_grafen"
+  attr(out, "taxonomic_distance_labels") <- row_labels
+  out
+}
+
 tax_dist_mat <- function(models_df, tax_col_map) {
   n <- nrow(models_df)
 
@@ -588,53 +784,15 @@ tax_dist_mat <- function(models_df, tax_col_map) {
     if (length(value) == 0L || is.na(value) || !nzchar(value)) NULL else value
   }
 
-  rank_cols <- unname(tax_col_map[tax_col_map %in% names(models_df)])
-  n_ranks <- length(rank_cols)
-  if (n_ranks == 0L) {
+  species_col <- tax_map_value("species") %||% tax_map_value("species_name")
+  if (is.null(species_col) && !"species_name" %in% names(models_df)) {
     return(NULL)
   }
-  deepest <- matrix(0L, nrow = n, ncol = n)
-  for (r in seq_len(n_ranks)) {
-    vals <- stringr::str_squish(as.character(models_df[[rank_cols[[r]]]]))
-    vals[!nzchar(vals)] <- NA_character_
-    agree <- outer(vals, vals, function(a, b) !is.na(a) & !is.na(b) & (a == b))
-    deepest[agree] <- r
-  }
-  rank_mat <- 1 - deepest / n_ranks
-  diag(rank_mat) <- 0
 
-  # - Primary: Tree-of-Life phylogenetic distances -
-  species_col <- tax_map_value("species") %||% tax_map_value("species_name")
-  genus_col <- tax_map_value("genus")
-
-  if (!is.null(species_col) && species_col %in% names(models_df)) {
-    sp_vec <- as.character(models_df[[species_col]])
-    gn_vec <- if (!is.null(genus_col) && genus_col %in% names(models_df)) {
-      as.character(models_df[[genus_col]])
-    } else {
-      NULL
-    }
-    phylo_mat <- tryCatch(
-      build_phylo_dist_from_species(sp_vec, genus_vec = gn_vec),
-      error = function(e) NULL
-    )
-    if (!is.null(phylo_mat)) {
-      resolved <- attr(phylo_mat, "phylo_resolved")
-      if (length(resolved) != n) resolved <- rep(FALSE, n)
-      resolved[is.na(resolved)] <- FALSE
-      # A rank fallback must replace the whole matrix, rather than only
-      # unresolved pairs. Mixing a normalized tree distance with a rank
-      # distance creates a non-comparable scale that can invert donor ranks.
-      if (all(resolved) && all(is.finite(phylo_mat))) {
-        attr(phylo_mat, "taxonomic_distance_method") <- "open_tree_cophenetic"
-        return(phylo_mat)
-      }
-    }
-  }
-
-  # - Fallback: rank-based distance -
-  attr(rank_mat, "taxonomic_distance_method") <- "rank_fallback"
-  rank_mat
+  labels <- alchemist_species_labels(models_df, tax_col_map)
+  out <- alchemist_open_tree_node_distance(labels)
+  dimnames(out) <- list(seq_len(n), seq_len(n))
+  out
 }
 
 #' Compute pairwise coherence distance matrices
@@ -880,7 +1038,7 @@ build_pair_feature_matrices <- function(models_df,
     if (length(tax_col_map) >= 1L) {
       report_progress(
         progress,
-        "  [Alchemist] Computing phylogenetic distance (rotl, fallback: rank-based) for: ",
+        "  [Alchemist] Computing phylogenetic distance (OpenTree node distances) for: ",
         paste(names(tax_col_map), collapse = ", "), "..."
       )
       tax_mat <- tax_dist_mat(models_df, tax_col_map)

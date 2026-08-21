@@ -761,7 +761,7 @@ test_that("deterministic selection does not use coefficient diagnostics as tie b
   expect_equal(selected$selected_policy[[1]], "a_higher_coefficient_width")
 })
 
-test_that("selection ranks predicted score before uncertainty within score band", {
+test_that("selection ranks predicted score before uncertainty width", {
   selected <- select_anchor_policies(tibble::tibble(
     policy = c("better_score_wider", "worse_score_narrower"),
     candidate_pool = c("same_family", "same_family"),
@@ -784,6 +784,8 @@ test_that("selection ranks predicted score before uncertainty within score band"
   ))
 
   expect_equal(selected$selected_policy[[1]], "better_score_wider")
+  expect_match(selected$selection_tier[[1]], "score_band_burden")
+  expect_true(is.na(selected$anchor_selection_min_uncertainty_width[[1]]))
 })
 
 test_that("selection resolves score-equivalent policies by assumption burden", {
@@ -804,6 +806,7 @@ test_that("selection resolves score-equivalent policies by assumption burden", {
   expect_equal(selected$selected_policy[[1]], "worse_score_narrower")
   expect_match(selected$selection_tier[[1]], "score_band_burden")
   expect_true(is.na(selected$anchor_selection_min_uncertainty_width[[1]]))
+  expect_true(is.na(selected$anchor_selection_uncertainty_threshold[[1]]))
 })
 
 test_that("target selection does not treat across-policy score spread as a one-SE band", {

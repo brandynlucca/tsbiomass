@@ -269,6 +269,110 @@ write_config_yaml <- function(path,
   invisible(path)
 }
 
+#' Read a `write_scorecard()` report
+#'
+#' Parses the plain-text report written by [write_scorecard()] back into a
+#' tibble, one row per anchor. This is a parser for that specific fixed
+#' format (`## <anchor>` headings, `- Label: value` fields); it is not a
+#' general Markdown reader.
+#'
+#' @param path Report file path, as written by [write_scorecard()].
+#'
+#' @return A tibble with one row per anchor and columns `anchor_species`,
+#'   `anchor_is_external`, `selected_policy_display`, `selected_equation_branch_filter`,
+#'   `selection_tier`, `realized_donor_fingerprint`, `realized_n_unique_donors`,
+#'   `policy_slope_len`, `policy_intercept_len`, `multiplier_pred`,
+#'   `meta_post_selection_multiplier_lo`, `meta_post_selection_multiplier_hi`,
+#'   `prediction_error_message`, `meta_q_abs_log_total`.
+#'
+#' @export
+read_scorecard <- function(path) {
+  if (!is.character(path) || length(path) != 1 || !nzchar(path)) {
+    stop("'path' must be a single report file path.", call. = FALSE)
+  }
+  if (!file.exists(path)) {
+    stop("Report file does not exist: ", path, call. = FALSE)
+  }
+
+  lines <- readLines(path, warn = FALSE)
+  heading_idx <- grep("^## ", lines)
+  if (length(heading_idx) == 0) {
+    return(tibble::tibble(
+      anchor_species = character(0),
+      anchor_is_external = logical(0),
+      selected_policy_display = character(0),
+      selected_equation_branch_filter = character(0),
+      selection_tier = character(0),
+      realized_donor_fingerprint = character(0),
+      realized_n_unique_donors = numeric(0),
+      policy_slope_len = numeric(0),
+      policy_intercept_len = numeric(0),
+      multiplier_pred = numeric(0),
+      meta_post_selection_multiplier_lo = numeric(0),
+      meta_post_selection_multiplier_hi = numeric(0),
+      prediction_error_message = character(0),
+      meta_q_abs_log_total = numeric(0)
+    ))
+  }
+
+  block_end <- c(heading_idx[-1] - 1, length(lines))
+  rows <- lapply(seq_along(heading_idx), function(i) {
+    block <- lines[heading_idx[[i]]:block_end[[i]]]
+    heading <- sub("^## ", "", block[[1]])
+    is_external <- grepl("\\(external query\\)$", heading)
+    species <- stringr::str_trim(sub("\\s*\\(external query\\)$", "", heading))
+
+    field <- function(pattern, group = 1) {
+      hit <- stringr::str_match(block, pattern)[, group + 1]
+      hit <- hit[!is.na(hit)]
+      if (length(hit) == 0) NA_character_ else hit[[1]]
+    }
+    as_num <- function(x) suppressWarnings(as.numeric(x))
+
+    policy_field <- field("^- Selected policy: (.*) \\[(.*)\\]$", group = 1)
+    branch_field <- field("^- Selected policy: (.*) \\[(.*)\\]$", group = 2)
+    tier_field <- field("^- Selection tier: (.*)$")
+    donor_line <- field("^- Donors: (.*) \\((\\d+) unique\\)$", group = 1)
+    donor_n <- field("^- Donors: (.*) \\((\\d+) unique\\)$", group = 2)
+    donor_fp <- if (!is.na(donor_line) && identical(donor_line, "none")) {
+      NA_character_
+    } else if (!is.na(donor_line)) {
+      paste(stringr::str_split(donor_line, ", ")[[1]], collapse = "|")
+    } else {
+      NA_character_
+    }
+
+    slope_field <- field("^- TS-length equation: slope = (\\S+), intercept = (\\S+)$", group = 1)
+    intercept_field <- field("^- TS-length equation: slope = (\\S+), intercept = (\\S+)$", group = 2)
+
+    mult_field <- field("^- Biomass multiplier: (\\S+) \\((\\S+) - (\\S+)\\)$", group = 1)
+    mult_lo_field <- field("^- Biomass multiplier: (\\S+) \\((\\S+) - (\\S+)\\)$", group = 2)
+    mult_hi_field <- field("^- Biomass multiplier: (\\S+) \\((\\S+) - (\\S+)\\)$", group = 3)
+    err_field <- field("^- Biomass multiplier: not computable \\((.*)\\)$")
+
+    q_field <- field("^- Uncertainty \\(log scale\\): (\\S+)$")
+
+    tibble::tibble(
+      anchor_species = species,
+      anchor_is_external = is_external,
+      selected_policy_display = policy_field,
+      selected_equation_branch_filter = branch_field,
+      selection_tier = tier_field,
+      realized_donor_fingerprint = donor_fp,
+      realized_n_unique_donors = as_num(donor_n),
+      policy_slope_len = as_num(slope_field),
+      policy_intercept_len = as_num(intercept_field),
+      multiplier_pred = as_num(mult_field),
+      meta_post_selection_multiplier_lo = as_num(mult_lo_field),
+      meta_post_selection_multiplier_hi = as_num(mult_hi_field),
+      prediction_error_message = err_field,
+      meta_q_abs_log_total = as_num(q_field)
+    )
+  })
+
+  dplyr::bind_rows(rows)
+}
+
 #' Build one packaged script call
 #'
 #' Builds the `Rscript` command and arguments needed to run the packaged

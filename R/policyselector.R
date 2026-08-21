@@ -3290,30 +3290,6 @@ select_anchor_policies <- function(policy_tbl,
   if (!"coefficient_intercept_q95" %in% names(policy_tbl_)) {
     policy_tbl_$coefficient_intercept_q95 <- NA_real_
   }
-  if (!"candidate_slope_interval_width" %in% names(policy_tbl_)) {
-    if (all(c(
-      "policy_slope_len_lo_95", "policy_slope_len_hi_95"
-    ) %in% names(policy_tbl_))) {
-      policy_tbl_$candidate_slope_interval_width <- suppressWarnings(
-        as.numeric(policy_tbl_$policy_slope_len_hi_95) -
-          as.numeric(policy_tbl_$policy_slope_len_lo_95)
-      )
-    } else {
-      policy_tbl_$candidate_slope_interval_width <- NA_real_
-    }
-  }
-  if (!"candidate_intercept_interval_width" %in% names(policy_tbl_)) {
-    if (all(c(
-      "policy_intercept_len_lo_95", "policy_intercept_len_hi_95"
-    ) %in% names(policy_tbl_))) {
-      policy_tbl_$candidate_intercept_interval_width <- suppressWarnings(
-        as.numeric(policy_tbl_$policy_intercept_len_hi_95) -
-          as.numeric(policy_tbl_$policy_intercept_len_lo_95)
-      )
-    } else {
-      policy_tbl_$candidate_intercept_interval_width <- NA_real_
-    }
-  }
   candidate_pool_values <- if ("candidate_pool" %in% names(policy_tbl_)) {
     policy_tbl_$candidate_pool
   } else {
@@ -3428,10 +3404,10 @@ select_anchor_policies <- function(policy_tbl,
     return(selected)
   }
 
-  # The predeclared global one-SE screen defines the benchmark policy library.
-  # Bootstrap summaries remain diagnostics; they must not veto a candidate
-  # before its target-specific predicted error and burden are considered.
-  if ("acceptable_global" %in% names(candidate_tbl) &&
+  # The predeclared global one-SE screen defines the deterministic benchmark
+  # policy library. 
+  if (!uses_meta_score &&
+    "acceptable_global" %in% names(candidate_tbl) &&
     any(!is.na(candidate_tbl$acceptable_global))) {
     globally_acceptable <- candidate_tbl |>
       dplyr::filter(dplyr::coalesce(.data$acceptable_global, FALSE))
@@ -3502,10 +3478,10 @@ select_anchor_policies <- function(policy_tbl,
     score_slack <- 0
   }
   score_threshold <- min_validation_error + pmax(0, one_se_multiplier * score_slack)
+
   best_score_rows <- score_ranked |>
     dplyr::filter(.data$anchor_selection_validation_error <= score_threshold)
 
-  # Resolve score-equivalent target policies with the predeclared burden.
   selected <- order_policy_assumption_burden(best_score_rows)
 
   selected |>

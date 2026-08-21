@@ -226,3 +226,26 @@ forge_distances <- S7::new_generic("forge_distances", "object")
 #'
 #' @export
 distill_traits <- S7::new_generic("distill_traits", "object")
+
+#' Write a Scorecard report
+#'
+#' Writes one plain-text record per anchor from a [Scorecard]'s selected
+#' policies: the selected policy and its branch, the selection tier, the donor
+#' models actually used, the predicted TS-length equation, the biomass
+#' multiplier and its interval (or why it is not computable, for external
+#' anchors with no baseline TS model), and the total post-selection
+#' uncertainty.
+#'
+#' The format is a small, fixed subset of Markdown (`## <anchor>` headings,
+#' `- Label: value` fields) - readable as plain text on its own, and simple
+#' enough for [read_scorecard()] to parse back into a tibble. It is not a
+#' full diagnostic export; see the `Scorecard` slots directly for the full
+#' per-policy tables.
+#'
+#' @param object A [Scorecard] object.
+#' @param ... Method-specific arguments such as `path` and `overwrite`.
+#'
+#' @return The written path, invisibly.
+#'
+#' @export
+write_scorecard <- S7::new_generic("write_scorecard", "object")

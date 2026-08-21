@@ -1869,6 +1869,142 @@ S7::method(show_generic, Scorecard) <- function(object) {
   scorecard_console_summary(object)
 }
 
+#' Format one report number for `write_scorecard()`
+#'
+#' @param x Numeric scalar.
+#' @param digits Significant digits.
+#'
+#' @return Character scalar, `"NA"` when `x` is not finite.
+#' @keywords internal
+#' @noRd
+format_report_number <- function(x, digits = 3) {
+  if (length(x) == 0 || !is.finite(x)) {
+    return("NA")
+  }
+  trimws(formatC(signif(x, digits), format = "fg", digits = digits))
+}
+
+#' Build `write_scorecard()` report lines from a selected-row table
+#'
+#' @param selected_tbl `Scorecard@selected`-shaped table, one row per anchor.
+#'
+#' @return Character vector of report lines.
+#' @keywords internal
+#' @noRd
+format_scorecard_report_lines <- function(selected_tbl) {
+  tbl <- tibble::as_tibble(selected_tbl)
+  if (nrow(tbl) == 0) {
+    return(c("# tsbiomass scorecard", "", "(no selected anchors)"))
+  }
+
+  species <- as.character(scorecard_pick(tbl, c("anchor_species", "species_name", "species"), default = NA_character_))
+  is_external <- as.logical(scorecard_pick(tbl, "anchor_is_external", default = FALSE))
+  policy_display <- as.character(scorecard_pick(tbl, c("selected_policy_display", "selected_policy", "policy"), default = NA_character_))
+  branch <- as.character(scorecard_pick(tbl, c("selected_equation_branch_filter", "equation_branch_filter"), default = NA_character_))
+  tier <- as.character(scorecard_pick(tbl, "selection_tier", default = NA_character_))
+  donor_fp <- as.character(scorecard_pick(tbl, "realized_donor_fingerprint", default = NA_character_))
+  n_donors <- suppressWarnings(as.numeric(scorecard_pick(tbl, "realized_n_unique_donors", default = NA_real_)))
+  slope <- suppressWarnings(as.numeric(scorecard_pick(tbl, "policy_slope_len", default = NA_real_)))
+  intercept <- suppressWarnings(as.numeric(scorecard_pick(tbl, "policy_intercept_len", default = NA_real_)))
+  valid <- as.logical(scorecard_pick(tbl, "valid_prediction", default = TRUE))
+  mult_pred <- suppressWarnings(as.numeric(scorecard_pick(tbl, "multiplier_pred", default = NA_real_)))
+  mult_lo <- suppressWarnings(as.numeric(scorecard_pick(tbl, c("meta_post_selection_multiplier_lo", "multiplier_lo"), default = NA_real_)))
+  mult_hi <- suppressWarnings(as.numeric(scorecard_pick(tbl, c("meta_post_selection_multiplier_hi", "multiplier_hi"), default = NA_real_)))
+  err_msg <- as.character(scorecard_pick(tbl, "prediction_error_message", default = NA_character_))
+  total_q <- suppressWarnings(as.numeric(scorecard_pick(tbl, c("meta_q_abs_log_total", "q_abs_log_total"), default = NA_real_)))
+
+  lines <- c("# tsbiomass scorecard", "")
+  for (i in seq_len(nrow(tbl))) {
+    heading <- if (isTRUE(is_external[[i]])) {
+      paste0("## ", species[[i]], " (external query)")
+    } else {
+      paste0("## ", species[[i]])
+    }
+
+    donor_ids <- if (is.na(donor_fp[[i]]) || !nzchar(donor_fp[[i]])) {
+      "none"
+    } else {
+      gsub("|", ", ", donor_fp[[i]], fixed = TRUE)
+    }
+
+    ts_line <- if (is.finite(slope[[i]]) && is.finite(intercept[[i]])) {
+      sprintf(
+        "- TS-length equation: slope = %s, intercept = %s",
+        format_report_number(slope[[i]]), format_report_number(intercept[[i]])
+      )
+    } else {
+      "- TS-length equation: not available"
+    }
+
+    mult_line <- if (isTRUE(valid[[i]]) && is.finite(mult_pred[[i]])) {
+      sprintf(
+        "- Biomass multiplier: %s (%s - %s)",
+        format_report_number(mult_pred[[i]]), format_report_number(mult_lo[[i]]), format_report_number(mult_hi[[i]])
+      )
+    } else {
+      reason <- if (!is.na(err_msg[[i]]) && nzchar(err_msg[[i]])) {
+        err_msg[[i]]
+      } else if (isTRUE(is_external[[i]])) {
+        "external anchor has no baseline TS model"
+      } else {
+        "not computable"
+      }
+      sprintf("- Biomass multiplier: not computable (%s)", reason)
+    }
+
+    q_line <- if (is.finite(total_q[[i]])) {
+      sprintf("- Uncertainty (log scale): %s", format_report_number(total_q[[i]]))
+    } else {
+      "- Uncertainty (log scale): not available"
+    }
+
+    lines <- c(
+      lines,
+      heading,
+      "",
+      sprintf("- Selected policy: %s [%s]", policy_display[[i]], branch[[i]]),
+      sprintf("- Selection tier: %s", tier[[i]]),
+      sprintf("- Donors: %s (%s unique)", donor_ids, if (is.finite(n_donors[[i]])) as.integer(n_donors[[i]]) else "0"),
+      ts_line,
+      mult_line,
+      q_line,
+      ""
+    )
+  }
+  lines
+}
+
+#' Write a `Scorecard` report
+#'
+#' @name write_scorecard.Scorecard
+#' @usage NULL
+#'
+#' @param object A [Scorecard] object.
+#' @param path Output file path.
+#' @param overwrite Logical scalar. If `TRUE`, overwrite an existing file.
+#' @param ... Unused.
+#'
+#' @return The written path, invisibly.
+#'
+#' @keywords internal
+#' @noRd
+S7::method(write_scorecard, Scorecard) <- function(object, path, overwrite = FALSE, ...) {
+  if (!is.character(path) || length(path) != 1 || !nzchar(path)) {
+    stop("'path' must be a single output file path.", call. = FALSE)
+  }
+  if (!is.logical(overwrite) || length(overwrite) != 1 || is.na(overwrite)) {
+    stop("'overwrite' must be TRUE or FALSE.", call. = FALSE)
+  }
+  if (file.exists(path) && !isTRUE(overwrite)) {
+    stop("File already exists. Set 'overwrite = TRUE' to replace it.", call. = FALSE)
+  }
+
+  ensure_parent_path(path)
+  lines <- format_scorecard_report_lines(tibble::as_tibble(object@selected))
+  writeLines(lines, path)
+  invisible(path)
+}
+
 #' Coerce `Scorecard` to a tibble
 #'
 #' Returns the canonical recommendation-card result table.
