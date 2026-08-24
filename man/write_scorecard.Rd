@@ -17,10 +17,10 @@ The written path, invisibly.
 \description{
 Writes one plain-text record per anchor from a \link{Scorecard}'s selected
 policies: the selected policy and its branch, the selection tier, the donor
-models actually used, the predicted TS-length equation, the biomass
-multiplier and its interval (or why it is not computable, for external
-anchors with no baseline TS model), and the total post-selection
-uncertainty.
+models actually used, donor model details when available, the predicted
+TS-length equation, the biomass multiplier and its interval (or why it is
+not computable, for external anchors with no baseline TS model), and the
+total post-selection uncertainty.
 }
 \details{
 The format is a small, fixed subset of Markdown (\verb{## <anchor>} headings,

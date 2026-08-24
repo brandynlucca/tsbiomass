@@ -1163,28 +1163,16 @@ build_pair_data <- function(models_df,
   slope_vals[!is.finite(slope_vals)] <- NA_real_
   intercept_vals[!is.finite(intercept_vals)] <- NA_real_
 
-  len_min_col <- intersect(
-    c("study_length_min", "length_minimum"),
-    names(models_df)
-  )[[1]] %||% NULL
-  len_max_col <- intersect(
-    c("study_length_max", "length_maximum"),
-    names(models_df)
-  )[[1]] %||% NULL
-
   anchor_pdfs <- lapply(seq_len(n), function(j) {
-    build_anchor_pdf(
-      lo = if (!is.null(len_min_col)) {
-        models_df[[len_min_col]][[j]]
-      } else {
-        NA_real_
-      },
-      hi = if (!is.null(len_max_col)) {
-        models_df[[len_max_col]][[j]]
-      } else {
-        NA_real_
-      }
+    pdf_j <- build_anchor_length_pdf(
+      models_df[j, , drop = FALSE],
+      config = NULL,
+      on_missing = "empty"
     )
+    if (nrow(pdf_j) == 0L) {
+      return(NULL)
+    }
+    pdf_j
   })
   n_valid_pdfs <- sum(!vapply(anchor_pdfs, is.null, logical(1)))
 
@@ -1225,6 +1213,7 @@ build_pair_data <- function(models_df,
 
   species_names <- as.character(models_df$species_name %||% rep(NA_character_, n))
   species_names[is.na(species_names)] <- NA_character_
+  group_model <- generalized_model_indicator(models_df)
 
   model_ids <- if ("model_id" %in% names(models_df)) {
     as.character(models_df$model_id)
@@ -1240,6 +1229,10 @@ build_pair_data <- function(models_df,
   )
   valid_mask <- is.finite(donor_sigma_mat) & donor_sigma_mat > 0
   diag(valid_mask) <- FALSE
+  if (any(group_model)) {
+    valid_mask[group_model, ] <- FALSE
+    valid_mask[, group_model] <- FALSE
+  }
   pair_idx <- which(valid_mask, arr.ind = TRUE)
 
   if (nrow(pair_idx) == 0L) {
@@ -3403,7 +3396,11 @@ S7::method(forge_distances, Alchemist) <- function(object,
     stage = "forge_distances",
     # Pair-training version: v2 includes distinct conspecific model pairs
     # while still excluding identity pairs through `diag(valid_mask) <- FALSE`.
-    suffix = paste(feature_type, "nonself_pairs_v2", sep = "_")
+    # v3 also removes generalized equations from ordinary learned-distance
+    # training so constructed "NA NA" identities cannot define nearest donors.
+    # v4 trains replacement-error targets on the same stored/reference length
+    # PDFs used by policy evaluation, rather than a separate uniform interval.
+    suffix = paste(feature_type, "nonself_pairs_v4_no_generalized_reference_pdf", sep = "_")
   )
   if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
     report_progress(progress, "[Alchemist] Loading cached forged distances: ", cache_path)

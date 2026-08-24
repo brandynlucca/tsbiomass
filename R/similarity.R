@@ -2430,38 +2430,14 @@ prepare_similarity_score_basis <- function(models_subset,
 
   build_tuning_anchor_pdf <- function(row_df,
                                       n = 400) {
-    midpoint_vals <- resolve_numeric_col(row_df, study_length_mid_col)
-    min_vals <- resolve_numeric_col(row_df, study_length_min_col)
-    max_vals <- resolve_numeric_col(row_df, study_length_max_col)
-
-    midpoint_vals <- midpoint_vals[is.finite(midpoint_vals) & midpoint_vals > 0]
-    min_vals <- min_vals[is.finite(min_vals) & min_vals > 0]
-    max_vals <- max_vals[is.finite(max_vals) & max_vals > 0]
-
-    if (length(min_vals) > 0 && length(max_vals) > 0) {
-      lo <- min(pmin(min_vals, max_vals))
-      hi <- max(pmax(min_vals, max_vals))
-      if (is.finite(lo) && is.finite(hi) && lo > 0 && hi > 0) {
-        if (hi > lo) {
-          grid <- seq(lo, hi, length.out = n)
-          return(tibble::tibble(
-            length_cm = grid,
-            f_len = rep(1 / length(grid), length(grid))
-          ))
-        }
-
-        return(tibble::tibble(
-          length_cm = lo,
-          f_len = 1
-        ))
-      }
-    }
-
-    if (length(midpoint_vals) > 0) {
-      return(tibble::tibble(
-        length_cm = midpoint_vals[[1]],
-        f_len = 1
-      ))
+    pdf <- build_anchor_length_pdf(
+      row_df,
+      config = NULL,
+      n = n,
+      on_missing = "empty"
+    )
+    if (nrow(pdf) > 0L) {
+      return(pdf)
     }
 
     NULL

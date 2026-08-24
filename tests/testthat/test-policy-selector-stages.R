@@ -828,6 +828,98 @@ test_that("target selection does not treat across-policy score spread as a one-S
   expect_match(selected$selection_tier[[1]], "score_band_burden")
 })
 
+test_that("target selection uses benchmark one-SE slack for score equivalence", {
+  selected <- select_anchor_policies(tibble::tibble(
+    policy = c("broad_mean", "specific_single", "outside_one_se"),
+    equation_branch_filter = "all",
+    candidate_pool = c("same_genus", "same_genus", "same_genus"),
+    aggregation_method = c(
+      "arithmetic_mean",
+      "nearest_by_combined_distance",
+      "nearest_by_combined_distance"
+    ),
+    policy_family = c("ensemble", "single_model", "single_model"),
+    multiplier_pred = 1,
+    valid_prediction = TRUE,
+    selection_valid = TRUE,
+    .meta_predicted_score = c(0.40, 0.49, 0.56),
+    one_se_threshold = c(0.50, 0.50, 0.50),
+    best_mean_species_median_abs_log = c(0.40, 0.40, 0.40),
+    local_structural_q_abs_log = c(1.2, 0, 0),
+    local_weighted_q90_combined_distance = c(1.1, 0.8, 0.7),
+    local_weighted_mean_combined_distance = c(1.0, 0.8, 0.7),
+    local_effective_support = c(8, 1, 1)
+  ))
+
+  expect_equal(selected$selected_policy[[1]], "specific_single")
+  expect_equal(selected$anchor_selection_validation_threshold[[1]], 0.50)
+})
+
+test_that("burden ordering penalizes structural spread and effective support", {
+  selected <- select_anchor_policies(tibble::tibble(
+    policy = c("unweighted_mean_within_genus", "closest_within_genus"),
+    equation_branch_filter = "fixed20_only",
+    candidate_pool = c("same_genus", "same_genus"),
+    aggregation_method = c("arithmetic_mean", "nearest_by_combined_distance"),
+    policy_family = c("ensemble", "single_model"),
+    multiplier_pred = 1,
+    valid_prediction = TRUE,
+    selection_valid = TRUE,
+    .meta_predicted_score = c(0.40, 0.45),
+    local_structural_q_abs_log = c(0.5, 0),
+    local_weighted_q90_combined_distance = c(0.7, 0.7),
+    local_weighted_mean_combined_distance = c(0.7, 0.7),
+    local_effective_support = c(8, 1)
+  ), score_tol_abs = 0.10)
+
+  expect_equal(selected$selected_policy[[1]], "closest_within_genus")
+  expect_equal(selected$anchor_selection_burden_disagreement[[1]], 0)
+})
+
+test_that("aggregation parsimony does not override lower realized donor burden", {
+  selected <- select_anchor_policies(tibble::tibble(
+    policy = c("unweighted_mean_within_genus", "closest_within_genus"),
+    equation_branch_filter = "fixed20_only",
+    candidate_pool = c("same_genus", "same_genus"),
+    aggregation_method = c("arithmetic_mean", "nearest_by_combined_distance"),
+    policy_family = c("ensemble", "single_model"),
+    multiplier_pred = 1,
+    valid_prediction = TRUE,
+    selection_valid = TRUE,
+    .meta_predicted_score = c(0.40, 0.45),
+    local_structural_q_abs_log = c(0.01, 0.30),
+    local_weighted_q90_combined_distance = c(0.40, 0.70),
+    local_weighted_mean_combined_distance = c(0.35, 0.70),
+    local_effective_support = c(4, 1)
+  ), score_tol_abs = 0.10)
+
+  expect_equal(selected$selected_policy[[1]], "unweighted_mean_within_genus")
+  expect_equal(selected$anchor_selection_burden_disagreement[[1]], 0.01)
+})
+
+test_that("singleton ensembles are not eligible for selection", {
+  selected <- select_anchor_policies(tibble::tibble(
+    policy = c("unweighted_mean_within_study_cell", "closest_within_study_cell"),
+    equation_branch_filter = "fixed20_only",
+    candidate_pool = c("same_study_cell", "same_study_cell"),
+    aggregation_method = c("arithmetic_mean", "nearest_by_combined_distance"),
+    policy_family = c("unweighted_ensemble", "single_model"),
+    multiplier_pred = 1,
+    valid_prediction = TRUE,
+    selection_valid = TRUE,
+    .meta_predicted_score = c(0.10, 0.30),
+    realized_n_unique_donors = c(1, 1),
+    realized_donor_fingerprint = c("575", "575"),
+    local_structural_q_abs_log = c(0, 0),
+    local_weighted_q90_combined_distance = c(0.1, 0.1),
+    local_weighted_mean_combined_distance = c(0.1, 0.1),
+    local_effective_support = c(1, 1)
+  ), score_tol_abs = 0.25)
+
+  expect_equal(selected$selected_policy[[1]], "closest_within_study_cell")
+  expect_false(isTRUE(selected$selection_invalid_singleton_ensemble[[1]]))
+})
+
 test_that("policy intervals use the calibrated radius once", {
   intervals <- tsbiomass:::add_policy_intervals(tibble::tibble(
     multiplier_pred = 2,
@@ -864,6 +956,47 @@ test_that("ordination context accepts canonical and legacy score fields", {
     policy_selector_ordination_context(list(model = list(scores = scores)))$model_scores,
     scores
   )
+})
+
+test_that("write_scorecard reports and reads selected donor model details", {
+  scorecard <- empty_scorecard()
+  scorecard@selected <- tibble::tibble(
+    anchor_species = "Anchor species",
+    selected_policy_display = "Selected policy",
+    selected_equation_branch_filter = "all",
+    selection_tier = "test",
+    realized_donor_fingerprint = "d1|d2",
+    realized_n_unique_donors = 2,
+    selected_realized_transfer_display = "2 donors realized from Selected policy [all]",
+    selected_donor_model_ids = "d1|d2",
+    selected_donor_model_summary = "n=2; effective_n=1.8; slope_sd=1.4",
+    selected_donor_model_details = paste(
+      "d1 [Species one; slope=20; intercept=-70]",
+      "d2 [Species two; slope=22; intercept=-72]",
+      sep = " | "
+    ),
+    policy_slope_len = 21,
+    policy_intercept_len = -71,
+    valid_prediction = TRUE,
+    multiplier_pred = 1.2,
+    multiplier_lo = 0.9,
+    multiplier_hi = 1.5,
+    q_abs_log_total = 0.2
+  )
+
+  path <- tempfile(fileext = ".md")
+  write_scorecard(scorecard, path = path)
+  lines <- readLines(path, warn = FALSE)
+  expect_true(any(grepl("^- Realized transfer: 2 donors realized from Selected policy \\[all\\]$", lines)))
+  expect_true(any(grepl("^- Donor model IDs: d1, d2$", lines)))
+  expect_true(any(grepl("^- Donor summary: n=2; effective_n=1.8; slope_sd=1.4$", lines)))
+  expect_true(any(grepl("slope=20; intercept=-70", lines, fixed = TRUE)))
+
+  parsed <- read_scorecard(path)
+  expect_equal(parsed$selected_realized_transfer_display[[1]], "2 donors realized from Selected policy [all]")
+  expect_equal(parsed$selected_donor_model_ids[[1]], "d1|d2")
+  expect_equal(parsed$selected_donor_model_summary[[1]], "n=2; effective_n=1.8; slope_sd=1.4")
+  expect_match(parsed$selected_donor_model_details[[1]], "d2 \\[Species two")
 })
 
 test_that("Scorecard and Configurer show compact console summaries", {

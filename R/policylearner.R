@@ -1568,9 +1568,7 @@ policy_learner_uncertainty_screen_inputs <- function(object,
     meta_selected,
     anchor_lookup = anchor_lookup
   )
-  # Selected-policy conformal radii are the displayed uncertainties. Do not
-  # fit a second learned-width model that can override them after selection.
-  width_feature_cols <- character()
+  width_feature_cols <- policy_learner_uncertainty_feature_cols(cfg, meta_selected)
   width_group_col <- if ("anchor_species" %in% names(meta_selected)) {
     "anchor_species"
   } else {
@@ -2157,19 +2155,7 @@ policy_learner_select_calibration_rows <- function(tbl,
   if (length(max_selection_tolerance) != 1L || !is.finite(max_selection_tolerance)) {
     max_selection_tolerance <- NA_real_
   }
-  if (!"selection_valid" %in% names(tbl)) {
-    if ("n_valid_models" %in% names(tbl)) {
-      tbl$selection_valid <- is.finite(tbl$n_valid_models) &
-        tbl$n_valid_models > 0
-    } else if ("n_models" %in% names(tbl)) {
-      tbl$selection_valid <- is.finite(tbl$n_models) &
-        tbl$n_models > 0
-    } else if (".meta_predicted_score" %in% names(tbl)) {
-      tbl$selection_valid <- is.finite(tbl$.meta_predicted_score)
-    } else {
-      tbl$selection_valid <- FALSE
-    }
-  }
+  tbl <- apply_policy_selection_validity(tbl)
 
   tbl$anchor_selection_local_distance <- dplyr::coalesce(
     tbl$local_weighted_mean_combined_distance,
@@ -2299,15 +2285,7 @@ policy_learner_uncertainty_crossfit_plan <- function(object,
   } else {
     outcome_col
   }
-  if ("n_valid_models" %in% names(predictions)) {
-    predictions$selection_valid <- is.finite(predictions$n_valid_models) &
-      predictions$n_valid_models > 0
-  } else if ("n_models" %in% names(predictions)) {
-    predictions$selection_valid <- is.finite(predictions$n_models) &
-      predictions$n_models > 0
-  } else {
-    predictions$selection_valid <- is.finite(predictions$.meta_predicted_score)
-  }
+  predictions <- apply_policy_selection_validity(predictions)
   max_selection_tolerance <- suppressWarnings(as.numeric(
     max_selection_tolerance %||%
       cal_obj$max_selection_tolerance %||%
@@ -2799,15 +2777,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     outcome_col
   }
 
-  if ("n_valid_models" %in% names(predictions)) {
-    predictions$selection_valid <- is.finite(predictions$n_valid_models) &
-      predictions$n_valid_models > 0
-  } else if ("n_models" %in% names(predictions)) {
-    predictions$selection_valid <- is.finite(predictions$n_models) &
-      predictions$n_models > 0
-  } else {
-    predictions$selection_valid <- is.finite(predictions$.meta_predicted_score)
-  }
+  predictions <- apply_policy_selection_validity(predictions)
 
   max_selection_tolerance <- suppressWarnings(as.numeric(
     max_selection_tolerance %||%
@@ -2977,9 +2947,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     median_interval_log_width = if (is.finite(meta_q_global)) 2 * meta_q_global else NA_real_
   )
 
-  # The selected policy's calibrated radius is propagated directly. A second
-  # post-selection width learner is intentionally not fitted.
-  width_feature_cols <- character()
+  width_feature_cols <- policy_learner_uncertainty_feature_cols(cfg, meta_selected)
   width_method <- uncertainty_method %||% policy_selector_config_value(
     cfg, "method",
     sections = c("uncertainty", "policy_learner")
@@ -4025,6 +3993,7 @@ policy_learner_ensemble_disagreement_uncertainty <- function(tbl,
         is.finite(.data$interval_log_width) &
         .data$interval_log_width > 0
     )
+  scored <- apply_policy_selection_validity(scored)
 
   selected_rows <- scored |>
     dplyr::group_split(.data$anchor_model_id, .data$anchor_species, .keep = TRUE) |>

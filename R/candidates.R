@@ -988,7 +988,16 @@ standardize_candidate_columns <- function(data_table) {
   species_name <- candidate_coalesce_column(out, c("species_name", "species", "species_species_name"))
   if (!is.null(species_name)) {
     out$species_name <- as.character(species_name)
+  } else if (!"species_name" %in% names(out)) {
+    out$species_name <- NA_character_
   }
+  out$is_group_model <- generalized_model_indicator(out)
+  out$species_name[as.logical(out$is_group_model) %in% TRUE] <- NA_character_
+  out$model_species_label <- dplyr::if_else(
+    out$is_group_model,
+    "Generalized model",
+    as.character(out$species_name)
+  )
 
   genus <- candidate_coalesce_column(out, c("genus", "tax_genus"))
   if (!is.null(genus)) {
@@ -1126,8 +1135,12 @@ standardize_candidate_columns <- function(data_table) {
     )
   }
 
-  if ("lw_a_g" %in% names(out) && !"lw_a" %in% names(out)) {
-    out$lw_a <- suppressWarnings(as.numeric(out$lw_a_g))
+  if ("lw_a_g" %in% names(out)) {
+    out$lw_a_g <- suppressWarnings(as.numeric(out$lw_a_g))
+    out$lw_a <- out$lw_a_g
+  } else if ("lw_a" %in% names(out)) {
+    out$lw_a <- suppressWarnings(as.numeric(out$lw_a))
+    out$lw_a_g <- out$lw_a
   }
 
   length_pdf_data <- candidate_coalesce_column(out, c("length_pdf_data"))
@@ -3061,6 +3074,13 @@ set_model_metadata <- function(object,
       normalize_anchor_pdf_input
     )
   }
+  if ("lw_a_g" %in% update_cols && !"lw_a" %in% names(updates)) {
+    updates$lw_a <- suppressWarnings(as.numeric(updates$lw_a_g))
+  }
+  if ("lw_a" %in% update_cols && !"lw_a_g" %in% names(updates)) {
+    updates$lw_a_g <- suppressWarnings(as.numeric(updates$lw_a))
+  }
+  update_cols <- setdiff(names(updates), model_id_col)
 
   candidate_models <- tibble::as_tibble(object@candidate_models)
   candidate_ids <- as.character(candidate_models[[model_id_col]])
@@ -3098,6 +3118,46 @@ set_model_metadata <- function(object,
     }
   }
 
+  target_idx <- match(update_ids, candidate_ids)
+  coefficient_dependency_cols <- c(
+    "lw_a", "lw_a_g", "lw_b", "slope", "intercept",
+    "equation_form", "equation_form_type"
+  )
+  if (any(update_cols %in% coefficient_dependency_cols) &&
+    all(c("slope", "intercept", "equation_form") %in% names(candidate_models))) {
+    if ("lw_a" %in% names(candidate_models) && !"lw_a_g" %in% names(candidate_models)) {
+      candidate_models$lw_a_g <- suppressWarnings(as.numeric(candidate_models$lw_a))
+    }
+    if ("lw_a_g" %in% names(candidate_models) && !"lw_a" %in% names(candidate_models)) {
+      candidate_models$lw_a <- suppressWarnings(as.numeric(candidate_models$lw_a_g))
+    }
+    converted_rows <- convert_to_length_form(candidate_models[target_idx, , drop = FALSE])
+    eq_form_chr <- stringr::str_to_lower(as.character(converted_rows$equation_form %||% NA_character_))
+    weight_ref <- eq_form_chr == "mlog10_kg"
+    converted_slope <- suppressWarnings(as.numeric(converted_rows$slope_len %||% NA_real_))
+    converted_intercept <- suppressWarnings(as.numeric(converted_rows$intercept_len %||% NA_real_))
+    update_coef <- weight_ref & is.finite(converted_slope) & is.finite(converted_intercept)
+    if (any(update_coef)) {
+      idx_now <- target_idx[update_coef]
+      if (!"slope_len" %in% names(candidate_models)) {
+        candidate_models$slope_len <- NA_real_
+      }
+      if (!"intercept_len" %in% names(candidate_models)) {
+        candidate_models$intercept_len <- NA_real_
+      }
+      if (!"slope_standard" %in% names(candidate_models)) {
+        candidate_models$slope_standard <- NA_real_
+      }
+      if (!"intercept_standard" %in% names(candidate_models)) {
+        candidate_models$intercept_standard <- NA_real_
+      }
+      candidate_models$slope_len[idx_now] <- converted_slope[update_coef]
+      candidate_models$intercept_len[idx_now] <- converted_intercept[update_coef]
+      candidate_models$slope_standard[idx_now] <- converted_slope[update_coef]
+      candidate_models$intercept_standard[idx_now] <- converted_intercept[update_coef]
+    }
+  }
+
   reference_anchors <- tibble::as_tibble(object@reference_anchors)
   if (model_id_col %in% names(reference_anchors)) {
     anchor_ids <- as.character(reference_anchors[[model_id_col]])
@@ -3115,6 +3175,22 @@ set_model_metadata <- function(object,
         reference_anchors[[col]][matched] <- updates[[col]][anchor_idx[matched]]
       } else {
         reference_anchors[[col]][matched] <- updates[[col]][anchor_idx[matched]]
+      }
+    }
+    derived_cols <- intersect(
+      c("lw_a", "lw_a_g", "slope_len", "intercept_len", "slope_standard", "intercept_standard"),
+      names(candidate_models)
+    )
+    anchor_match_candidate <- match(anchor_ids, candidate_ids)
+    anchor_updated <- !is.na(match(anchor_ids, update_ids)) & !is.na(anchor_match_candidate)
+    if (any(anchor_updated)) {
+      for (col in derived_cols) {
+        if (!col %in% names(reference_anchors)) {
+          reference_anchors[[col]] <- candidate_models[[col]][anchor_match_candidate]
+        } else {
+          reference_anchors[[col]][anchor_updated] <-
+            candidate_models[[col]][anchor_match_candidate[anchor_updated]]
+        }
       }
     }
   }

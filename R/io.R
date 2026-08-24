@@ -281,6 +281,8 @@ write_config_yaml <- function(path,
 #' @return A tibble with one row per anchor and columns `anchor_species`,
 #'   `anchor_is_external`, `selected_policy_display`, `selected_equation_branch_filter`,
 #'   `selection_tier`, `realized_donor_fingerprint`, `realized_n_unique_donors`,
+#'   `selected_realized_transfer_display`, `selected_donor_model_ids`,
+#'   `selected_donor_model_summary`, `selected_donor_model_details`,
 #'   `policy_slope_len`, `policy_intercept_len`, `multiplier_pred`,
 #'   `meta_post_selection_multiplier_lo`, `meta_post_selection_multiplier_hi`,
 #'   `prediction_error_message`, `meta_q_abs_log_total`.
@@ -303,8 +305,12 @@ read_scorecard <- function(path) {
       selected_policy_display = character(0),
       selected_equation_branch_filter = character(0),
       selection_tier = character(0),
+      selected_realized_transfer_display = character(0),
       realized_donor_fingerprint = character(0),
       realized_n_unique_donors = numeric(0),
+      selected_donor_model_ids = character(0),
+      selected_donor_model_summary = character(0),
+      selected_donor_model_details = character(0),
       policy_slope_len = numeric(0),
       policy_intercept_len = numeric(0),
       multiplier_pred = numeric(0),
@@ -331,9 +337,13 @@ read_scorecard <- function(path) {
 
     policy_field <- field("^- Selected policy: (.*) \\[(.*)\\]$", group = 1)
     branch_field <- field("^- Selected policy: (.*) \\[(.*)\\]$", group = 2)
+    realized_transfer <- field("^- Realized transfer: (.*)$")
     tier_field <- field("^- Selection tier: (.*)$")
     donor_line <- field("^- Donors: (.*) \\((\\d+) unique\\)$", group = 1)
     donor_n <- field("^- Donors: (.*) \\((\\d+) unique\\)$", group = 2)
+    donor_model_ids_line <- field("^- Donor model IDs: (.*)$")
+    donor_model_summary <- field("^- Donor summary: (.*)$")
+    donor_model_details <- field("^- Donor model details: (.*)$")
     donor_fp <- if (!is.na(donor_line) && identical(donor_line, "none")) {
       NA_character_
     } else if (!is.na(donor_line)) {
@@ -358,8 +368,16 @@ read_scorecard <- function(path) {
       selected_policy_display = policy_field,
       selected_equation_branch_filter = branch_field,
       selection_tier = tier_field,
+      selected_realized_transfer_display = realized_transfer,
       realized_donor_fingerprint = donor_fp,
       realized_n_unique_donors = as_num(donor_n),
+      selected_donor_model_ids = if (!is.na(donor_model_ids_line) && !identical(donor_model_ids_line, "none")) {
+        paste(stringr::str_split(donor_model_ids_line, ", ")[[1]], collapse = "|")
+      } else {
+        NA_character_
+      },
+      selected_donor_model_summary = donor_model_summary,
+      selected_donor_model_details = donor_model_details,
       policy_slope_len = as_num(slope_field),
       policy_intercept_len = as_num(intercept_field),
       multiplier_pred = as_num(mult_field),

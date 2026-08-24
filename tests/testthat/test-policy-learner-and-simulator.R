@@ -74,7 +74,7 @@ test_that("PolicyLearner retires the post-selection width learner", {
   expect_null(learner@calibration$uncertainty_warning)
 })
 
-test_that("PolicyLearner does not fit a post-selection uncertainty learner", {
+test_that("PolicyLearner fits the configured post-selection uncertainty learner", {
   selector <- make_selector(benchmark = list(species_block_perf = minimal_policy_performance()))
   learner <- as_policylearner(selector)
 
@@ -129,10 +129,10 @@ test_that("PolicyLearner does not fit a post-selection uncertainty learner", {
 
   learner <- calibrate_uncertainty(learner, min_bin_scores = 1L)
 
-  expect_null(captured$crossfit_super_methods)
-  expect_null(captured$fit_super_methods)
-  expect_null(captured$crossfit_num_trees)
-  expect_null(captured$fit_num_trees)
+  expect_equal(captured$crossfit_super_methods, "rf")
+  expect_equal(captured$fit_super_methods, "rf")
+  expect_equal(captured$crossfit_num_trees, 7L)
+  expect_equal(captured$fit_num_trees, 7L)
   expect_equal(learner@calibration$uncertainty_super_methods, "rf")
   expect_equal(learner@calibration$uncertainty_method_settings$rf$num_trees, 7L)
 })
@@ -269,7 +269,7 @@ test_that("PolicyLearner selection fit respects selection-specific learner setti
   expect_equal(learner@fitted_model$selection_super_methods, c("glm", "rf"))
 })
 
-test_that("PolicyLearner ignores width-learner override args", {
+test_that("PolicyLearner uses width-learner override args", {
   selector <- make_selector(benchmark = list(species_block_perf = minimal_policy_performance()))
   learner <- as_policylearner(selector)
 
@@ -330,12 +330,12 @@ test_that("PolicyLearner ignores width-learner override args", {
     uncertainty_method_settings = list(rf = list(num_trees = 9L))
   )
 
-  expect_null(captured$crossfit_method)
-  expect_null(captured$fit_method)
-  expect_null(captured$crossfit_super_methods)
-  expect_null(captured$fit_super_methods)
-  expect_null(captured$crossfit_num_trees)
-  expect_null(captured$fit_num_trees)
+  expect_equal(captured$crossfit_method, "super_learner")
+  expect_equal(captured$fit_method, "super_learner")
+  expect_equal(captured$crossfit_super_methods, "rf")
+  expect_equal(captured$fit_super_methods, "rf")
+  expect_equal(captured$crossfit_num_trees, 9L)
+  expect_equal(captured$fit_num_trees, 9L)
   expect_equal(learner@calibration$uncertainty_super_methods, "rf")
   expect_equal(learner@calibration$uncertainty_method_settings$rf$num_trees, 9L)
 })

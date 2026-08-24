@@ -37,6 +37,82 @@ test_that("set_model_metadata updates candidate and selected anchor rows", {
   expect_length(updated@admissibility, 0L)
 })
 
+test_that("set_model_metadata restandardizes weight-referenced model metadata", {
+  candidates <- make_candidates(seed_similarity_tuning = FALSE)
+  candidates <- set_model_metadata(
+    candidates,
+    tibble::tibble(
+      model_id = "1",
+      equation_form = "mlog10_kg",
+      slope = -16,
+      intercept = -35,
+      lw_a_g = 0.002,
+      lw_b = 3.0
+    )
+  )
+  candidates <- set_reference_anchors(candidates, model_ids = "1")
+
+  updated <- set_model_metadata(
+    candidates,
+    tibble::tibble(
+      model_id = "1",
+      lw_a_g = 0.004,
+      lw_b = 3.25
+    )
+  )
+
+  expected_slope <- -16 + 10 * 3.25
+  expected_intercept <- -35 + 10 * (log10(0.004) - 3)
+
+  model_row <- dplyr::filter(updated@candidate_models, as.character(.data$model_id) == "1")
+  anchor_row <- dplyr::filter(updated@reference_anchors, as.character(.data$model_id) == "1")
+
+  expect_equal(model_row$lw_a, 0.004)
+  expect_equal(anchor_row$lw_a, 0.004)
+  expect_equal(model_row$slope_len, expected_slope)
+  expect_equal(model_row$intercept_len, expected_intercept)
+  expect_equal(model_row$slope_standard, expected_slope)
+  expect_equal(model_row$intercept_standard, expected_intercept)
+  expect_equal(anchor_row$slope_standard, expected_slope)
+  expect_equal(anchor_row$intercept_standard, expected_intercept)
+})
+
+test_that("candidate standardization synchronizes length-weight aliases", {
+  rows <- tibble::tibble(
+    model_id = "1",
+    species_name = "Sardinops sagax",
+    lw_a = 0.00762,
+    lw_a_g = 0.00351860493755,
+    lw_b = 3.253
+  )
+
+  out <- tsbiomass:::standardize_candidate_columns(rows)
+
+  expect_equal(out$lw_a, out$lw_a_g)
+  expect_equal(out$lw_a, 0.00351860493755)
+})
+
+test_that("weight-referenced FishBase metadata converts to standardized length coefficients", {
+  rows <- tibble::tibble(
+    scientific_name = "Sardinops sagax",
+    equation_form = "mlog10_kg",
+    slope = -14.9,
+    intercept = -13.21,
+    lw_b = 3.253,
+    lw_a_g = 0.00351860493755
+  )
+
+  converted <- tsbiomass:::convert_to_length_form(rows)
+
+  expect_equal(converted$slope_len, -14.9 + 10 * 3.253)
+  expect_equal(
+    converted$intercept_len,
+    -13.21 + 10 * (log10(0.00351860493755) - 3)
+  )
+  expect_false(isTRUE(all.equal(converted$slope_len, 15.95, tolerance = 1e-8)))
+  expect_false(isTRUE(all.equal(converted$intercept_len, -64.39045, tolerance = 1e-8)))
+})
+
 test_that("a query anchor accepts a literal length PDF list-column", {
   candidates <- make_candidates(seed_similarity_tuning = FALSE)
   length_pdf <- tibble::tibble(

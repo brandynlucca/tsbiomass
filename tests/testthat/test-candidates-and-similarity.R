@@ -788,10 +788,16 @@ test_that("run_tuning_grid_search uses screening and refinement", {
 })
 
 test_that("similarity scoring integrates over the held-out length distribution", {
+  user_pdf <- tibble::tibble(
+    length_cm = c(10, 30),
+    f_len = c(0.9, 0.1)
+  )
   models_subset <- minimal_candidate_models() |>
     dplyr::mutate(
       study_length_min = length_min,
-      study_length_max = length_max
+      study_length_max = length_max,
+      length_pdf = c("user", rep("uniform", dplyr::n() - 1L)),
+      length_pdf_data = c(list(user_pdf), rep(list(NULL), dplyr::n() - 1L))
     )
   score_basis <- tsbiomass:::prepare_similarity_score_basis(
     models_subset = models_subset,
@@ -806,10 +812,7 @@ test_that("similarity scoring integrates over the held-out length distribution",
   )
 
   row_one <- models_subset[1, , drop = FALSE]
-  manual_pdf <- tibble::tibble(
-    length_cm = seq(row_one$study_length_min[[1]], row_one$study_length_max[[1]], length.out = 400),
-    f_len = rep(1 / 400, 400)
-  )
+  manual_pdf <- tsbiomass:::build_anchor_length_pdf(row_one)
   expected_sigma <- tsbiomass:::equation_sigma_mean(
     slope = row_one$slope_len[[1]],
     intercept = row_one$intercept_len[[1]],
@@ -825,6 +828,11 @@ test_that("similarity scoring integrates over the held-out length distribution",
 
   expect_equal(score_basis$target_sigma[[1]], expected_sigma, tolerance = 1e-8)
   expect_false(isTRUE(all.equal(score_basis$target_sigma[[1]], midpoint_sigma, tolerance = 1e-8)))
+  expect_equal(score_basis$target_sigma[[1]], tsbiomass:::equation_sigma_mean(
+    slope = row_one$slope_len[[1]],
+    intercept = row_one$intercept_len[[1]],
+    anchor_pdf = user_pdf
+  ), tolerance = 1e-8)
 })
 
 test_that("similarity tuning basis excludes same-species donors from scoring", {
@@ -877,6 +885,44 @@ test_that("Alchemist distance training retains distinct conspecific model pairs"
   expect_true(any(pairs$.donor_idx == 1L & pairs$.anchor_idx == 2L))
   expect_true(any(pairs$.donor_idx == 2L & pairs$.anchor_idx == 1L))
   expect_false(any(pairs$.donor_idx == pairs$.anchor_idx))
+})
+
+test_that("Alchemist pair outcomes use stored anchor length PDFs", {
+  user_pdf <- tibble::tibble(
+    length_cm = c(10, 30),
+    f_len = c(0.9, 0.1)
+  )
+  models <- tibble::tibble(
+    model_id = c("a1", "b1", "c1"),
+    species_name = c("Alpha alpha", "Beta beta", "Gamma gamma"),
+    species = c("alpha", "beta", "gamma"),
+    fao_area = c("77", "77", "77"),
+    slope_standard = c(20, 20, 20),
+    intercept_standard = c(-70, -69, -71),
+    study_length_min = c(10, 10, 10),
+    study_length_max = c(30, 30, 30),
+    length_pdf = c("user", "uniform", "uniform"),
+    length_pdf_data = list(user_pdf, NULL, NULL)
+  )
+
+  out <- tsbiomass:::build_pair_data(
+    models_df = models,
+    species_trait_names = "species",
+    study_trait_names = "fao_area",
+    coherence_cfg = list(),
+    feature_type = "difference"
+  )
+  pairs <- out$training_data
+  pair_b_to_a <- pairs[pairs$.donor_idx == 2L & pairs$.anchor_idx == 1L, , drop = FALSE]
+
+  anchor_pdf <- tsbiomass:::build_anchor_length_pdf(models[1, , drop = FALSE])
+  sigma_anchor <- tsbiomass:::equation_sigma_mean(20, -70, anchor_pdf)
+  sigma_donor <- tsbiomass:::equation_sigma_mean(20, -69, anchor_pdf)
+  expected <- abs(log(sigma_donor) - log(sigma_anchor))
+
+  expect_equal(pair_b_to_a$.outcome, expected)
+  expect_equal(out$donor_sigma_matrix[2, 1], sigma_donor)
+  expect_equal(out$target_sigma[1], sigma_anchor)
 })
 
 test_that("anchor density uses study interval or midpoint without Lmax fallback", {

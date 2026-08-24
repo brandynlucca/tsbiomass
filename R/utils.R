@@ -38,6 +38,44 @@ is_missing_species_identity <- function(x) {
   is.na(value) | !nzchar(value) | grepl("^na(?:\\s+na)*$", value, perl = TRUE)
 }
 
+#' Identify generalized model metadata rows
+#'
+#' @param rows Candidate or policy-row table.
+#'
+#' @return Logical vector with one element per input row.
+#' @keywords internal
+#' @noRd
+generalized_model_indicator <- function(rows) {
+  out <- tibble::as_tibble(rows)
+  generalized <- rep(FALSE, nrow(out))
+
+  if ("is_group_model" %in% names(out)) {
+    generalized <- generalized | (as.logical(out$is_group_model) %in% TRUE)
+  }
+  if ("method_type" %in% names(out)) {
+    method_type <- stringr::str_to_lower(stringr::str_squish(as.character(out$method_type)))
+    generalized <- generalized | method_type %in% c("group", "generalized", "generalised")
+  }
+
+  species_cols <- intersect(
+    c("species_name", "species", "species_species_name"),
+    names(out)
+  )
+  if (length(species_cols) > 0L) {
+    missing_species <- Reduce(
+      `|`,
+      lapply(species_cols, function(col) {
+        value <- stringr::str_to_lower(stringr::str_squish(as.character(out[[col]])))
+        is_missing_species_identity(out[[col]]) |
+          value %in% c("n/a", "unknown", "unknown unknown")
+      })
+    )
+    generalized <- generalized | missing_species
+  }
+
+  generalized
+}
+
 #' Return canonical ordination context fields
 #'
 #' @param ordination Ordination bundle stored on a `Candidates` or `Alchemist`

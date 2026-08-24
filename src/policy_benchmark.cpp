@@ -542,9 +542,6 @@ SEXP cpp_evaluate_policy_plan(List donors,
       structural_idx = valid;
     }
     if (!structural_idx.empty() && finite_num(policy_slope[p]) && finite_num(policy_intercept[p])) {
-      // The non-empty R structural-summary path currently flags taxonomic-
-      // and species-distance nearest policies as constructed ensembles.
-      if (method == 3 || method == 4) constructed[p] = true;
       std::vector<double> structural_weights = normalized_weights(
         weight,
         structural_idx,

@@ -1443,6 +1443,11 @@ S7::method(select_policies, PolicySelector) <- function(object,
   # candidate pool. The selected distance family is fixed by the stored object:
   # learned Alchemist distances stay learned; empirical Gower stays empirical.
   prediction_candidates <- object@candidates
+  prediction_candidates@candidate_models <- tibble::as_tibble(prediction_candidates@candidate_models)
+  prediction_candidates@candidate_models$is_group_model <-
+    generalized_model_indicator(prediction_candidates@candidate_models)
+  anchors_tbl <- tibble::as_tibble(anchors_tbl)
+  anchors_tbl$is_group_model <- generalized_model_indicator(anchors_tbl)
   prediction_excluded_model_ids <- character(0)
   external_anchor_ids <- character(0)
   id_col <- if ("model_id" %in% names(anchors_tbl) &&
@@ -1682,6 +1687,14 @@ S7::method(select_policies, PolicySelector) <- function(object,
     cfg, "local_distance_tolerance",
     sections = c("selection", "policy")
   ) %||% 1e-12
+  score_tol_abs <- suppressWarnings(as.numeric(
+    max_selection_tolerance %||%
+      policy_selector_config_value(cfg, "max_selection_tolerance", sections = c("selection", "policy_learner")) %||%
+      NA_real_
+  ))
+  if (length(score_tol_abs) != 1L || !is.finite(score_tol_abs)) {
+    score_tol_abs <- NA_real_
+  }
   # A selected policy keeps its own calibrated interval
   apply_selected_interval_columns <- function(selected_row) selected_row
 
@@ -1838,6 +1851,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
           is.finite(.data$multiplier_pred) & .data$multiplier_pred > 0
         }
       )
+    policy_tbl <- apply_policy_selection_validity(policy_tbl)
     for (random_intercept in anchor_random_intercepts) {
       policy_tbl[[random_intercept]] <- rep(
         as.character(anchor_row[[random_intercept]][[1]]),
@@ -1924,6 +1938,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
         uncertainty_rule = uncertainty_rule,
         u_tol_rel = u_tol_rel,
         u_tol_abs = u_tol_abs,
+        score_tol_abs = if (is.finite(score_tol_abs)) score_tol_abs else NULL,
         one_se_multiplier = one_se_multiplier,
         local_distance_tolerance = local_distance_tolerance
       ) |>
@@ -1968,6 +1983,7 @@ S7::method(select_policies, PolicySelector) <- function(object,
         uncertainty_rule = uncertainty_rule,
         u_tol_rel = u_tol_rel,
         u_tol_abs = u_tol_abs,
+        score_tol_abs = if (is.finite(score_tol_abs)) score_tol_abs else NULL,
         one_se_multiplier = one_se_multiplier,
         local_distance_tolerance = local_distance_tolerance
       ) |>
@@ -3221,27 +3237,8 @@ select_anchor_policies <- function(policy_tbl,
     return(policy_tbl_)
   }
 
-  if (!"valid_prediction" %in% names(policy_tbl_)) {
-    policy_tbl_$valid_prediction <- is.finite(policy_tbl_$multiplier_pred) &
-      policy_tbl_$multiplier_pred > 0
-  }
-  if ("selection_valid" %in% names(policy_tbl_)) {
-    policy_tbl_$selection_valid <- as.logical(policy_tbl_$selection_valid)
-  } else if ("n_valid_models" %in% names(policy_tbl_)) {
-    policy_tbl_$selection_valid <- is.finite(policy_tbl_$n_valid_models) &
-      policy_tbl_$n_valid_models > 0
-  } else if ("n_models" %in% names(policy_tbl_)) {
-    policy_tbl_$selection_valid <- is.finite(policy_tbl_$n_models) &
-      policy_tbl_$n_models > 0
-  } else {
-    policy_tbl_$selection_valid <- policy_tbl_$valid_prediction
-  }
-  # A policy cannot be eligible for selection unless it yields a finite,
-  # positive anchor-level multiplier prediction. Donor counts alone are not a
-  # valid substitute once the selector reaches the final ranking stage.
-  policy_tbl_$selection_valid <-
-    dplyr::coalesce(policy_tbl_$selection_valid, FALSE) &
-      dplyr::coalesce(policy_tbl_$valid_prediction, FALSE)
+  uncertainty_rule_ <- normalize_uncertainty_rule(uncertainty_rule %||% "tolerance")
+  policy_tbl_ <- apply_policy_selection_validity(policy_tbl_)
   if (!"uncertainty_eligible" %in% names(policy_tbl_)) {
     policy_tbl_$uncertainty_eligible <- FALSE
   }
@@ -3475,6 +3472,12 @@ select_anchor_policies <- function(policy_tbl,
     ))
   }
   if (!is.finite(score_slack)) {
+    if (uses_meta_score && identical(uncertainty_rule_, "one_se")) {
+      stop(
+        "One-SE anchor selection requires a finite benchmark score slack. Rebuild policy selection with a finite species-level SE reference or provide `score_tol_abs` explicitly.",
+        call. = FALSE
+      )
+    }
     score_slack <- 0
   }
   score_threshold <- min_validation_error + pmax(0, one_se_multiplier * score_slack)
@@ -3522,18 +3525,19 @@ order_policy_assumption_burden <- function(policy_tbl) {
   }
   support <- suppressWarnings(as.numeric(tbl$local_effective_species_support))
   support[!is.finite(support) | support <= 0] <- suppressWarnings(as.numeric(tbl$local_effective_support))[!is.finite(support) | support <= 0]
-  sparse_support <- 1 / sqrt(support)
-  sparse_support[!is.finite(sparse_support)] <- Inf
+  support_size <- sqrt(support)
+  support_size[!is.finite(support_size)] <- Inf
   tbl$anchor_selection_burden_q90_distance <- finite_or_inf(tbl$local_weighted_q90_combined_distance)
   tbl$anchor_selection_burden_disagreement <- finite_or_inf(tbl$local_structural_q_abs_log)
   tbl$anchor_selection_burden_mean_distance <- finite_or_inf(tbl$local_weighted_mean_combined_distance)
-  tbl$anchor_selection_burden_sparse_support <- sparse_support
+  tbl$anchor_selection_burden_support_size <- support_size
+  tbl$anchor_selection_burden_sparse_support <- support_size
   tbl |>
     dplyr::arrange(
-      .data$anchor_selection_burden_q90_distance,
       .data$anchor_selection_burden_disagreement,
+      .data$anchor_selection_burden_q90_distance,
       .data$anchor_selection_burden_mean_distance,
-      .data$anchor_selection_burden_sparse_support,
+      .data$anchor_selection_burden_support_size,
       .data$anchor_selection_validation_error,
       .data$bootstrap_median_rank,
       .data$policy
@@ -3696,9 +3700,21 @@ build_selection_table <- function(species_performance_table,
       )
   }
 
-  # Identify the best current policy and the one-SE acceptability threshold
-  # before the bootstrap summaries are computed.
-  best_row <- select_ref |>
+  # Identify the best estimable policy and the one-SE acceptability threshold
+  # before the bootstrap summaries are computed. A policy observed for only one
+  # species has no standard error and cannot define a one-SE rule.
+  threshold_ref <- select_ref |>
+    dplyr::filter(
+      is.finite(.data$se_species_median_abs_log),
+      .data$n_species >= 2
+    )
+  if (nrow(threshold_ref) == 0L) {
+    stop(
+      "The one-SE policy-selection rule requires at least one policy/branch with a finite species-level SE.",
+      call. = FALSE
+    )
+  }
+  best_row <- threshold_ref |>
     dplyr::arrange(
       .data$mean_species_median_abs_log,
       .data$median_species_median_abs_log,
@@ -3707,24 +3723,8 @@ build_selection_table <- function(species_performance_table,
       .data$equation_branch_filter
     ) |>
     dplyr::slice(1)
-  if (is.na(best_row$se_species_median_abs_log[[1]])) {
-    best_n_species <- as.integer(best_row$n_species[[1]])
-    best_label <- as.character(best_row$policy_display[[1]])
-    warning(
-      sprintf(
-        paste0(
-          "The best-ranked policy/branch (%s) had valid species-block predictions for %d anchor species; ",
-          "its SE is NA and the one-SE acceptance threshold collapses to its mean error. ",
-          "This describes that policy's coverage, not the total benchmark species count."
-        ),
-        best_label,
-        best_n_species
-      ),
-      call. = FALSE
-    )
-  }
   threshold <- best_row$mean_species_median_abs_log[[1]] +
-    as.numeric(one_se_multiplier) * dplyr::coalesce(best_row$se_species_median_abs_log[[1]], 0)
+    as.numeric(one_se_multiplier) * best_row$se_species_median_abs_log[[1]]
 
   if (is.null(seed)) {
     seed <- sample.int(.Machine$integer.max, 1)
@@ -3847,7 +3847,9 @@ build_selection_table <- function(species_performance_table,
       best_mean_species_median_abs_log = best_row$mean_species_median_abs_log[[1]],
       one_se_multiplier = as.numeric(one_se_multiplier),
       one_se_threshold = threshold,
-      acceptable_one_se = .data$mean_species_median_abs_log <= threshold,
+      acceptable_one_se = is.finite(.data$se_species_median_abs_log) &
+        .data$n_species >= 2 &
+        .data$mean_species_median_abs_log <= threshold,
       acceptable_bootstrap = dplyr::coalesce(.data$bootstrap_prob_within_threshold, 0) >= 0.50,
       acceptable_global = .data$acceptable_one_se,
       equivalence_tolerance = as.numeric(equivalence_tolerance)

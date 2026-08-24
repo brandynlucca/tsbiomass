@@ -1300,6 +1300,10 @@ build_referee_scorecard <- function(object,
     )
   }
   selected_tbl$selected_policy_display <- resolve_selected_policy_names(selected_tbl)
+  selected_tbl <- augment_selected_donor_details(
+    selected_tbl = selected_tbl,
+    candidate_models = candidate_models
+  )
   intervals_tbl$policy_display <- resolve_policy_display_names(intervals_tbl)
 
   selected_keys <- selected_tbl |>
@@ -1884,6 +1888,193 @@ format_report_number <- function(x, digits = 3) {
   trimws(formatC(signif(x, digits), format = "fg", digits = digits))
 }
 
+#' Add selected-donor provenance fields
+#'
+#' @param selected_tbl `Scorecard@selected`-shaped table.
+#' @param candidate_models Candidate-model table containing donor metadata.
+#'
+#' @return `selected_tbl` with donor model ID and detail fields.
+#' @keywords internal
+#' @noRd
+augment_selected_donor_details <- function(selected_tbl,
+                                           candidate_models) {
+  selected_tbl <- tibble::as_tibble(selected_tbl)
+  candidate_models <- tibble::as_tibble(candidate_models)
+  if (nrow(selected_tbl) == 0L) {
+    selected_tbl$selected_donor_model_ids <- character(0)
+    selected_tbl$selected_donor_model_details <- character(0)
+    return(selected_tbl)
+  }
+  if (nrow(candidate_models) == 0L) {
+    selected_tbl$selected_donor_model_ids <- vapply(
+      seq_len(nrow(selected_tbl)),
+      function(i) paste(policy_row_realized_donor_ids(selected_tbl[i, , drop = FALSE]), collapse = "|"),
+      character(1)
+    )
+    selected_tbl$selected_donor_model_details <- selected_tbl$selected_donor_model_ids
+    return(selected_tbl)
+  }
+
+  id_col <- if ("model_id" %in% names(candidate_models)) {
+    "model_id"
+  } else if ("model_id_chr" %in% names(candidate_models)) {
+    "model_id_chr"
+  } else {
+    NA_character_
+  }
+  if (is.na(id_col)) {
+    selected_tbl$selected_donor_model_ids <- vapply(
+      seq_len(nrow(selected_tbl)),
+      function(i) paste(policy_row_realized_donor_ids(selected_tbl[i, , drop = FALSE]), collapse = "|"),
+      character(1)
+    )
+    selected_tbl$selected_donor_model_details <- selected_tbl$selected_donor_model_ids
+    return(selected_tbl)
+  }
+
+  candidate_models[[id_col]] <- as.character(candidate_models[[id_col]])
+  value_or_na <- function(row, col) {
+    if (!col %in% names(row)) {
+      return(NA_character_)
+    }
+    x <- row[[col]][[1]]
+    if (is.list(x)) {
+      return(NA_character_)
+    }
+    x <- as.character(x)
+    if (length(x) == 0L || is.na(x) || !nzchar(stringr::str_squish(x))) {
+      return(NA_character_)
+    }
+    stringr::str_squish(x)
+  }
+  species_label <- function(row) {
+    species <- value_or_na(row, "species_name")
+    generalized <- nrow(group_model_rows(row)) > 0L ||
+      is.na(species) ||
+      policy_display_value_missing(species) ||
+      identical(species, "NA NA")
+    if (isTRUE(generalized)) {
+      "Generalized model"
+    } else {
+      species
+    }
+  }
+  model_type_label <- function(row) {
+    if (nrow(group_model_rows(row)) > 0L) {
+      "generalized"
+    } else {
+      "species-specific"
+    }
+  }
+  number_or_na <- function(row, col) {
+    if (!col %in% names(row)) {
+      return(NA_character_)
+    }
+    x <- suppressWarnings(as.numeric(row[[col]][[1]]))
+    if (!is.finite(x)) {
+      return(NA_character_)
+    }
+    format_report_number(x)
+  }
+  donor_detail <- function(id) {
+    row <- candidate_models[candidate_models[[id_col]] == id, , drop = FALSE]
+    if (nrow(row) == 0L) {
+      return(sprintf("%s [metadata unavailable]", id))
+    }
+    row <- row[1, , drop = FALSE]
+    parts <- c(
+      species_label(row),
+      paste0("type=", model_type_label(row)),
+      paste0("citation=", value_or_na(row, "citation")),
+      paste0("slope=", number_or_na(row, "slope_len")),
+      paste0("intercept=", number_or_na(row, "intercept_len")),
+      paste0("equation=", value_or_na(row, "equation_form_type")),
+      paste0("frequency=", number_or_na(row, "frequency")),
+      paste0("study=", value_or_na(row, "study_reference_id")),
+      paste0("cell=", value_or_na(row, "study_cell_id")),
+      paste0("FAO=", value_or_na(row, "fao_area")),
+      paste0("ocean=", value_or_na(row, "ocean_basin")),
+      paste0("swimbladder=", value_or_na(row, "swimbladder_type")),
+      paste0("length_min=", number_or_na(row, "study_length_min")),
+      paste0("length_max=", number_or_na(row, "study_length_max"))
+    )
+    parts <- parts[!is.na(parts) & !grepl("=NA$", parts)]
+    sprintf("%s [%s]", id, paste(parts, collapse = "; "))
+  }
+  display_or_na <- function(row, cols) {
+    value <- as.character(scorecard_pick(row, cols, default = NA_character_))[[1]]
+    if (is.na(value) || !nzchar(value)) NA_character_ else value
+  }
+  realized_form <- function(i, ids) {
+    row <- selected_tbl[i, , drop = FALSE]
+    policy_display <- display_or_na(row, c("selected_policy_display", "policy_display", "selected_policy", "policy"))
+    policy <- display_or_na(row, c("selected_policy", "policy"))
+    branch <- display_or_na(row, c("selected_equation_branch_filter", "equation_branch_filter"))
+    family <- display_or_na(row, "policy_family")
+    aggregation <- display_or_na(row, "aggregation_method")
+    is_ensemble <- grepl("mean|ensemble", paste(policy, family, aggregation), ignore.case = TRUE)
+    if (length(ids) <= 1L && isTRUE(is_ensemble)) {
+      sprintf("Single donor realized from %s [%s]", policy_display, branch)
+    } else if (length(ids) <= 1L) {
+      sprintf("Single donor [%s]", branch)
+    } else {
+      sprintf("%s donors realized from %s [%s]", length(ids), policy_display, branch)
+    }
+  }
+  donor_summary <- function(i, ids) {
+    row <- selected_tbl[i, , drop = FALSE]
+    get_num <- function(cols, default = NA_real_) {
+      suppressWarnings(as.numeric(scorecard_pick(row, cols, default = default))[[1]])
+    }
+    n_value <- get_num("realized_n_unique_donors", default = length(ids))
+    parts <- c(
+      paste0("n=", if (is.finite(n_value)) as.integer(n_value) else length(ids)),
+      paste0("effective_n=", format_report_number(get_num("local_effective_support"))),
+      paste0("effective_species=", format_report_number(get_num("local_effective_species_support"))),
+      paste0("slope_sd=", format_report_number(get_num("donor_slope_sd"))),
+      paste0("intercept_sd=", format_report_number(get_num("donor_intercept_sd"))),
+      paste0("structural_q_abs_log=", format_report_number(get_num("local_structural_q_abs_log")))
+    )
+    paste(parts, collapse = "; ")
+  }
+
+  donor_ids <- vector("list", nrow(selected_tbl))
+  for (i in seq_len(nrow(selected_tbl))) {
+    donor_ids[[i]] <- policy_row_realized_donor_ids(selected_tbl[i, , drop = FALSE])
+  }
+  selected_tbl$selected_donor_model_ids <- vapply(
+    donor_ids,
+    function(ids) {
+      if (length(ids) == 0L) {
+        return(NA_character_)
+      }
+      paste(ids, collapse = "|")
+    },
+    character(1)
+  )
+  selected_tbl$selected_donor_model_details <- vapply(
+    donor_ids,
+    function(ids) {
+      if (length(ids) == 0L) {
+        return(NA_character_)
+      }
+      paste(vapply(ids, donor_detail, character(1)), collapse = " | ")
+    },
+    character(1)
+  )
+  selected_tbl$selected_realized_transfer_display <- vapply(
+    seq_len(nrow(selected_tbl)),
+    function(i) realized_form(i, donor_ids[[i]]),
+    character(1)
+  )
+  selected_tbl$selected_donor_model_summary <- vapply(
+    seq_len(nrow(selected_tbl)),
+    function(i) donor_summary(i, donor_ids[[i]]),
+    character(1)
+  )
+  selected_tbl
+}
+
 #' Build `write_scorecard()` report lines from a selected-row table
 #'
 #' @param selected_tbl `Scorecard@selected`-shaped table, one row per anchor.
@@ -1903,6 +2094,10 @@ format_scorecard_report_lines <- function(selected_tbl) {
   branch <- as.character(scorecard_pick(tbl, c("selected_equation_branch_filter", "equation_branch_filter"), default = NA_character_))
   tier <- as.character(scorecard_pick(tbl, "selection_tier", default = NA_character_))
   donor_fp <- as.character(scorecard_pick(tbl, "realized_donor_fingerprint", default = NA_character_))
+  donor_model_ids <- as.character(scorecard_pick(tbl, c("selected_donor_model_ids", "realized_donor_fingerprint"), default = NA_character_))
+  donor_model_details <- as.character(scorecard_pick(tbl, "selected_donor_model_details", default = NA_character_))
+  realized_transfer_display <- as.character(scorecard_pick(tbl, "selected_realized_transfer_display", default = NA_character_))
+  donor_model_summary <- as.character(scorecard_pick(tbl, "selected_donor_model_summary", default = NA_character_))
   n_donors <- suppressWarnings(as.numeric(scorecard_pick(tbl, "realized_n_unique_donors", default = NA_real_)))
   slope <- suppressWarnings(as.numeric(scorecard_pick(tbl, "policy_slope_len", default = NA_real_)))
   intercept <- suppressWarnings(as.numeric(scorecard_pick(tbl, "policy_intercept_len", default = NA_real_)))
@@ -1925,6 +2120,26 @@ format_scorecard_report_lines <- function(selected_tbl) {
       "none"
     } else {
       gsub("|", ", ", donor_fp[[i]], fixed = TRUE)
+    }
+    donor_model_ids_i <- if (is.na(donor_model_ids[[i]]) || !nzchar(donor_model_ids[[i]])) {
+      donor_ids
+    } else {
+      gsub("|", ", ", donor_model_ids[[i]], fixed = TRUE)
+    }
+    donor_model_details_i <- if (is.na(donor_model_details[[i]]) || !nzchar(donor_model_details[[i]])) {
+      donor_model_ids_i
+    } else {
+      donor_model_details[[i]]
+    }
+    realized_transfer_i <- if (is.na(realized_transfer_display[[i]]) || !nzchar(realized_transfer_display[[i]])) {
+      "not available"
+    } else {
+      realized_transfer_display[[i]]
+    }
+    donor_summary_i <- if (is.na(donor_model_summary[[i]]) || !nzchar(donor_model_summary[[i]])) {
+      "not available"
+    } else {
+      donor_model_summary[[i]]
     }
 
     ts_line <- if (is.finite(slope[[i]]) && is.finite(intercept[[i]])) {
@@ -1963,8 +2178,12 @@ format_scorecard_report_lines <- function(selected_tbl) {
       heading,
       "",
       sprintf("- Selected policy: %s [%s]", policy_display[[i]], branch[[i]]),
+      sprintf("- Realized transfer: %s", realized_transfer_i),
       sprintf("- Selection tier: %s", tier[[i]]),
       sprintf("- Donors: %s (%s unique)", donor_ids, if (is.finite(n_donors[[i]])) as.integer(n_donors[[i]]) else "0"),
+      sprintf("- Donor model IDs: %s", donor_model_ids_i),
+      sprintf("- Donor summary: %s", donor_summary_i),
+      sprintf("- Donor model details: %s", donor_model_details_i),
       ts_line,
       mult_line,
       q_line,

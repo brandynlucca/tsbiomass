@@ -150,6 +150,133 @@ normalize_policy_columns <- function(policy_data,
   policy_data
 }
 
+#' Identify ensemble policy rows
+#'
+#' @param policy_data Policy table.
+#'
+#' @return Logical vector.
+#' @keywords internal
+#' @noRd
+policy_row_is_ensemble <- function(policy_data) {
+  tbl <- tibble::as_tibble(policy_data)
+  n <- nrow(tbl)
+  text_col <- function(col) {
+    if (col %in% names(tbl)) {
+      stringr::str_to_lower(stringr::str_squish(as.character(tbl[[col]])))
+    } else {
+      rep(NA_character_, n)
+    }
+  }
+  policy <- text_col("policy")
+  family <- text_col("policy_family")
+  aggregation <- text_col("aggregation_method")
+
+  family %in% c("ensemble", "unweighted_ensemble", "weighted_ensemble") |
+    aggregation %in% c("arithmetic_mean", "unweighted_mean", "weighted_mean", "kernel_weighted_mean") |
+    stringr::str_detect(policy, "(^|_)unweighted_mean(_|$)|(^|_)weighted_mean(_|$)")
+}
+
+#' Count realized donor IDs in policy rows
+#'
+#' @param policy_data Policy table.
+#'
+#' @return Numeric vector.
+#' @keywords internal
+#' @noRd
+policy_row_realized_donor_n <- function(policy_data) {
+  tbl <- tibble::as_tibble(policy_data)
+  n <- nrow(tbl)
+  out <- rep(NA_real_, n)
+  take <- function(values) {
+    values <- suppressWarnings(as.numeric(values))
+    replace <- !is.finite(out) & is.finite(values)
+    out[replace] <<- values[replace]
+  }
+
+  if ("realized_n_unique_donors" %in% names(tbl)) {
+    take(tbl$realized_n_unique_donors)
+  }
+  if ("realized_donor_fingerprint" %in% names(tbl)) {
+    fp_n <- vapply(
+      as.character(tbl$realized_donor_fingerprint),
+      function(x) {
+        if (is.na(x) || !nzchar(x)) {
+          return(NA_real_)
+        }
+        ids <- unlist(strsplit(x, "|", fixed = TRUE), use.names = FALSE)
+        ids <- ids[!is.na(ids) & nzchar(ids)]
+        if (length(ids) == 0L) NA_real_ else length(unique(ids))
+      },
+      numeric(1)
+    )
+    take(fp_n)
+  }
+  if ("n_valid_models" %in% names(tbl)) {
+    take(tbl$n_valid_models)
+  }
+  if ("n_models" %in% names(tbl)) {
+    take(tbl$n_models)
+  }
+
+  out
+}
+
+#' Apply final policy-selection validity invariants
+#'
+#' @param policy_data Policy table.
+#'
+#' @return Tibble with `selection_valid` and invalidity diagnostics.
+#' @keywords internal
+#' @noRd
+apply_policy_selection_validity <- function(policy_data) {
+  tbl <- tibble::as_tibble(policy_data)
+  if (nrow(tbl) == 0L) {
+    if (!"selection_valid" %in% names(tbl)) {
+      tbl$selection_valid <- logical(0)
+    }
+    return(tbl)
+  }
+
+  if (!"valid_prediction" %in% names(tbl)) {
+    if ("multiplier_pred" %in% names(tbl)) {
+      pred <- suppressWarnings(as.numeric(tbl$multiplier_pred))
+      tbl$valid_prediction <- is.finite(pred) & pred > 0
+    } else if (".meta_predicted_score" %in% names(tbl)) {
+      tbl$valid_prediction <- is.finite(suppressWarnings(as.numeric(tbl$.meta_predicted_score)))
+    } else {
+      tbl$valid_prediction <- FALSE
+    }
+  }
+  if ("selection_valid" %in% names(tbl)) {
+    tbl$selection_valid <- as.logical(tbl$selection_valid)
+  } else if ("n_valid_models" %in% names(tbl)) {
+    n_valid <- suppressWarnings(as.numeric(tbl$n_valid_models))
+    tbl$selection_valid <- is.finite(n_valid) & n_valid > 0
+  } else if ("n_models" %in% names(tbl)) {
+    n_models <- suppressWarnings(as.numeric(tbl$n_models))
+    tbl$selection_valid <- is.finite(n_models) & n_models > 0
+  } else {
+    tbl$selection_valid <- as.logical(tbl$valid_prediction)
+  }
+
+  donor_n <- policy_row_realized_donor_n(tbl)
+  singleton_ensemble <- policy_row_is_ensemble(tbl) & is.finite(donor_n) & donor_n < 2
+  tbl$selection_valid <- dplyr::coalesce(tbl$selection_valid, FALSE) &
+    dplyr::coalesce(as.logical(tbl$valid_prediction), FALSE) &
+    !singleton_ensemble
+  tbl$selection_invalid_singleton_ensemble <- singleton_ensemble
+  if (!"selection_invalid_reason" %in% names(tbl)) {
+    tbl$selection_invalid_reason <- NA_character_
+  }
+  tbl$selection_invalid_reason <- dplyr::if_else(
+    singleton_ensemble,
+    "singleton_ensemble",
+    as.character(tbl$selection_invalid_reason)
+  )
+
+  tbl
+}
+
 #' Resolve selected-policy branch filters from policy data
 #'
 #' @param policy_data Data frame or tibble.
@@ -1794,43 +1921,8 @@ valid_equation_rows <- function(rows) {
 #' @keywords internal
 #' @noRd
 group_model_rows <- function(rows) {
-  # Treat explicit prepared flags or absent species identity as evidence that a
-  # row represents a generalized or grouped model.
   out <- tibble::as_tibble(rows)
-
-  # Evaluate the optional grouping flags against the materialized tibble so the
-  # filter does not depend on the magrittr pronoun.
-  has_group_flag <- "is_group_model" %in% names(out)
-  has_method_flag <- "method_type" %in% names(out)
-  generalized_flag <- rep(FALSE, nrow(out))
-
-  if (has_group_flag) {
-    generalized_flag <- generalized_flag | (as.logical(out$is_group_model) %in% TRUE)
-  }
-  if (has_method_flag) {
-    method_type <- tolower(trimws(as.character(out$method_type)))
-    generalized_flag <- generalized_flag | method_type %in% c("group", "generalized", "generalised")
-  }
-
-  species_cols <- intersect(
-    c("species_name", "species", "species_species_name"),
-    names(out)
-  )
-  if (length(species_cols) > 0) {
-    species_missing <- Reduce(
-      `|`,
-      lapply(species_cols, function(col) {
-        value <- trimws(as.character(out[[col]]))
-        is.na(out[[col]]) |
-          !nzchar(value) |
-          tolower(value) %in% c("na", "n/a", "na na", "unknown", "unknown unknown")
-      })
-    )
-    generalized_flag <- generalized_flag | species_missing
-  }
-
-  out |>
-    dplyr::filter(.env$generalized_flag)
+  out[generalized_model_indicator(out), , drop = FALSE]
 }
 
 #' Identify canonical 20-log10 slope rows
@@ -2051,37 +2143,44 @@ policy_rows <- function(rows,
   # switch so selection logic stays aligned with the registry names.
   pool_name <- as.character(policy_def$candidate_pool)[[1]]
   policy_rows_ <- tibble::as_tibble(rows)
+  policy_rows_$is_group_model <- generalized_model_indicator(policy_rows_)
+  ordinary_policy_rows <- policy_rows_[!(as.logical(policy_rows_$is_group_model) %in% TRUE), , drop = FALSE]
+  pool_rows <- if (identical(pool_name, "generalized_models_only")) {
+    policy_rows_
+  } else {
+    ordinary_policy_rows
+  }
 
-  if (!"model_id" %in% names(policy_rows_) && "model_id" %in% names(policy_rows_)) {
-    policy_rows_$model_id <- as.character(policy_rows_$model_id)
+  if ("model_id" %in% names(pool_rows)) {
+    pool_rows$model_id <- as.character(pool_rows$model_id)
   }
   subset_flag <- function(flag_col) {
-    if (!flag_col %in% names(policy_rows_)) {
-      return(policy_rows_[0, , drop = FALSE])
+    if (!flag_col %in% names(pool_rows)) {
+      return(pool_rows[0, , drop = FALSE])
     }
-    keep <- as.logical(policy_rows_[[flag_col]]) %in% TRUE
-    policy_rows_[keep, , drop = FALSE]
+    keep <- as.logical(pool_rows[[flag_col]]) %in% TRUE
+    pool_rows[keep, , drop = FALSE]
   }
 
   selected_rows <- NULL
   if (identical(pool_name, "all_admissible")) {
-    selected_rows <- policy_rows_
+    selected_rows <- pool_rows
   }
   if (is.null(selected_rows) && identical(pool_name, "all_valid_models")) {
-    selected_rows <- policy_rows_
+    selected_rows <- pool_rows
   }
   if (is.null(selected_rows) && identical(pool_name, "same_species")) {
     selected_rows <- subset_flag("overlap_same_species")
   }
   if (is.null(selected_rows) && identical(pool_name, "match_all_traits")) {
-    selected_rows <- policy_rows_
+    selected_rows <- pool_rows
   }
   if (is.null(selected_rows) && identical(pool_name, "nearest_phylogenetic")) {
     for (out in list(
       subset_flag("overlap_same_species"),
-      policy_rows_[(as.logical(policy_rows_$overlap_same_genus) %in% TRUE) & !(as.logical(policy_rows_$overlap_same_species) %in% TRUE), , drop = FALSE],
-      policy_rows_[(as.logical(policy_rows_$overlap_same_family) %in% TRUE) & !(as.logical(policy_rows_$overlap_same_genus) %in% TRUE), , drop = FALSE],
-      policy_rows_[(as.logical(policy_rows_$overlap_same_order) %in% TRUE) & !(as.logical(policy_rows_$overlap_same_family) %in% TRUE), , drop = FALSE]
+      pool_rows[(as.logical(pool_rows$overlap_same_genus) %in% TRUE) & !(as.logical(pool_rows$overlap_same_species) %in% TRUE), , drop = FALSE],
+      pool_rows[(as.logical(pool_rows$overlap_same_family) %in% TRUE) & !(as.logical(pool_rows$overlap_same_genus) %in% TRUE), , drop = FALSE],
+      pool_rows[(as.logical(pool_rows$overlap_same_order) %in% TRUE) & !(as.logical(pool_rows$overlap_same_family) %in% TRUE), , drop = FALSE]
     )) {
       if (nrow(out) > 0) {
         selected_rows <- out
@@ -2089,11 +2188,11 @@ policy_rows <- function(rows,
       }
     }
     if (is.null(selected_rows)) {
-      selected_rows <- policy_rows_[0, , drop = FALSE]
+      selected_rows <- pool_rows[0, , drop = FALSE]
     }
   }
   if (is.null(selected_rows) && identical(pool_name, "phylogenetic_neighborhood")) {
-    out <- policy_rows_[!(as.logical(policy_rows_$overlap_same_species) %in% TRUE), , drop = FALSE]
+    out <- pool_rows[!(as.logical(pool_rows$overlap_same_species) %in% TRUE), , drop = FALSE]
     if (!is.null(policy_params$phylo_radius)) {
       radius <- as.numeric(policy_params$phylo_radius)
       keep <- is.finite(out$taxonomic_distance_to_anchor) &
@@ -2115,26 +2214,26 @@ policy_rows <- function(rows,
     score_tbl <- tibble::as_tibble(ordination_info$model_scores %||% tibble::tibble())
     if (!all(c("nmds_cluster", "model_id") %in% names(score_tbl)) ||
       is.na(ordination_info$anchor_cluster)) {
-      selected_rows <- policy_rows_[0, , drop = FALSE]
+      selected_rows <- pool_rows[0, , drop = FALSE]
     } else {
       cluster_ids <- unique(as.character(score_tbl$model_id[score_tbl$nmds_cluster == ordination_info$anchor_cluster]))
-      selected_rows <- policy_rows_[as.character(policy_rows_$model_id) %in% cluster_ids, , drop = FALSE]
+      selected_rows <- pool_rows[as.character(pool_rows$model_id) %in% cluster_ids, , drop = FALSE]
     }
   }
   if (is.null(selected_rows) && identical(pool_name, "same_species_ellipse")) {
-    keep <- as.character(policy_rows_$model_id) %in% ordination_info$species_ellipse_ids &
-      !(as.logical(policy_rows_$overlap_same_species) %in% TRUE)
-    selected_rows <- policy_rows_[keep, , drop = FALSE]
+    keep <- as.character(pool_rows$model_id) %in% ordination_info$species_ellipse_ids &
+      !(as.logical(pool_rows$overlap_same_species) %in% TRUE)
+    selected_rows <- pool_rows[keep, , drop = FALSE]
   }
   if (is.null(selected_rows) && identical(pool_name, "generalized_models_only")) {
     selected_rows <- group_model_rows(policy_rows_)
   }
   if (is.null(selected_rows) && identical(pool_name, "closest_study_cell")) {
     cell_col <- "study_cell_id"
-    ranked <- valid_equation_rows(policy_rows_) |>
+    ranked <- valid_equation_rows(pool_rows) |>
       dplyr::arrange(.data$combined_distance)
     if (nrow(ranked) == 0) {
-      selected_rows <- policy_rows_[0, , drop = FALSE]
+      selected_rows <- pool_rows[0, , drop = FALSE]
     } else if (!cell_col %in% names(ranked)) {
       selected_rows <- dplyr::slice_head(ranked, n = 1)
     } else {
@@ -2142,7 +2241,7 @@ policy_rows <- function(rows,
       if (is.na(cell_id) || !nzchar(as.character(cell_id))) {
         selected_rows <- dplyr::slice_head(ranked, n = 1)
       } else {
-        selected_rows <- valid_equation_rows(policy_rows_) |>
+        selected_rows <- valid_equation_rows(pool_rows) |>
           dplyr::filter(.data[[cell_col]] == cell_id)
       }
     }
@@ -2775,8 +2874,8 @@ policy_support_summary <- function(rows,
   }
   donor_id_col <- if ("model_id" %in% names(keep_rows)) {
     "model_id"
-  } else if ("model_id" %in% names(keep_rows)) {
-    "model_id"
+  } else if ("model_id_chr" %in% names(keep_rows)) {
+    "model_id_chr"
   } else {
     NA_character_
   }
@@ -3015,6 +3114,8 @@ policy_structural_summary <- function(rows,
       "nearest_by_combined_distance",
       "nearest",
       "nearest_by_trait_gower_distance",
+      "nearest_by_taxonomic_distance",
+      "nearest_by_species_distance",
       "nearest_study_then_model"
     ),
     donor_slope_sd = finite_sd0(keep_rows$slope_len),
@@ -4062,6 +4163,7 @@ pick_best_policy <- function(policy_tbl) {
       best_equation_branch_filter = NA_character_
     ))
   }
+  valid <- apply_policy_selection_validity(valid)
 
   # Reuse existing derived columns when present, otherwise compute them once
   # with base vectors instead of a grouped tibble pipeline.
@@ -4079,7 +4181,12 @@ pick_best_policy <- function(policy_tbl) {
     out
   }
 
-  keep <- which(valid_prediction %in% TRUE)
+  selection_valid <- if ("selection_valid" %in% names(valid)) {
+    as.logical(valid$selection_valid)
+  } else {
+    rep(TRUE, nrow(valid))
+  }
+  keep <- which(valid_prediction %in% TRUE & selection_valid %in% TRUE)
   keep <- keep[is.finite(error_abs_log[keep])]
   if (length(keep) == 0L) {
     return(tibble::tibble(
@@ -4700,6 +4807,8 @@ benchmark_one_anchor <- function(anchor_row,
                                  ordination_info = NULL,
                                  resolve_ordination = TRUE) {
   species_col <- benchmark_field(config, "species")
+  candidate_models <- tibble::as_tibble(candidate_models)
+  candidate_models$is_group_model <- generalized_model_indicator(candidate_models)
   anchor_species_value <- as.character(anchor_row[[species_col]][[1]])
   # Species-block validation is undefined for generalized equations. They
   # remain available as donors and pseudo-anchors, but cannot constitute a
@@ -4810,6 +4919,7 @@ benchmark_one_anchor <- function(anchor_row,
   policy_tbl$is_reference <- is_ref
   policy_tbl$anchor_group <- if (is_ref) "reference" else "candidate"
   policy_tbl$validation_scheme <- scheme
+  policy_tbl <- apply_policy_selection_validity(policy_tbl)
 
   best_policy_row <- pick_best_policy(policy_tbl)
   feature_row <- build_benchmark_row(
@@ -4850,6 +4960,7 @@ bind_best_policy_rows <- function(perf_tbl) {
   # Pick the best valid policy per anchor and validation scheme using the
   # smallest absolute log-error, with policy name as the deterministic tiebreak.
   out <- normalize_policy_columns(perf_tbl)
+  out <- apply_policy_selection_validity(out)
   if (nrow(out) == 0 || !"valid_prediction" %in% names(out)) {
     return(tibble::tibble())
   }
@@ -4858,7 +4969,7 @@ bind_best_policy_rows <- function(perf_tbl) {
   }
 
   out$policy <- resolve_policy_names(out)
-  keep <- which(as.logical(out$valid_prediction) %in% TRUE)
+  keep <- which(as.logical(out$valid_prediction) %in% TRUE & as.logical(out$selection_valid) %in% TRUE)
   if (length(keep) == 0L) {
     return(tibble::tibble())
   }
@@ -5009,6 +5120,8 @@ run_policy_benchmark <- function(candidate_models,
   if (!is.function(policy_fun)) {
     stop("'policy_fun' must be a function.", call. = FALSE)
   }
+  candidate_models_ <- tibble::as_tibble(candidate_models_)
+  candidate_models_$is_group_model <- generalized_model_indicator(candidate_models_)
   if (!is.null(curve_fun) && !is.function(curve_fun)) {
     stop("'curve_fun' must be NULL or a function.", call. = FALSE)
   }
@@ -5636,6 +5749,9 @@ run_policy_benchmark <- function(candidate_models,
     cluster_obj <- .build_cluster()
     .kill_cluster_processes <- function(cl) {
       try(parallel::stopCluster(cl), silent = TRUE)
+      if (.Platform$OS.type != "unix") {
+        return(invisible(NULL))
+      }
       self_pid <- Sys.getpid()
       child_pids <- tryCatch(
         as.integer(trimws(system2(
@@ -5655,7 +5771,10 @@ run_policy_benchmark <- function(candidate_models,
       tsb_message("Policy benchmark running in parallel with ", workers_, " workers.")
     }
 
-    chunk_step <- as.integer(workers_)
+    # Amortize PSOCK dispatch overhead. The worker function is rebound to the
+    # worker global environment below so the large exported benchmark payload is
+    # not serialized again on every parLapplyLB() call.
+    chunk_step <- max(as.integer(workers_) * 4L, min(100L, total_anchors))
     pending_anchor_ids <- integer(0)
     processed <- 0L
     for (i in seq_len(total_anchors)) {
@@ -5825,6 +5944,7 @@ run_policy_benchmark <- function(candidate_models,
         anchor_cache_id = as.character(anchor_row[[config_values$fields$model_id]][[1]])
       )
     }
+    environment(worker_fun) <- .GlobalEnv
 
     # Anchor IDs are logged before dispatch since a cluster death can corrupt
     # the console connection before the stop() message reaches it.

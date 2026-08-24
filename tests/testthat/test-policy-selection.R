@@ -43,6 +43,37 @@ test_that("species summaries exclude generalized equation placeholders", {
   )
 })
 
+test_that("one-SE selection threshold ignores policies with undefined SE", {
+  perf_tbl <- tibble::tibble(
+    anchor_species = c("Species one", "Species one", "Species two"),
+    policy = c("single_species_policy", "estimable_policy", "estimable_policy"),
+    equation_branch_filter = "all",
+    error_abs_log = c(0.10, 0.50, 0.70),
+    valid_prediction = TRUE
+  )
+
+  select_ref <- build_selection_table(
+    species_performance_table = perf_tbl,
+    one_se_multiplier = 1,
+    n_boot = 50L,
+    seed = 99L
+  )
+
+  single_row <- select_ref |>
+    dplyr::filter(.data$policy == "single_species_policy")
+  estimable_row <- select_ref |>
+    dplyr::filter(.data$policy == "estimable_policy")
+
+  expect_equal(
+    unique(select_ref$best_policy_global),
+    "estimable_policy"
+  )
+  expect_true(is.na(single_row$se_species_median_abs_log[[1]]))
+  expect_false(single_row$acceptable_one_se[[1]])
+  expect_true(estimable_row$acceptable_one_se[[1]])
+  expect_gt(select_ref$one_se_threshold[[1]], select_ref$best_mean_species_median_abs_log[[1]])
+})
+
 test_that("build_equivalence_table marks full margin containment as equivalent", {
   perf_tbl <- make_species_performance_table(
     lhs_errors = c(0.10, 0.11, 0.12, 0.13),
