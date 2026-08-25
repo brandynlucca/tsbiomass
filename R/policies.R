@@ -9528,7 +9528,12 @@ predict_meta_policy_score <- function(object,
       # aliased columns but the new matrix retains them, causing
       # `X %*% fixef(object)` to be non-conformable. Align by coefficient name
       # explicitly, then add the fitted random intercept for known groups.
-      fixed_formula <- lme4::nobars(stats::formula(object$fit))
+      nobars_fn <- if (requireNamespace("reformulas", quietly = TRUE)) {
+        reformulas::nobars
+      } else {
+        lme4::nobars
+      }
+      fixed_formula <- nobars_fn(stats::formula(object$fit))
       fixed_terms <- stats::delete.response(stats::terms(fixed_formula))
       fixed_matrix <- stats::model.matrix(fixed_terms, data = pred_frame)
       fixed_coef <- lme4::fixef(object$fit)
