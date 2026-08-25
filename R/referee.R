@@ -187,12 +187,6 @@ Referee <- S7::new_class(
 
 S7::S4_register(Referee)
 
-#' Rebuild a `Referee`
-#'
-#' Reconstructs a [Referee] object, optionally replacing one or more of its
-#' component objects.
-#'
-#' @param object A [Referee] object.
 #' Collapse a selector's distance learner onto its canonical shared reference
 #'
 #' `referee_rebuild()` is the point in the package where a `Referee` most
@@ -231,6 +225,12 @@ canonicalize_referee_distance_learner <- function(selector) {
   selector
 }
 
+#' Rebuild a `Referee`
+#'
+#' Reconstructs a [Referee] object, optionally replacing one or more of its
+#' component objects.
+#'
+#' @param object A [Referee] object.
 #' @param selector Optional replacement [PolicySelector].
 #' @param learner Optional replacement [PolicyLearner].
 #' @param predictions Optional replacement [PolicyPredictions].

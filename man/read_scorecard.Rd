@@ -13,7 +13,8 @@ read_scorecard(path)
 A tibble with one row per anchor and columns \code{anchor_species},
 \code{anchor_is_external}, \code{selected_policy_display}, \code{selected_equation_branch_filter},
 \code{selection_tier}, \code{realized_donor_fingerprint}, \code{realized_n_unique_donors},
-\code{selected_donor_model_ids}, \code{selected_donor_model_details},
+\code{selected_realized_transfer_display}, \code{selected_donor_model_ids},
+\code{selected_donor_model_summary}, \code{selected_donor_model_details},
 \code{policy_slope_len}, \code{policy_intercept_len}, \code{multiplier_pred},
 \code{meta_post_selection_multiplier_lo}, \code{meta_post_selection_multiplier_hi},
 \code{prediction_error_message}, \code{meta_q_abs_log_total}.
