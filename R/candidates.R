@@ -3157,6 +3157,8 @@ set_model_metadata <- function(object,
       candidate_models$intercept_standard[idx_now] <- converted_intercept[update_coef]
     }
   }
+  candidate_models <- standardize_candidate_columns(candidate_models)
+  candidate_ids <- as.character(candidate_models[[model_id_col]])
 
   reference_anchors <- tibble::as_tibble(object@reference_anchors)
   if (model_id_col %in% names(reference_anchors)) {
@@ -3194,6 +3196,7 @@ set_model_metadata <- function(object,
       }
     }
   }
+  reference_anchors <- standardize_candidate_columns(reference_anchors)
 
   Candidates(
     spec = object@spec,

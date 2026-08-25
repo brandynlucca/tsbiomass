@@ -436,13 +436,18 @@ expand_multival_col <- function(x, col_fn, tr) {
   if (!any(grepl(";", x_chr, fixed = TRUE), na.rm = TRUE)) {
     return(stats::setNames(list(col_fn(x)), paste0(".dist_", tr)))
   }
+  missing_value <- is.na(x) | !nzchar(trimws(x_chr)) |
+    toupper(trimws(x_chr)) %in% c("NA", "N/A", "UNKNOWN", "NULL")
   vals_list <- strsplit(trimws(x_chr), "\\s*;\\s*")
   all_vals <- sort(unique(trimws(unlist(vals_list, use.names = FALSE))))
   all_vals <- all_vals[!is.na(all_vals) & nzchar(all_vals)]
   mats <- lapply(all_vals, function(v) {
-    binary <- as.integer(
-      vapply(vals_list, function(rv) v %in% trimws(rv), logical(1))
-    )
+    binary <- vapply(seq_along(vals_list), function(i) {
+      if (isTRUE(missing_value[[i]])) {
+        return(NA_integer_)
+      }
+      as.integer(v %in% trimws(vals_list[[i]]))
+    }, integer(1))
     col_fn(binary)
   })
   stats::setNames(mats, paste0(".dist_", tr, "__", gsub(
@@ -466,13 +471,13 @@ gower_col <- function(x, scale = NULL) {
     }
     if (!is.finite(r) || r <= 0) r <- 1
     mat <- outer(x, x, function(a, b) abs(a - b) / r)
-    mat[!is.finite(mat)] <- 0.5
+    mat[!is.finite(mat)] <- 1
     mat
   } else {
     xc <- as.character(x)
     xc[is.na(x) | !nzchar(xc)] <- NA_character_
     outer(xc, xc, function(a, b) {
-      ifelse(is.na(a) | is.na(b), 0.5, ifelse(a == b, 0, 1))
+      ifelse(is.na(a) | is.na(b), 1, ifelse(a == b, 0, 1))
     })
   }
 }
@@ -1669,7 +1674,7 @@ resolve_learner_methods <- function(methods,
 #' Build a numeric feature matrix from Alchemist training or prediction data
 #'
 #' All Gower distance features are numeric and bounded between 0 and 1. Missing values
-#' are imputed at 0.5 (the Gower midpoint for unknown comparisons).
+#' are imputed at 1 so unknown metadata carries the maximum distance.
 #'
 #' @param data Tibble or data frame containing at least the columns named by
 #'   `feature_cols`.
@@ -1683,7 +1688,7 @@ resolve_learner_methods <- function(methods,
 feature_matrix <- function(data, feature_cols) {
   mat <- as.matrix(data[, feature_cols, drop = FALSE])
   mode(mat) <- "numeric"
-  mat[!is.finite(mat)] <- 0.5
+  mat[!is.finite(mat)] <- 1
   mat
 }
 

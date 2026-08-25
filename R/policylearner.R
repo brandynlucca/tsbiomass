@@ -1305,7 +1305,7 @@ S7::method(crossfit, PolicyLearner) <- function(object,
       method_settings = selection_method_settings,
       workers = as.integer(workers %||% 1L),
       n_folds = as.integer(n_folds),
-      seed = as.integer(seed)
+      seed = normalize_meta_policy_seed(seed)
     ),
     fitted_model = list(),
     calibration = list()

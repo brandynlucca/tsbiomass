@@ -76,6 +76,59 @@ generalized_model_indicator <- function(rows) {
   generalized
 }
 
+#' Build species-level identity keys without collapsing generalized models
+#'
+#' @param rows Candidate or policy-row table.
+#' @param species_col Optional preferred species column.
+#' @param id_col Optional model identifier column used for generalized rows.
+#'
+#' @return Character vector with one key per input row.
+#' @keywords internal
+#' @noRd
+species_identity_key <- function(rows,
+                                 species_col = NULL,
+                                 id_col = NULL) {
+  out <- tibble::as_tibble(rows)
+  n <- nrow(out)
+  if (n == 0L) {
+    return(character(0))
+  }
+
+  pick_col <- function(candidates) {
+    candidates <- candidates[candidates %in% names(out)]
+    if (length(candidates) == 0L) NA_character_ else candidates[[1L]]
+  }
+  species_col <- species_col %||% pick_col(c("species_name", "scientific_name", "species"))
+  id_col <- id_col %||% pick_col(c("model_id", "model_id_chr"))
+
+  key <- if (!is.na(species_col) && species_col %in% names(out)) {
+    stringr::str_squish(as.character(out[[species_col]]))
+  } else {
+    rep(NA_character_, n)
+  }
+
+  if (all(c("genus", "species") %in% names(out))) {
+    genus <- stringr::str_squish(as.character(out$genus))
+    species <- stringr::str_squish(as.character(out$species))
+    can_build <- is_missing_species_identity(key) &
+      !is_missing_species_identity(genus) &
+      !is_missing_species_identity(species)
+    key[can_build] <- stringr::str_squish(paste(genus[can_build], species[can_build]))
+  }
+
+  generalized <- generalized_model_indicator(out)
+  missing_key <- is_missing_species_identity(key)
+  model_id <- if (!is.na(id_col) && id_col %in% names(out)) {
+    stringr::str_squish(as.character(out[[id_col]]))
+  } else {
+    as.character(seq_len(n))
+  }
+  missing_model_id <- is.na(model_id) | !nzchar(model_id)
+  model_id[missing_model_id] <- as.character(seq_len(n))[missing_model_id]
+  key[generalized | missing_key] <- paste0("<generalized-model:", model_id[generalized | missing_key], ">")
+  key
+}
+
 #' Return canonical ordination context fields
 #'
 #' @param ordination Ordination bundle stored on a `Candidates` or `Alchemist`

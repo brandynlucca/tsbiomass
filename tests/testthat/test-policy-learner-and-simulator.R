@@ -582,6 +582,39 @@ test_that("conditional-uncertainty features exclude taxonomic and overlap summar
   expect_false("local_min_trait_gower_distance" %in% width_features)
 })
 
+test_that("sequential super learner keeps positive predictions with NULL seed", {
+  testthat::skip_if_not_installed("ranger")
+
+  train_data <- tibble::tibble(
+    x = seq(0, 1, length.out = 18),
+    .outcome = seq(0.1, 1.8, length.out = 18),
+    .split_group = rep(letters[1:6], each = 3)
+  )
+  test_data <- tibble::tibble(
+    x = c(0.2, 0.5, 0.8),
+    .outcome = c(0.3, 0.8, 1.3),
+    .split_group = c("g", "h", "i")
+  )
+
+  scored <- stream_super_learner_fold(
+    train_data = train_data,
+    test_data = test_data,
+    feature_cols = "x",
+    outcome_transform = "log1p",
+    lambda_rule = "lambda.1se",
+    inner_folds = 3,
+    seed = NULL,
+    super_methods = "rf",
+    metalearner_loss = "squared_error",
+    method_settings = list(rf = list(num_trees = 20, min_node_size = 2)),
+    progress = FALSE
+  )
+
+  expect_true(all(is.finite(scored$.meta_predicted_score)))
+  expect_true(all(scored$.meta_predicted_score > 0))
+  expect_true(all(attr(scored, "learner_timings")$succeeded_refit))
+})
+
 test_that("selection features retain effective support but exclude raw donor-count shortcuts", {
   features <- tsbiomass:::sanitize_meta_policy_feature_cols(c(
     "local_effective_support",

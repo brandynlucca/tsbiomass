@@ -39,6 +39,65 @@ test_that("PolicySelector methods store benchmark, uncertainty, and selection st
   expect_true("final_ref" %in% names(selector@selection))
 })
 
+test_that("as_policyselector inherits candidate config when config is omitted", {
+  candidates_base <- make_candidates(seed_similarity_tuning = FALSE)
+  cfg_defaults <- list(
+    policies = list(active = "closest_within_species"),
+    selection = list(one_se_multiplier = 2)
+  )
+  candidates <- Candidates(
+    spec = c(candidates_base@spec, list(config_data = cfg_defaults)),
+    study_db = candidates_base@study_db,
+    species_vector = candidates_base@species_vector,
+    source_dbs = candidates_base@source_dbs,
+    species_db = candidates_base@species_db,
+    candidate_models = candidates_base@candidate_models,
+    reference_anchors = candidates_base@reference_anchors,
+    similarity_matrix = candidates_base@similarity_matrix,
+    gower_distances = candidates_base@gower_distances,
+    ordination = candidates_base@ordination,
+    admissibility = candidates_base@admissibility,
+    similarity_tuning = candidates_base@similarity_tuning
+  )
+
+  selector <- as_policyselector(candidates)
+
+  expect_equal(selector@config$policies$active, "closest_within_species")
+  expect_equal(selector@config$selection$one_se_multiplier, 2)
+})
+
+test_that("as_policyselector inherits Alchemist config when config is omitted", {
+  candidates <- make_candidates(seed_similarity_tuning = FALSE)
+  cfg_defaults <- list(
+    policies = list(active = "closest_within_species"),
+    selection = list(one_se_multiplier = 3)
+  )
+  model_ids <- as.character(candidates@candidate_models$model_id)
+  n_models <- length(model_ids)
+  distance_matrix <- matrix(0, nrow = n_models, ncol = n_models, dimnames = list(model_ids, model_ids))
+  distance_matrix[upper.tri(distance_matrix) | lower.tri(distance_matrix)] <- 1
+  alchemist <- Alchemist(
+    candidates = candidates,
+    config = list(config_data = cfg_defaults),
+    learner = list(method = "test", feature_cols = character()),
+    distance_matrix = list(
+      combined_dist = distance_matrix,
+      dist_matrix = distance_matrix,
+      directed_dist_matrix = distance_matrix,
+      learned_kernel_bandwidth = 1,
+      feature_type = "difference"
+    ),
+    trait_importance = list(),
+    ordination = list(),
+    admissibility = list()
+  )
+
+  selector <- as_policyselector(alchemist)
+
+  expect_equal(selector@config$policies$active, "closest_within_species")
+  expect_equal(selector@config$selection$one_se_multiplier, 3)
+})
+
 test_that("policy selector anchor config replaces explicit trait maps", {
   candidates_base <- make_candidates(seed_similarity_tuning = FALSE)
   cfg_defaults <- list(
@@ -785,28 +844,30 @@ test_that("selection ranks predicted score before uncertainty width", {
 
   expect_equal(selected$selected_policy[[1]], "better_score_wider")
   expect_match(selected$selection_tier[[1]], "score_band_burden")
-  expect_true(is.na(selected$anchor_selection_min_uncertainty_width[[1]]))
+  expect_equal(selected$anchor_selection_min_uncertainty_width[[1]], 0.18)
 })
 
-test_that("selection resolves score-equivalent policies by assumption burden", {
+test_that("selection screens score-equivalent policies by biomass uncertainty before burden", {
   selected <- select_anchor_policies(tibble::tibble(
-    policy = c("better_score_wider", "worse_score_narrower"),
+    policy = c("lower_burden_wider", "higher_burden_narrower"),
     multiplier_pred = c(1.10, 1.12),
     valid_prediction = c(TRUE, TRUE),
     selection_valid = c(TRUE, TRUE),
     uncertainty_eligible = c(TRUE, TRUE),
     uncertainty_cost_log_width = c(0.40, 0.05),
     mean_species_median_abs_log = c(0.08, 0.08),
-    local_weighted_mean_combined_distance = c(0.30, 0.01),
+    local_structural_q_abs_log = c(0.00, 0.40),
+    local_weighted_q90_combined_distance = c(0.01, 0.30),
+    local_weighted_mean_combined_distance = c(0.01, 0.30),
     acceptable_global = c(TRUE, TRUE),
     .meta_predicted_score = c(0.05, 0.06),
     bootstrap_median_rank = c(2, 1)
   ), score_tol_abs = 0.10)
 
-  expect_equal(selected$selected_policy[[1]], "worse_score_narrower")
-  expect_match(selected$selection_tier[[1]], "score_band_burden")
-  expect_true(is.na(selected$anchor_selection_min_uncertainty_width[[1]]))
-  expect_true(is.na(selected$anchor_selection_uncertainty_threshold[[1]]))
+  expect_equal(selected$selected_policy[[1]], "higher_burden_narrower")
+  expect_match(selected$selection_tier[[1]], "uncertainty_tolerance_score_band_burden")
+  expect_equal(selected$anchor_selection_min_uncertainty_width[[1]], 0.05)
+  expect_equal(selected$anchor_selection_uncertainty_threshold[[1]], 0.10)
 })
 
 test_that("target selection does not treat across-policy score spread as a one-SE band", {

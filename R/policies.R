@@ -2894,14 +2894,17 @@ policy_support_summary <- function(rows,
   # Repeated equations from one species are not independent biological support.
   # Preserve model-level support above, and expose the species-collapsed value
   # separately for the anchor-equivalence burden tie-breaker.
-  species_col <- c("species", "species_name", "scientific_name")
+  species_col <- c("species_name", "scientific_name", "species")
   species_col <- species_col[species_col %in% names(keep_rows)]
   species_col <- if (length(species_col) == 0L) NA_character_ else species_col[[1]]
   effective_species_n <- if (is.na(species_col) || length(weights) == 0L) {
     NA_real_
   } else {
-    species_id <- as.character(keep_rows[[species_col]])
-    species_id[is.na(species_id) | !nzchar(species_id)] <- "<missing-species>"
+    species_id <- species_identity_key(
+      keep_rows,
+      species_col = species_col,
+      id_col = if (is.na(donor_id_col)) NULL else donor_id_col
+    )
     species_weight <- rowsum(weights, group = species_id, reorder = FALSE)[, 1]
     species_weight <- normalized_weights(species_weight)
     if (length(species_weight) == 0L) NA_real_ else 1 / sum(species_weight^2)
@@ -3685,7 +3688,7 @@ policy_donor_payload_cpp <- function(eval_obj) {
     depth_overlap = numeric_col("depth_overlap_fraction"),
     donor_multiplier = numeric_col("biomass_multiplier_if_replace"),
     donor_id = character_col(c("model_id", "model_id_chr")),
-    donor_species = character_col(c("species", "species_name", "scientific_name")),
+    donor_species = character_col(c("species_name", "scientific_name", "species")),
     overlap = overlap
   )
 }
@@ -6538,6 +6541,22 @@ meta_policy_prediction_cap <- function(y,
   max(1, multiplier * max_y)
 }
 
+#' Normalize optional meta-policy random seeds
+#'
+#' @param seed Optional seed value.
+#'
+#' @return Integer scalar seed, or `NULL`.
+#'
+#' @keywords internal
+#' @noRd
+normalize_meta_policy_seed <- function(seed) {
+  seed <- suppressWarnings(as.integer(seed))
+  if (length(seed) == 0L || !is.finite(seed[[1]])) {
+    return(NULL)
+  }
+  seed[[1]]
+}
+
 #' Build grouped fold assignments
 #'
 #' @param groups Exchangeable grouping labels.
@@ -6557,8 +6576,9 @@ grouped_foldid <- function(groups,
     return(NULL)
   }
   n_folds <- min(as.integer(n_folds), length(unique_groups))
+  seed <- normalize_meta_policy_seed(seed)
   if (!is.null(seed)) {
-    set.seed(as.integer(seed))
+    set.seed(seed)
   }
   fold_tbl <- tibble::tibble(
     group = sample(unique_groups, length(unique_groups), replace = FALSE),
@@ -6588,8 +6608,9 @@ row_foldid <- function(n,
   if (!is.finite(n_folds) || n_folds < 2L) {
     return(NULL)
   }
+  seed <- normalize_meta_policy_seed(seed)
   if (!is.null(seed)) {
-    set.seed(as.integer(seed))
+    set.seed(seed)
   }
   sample(rep(seq_len(n_folds), length.out = n), n, replace = FALSE)
 }
@@ -7914,7 +7935,8 @@ stream_super_learner_fold <- function(train_data,
         ok_method <- FALSE
         next
       }
-      fold_seed <- if (is.null(seed)) NULL else as.integer(seed) + as.integer(fold_now)
+      seed_base <- normalize_meta_policy_seed(seed)
+      fold_seed <- if (is.null(seed_base)) NULL else seed_base + as.integer(fold_now)
       bl <- fit_meta_policy_ensemble_base(
         training_data = train_data[tr_idx, , drop = FALSE],
         method = method_now,
@@ -7967,8 +7989,11 @@ stream_super_learner_fold <- function(train_data,
   weight_sum <- 0
   methods_final <- names(pred_cols)
   refit_seconds <- stats::setNames(rep(NA_real_, length(methods)), methods)
+  refit_success <- stats::setNames(rep(FALSE, length(methods)), methods)
+  refit_errors <- stats::setNames(rep(NA_character_, length(methods)), methods)
   method_test_errors <- stats::setNames(rep(NA_real_, length(methods)), methods)
   method_test_rmse <- stats::setNames(rep(NA_real_, length(methods)), methods)
+  seed_base <- normalize_meta_policy_seed(seed)
 
   report_progress(progress, sprintf("  Streaming %d final fits ...", length(methods_final)))
   for (i_final in seq_along(methods_final)) {
@@ -7983,7 +8008,7 @@ stream_super_learner_fold <- function(train_data,
       outcome_transform = outcome_transform,
       lambda_rule = lambda_rule,
       inner_folds = inner_folds,
-      seed = as.integer(seed),
+      seed = seed_base,
       method_settings = method_settings
     )
     if (!inherits(bl, "try-error")) {
@@ -7997,11 +8022,25 @@ stream_super_learner_fold <- function(train_data,
           acc_pred <- acc_pred + w * sc$.meta_predicted_score
           weight_sum <- weight_sum + w
         }
+        refit_success[[method_now]] <- TRUE
+      } else {
+        refit_errors[[method_now]] <- if (inherits(sc, "try-error")) as.character(sc)[[1]] else "missing .meta_predicted_score"
       }
       rm(bl, sc)
+    } else {
+      refit_errors[[method_now]] <- as.character(bl)[[1]]
     }
     refit_seconds[[method_now]] <- unname(
       (proc.time() - timing_start)[["elapsed"]]
+    )
+  }
+  if (weight_sum <= 0) {
+    stop(
+      sprintf(
+        "stream_outer_fold: no final Super Learner base refits produced weighted predictions. Errors: %s",
+        paste(stats::na.omit(refit_errors[methods_final]), collapse = " | ")
+      ),
+      call. = FALSE
     )
   }
   if (weight_sum > 0) {
@@ -8023,7 +8062,8 @@ stream_super_learner_fold <- function(train_data,
         na.rm = TRUE
       ),
       succeeded_oof = .data$method %in% names(pred_cols),
-      succeeded_refit = .data$method %in% methods_final
+      succeeded_refit = unname(refit_success[.data$method]),
+      error = unname(refit_errors[.data$method])
     )
   out
 }
@@ -8404,7 +8444,8 @@ fit_meta_policy_super_learner <- function(training_data,
           ok_method <- FALSE
           next
         }
-        fold_seed <- if (is.null(seed)) NULL else as.integer(seed) + as.integer(fold_now)
+        seed_base <- normalize_meta_policy_seed(seed)
+        fold_seed <- if (is.null(seed_base)) NULL else seed_base + as.integer(fold_now)
         learner <- fit_meta_policy_ensemble_base(
           training_data = training_data[train_idx, , drop = FALSE],
           method = method_now,
@@ -8463,7 +8504,7 @@ fit_meta_policy_super_learner <- function(training_data,
       outcome_transform = outcome_transform,
       lambda_rule = lambda_rule,
       inner_folds = inner_folds,
-      seed = if (is.null(seed)) NULL else as.integer(seed),
+      seed = normalize_meta_policy_seed(seed),
       method_settings = method_settings
     )
     if (!inherits(learner, "try-error")) {
@@ -8670,6 +8711,7 @@ fit_meta_policy_learner <- function(training_data,
   outcome_transform <- match.arg(outcome_transform)
   lambda_rule <- match.arg(lambda_rule)
   metalearner_loss <- parse_super_learner_loss(metalearner_loss)$name
+  seed <- normalize_meta_policy_seed(seed)
   method_catalog <- meta_policy_method_catalog(method_settings = method_settings)
   allowed_methods <- c(
     "super_learner",
@@ -9627,7 +9669,8 @@ run_meta_policy_crossfit_payload_fold <- function(fold_split,
     return(out)
   }
   seed <- payload$seed
-  outer_seed <- if (is.null(seed)) NULL else as.integer(seed) + f
+  seed <- normalize_meta_policy_seed(seed)
+  outer_seed <- if (is.null(seed)) NULL else seed + f
   if (isTRUE(payload$is_super)) {
     stream_super_learner_fold <- utils::getFromNamespace(
       "stream_super_learner_fold",
@@ -10526,8 +10569,9 @@ prepare_meta_policy_crossfit_plan <- function(policy_perf,
     stop("'n_folds' must be at least 2 and no larger than the number of groups.", call. = FALSE)
   }
 
+  seed <- normalize_meta_policy_seed(seed)
   if (!is.null(seed)) {
-    set.seed(as.integer(seed))
+    set.seed(seed)
   }
   fold_tbl <- tibble::tibble(
     group_id = sample(groups, length(groups), replace = FALSE),
@@ -10789,8 +10833,9 @@ crossfit_meta_policy_learner <- function(policy_perf,
     stop("'n_folds' must be at least 2 and no larger than the number of groups.", call. = FALSE)
   }
 
+  seed <- normalize_meta_policy_seed(seed)
   if (!is.null(seed)) {
-    set.seed(as.integer(seed))
+    set.seed(seed)
   }
   fold_tbl <- tibble::tibble(
     group_id = sample(groups, length(groups), replace = FALSE),

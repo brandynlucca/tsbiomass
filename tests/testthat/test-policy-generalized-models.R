@@ -45,6 +45,30 @@ test_that("candidate standardization flags generalized equations durably", {
   expect_equal(out$model_species_label[[1]], "Generalized model")
 })
 
+test_that("species identity keys use binomials and model-specific generalized keys", {
+  rows <- tibble::tibble(
+    model_id = as.character(1:5),
+    species_name = c(
+      "Engraulis mordax",
+      "Osmerus mordax",
+      "Clupea harengus",
+      "NA NA",
+      NA_character_
+    ),
+    genus = c("Engraulis", "Osmerus", "Clupea", NA_character_, NA_character_),
+    species = c("mordax", "mordax", "harengus", NA_character_, NA_character_),
+    is_group_model = c(FALSE, FALSE, FALSE, TRUE, TRUE)
+  )
+
+  keys <- tsbiomass:::species_identity_key(rows)
+
+  expect_equal(keys[[1]], "Engraulis mordax")
+  expect_equal(keys[[2]], "Osmerus mordax")
+  expect_false(identical(keys[[1]], keys[[2]]))
+  expect_equal(keys[[4]], "<generalized-model:4>")
+  expect_equal(keys[[5]], "<generalized-model:5>")
+})
+
 test_that("ordinary policy pools exclude generalized equations", {
   rows <- tibble::tibble(
     model_id = as.character(1:3),
@@ -132,4 +156,28 @@ test_that("nearest-singleton policies are not flagged as constructed ensembles",
 
     expect_false(structural$policy_is_constructed_ensemble[[1]])
   }
+})
+
+test_that("effective species support does not collapse generalized models", {
+  rows <- tibble::tibble(
+    model_id = c("g1", "g2"),
+    species_name = c("NA NA", "NA NA"),
+    genus = c(NA_character_, NA_character_),
+    species = c(NA_character_, NA_character_),
+    is_group_model = c(TRUE, TRUE),
+    slope_len = c(20, 20),
+    intercept_len = c(-68, -69),
+    combined_distance = c(0.1, 0.2),
+    w_adm = c(0.5, 0.5),
+    .structural_weight = c(0.5, 0.5)
+  )
+
+  support <- tsbiomass:::policy_support_summary(
+    rows = rows,
+    policy_def = list(aggregation_method = "unweighted_mean"),
+    structural_rows = rows
+  )
+
+  expect_equal(support$local_effective_support[[1]], 2)
+  expect_equal(support$local_effective_species_support[[1]], 2)
 })

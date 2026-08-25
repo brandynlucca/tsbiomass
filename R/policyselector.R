@@ -436,8 +436,12 @@ policy_selector_rebuild <- function(object,
 #' @export
 as_policyselector <- function(candidates,
                               config = NULL) {
+  selector_config <- config
   if (is_s7_instance(candidates, "Alchemist")) {
     alchemist <- candidates
+    if (is.null(selector_config)) {
+      selector_config <- alchemist@config$config_data %||% alchemist@config
+    }
     distance_matrix <- alchemist@distance_matrix
     if (length(distance_matrix) == 0L) {
       stop("Run `forge_distances()` before `as_policyselector()`.", call. = FALSE)
@@ -474,10 +478,16 @@ as_policyselector <- function(candidates,
   if (!is_s7_instance(candidates, "Candidates")) {
     stop("'candidates' must be a `Candidates` or `Alchemist` object.", call. = FALSE)
   }
+  if (is.null(selector_config)) {
+    selector_config <- tryCatch(
+      candidates@spec$config_data %||% candidates@spec,
+      error = function(e) NULL
+    )
+  }
 
   PolicySelector(
     candidates = candidates,
-    config = policy_selector_config_data(config),
+    config = policy_selector_config_data(selector_config),
     benchmark = list(),
     uncertainty = list(),
     selection = list()
@@ -3485,7 +3495,47 @@ select_anchor_policies <- function(policy_tbl,
   best_score_rows <- score_ranked |>
     dplyr::filter(.data$anchor_selection_validation_error <= score_threshold)
 
-  selected <- order_policy_assumption_burden(best_score_rows)
+  uncertainty_ranked <- best_score_rows
+  min_uncertainty_width <- NA_real_
+  uncertainty_threshold <- NA_real_
+  if (nrow(best_score_rows) > 0) {
+    uncertainty_width <- suppressWarnings(
+      as.numeric(best_score_rows$uncertainty_cost_log_width)
+    )
+    uncertainty_eligible <- dplyr::coalesce(
+      as.logical(best_score_rows$uncertainty_eligible),
+      FALSE
+    ) & is.finite(uncertainty_width)
+    if (any(uncertainty_eligible)) {
+      eligible_widths <- uncertainty_width[uncertainty_eligible]
+      min_uncertainty_width <- min(eligible_widths, na.rm = TRUE)
+      uncertainty_threshold <- uncertainty_width_threshold(
+        min_width = min_uncertainty_width,
+        uncertainty_rule = uncertainty_rule_,
+        u_tol_abs = u_tol_abs,
+        u_tol_rel = u_tol_rel,
+        width_se = uncertainty_width_se(eligible_widths),
+        one_se_multiplier = one_se_multiplier
+      )[[1]]
+      if (is.finite(uncertainty_threshold)) {
+        uncertainty_screened <- best_score_rows |>
+          dplyr::mutate(
+            anchor_selection_uncertainty_eligible = uncertainty_eligible,
+            anchor_selection_uncertainty_width = uncertainty_width
+          ) |>
+          dplyr::filter(
+            .data$anchor_selection_uncertainty_eligible,
+            .data$anchor_selection_uncertainty_width <= uncertainty_threshold
+          )
+        if (nrow(uncertainty_screened) > 0) {
+          uncertainty_ranked <- uncertainty_screened
+          tier <- paste0(tier, "_uncertainty_", uncertainty_rule_)
+        }
+      }
+    }
+  }
+
+  selected <- order_policy_assumption_burden(uncertainty_ranked)
 
   selected |>
     dplyr::slice(1) |>
@@ -3495,8 +3545,8 @@ select_anchor_policies <- function(policy_tbl,
       selection_tier = paste0(tier, "_score_band_burden"),
       anchor_selection_min_validation_error = min_validation_error,
       anchor_selection_validation_threshold = score_threshold,
-      anchor_selection_min_uncertainty_width = NA_real_,
-      anchor_selection_uncertainty_threshold = NA_real_
+      anchor_selection_min_uncertainty_width = min_uncertainty_width,
+      anchor_selection_uncertainty_threshold = uncertainty_threshold
     )
 }
 

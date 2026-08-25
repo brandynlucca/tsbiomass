@@ -77,6 +77,59 @@ test_that("set_model_metadata restandardizes weight-referenced model metadata", 
   expect_equal(anchor_row$intercept_standard, expected_intercept)
 })
 
+test_that("set_model_metadata preserves generalized model keys", {
+  candidates <- make_candidates(seed_similarity_tuning = FALSE)
+  models <- candidates@candidate_models
+  models$model_id <- as.character(models$model_id)
+  models <- dplyr::bind_rows(
+    models,
+    tibble::tibble(
+      model_id = "generalized_one",
+      species_name = "NA NA",
+      genus = NA_character_,
+      species = NA_character_,
+      equation_form = "20log10_ind",
+      slope = 20,
+      intercept = -68,
+      slope_len = 20,
+      intercept_len = -68,
+      slope_standard = 20,
+      intercept_standard = -68
+    )
+  )
+  candidates <- Candidates(
+    spec = candidates@spec,
+    study_db = candidates@study_db,
+    species_vector = candidates@species_vector,
+    source_dbs = candidates@source_dbs,
+    species_db = candidates@species_db,
+    candidate_models = models,
+    reference_anchors = candidates@reference_anchors,
+    similarity_matrix = candidates@similarity_matrix,
+    gower_distances = candidates@gower_distances,
+    ordination = candidates@ordination,
+    admissibility = candidates@admissibility,
+    similarity_tuning = candidates@similarity_tuning
+  )
+
+  updated <- set_model_metadata(
+    candidates,
+    tibble::tibble(
+      model_id = "generalized_one",
+      intercept = -69
+    )
+  )
+  model_row <- dplyr::filter(
+    updated@candidate_models,
+    as.character(.data$model_id) == "generalized_one"
+  )
+
+  expect_true(model_row$is_group_model[[1]])
+  expect_true(is.na(model_row$species_name[[1]]))
+  expect_equal(model_row$model_species_label[[1]], "Generalized model")
+  expect_false(any(updated@candidate_models$species_name == "NA NA", na.rm = TRUE))
+})
+
 test_that("candidate standardization synchronizes length-weight aliases", {
   rows <- tibble::tibble(
     model_id = "1",

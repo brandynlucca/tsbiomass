@@ -95,3 +95,41 @@ test_that("taxonomic distance does not query literal NA binomials", {
 
   expect_true(is.na(out[1, 2]))
 })
+
+test_that("Alchemist Gower features assign missing metadata maximum distance", {
+  models <- tibble::tibble(
+    model_id = as.character(1:4),
+    species_name = c(
+      "Clupea pallasii",
+      "Clupea harengus",
+      "Sardinops sagax",
+      "Engraulis mordax"
+    ),
+    habitat = c("pelagic", NA_character_, "pelagic", "demersal"),
+    season = c("spring;summer", NA_character_, "spring", "fall"),
+    slope_len = 20,
+    intercept_len = -70,
+    study_length_min = 10,
+    study_length_max = 20
+  )
+
+  features <- tsbiomass:::build_pair_feature_matrices(
+    models_df = models,
+    species_trait_names = "habitat",
+    study_trait_names = "season",
+    taxonomic_distance = FALSE,
+    feature_type = "gower"
+  )
+
+  expect_equal(features$trait_mats[[".dist_habitat"]][1, 2], 1)
+  expect_equal(features$trait_mats[[".dist_habitat"]][2, 1], 1)
+  expect_equal(features$trait_mats[[".dist_season__spring"]][1, 2], 1)
+  expect_equal(features$trait_mats[[".dist_season__spring"]][2, 3], 1)
+  expect_equal(features$trait_mats[[".dist_season__spring"]][1, 3], 0)
+
+  mat <- tsbiomass:::feature_matrix(
+    tibble::tibble(.dist_tax = c(0, NA_real_, Inf)),
+    ".dist_tax"
+  )
+  expect_equal(as.numeric(mat[, ".dist_tax"]), c(0, 1, 1))
+})
