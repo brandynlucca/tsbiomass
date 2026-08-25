@@ -2,7 +2,7 @@ test_that("SWFSC targets anchor length-weight metadata is keyed by species", {
   testthat::skip_if_not_installed("targets")
 
   env <- new.env(parent = globalenv())
-  sys.source(test_path("../../inst/scripts/targets_pipeline.R"), envir = env)
+  sys.source(tsbiomass_test_file("scripts", "targets_pipeline.R"), envir = env)
 
   anchor_map <- env$swfsc_targets_anchor_model_map()
   sard <- anchor_map[anchor_map$scientific_name == "Sardinops sagax", , drop = FALSE]

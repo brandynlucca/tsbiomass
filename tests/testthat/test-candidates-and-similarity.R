@@ -1114,10 +1114,14 @@ test_that("user reference PDFs record invalid anchor length-form coefficients", 
   anchor_idx <- as.character(reference_anchors$model_id) == "1"
   candidate_models$slope_len[candidate_idx] <- NA_real_
   candidate_models$intercept_len[candidate_idx] <- NA_real_
+  candidate_models$slope_standard[candidate_idx] <- NA_real_
+  candidate_models$intercept_standard[candidate_idx] <- NA_real_
   candidate_models$lw_a_g[candidate_idx] <- NA_real_
   candidate_models$lw_b[candidate_idx] <- NA_real_
   reference_anchors$slope_len[anchor_idx] <- NA_real_
   reference_anchors$intercept_len[anchor_idx] <- NA_real_
+  reference_anchors$slope_standard[anchor_idx] <- NA_real_
+  reference_anchors$intercept_standard[anchor_idx] <- NA_real_
   reference_anchors$lw_a_g[anchor_idx] <- NA_real_
   reference_anchors$lw_b[anchor_idx] <- NA_real_
 
