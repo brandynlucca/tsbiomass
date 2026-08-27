@@ -4564,7 +4564,8 @@ alchemist_plot_types <- function() {
       return(plot_ordination_clusters(
         points_tbl = species_points,
         cluster_col = "species_cluster_id",
-        colorbar_name = "Species cluster"
+        colorbar_name = "Species cluster",
+        ...
       ))
     }
 
@@ -4601,7 +4602,8 @@ alchemist_plot_types <- function() {
     }
     return(plot_ordination_clusters(
       points_tbl = point_tbl,
-      cluster_col = "nmds_cluster_id"
+      cluster_col = "nmds_cluster_id",
+      ...
     ))
   }
 

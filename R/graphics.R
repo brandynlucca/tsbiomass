@@ -744,6 +744,13 @@ plot_slope_support <- function(support_tbl) {
 #' @param species_col Species-label column.
 #' @param common_col Optional common-name column.
 #' @param colorbar_name Legend title for the cluster color scale.
+#' @param buffer Non-negative scalar widening the displayed axis range beyond
+#'   the dense point cloud (a Tukey `1.5 * IQR` fence around each axis,
+#'   computed independently for x and y). `0` shows just the core cloud plus
+#'   any reference points; larger values widen the fence per axis and are
+#'   clamped to the true data range, so raising it can only recover distant
+#'   points, never add blank margin. Reference points are always fully
+#'   visible regardless of `buffer`.
 #'
 #' @return A ggplot object.
 #'
@@ -754,7 +761,10 @@ plot_ordination_clusters <- function(points_tbl,
                                      reference_col = "is_reference",
                                      species_col = "species_name",
                                      common_col = "common",
-                                     colorbar_name = "NMDS Cluster ID") {
+                                     colorbar_name = "NMDS Cluster ID",
+                                     buffer = 0) {
+  buffer <- suppressWarnings(as.numeric(buffer[[1]]))
+  if (!is.finite(buffer) || buffer < 0) buffer <- 0
   # Split the point table into the full cloud and the highlighted reference
   # subset before layering them in the ordination.
   plot_df <- tibble::as_tibble(points_tbl)
@@ -797,6 +807,42 @@ plot_ordination_clusters <- function(points_tbl,
   cluster_limits <- sort(unique(as.character(plot_df[[cluster_name]])))
   cluster_cols <- ordination_discrete_palette(cluster_limits, palette = "batlow")
 
+  # Trim the visible range to the dense point cloud so a few far outliers do
+  # not dominate the aspect ratio. The core cloud is Tukey's classic boxplot
+  # fence (1.5 * IQR beyond Q1/Q3), computed independently per axis so a
+  # narrower axis doesn't inherit the other axis's padding; `buffer` widens
+  # that per-axis fence multiplier, and reference points are always kept in
+  # view regardless of `buffer`.
+  axis_limits <- function(values, keep) {
+    finite_values <- values[is.finite(values)]
+    if (length(finite_values) == 0) {
+      return(c(-1, 1))
+    }
+    data_range <- range(finite_values)
+    q <- stats::quantile(finite_values, probs = c(0.25, 0.75), names = FALSE)
+    iqr <- diff(q)
+    if (!is.finite(iqr) || iqr <= 0) iqr <- max(abs(q), 1) * 0.5
+    fence <- iqr * (1.5 + buffer)
+    bounds <- q + c(-fence, fence)
+    keep_values <- values[keep & is.finite(values)]
+    if (length(keep_values) > 0) {
+      margin <- iqr * 0.15
+      bounds[[1]] <- min(bounds[[1]], min(keep_values) - margin)
+      bounds[[2]] <- max(bounds[[2]], max(keep_values) + margin)
+    }
+    # Never show blank margin beyond the data itself, however large `buffer` gets.
+    bounds[[1]] <- max(bounds[[1]], data_range[[1]])
+    bounds[[2]] <- min(bounds[[2]], data_range[[2]])
+    bounds
+  }
+  x_limits <- axis_limits(plot_df$MDS1, ref_flag)
+  y_limits <- axis_limits(plot_df$MDS2, ref_flag)
+  n_outside_view <- sum(
+    plot_df$MDS1 < x_limits[[1]] | plot_df$MDS1 > x_limits[[2]] |
+      plot_df$MDS2 < y_limits[[1]] | plot_df$MDS2 > y_limits[[2]],
+    na.rm = TRUE
+  )
+
   # Create base layer with the grid setup
   p <- ggplot2::ggplot(
     mapping = ggplot2::aes(
@@ -835,11 +881,10 @@ plot_ordination_clusters <- function(points_tbl,
         label = .data$anchor_label,
         fontface = "bold.italic"
       ),
-      color = "black",
       max.overlaps = Inf,
       size = 3,
       box.padding = 1,
-      point.padding = 1,
+      point.padding = 0,
       direction = "both",
       min.segment.length = 0,
       show.legend = FALSE
@@ -854,11 +899,21 @@ plot_ordination_clusters <- function(points_tbl,
       values = cluster_cols,
       guide = "none",
       limits = cluster_limits
-    )
+    ) +
+    ggplot2::coord_cartesian(xlim = x_limits, ylim = y_limits, clip = "off")
 
   # Format axis labels
-  p +
+  p <- p +
     ggplot2::labs(x = "NMDS1", y = "NMDS2")
+  if (n_outside_view > 0L) {
+    p <- p +
+      ggplot2::labs(caption = sprintf(
+        "%d point%s outside the displayed range",
+        n_outside_view,
+        if (n_outside_view == 1L) "" else "s"
+      ))
+  }
+  p
 }
 
 #' Build ordination trait display metadata
@@ -1724,7 +1779,7 @@ overlap_metric_label <- function(metric) {
   }
   label <- gsub("_fraction$", "", label)
   label <- gsub("_", " ", label, fixed = TRUE)
-  tools::toTitleCase(label)
+  snake_sentence(label)
 }
 
 #' Resolve configured overlap-summary metric labels

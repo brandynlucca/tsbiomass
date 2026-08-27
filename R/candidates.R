@@ -2229,7 +2229,8 @@ candidates_plot_types <- function() {
       }
       return(plot_ordination_clusters(
         points_tbl = point_tbl,
-        cluster_col = "nmds_cluster_id"
+        cluster_col = "nmds_cluster_id",
+        ...
       ))
     }
 
@@ -2277,7 +2278,8 @@ candidates_plot_types <- function() {
       return(plot_ordination_clusters(
         points_tbl = species_points,
         cluster_col = "species_cluster_id",
-        colorbar_name = "Species cluster"
+        colorbar_name = "Species cluster",
+        ...
       ))
     }
 
@@ -2360,7 +2362,8 @@ candidates_plot_types <- function() {
       points_tbl = study_points,
       cluster_col = "study_cluster_id",
       species_col = if ("citation" %in% names(study_points)) "citation" else "species_name",
-      colorbar_name = "Study cluster"
+      colorbar_name = "Study cluster",
+      ...
     ))
   }
 

@@ -27,6 +27,25 @@ snake_title <- function(x) {
   )
 }
 
+#' Convert snake-case policy text to sentence case, preserving acronyms
+#'
+#' @param x Character vector.
+#'
+#' @return Character vector.
+#' @keywords internal
+#' @noRd
+snake_sentence <- function(x) {
+  out <- stringr::str_to_lower(
+    stringr::str_squish(stringr::str_replace_all(as.character(x), "_", " "))
+  )
+  has_char <- nzchar(out)
+  out[has_char] <- paste0(
+    toupper(substr(out[has_char], 1, 1)),
+    substring(out[has_char], 2)
+  )
+  stringr::str_replace_all(out, stringr::regex("\\bfao\\b", ignore_case = TRUE), "FAO")
+}
+
 #' Convert snake-case policy text to lower dashed text
 #'
 #' @param x Character vector.
@@ -572,8 +591,13 @@ policy_component_labels <- function(policy_data,
   aggregation_values[missing_aggregation] <- registry_value("aggregation_method")[missing_aggregation]
 
   branch_values <- resolve_policy_branch_filters(policy_data, branch_column = branch_column)
-  branch_tags <- policy_branch_tag_map(read_policy_registry()$policy_branches %||% list())
-  branch_values <- policy_branch_labels(branch_values, branch_tags)
+  branch_values <- dplyr::recode(
+    branch_values,
+    all = "All",
+    fixed20_only = "Fixed",
+    free_slope_only = "Free",
+    .default = snake_sentence(branch_values)
+  )
 
   pool_labels <- dplyr::recode(
     candidate_pool_values,
@@ -587,7 +611,7 @@ policy_component_labels <- function(policy_data,
     same_genus = "Same genus",
     same_ocean_basin = "Same ocean basin",
     same_species = "Same species",
-    .default = snake_title(candidate_pool_values)
+    .default = snake_sentence(candidate_pool_values)
   )
   aggregation_labels <- dplyr::recode(
     aggregation_values,
@@ -598,7 +622,7 @@ policy_component_labels <- function(policy_data,
     nearest_by_trait_gower_distance = "Trait nearest",
     nearest_study_then_model = "Study nearest",
     weighted_mean = "Weighted mean",
-    .default = snake_title(aggregation_values)
+    .default = snake_sentence(aggregation_values)
   )
 
   row_ids <- if (".row_id" %in% names(policy_data)) {
