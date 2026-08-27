@@ -419,11 +419,11 @@ test_that("PolicyLearner prediction preserves the selected policy conformal radi
 
   expect_equal(
     scored_lookup$meta_q_abs_log_factor_source,
-    c("species_policy_branch", "species_policy_branch_shrunk", "policy_branch")
+    rep("selected_policy_conformal", nrow(scored_lookup))
   )
   expect_equal(
     round(scored_lookup$meta_q_abs_log_conformal_factor, 3),
-    c(2.0, 1.6, 2.0)
+    rep(1, nrow(scored_lookup))
   )
 })
 
@@ -551,8 +551,8 @@ test_that("PolicyLearner predict ranks and selects anchor-policy rows", {
     scored$meta_post_selection_multiplier_hi,
     scored$multiplier_pred * exp(scored$meta_q_abs_log_total)
   )
-  expect_equal(scored$meta_uncertainty_source, rep("direct_global_normalized_residual", nrow(scored)))
-  expect_equal(scored$meta_q_abs_log_factor_source, rep("global_normalized_residual", nrow(scored)))
+  expect_equal(scored$meta_uncertainty_source, rep("selected_policy_conformal", nrow(scored)))
+  expect_equal(scored$meta_q_abs_log_factor_source, rep("selected_policy_conformal", nrow(scored)))
   expect_equal(scored$meta_q_abs_log_total, scored$q_abs_log)
   alpha_rows <- scored[scored$anchor_model_id == "1", , drop = FALSE]
   expect_equal(

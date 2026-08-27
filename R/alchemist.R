@@ -4938,7 +4938,8 @@ admissibility_bundle_is_current <- function(admissibility_bundle,
   if (!is.list(admissibility_bundle)) {
     return(FALSE)
   }
-  if (!identical(admissibility_bundle$logic_version %||% NULL, anchor_admissibility_logic_version())) {
+  logic_version <- admissibility_bundle$logic_version %||% NULL
+  if (!is.null(logic_version) && !identical(logic_version, anchor_admissibility_logic_version())) {
     return(FALSE)
   }
 

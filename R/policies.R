@@ -279,7 +279,7 @@ apply_policy_selection_validity <- function(policy_data) {
   }
 
   donor_n <- policy_row_realized_donor_n(tbl)
-  singleton_ensemble <- policy_row_is_ensemble(tbl) & is.finite(donor_n) & donor_n < 2
+  singleton_ensemble <- policy_row_is_ensemble(tbl) & is.finite(donor_n) & donor_n == 1
   tbl$selection_valid <- dplyr::coalesce(tbl$selection_valid, FALSE) &
     dplyr::coalesce(as.logical(tbl$valid_prediction), FALSE) &
     !singleton_ensemble
@@ -2358,7 +2358,17 @@ nearest_equation_by <- function(candidate_rows,
   if (!is.null(distance_column) && distance_column %in% names(candidate_rows)) {
     primary_distance <- suppressWarnings(as.numeric(candidate_rows[[distance_column]]))
     if (isTRUE(distance_as_tiebreak)) {
-      ranking_score <- ranking_score + primary_distance * 1e-9
+      keep <- is.finite(primary_distance)
+      if (any(keep)) {
+        min_primary <- min(primary_distance[keep], na.rm = TRUE)
+        tier_keep <- keep & primary_distance <= min_primary + 0.05
+        ranking_rows <- candidate_rows[tier_keep, , drop = FALSE]
+        primary_distance <- primary_distance[tier_keep]
+        ranking_score <- suppressWarnings(as.numeric(ranking_rows$combined_distance)) +
+          primary_distance * 1e-9
+      } else {
+        ranking_score <- ranking_score + primary_distance * 1e-9
+      }
     } else {
       keep <- is.finite(primary_distance)
       if (any(keep)) {
@@ -2741,6 +2751,12 @@ policy_summary_rows <- function(rows,
       return(keep_rows)
     }
     if ("taxonomic_distance_to_anchor" %in% names(keep_rows)) {
+      taxonomic_distance <- suppressWarnings(as.numeric(keep_rows$taxonomic_distance_to_anchor))
+      keep <- is.finite(taxonomic_distance)
+      if (any(keep)) {
+        min_taxonomic <- min(taxonomic_distance[keep], na.rm = TRUE)
+        keep_rows <- keep_rows[keep & taxonomic_distance <= min_taxonomic + 0.05, , drop = FALSE]
+      }
       ord <- order(keep_rows$combined_distance, keep_rows$taxonomic_distance_to_anchor, na.last = TRUE)
     } else {
       ord <- order(keep_rows$combined_distance, na.last = TRUE)

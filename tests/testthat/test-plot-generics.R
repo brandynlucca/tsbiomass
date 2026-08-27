@@ -196,7 +196,7 @@ test_that("overlap heatmap resolves legacy FAO summaries to configured FAO area"
   p <- plot_overlap_heatmap(overlap_tbl, config = cfg)
 
   expect_s3_class(p, "ggplot")
-  expect_identical(as.character(unique(p$data$metric)), "Same Fao Area")
+  expect_identical(as.character(unique(p$data$metric)), "Same FAO Area")
   expect_equal(unique(p$data$value), 0.66)
 })
 

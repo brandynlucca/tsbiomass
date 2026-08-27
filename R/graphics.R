@@ -1779,7 +1779,7 @@ overlap_metric_label <- function(metric) {
   }
   label <- gsub("_fraction$", "", label)
   label <- gsub("_", " ", label, fixed = TRUE)
-  snake_sentence(label)
+  stringr::str_replace_all(snake_title(label), stringr::regex("\\bFao\\b"), "FAO")
 }
 
 #' Resolve configured overlap-summary metric labels
