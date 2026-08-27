@@ -827,7 +827,7 @@ read_trait_registry <- local({
 #' @return A character vector of coded trait names.
 #'
 #' @export
-trait_names <- function(scope = c("all", "species", "study"),
+list_traits <- function(scope = c("all", "species", "study"),
                         registry_path = NULL) {
   scope <- match.arg(scope)
   registry <- read_trait_registry(registry_path = registry_path)
@@ -1892,7 +1892,7 @@ replace_explicit_trait_maps <- function(merged_cfg,
 #' @return A config list.
 #'
 #' @export
-create_configuration_template <- function(input_file = "input.xlsx",
+build_configuration_template <- function(input_file = "input.xlsx",
                                           output_root = "outputs",
                                           cache_folder = "cache",
                                           registry_path = NULL,
@@ -1900,8 +1900,8 @@ create_configuration_template <- function(input_file = "input.xlsx",
   # Derive the minimal required trait and policy defaults from the registries
   # so the fallback config stays pipeline-agnostic. The input path is only a
   # placeholder in the returned list; no workbook is read here.
-  species_traits <- trait_names(scope = "species", registry_path = registry_path)
-  study_traits <- trait_names(scope = "study", registry_path = registry_path)
+  species_traits <- list_traits(scope = "species", registry_path = registry_path)
+  study_traits <- list_traits(scope = "study", registry_path = registry_path)
   if (length(species_traits) == 0) {
     stop("No species traits were available in the trait registry.", call. = FALSE)
   }
@@ -2113,7 +2113,7 @@ normalize_config <- function(config,
   config <- normalize_selection_config_shape(config)
 
   normalized_config <- merge_config_sections(
-    create_configuration_template(
+    build_configuration_template(
       registry_path = registry_path,
       policy_path = policy_path
     ),
@@ -3525,7 +3525,7 @@ validate_policy_list_section <- function(policies_section,
 #' Validate one config weight map
 #'
 #' @param weight_map Named numeric weight map.
-#' @param scope Trait scope passed to [trait_names()].
+#' @param scope Trait scope passed to [list_traits()].
 #' @param registry_path Optional trait-registry path.
 #'
 #' @return Invisibly returns `NULL`.
@@ -3554,7 +3554,7 @@ validate_weight_map <- function(weight_map,
     stop(sprintf("%s trait weights must be finite and >= 0.", scope), call. = FALSE)
   }
 
-  unknown_values <- setdiff(weight_names, trait_names(scope = scope, registry_path = registry_path))
+  unknown_values <- setdiff(weight_names, list_traits(scope = scope, registry_path = registry_path))
   if (length(unknown_values) > 0) {
     stop(
       sprintf(

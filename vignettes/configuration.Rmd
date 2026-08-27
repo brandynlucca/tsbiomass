@@ -57,7 +57,7 @@ library(tsbiomass)
 cfg <- build_configurer("path/to/config.yaml")
 
 # From the default list template (useful for scripted runs)
-cfg <- build_configurer(create_configuration_template())
+cfg <- build_configurer(build_configuration_template())
 ```
 
 ::: {.note data-title="How to read this page"}
@@ -1385,11 +1385,11 @@ perturbed scenarios.
 # Default configuration
 
 The complete default configuration produced by
-`create_configuration_template()`, shown in YAML and R-list form. Every value
+`build_configuration_template()`, shown in YAML and R-list form. Every value
 below is the packaged default; override only the keys you need.
 
 ```{r cd-default, echo=FALSE, results='asis', eval=TRUE}
-# Default config generated verbatim from create_configuration_template(); regenerate if the template changes.
+# Default config generated verbatim from build_configuration_template(); regenerate if the template changes.
 code_drop("default",
   yaml = r"--(paths:
   input_file: input.xlsx

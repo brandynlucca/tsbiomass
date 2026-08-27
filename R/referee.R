@@ -189,7 +189,7 @@ S7::S4_register(Referee)
 
 #' Collapse a selector's distance learner onto its canonical shared reference
 #'
-#' `referee_rebuild()` is the point in the package where a `Referee` most
+#' `update_referee()` is the point in the package where a `Referee` most
 #' commonly gets reconstructed from independently-sourced pieces - including,
 #' in principle, a `selector` whose `Alchemist` fit was reloaded from a cache
 #' file in a different session than whatever else is being combined with it
@@ -225,12 +225,16 @@ canonicalize_referee_distance_learner <- function(selector) {
   selector
 }
 
-#' Rebuild a `Referee`
+#' Update a `Referee` in place
 #'
 #' Reconstructs a [Referee] object, optionally replacing one or more of its
 #' component objects.
 #'
+#' @name update_referee.Referee
+#' @usage NULL
+#'
 #' @param object A [Referee] object.
+#' @param ... Ignored.
 #' @param selector Optional replacement [PolicySelector].
 #' @param learner Optional replacement [PolicyLearner].
 #' @param predictions Optional replacement [PolicyPredictions].
@@ -238,14 +242,13 @@ canonicalize_referee_distance_learner <- function(selector) {
 #' @param scorecard Optional replacement [Scorecard].
 #'
 #' @return A `Referee` object.
-#'
-#' @export
-referee_rebuild <- function(object,
-                            selector = NULL,
-                            learner = NULL,
-                            predictions = NULL,
-                            config = NULL,
-                            scorecard = NULL) {
+S7::method(update_referee, Referee) <- function(object,
+                                                ...,
+                                                selector = NULL,
+                                                learner = NULL,
+                                                predictions = NULL,
+                                                config = NULL,
+                                                scorecard = NULL) {
   selector <- selector %||% object@selector
   selector <- canonicalize_referee_distance_learner(selector)
   predictions <- predictions %||% object@predictions
@@ -1647,7 +1650,7 @@ build_referee_scorecard <- function(object,
 
   report_progress(progress, "[Referee] Building scorecard...")
   sc <- build_referee_scorecard(
-    object = referee_rebuild(
+    object = update_referee(
       object,
       predictions = prediction_bundle
     ),
@@ -2745,7 +2748,7 @@ S7::method(plot_generic, Scorecard) <- .plot_scorecard
 #' \dontrun{
 #' referee <- as_referee(selector, predictions = predictions)
 #' scorecard <- predict(referee)
-#' referee <- referee_rebuild(referee, scorecard = scorecard)
+#' referee <- update_referee(referee, scorecard = scorecard)
 #' plot(referee, type = "biomass_change")
 #' plot(referee, type = "length_density", anchor_species = "Sardinops sagax")
 #' }

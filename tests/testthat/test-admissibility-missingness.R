@@ -470,8 +470,6 @@ test_that("generalized models with missing species-trait gates are not rejected 
   expect_false(gated$admissible[[4]])
 })
 test_that("point-valued anchor ranges use point-mass containment overlap", {
-  expect_equal(tsbiomass:::compute_range_overlap(4, 4, 0, 100), 1)
-  expect_equal(tsbiomass:::compute_range_overlap(4, 4, 5, 100), 0)
   expect_equal(
     tsbiomass:::compute_range_overlap_vec(4, 4, c(0, 4, 5), c(100, 4, 100)),
     c(1, 1, 0)

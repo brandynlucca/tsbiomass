@@ -5065,37 +5065,6 @@ abort_unscorable_anchor <- function(message,
 #'
 #' @keywords internal
 #' @noRd
-#' Compute one directional interval overlap
-#'
-#' Calculates the fraction of the anchor interval covered by the comparison
-#' interval.
-#'
-#' @param a_min Anchor minimum.
-#' @param a_max Anchor maximum.
-#' @param b_min Candidate minimum.
-#' @param b_max Candidate maximum.
-#'
-#' @return A numeric scalar.
-#'
-#' @keywords internal
-#' @noRd
-compute_range_overlap <- function(a_min, a_max, b_min, b_max) {
-  if (!is.finite(a_min) || !is.finite(a_max) ||
-    !is.finite(b_min) || !is.finite(b_max)) {
-    return(NA_real_)
-  }
-  if (a_min > a_max || b_min > b_max) {
-    return(NA_real_)
-  }
-
-  a_len <- a_max - a_min
-  if (a_len == 0) {
-    return(as.numeric(b_min <= a_min && b_max >= a_max))
-  }
-
-  inter <- max(0, min(a_max, b_max) - max(a_min, b_min))
-  inter / a_len
-}
 
 #' Compute vectorized directional interval overlap
 #'

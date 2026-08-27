@@ -1178,54 +1178,6 @@ normalize_phylo_species_label <- function(x) {
   stringr::str_to_lower(stringr::str_squish(gsub("_", " ", as.character(x), fixed = TRUE)))
 }
 
-#' Map a cophenetic matrix onto queried species names
-#'
-#' @param species_names Canonical queried species names.
-#' @param cophenetic_labels Tip labels returned by Open Tree.
-#' @param cophenetic_matrix Cophenetic distance matrix matching the tip labels.
-#'
-#' @return A normalized species distance matrix.
-#'
-#' @keywords internal
-#' @noRd
-map_phylo_cophenetic_distances <- function(species_names,
-                                           cophenetic_labels,
-                                           cophenetic_matrix) {
-  species_keys <- normalize_phylo_species_label(species_names)
-  tip_keys <- normalize_phylo_species_label(cophenetic_labels)
-  out <- matrix(
-    1,
-    nrow = length(species_keys),
-    ncol = length(species_keys),
-    dimnames = list(species_keys, species_keys)
-  )
-  diag(out) <- 0
-  if (length(tip_keys) == 0L || nrow(cophenetic_matrix) == 0L) {
-    return(out)
-  }
-
-  keep <- tip_keys %in% species_keys
-  if (!any(keep)) {
-    return(out)
-  }
-  kept_keys <- tip_keys[keep]
-  kept_matrix <- cophenetic_matrix[keep, keep, drop = FALSE]
-  unique_keys <- !duplicated(kept_keys)
-  kept_keys <- kept_keys[unique_keys]
-  kept_matrix <- kept_matrix[unique_keys, unique_keys, drop = FALSE]
-  dimnames(kept_matrix) <- list(kept_keys, kept_keys)
-  match_idx <- match(species_keys, kept_keys)
-  valid_idx <- which(!is.na(match_idx))
-  if (length(valid_idx) > 0L) {
-    out[valid_idx, valid_idx] <- kept_matrix[
-      match_idx[valid_idx], match_idx[valid_idx],
-      drop = FALSE
-    ]
-  }
-  diag(out) <- 0
-  out
-}
-
 #' Map Open Tree tree distances through OTT identifiers
 #'
 #' Unlike display-name matching, OTT identifiers retain an unambiguous link

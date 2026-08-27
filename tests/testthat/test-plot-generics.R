@@ -1058,30 +1058,6 @@ test_that("plot_selected_intervals uses the selected-policy interval columns", {
   expect_equal(errorbar_data$ymax[[1]], log10(5.0), tolerance = 1e-8)
 })
 
-test_that("TS interval display columns are centered on selected policy curve", {
-  curve_tbl <- tibble::tibble(
-    length_cm = c(10, 20),
-    ts_pred = c(-60, -54),
-    ts_center = c(-60, -54),
-    ts_lo_80 = c(-61, -57),
-    ts_hi_80 = c(-58, -53),
-    ts_lo_90 = c(-62, -58),
-    ts_hi_90 = c(-57, -52),
-    ts_lo_95 = c(-63, -59),
-    ts_hi_95 = c(-56, -51),
-    ts_lo_99 = c(-64, -60),
-    ts_hi_99 = c(-55, -50)
-  )
-
-  centered <- tsbiomass:::center_ts_interval_columns(curve_tbl)
-
-  for (level in c("80", "90", "95", "99")) {
-    lo <- centered[[paste0("ts_lo_", level)]]
-    hi <- centered[[paste0("ts_hi_", level)]]
-    expect_equal(centered$ts_center - lo, hi - centered$ts_center, tolerance = 1e-8)
-  }
-})
-
 test_that("reference length-density plots display stored empirical PDFs as densities", {
   raw_lengths <- c(10, 10, 11, 12, 12, 12, 22, 22, 24, 25)
   support_tbl <- normalize_anchor_pdf_input(raw_lengths) |>

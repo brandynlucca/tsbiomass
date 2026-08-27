@@ -355,7 +355,7 @@ policy_learner_config <- function(object,
   # selector@config is merged into object@config at construction time, so we
   # no longer need to access the selector here.
   cfg <- merge_config_sections(
-    create_configuration_template(),
+    build_configuration_template(),
     merge_config_sections(object@config, policy_selector_config_data(config))
   )
   cfg$selection <- normalize_learner_section(cfg$selection %||% list())

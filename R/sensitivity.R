@@ -214,14 +214,8 @@ run_sensitivity_tests <- function(sensitivity_specs,
 #'
 #' @return A tibble with one row per sensitivity scenario.
 #'
-#' @examples
-#' \dontrun{
-#' simulator <- as_policysimulator(selector)
-#' simulator <- simulate(simulator)
-#' construct_sensitivity_table(simulator)
-#' }
-#'
-#' @export
+#' @keywords internal
+#' @noRd
 construct_sensitivity_table <- S7::new_generic("construct_sensitivity_table", "scenario_specifications")
 
 #' Construct a scenario manifest from named sensitivity scenario lists
@@ -325,14 +319,8 @@ S7::method(construct_sensitivity_table, PolicySimulator) <- function(scenario_sp
 #'
 #' @return A named list of scenario-indexed tibbles.
 #'
-#' @examples
-#' \dontrun{
-#' simulator <- as_policysimulator(selector)
-#' simulator <- simulate(simulator)
-#' collect_sensitivity_results(simulator)
-#' }
-#'
-#' @export
+#' @keywords internal
+#' @noRd
 collect_sensitivity_results <- S7::new_generic("collect_sensitivity_results", "scenario_results")
 
 #' Collect scenario benchmark tables from a named scenario-result list

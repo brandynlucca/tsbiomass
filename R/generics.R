@@ -187,6 +187,23 @@ screen_learners <- S7::new_generic("screen_learners", "object")
 #' @export
 update_learners <- S7::new_generic("update_learners", "object")
 
+#' Update a workflow object's component pieces in place
+#'
+#' Reconstructs a workflow object, optionally replacing one or more of its
+#' component objects while leaving the rest of its state untouched. For a
+#' [Referee], this rebuilds the object from its `selector`, `learner`,
+#' `predictions`, `config`, and `scorecard` pieces, canonicalizing the
+#' distance learner reference along the way.
+#'
+#' @param object A workflow object such as [Referee].
+#' @param ... Component replacements. For [Referee], these are `selector`,
+#'   `learner`, `predictions`, `config`, and `scorecard`.
+#'
+#' @return `object`, reconstructed with any supplied replacement components.
+#'
+#' @export
+update_referee <- S7::new_generic("update_referee", "object")
+
 #' Learn an Alchemist distance matrix
 #'
 #' Trains the Alchemist's distance learner on pairwise acoustic differences and

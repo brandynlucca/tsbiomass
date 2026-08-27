@@ -256,7 +256,7 @@ write_config_yaml <- function(path,
 
   ensure_parent_path(path)
   yaml::write_yaml(
-    x = create_configuration_template(
+    x = build_configuration_template(
       input_file = input_file,
       output_root = output_root,
       cache_folder = cache_folder,

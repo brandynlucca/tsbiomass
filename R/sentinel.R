@@ -385,7 +385,7 @@ sentinel_resolve_target <- function(deployment_target = NULL,
 #' @return Named list.
 #'
 #' @examples
-#' scenarios <- create_scenarios(
+#' scenarios <- build_scenarios(
 #'   trait_ablations = list(
 #'     no_taxonomy = c("family", "genus")
 #'   ),
@@ -398,7 +398,7 @@ sentinel_resolve_target <- function(deployment_target = NULL,
 #' scenarios$no_policy_a$drop_rows
 #'
 #' @export
-create_scenarios <- function(trait_ablations = NULL,
+build_scenarios <- function(trait_ablations = NULL,
                              gate_ablations = NULL,
                              model_ablations = NULL,
                              schema_scenarios = NULL,
@@ -551,7 +551,7 @@ sentinel_configured_traits <- function(config,
 #' @param config Workflow configuration.
 #' @param traits Configured source-trait names available in the candidate data.
 #'
-#' @return A named list accepted by [create_scenarios()].
+#' @return A named list accepted by [build_scenarios()].
 #'
 #' @keywords internal
 #' @noRd
@@ -637,7 +637,7 @@ sentinel_configured_gate_traits <- function(config,
 #' @param traits Configured admissibility gate traits present in the data.
 #'
 #' @return A named list of `relax_gate_<trait>` -> trait, accepted by
-#'   [create_scenarios()] as `gate_ablations`.
+#'   [build_scenarios()] as `gate_ablations`.
 #'
 #' @keywords internal
 #' @noRd
@@ -2064,7 +2064,7 @@ build_sentinel <- function(data,
     }
     gate_ablations <- sentinel_effective_gate_ablations(traits = available_gate_traits)
   }
-  scenario_grid <- scenario_grid %||% create_scenarios(
+  scenario_grid <- scenario_grid %||% build_scenarios(
     trait_ablations = trait_ablations,
     gate_ablations = gate_ablations
   )
@@ -6001,3 +6001,58 @@ S7::method(summary_generic, Sentinel) <- function(object,
   }
   summarize_sentinel_validation(object, ...)
 }
+
+#' Plot a `Sentinel`
+#'
+#' Runs `summary(x, type = type)` to build the underlying [Scorecard] report,
+#' then plots it. Equivalent to calling `plot(summary(x, type = type), ...)`
+#' directly, without needing to know the two-step summarize-then-plot path or
+#' the `sentinel_*` type aliases [plot.Scorecard] accepts.
+#'
+#' @name plot.Sentinel
+#'
+#' @param x A [Sentinel] object.
+#' @param y Unused.
+#' @param type Report type: `"validation"`, `"ablation"`,
+#'   `"ablation_decomposition"`, or `"coverage"`.
+#' @param ... Additional arguments forwarded to the [Scorecard] plot method
+#'   (for example `view`, `anchor_model_id`, `scale`).
+#'
+#' @return A ggplot object.
+#'
+#' @examples
+#' \dontrun{
+#' sentinel <- run_sentinel(object, scenarios)
+#' plot(sentinel, type = "ablation")
+#' }
+#' @usage
+#' \method{plot}{Sentinel}(x, y = NULL, type = "validation", ...)
+NULL
+
+#' Current Sentinel plot type names
+#'
+#' @return Character vector of supported plot type names.
+#' @keywords internal
+#' @noRd
+sentinel_plot_types <- function() {
+  c("validation", "ablation", "ablation_decomposition", "coverage")
+}
+
+.plot_sentinel <- function(x,
+                           y = NULL,
+                           type = c("validation", "ablation", "ablation_decomposition", "coverage"),
+                           ...) {
+  valid_types <- sentinel_plot_types()
+  type <- as.character(type %||% valid_types[[1]])[[1]]
+  if (!type %in% valid_types) {
+    return(plot_report_placeholder(
+      title = "Sentinel Plot Unavailable",
+      subtitle = sprintf(
+        "Plot type '%s' is not a current Sentinel plot type.",
+        type
+      )
+    ))
+  }
+  plot(summary(x, type = type), type = type, ...)
+}
+S7::method(plot_generic, Sentinel) <- .plot_sentinel

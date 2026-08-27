@@ -3696,37 +3696,6 @@ plot_report_placeholder <- function(title,
     ggplot2::theme_minimal(base_size = 11)
 }
 
-center_ts_interval_columns <- function(curve_tbl,
-                                       levels = c("80", "90", "95", "99"),
-                                       gap = 1e-6) {
-  curve_tbl <- tibble::as_tibble(curve_tbl)
-  if (!"ts_pred" %in% names(curve_tbl)) {
-    return(curve_tbl)
-  }
-  center <- dplyr::coalesce(
-    if ("ts_center" %in% names(curve_tbl)) suppressWarnings(as.numeric(curve_tbl$ts_center)) else rep(NA_real_, nrow(curve_tbl)),
-    suppressWarnings(as.numeric(curve_tbl$ts_pred))
-  )
-  previous_half_width <- rep(NA_real_, nrow(curve_tbl))
-  for (level in levels) {
-    lo_col <- paste0("ts_lo_", level)
-    hi_col <- paste0("ts_hi_", level)
-    if (!all(c(lo_col, hi_col) %in% names(curve_tbl))) {
-      next
-    }
-    lo <- suppressWarnings(as.numeric(curve_tbl[[lo_col]]))
-    hi <- suppressWarnings(as.numeric(curve_tbl[[hi_col]]))
-    half_width <- pmax(center - lo, hi - center)
-    valid <- is.finite(center) & is.finite(half_width) & half_width >= 0
-    nested <- valid & is.finite(previous_half_width)
-    half_width[nested] <- pmax(half_width[nested], previous_half_width[nested] + gap)
-    curve_tbl[[lo_col]][valid] <- center[valid] - half_width[valid]
-    curve_tbl[[hi_col]][valid] <- center[valid] + half_width[valid]
-    previous_half_width[valid] <- half_width[valid]
-  }
-  curve_tbl
-}
-
 #' Plot selected policy intervals
 #'
 #' @param sel_tbl Selected-policy interval table.

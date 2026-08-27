@@ -263,7 +263,7 @@ test_that("installed-style S3 bridges are registered for base predict and plot",
   expect_true(is.function(utils::getS3method("plot", "tsbiomass::Referee", optional = TRUE)))
   expect_true(is.function(utils::getS3method("plot", "tsbiomass::PolicySimulator", optional = TRUE)))
   expect_true(is.function(utils::getS3method("plot", "tsbiomass::Conjurer", optional = TRUE)))
-  expect_true("referee_rebuild" %in% getNamespaceExports("tsbiomass"))
+  expect_true("update_referee" %in% getNamespaceExports("tsbiomass"))
 })
 
 test_that("as_tibble returns canonical result tables for predictions and scorecards", {

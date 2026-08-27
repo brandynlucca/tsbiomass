@@ -118,26 +118,6 @@ test_that("construct_gower_distances stores distance matrices on Candidates", {
   )
 })
 
-test_that("phylogeny mapping matches Open Tree labels case-insensitively", {
-  cophenetic <- matrix(
-    c(0, 3, 6, 3, 0, 5, 6, 5, 0),
-    nrow = 3,
-    dimnames = list(
-      c("scomber_japonicus_ott1", "scomber_colias_ott2", "gadus_morhua_ott3"),
-      c("scomber_japonicus_ott1", "scomber_colias_ott2", "gadus_morhua_ott3")
-    )
-  )
-  out <- tsbiomass:::map_phylo_cophenetic_distances(
-    species_names = c("Scomber japonicus", "Scomber colias", "Gadus morhua"),
-    cophenetic_labels = c("Scomber japonicus", "Scomber colias", "Gadus morhua"),
-    cophenetic_matrix = cophenetic
-  )
-
-  expect_equal(out[1, 2], 3)
-  expect_equal(out[1, 3], 6)
-  expect_equal(unname(diag(out)), c(0, 0, 0))
-})
-
 test_that("phylogeny mapping retains genus-level Open Tree placements by OTT ID", {
   cophenetic <- matrix(
     c(0, 2, 6, 2, 0, 5, 6, 5, 0),

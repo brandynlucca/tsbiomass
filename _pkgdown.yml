@@ -78,9 +78,9 @@ reference:
     contents:
       - build_configurer
       - read_configuration
-      - create_configuration_template
+      - build_configuration_template
       - Configurer-class
-      - trait_names
+      - list_traits
       - trait_definition
 
   - title: "Candidates"
@@ -124,7 +124,7 @@ reference:
       - calibrate_uncertainty.PolicySelector
       - select_policies
       - select_policies.PolicySelector
-      - available_policies
+      - list_policies
       - list_learners
       - tune_similarities
       - construct_species_coverage
@@ -157,7 +157,8 @@ reference:
       - PolicyPredictions-class
       - as_referee
       - Referee-class
-      - referee_rebuild
+      - update_referee
+      - update_referee.Referee
       - predict.Referee
       - Scorecard-class
       - read_scorecard
@@ -168,19 +169,13 @@ reference:
     contents:
       - as_policysimulator
       - PolicySimulator-class
-      - create_scenarios
+      - build_scenarios
       - build_sentinel
       - run_sentinel
       - run_sentinel_fold
       - combine_sentinel_folds
       - Sentinel-class
       - sentinel_apply_scenario
-      - collect_sensitivity_results
-      - collect_sensitivity_results.default
-      - collect_sensitivity_results.PolicySimulator
-      - construct_sensitivity_table
-      - construct_sensitivity_table.default
-      - construct_sensitivity_table.PolicySimulator
 
   - title: "Visualization"
     desc: "S3 plot methods dispatched via plot(object, ...) for all major classes."

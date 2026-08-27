@@ -550,7 +550,7 @@ policy_selector_similarity_defaults <- function(candidates) {
     ))
   }
 
-  cfg <- create_configuration_template()
+  cfg <- build_configuration_template()
   list(
     species_traits = as.list(cfg$similarity$species_traits %||% list()),
     study_traits = as.list(cfg$similarity$study_traits %||% list()),

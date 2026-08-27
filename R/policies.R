@@ -1599,10 +1599,10 @@ read_policy_registry <- local({
 #'   tibbles.
 #'
 #' @examples
-#' available_policies()
+#' list_policies()
 #'
 #' @export
-available_policies <- function(policy_path = NULL) {
+list_policies <- function(policy_path = NULL) {
   registry <- read_policy_registry(policy_path = policy_path)
   list_to_tibble <- function(items) {
     items <- items %||% list()

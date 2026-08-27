@@ -7,7 +7,7 @@ test_that("Sentinel infers split columns and builds manifests", {
     value = c(1, 2, 3, 4)
   )
 
-  scenarios <- create_scenarios(
+  scenarios <- build_scenarios(
     trait_ablations = list(no_value = "value")
   )
   out_dir <- file.path(tempdir(), paste0("sentinel-test-", as.integer(Sys.time())))
@@ -32,7 +32,7 @@ test_that("Sentinel infers split columns and builds manifests", {
 })
 
 test_that("Sentinel scenario grids can encode row-filter ablations", {
-  scenarios <- create_scenarios(
+  scenarios <- build_scenarios(
     model_ablations = list(
       no_policy_a = list(policy = "policy_a")
     )
@@ -43,7 +43,7 @@ test_that("Sentinel scenario grids can encode row-filter ablations", {
 })
 
 test_that("Sentinel trait scenarios support automatic leave-one-trait-out grids", {
-  scenarios <- create_scenarios(
+  scenarios <- build_scenarios(
     trait_ablations = c("family", "mean_depth")
   )
 
@@ -162,7 +162,7 @@ test_that("Sentinel manifests pair scenarios on stable outer-fold IDs", {
   sentinel <- build_sentinel(
     data = candidate_models,
     split_mode = "species_holdout",
-    scenario_grid = create_scenarios(trait_ablations = "trait_a"),
+    scenario_grid = build_scenarios(trait_ablations = "trait_a"),
     output_dir = file.path(tempdir(), paste0("sentinel-pairing-", as.integer(Sys.time())))
   )
   sentinel <- build_sentinel_manifest(sentinel)
@@ -660,7 +660,7 @@ test_that("Sentinel object workflow receives fold Candidates and Configurer", {
     study_reference_id = c("study_a", "study_b", "study_c"),
     study_cell_id = c("cell_1", "cell_2", "cell_3")
   )
-  config_s7 <- build_configurer(create_configuration_template(
+  config_s7 <- build_configurer(build_configuration_template(
     input_file = file.path(tempdir(), "input.xlsx"),
     output_root = file.path(tempdir(), "outputs"),
     cache_folder = file.path(tempdir(), "cache")
@@ -705,7 +705,7 @@ test_that("Sentinel object workflow can return a Scorecard directly", {
     study_reference_id = c("study_a", "study_b"),
     study_cell_id = c("cell_1", "cell_2")
   )
-  config_s7 <- build_configurer(create_configuration_template(
+  config_s7 <- build_configurer(build_configuration_template(
     input_file = file.path(tempdir(), "input.xlsx"),
     output_root = file.path(tempdir(), "outputs"),
     cache_folder = file.path(tempdir(), "cache")
