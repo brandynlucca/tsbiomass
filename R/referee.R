@@ -2768,7 +2768,7 @@ NULL
 #' @keywords internal
 #' @noRd
 referee_plot_types <- function() {
-  c("biomass_change", "strategy_competition", "length_density", "anchor_multiplier_summary")
+  c("biomass_change", "strategy_competition", "length_density")
 }
 
 .plot_referee <- function(x,
@@ -2790,9 +2790,6 @@ referee_plot_types <- function() {
       )
     ))
   }
-  if (identical(type, "anchor_multiplier_summary")) {
-    type <- "biomass_change"
-  }
   scorecard_obj <- x@scorecard
   predictions_obj <- if (is_s7_instance(x@predictions, "PolicyPredictions")) {
     x@predictions
@@ -2807,8 +2804,7 @@ referee_plot_types <- function() {
   } else {
     (x@selector@candidates@admissibility)$all_scores %||% tibble::tibble()
   }
-  use_scorecard_path <- identical(type, "biomass_change") ||
-    identical(type, "anchor_multiplier_summary")
+  use_scorecard_path <- identical(type, "biomass_change")
 
   if (scorecard_ready) {
     anchor_summary_tbl <- tibble::as_tibble(scorecard_obj@anchor_summary)

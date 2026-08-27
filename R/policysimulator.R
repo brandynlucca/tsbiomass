@@ -323,8 +323,8 @@ policy_simulator_anchor_config <- function(object,
       NULL
     } else if ("model_id" %in% names(anchors_tbl)) {
       as.character(anchors_tbl$model_id)
-    } else if ("model_id" %in% names(anchors_tbl)) {
-      as.character(anchors_tbl$model_id)
+    } else if ("model_id_chr" %in% names(anchors_tbl)) {
+      as.character(anchors_tbl$model_id_chr)
     } else {
       NULL
     }
