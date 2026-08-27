@@ -160,6 +160,8 @@ reference:
       - referee_rebuild
       - predict.Referee
       - Scorecard-class
+      - read_scorecard
+      - write_scorecard
 
   - title: "Simulation and Validation"
     desc: "Sensitivity simulation and outer-loop holdout validation."
