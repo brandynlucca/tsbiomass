@@ -49,6 +49,9 @@
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/construct_species_coverage.PolicySelector.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/construct_species_coverage.default.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/construct_species_coverage.html</loc></url>
+<url><loc>https://brandynlucca.github.io/tsbiomass/reference/cpp_build_benchmark_ts_errors.html</loc></url>
+<url><loc>https://brandynlucca.github.io/tsbiomass/reference/cpp_evaluate_policy_plan.html</loc></url>
+<url><loc>https://brandynlucca.github.io/tsbiomass/reference/cpp_policy_equivalence_pairs.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/create_configuration_template.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/create_scenarios.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/crossfit.PolicyLearner.html</loc></url>
@@ -80,6 +83,7 @@
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/predict.Referee.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/prepare_similarities.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/read_configuration.html</loc></url>
+<url><loc>https://brandynlucca.github.io/tsbiomass/reference/read_scorecard.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/referee_rebuild.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/run_ordination.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/run_sentinel.html</loc></url>
@@ -99,5 +103,6 @@
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/tune_similarities.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/update_learners.Configurer.html</loc></url>
 <url><loc>https://brandynlucca.github.io/tsbiomass/reference/update_learners.html</loc></url>
+<url><loc>https://brandynlucca.github.io/tsbiomass/reference/write_scorecard.html</loc></url>
 </urlset>
 

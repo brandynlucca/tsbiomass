@@ -253,6 +253,16 @@ Generate predictions and evaluate policy performance.
   [`Scorecard`](https://brandynlucca.github.io/tsbiomass/reference/Scorecard-class.md)
   : Typed recommendation scorecard
 
+- [`read_scorecard()`](https://brandynlucca.github.io/tsbiomass/reference/read_scorecard.md)
+  :
+
+  Read a
+  [`write_scorecard()`](https://brandynlucca.github.io/tsbiomass/reference/write_scorecard.md)
+  report
+
+- [`write_scorecard()`](https://brandynlucca.github.io/tsbiomass/reference/write_scorecard.md)
+  : Write a Scorecard report
+
 ## Simulation and Validation
 
 Sensitivity simulation and outer-loop holdout validation.

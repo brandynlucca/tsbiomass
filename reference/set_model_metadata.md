@@ -1,7 +1,12 @@
 # Update candidate metadata by model ID
 
-Applies explicit metadata edits to candidate-model rows keyed by model
-ID and keeps matching selected reference anchors synchronized.
+Applies explicit metadata edits to selected rows of a
+[Candidates](https://brandynlucca.github.io/tsbiomass/reference/Candidates-class.md)
+object. Every supplied `model_id` must identify exactly one candidate
+model. Matching selected reference-anchor rows are updated in lockstep.
+Because candidate metadata determines the prepared similarity and
+distance geometry, all derived similarity, distance, ordination, and
+admissibility state is cleared.
 
 ## Usage
 
