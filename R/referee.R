@@ -50,7 +50,6 @@ NULL
 #' \dontrun{
 #' scorecard <- predict(as_referee(selector, predictions = predictions))
 #' scorecard
-#' scorecard
 #' }
 #'
 #' @name Scorecard-class

@@ -12,7 +12,6 @@ Stores the post-prediction recommendation tables and diagnostics built by
 \dontrun{
 scorecard <- predict(as_referee(selector, predictions = predictions))
 scorecard
-scorecard
 }
 
 }

@@ -13,8 +13,6 @@ and the donor-pool consensus summaries returned by \code{\link[=predict]{predict
 \dontrun{
 predictions <- predict(selector)
 predictions
-predictions
-predictions
 }
 
 }

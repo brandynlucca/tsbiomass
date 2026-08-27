@@ -189,9 +189,7 @@ reference:
       - plot.PolicySimulator
       - plot.Referee
       - plot.Scorecard
-      - plot_sentinel_ablation_decomposition_scorecard
-      - plot_sentinel_ablation_scorecard
-      - plot_sentinel_coverage_scorecard
+      - plot.Sentinel
 
   - title: "Utilities"
     desc: "Diagnostics, explainability, and lower-level utilities."

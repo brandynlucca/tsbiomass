@@ -97,28 +97,6 @@ log_message <- function(logger,
   invisible(NULL)
 }
 
-#' Log a run header
-#'
-#' Writes a standard run header block through a run logger.
-#'
-#' @param logger Logger object from `build_run_logger()`.
-#' @param title Header title text.
-#'
-#' @return Invisibly returns `NULL`.
-#'
-#' @keywords internal
-#' @noRd
-log_header <- function(logger,
-                       title = "TS Biomass Model Transferability Run") {
-  # Emit a small standard header so command-line runs have a recognizable
-  # start marker in both console and optional file logs.
-  log_message(logger, "", timestamp = FALSE)
-  log_message(logger, "====================================================================", timestamp = FALSE)
-  log_message(logger, title, timestamp = FALSE)
-  log_message(logger, "====================================================================", timestamp = FALSE)
-  invisible(NULL)
-}
-
 #' Collapse values for compact display
 #'
 #' @param values Character vector.
@@ -181,40 +159,6 @@ parse_command_line <- function(arguments = commandArgs(trailingOnly = TRUE)) {
   stop(
     "Unsupported command-line arguments. Use '--config <path>' or '--write-template <path>'.",
     call. = FALSE
-  )
-}
-
-#' Resolve one command-line config
-#'
-#' Converts parsed command-line inputs to a validated normalized config
-#' or writes a new template when requested.
-#'
-#' @param arguments Character vector, usually `commandArgs(trailingOnly = TRUE)`.
-#' @param base_dir Base directory for relative paths.
-#' @param registry_path Optional trait-registry path.
-#' @param policy_path Optional policy-registry path.
-#'
-#' @return A normalized config, or the written template path.
-#'
-#' @keywords internal
-#' @noRd
-resolve_command_line <- function(arguments = commandArgs(trailingOnly = TRUE),
-                                 base_dir = getwd(),
-                                 registry_path = NULL,
-                                 policy_path = NULL) {
-  # Dispatch from the parsed command-line action so template generation and
-  # script execution share one argument parser.
-  cli_values <- parse_command_line(arguments = arguments)
-
-  if (identical(cli_values$action, "write_template")) {
-    return(write_config_yaml(cli_values$path))
-  }
-
-  read_configuration(
-    path = cli_values$config_path,
-    base_dir = dirname(path_absolute(cli_values$config_path, base_dir = base_dir)),
-    registry_path = registry_path,
-    policy_path = policy_path
   )
 }
 
@@ -425,42 +369,6 @@ script_call_from_config <- function(config_path,
       "--config",
       shQuote(path_absolute(config_path))
     )
-  )
-}
-
-#' Run the packaged script
-#'
-#' Launches the packaged script wrapper with a validated config YAML file.
-#'
-#' @param config_path Config YAML path.
-#' @param script_name Packaged script name.
-#' @param rscript_path Optional `Rscript` executable path.
-#' @param wait Logical scalar. If `TRUE`, wait for the script to finish.
-#'
-#' @return The `system2()` exit status.
-#'
-#' @keywords internal
-#' @noRd
-run_script_from_config <- function(config_path,
-                                   script_name = "swfscfish.R",
-                                   rscript_path = NULL,
-                                   wait = TRUE) {
-  # Build the validated script call first, then hand it to `system2()` without
-  # duplicating the path and config checks here.
-  if (!is.logical(wait) || length(wait) != 1 || is.na(wait)) {
-    stop("'wait' must be TRUE or FALSE.", call. = FALSE)
-  }
-
-  script_call <- script_call_from_config(
-    config_path = config_path,
-    script_name = script_name,
-    rscript_path = rscript_path
-  )
-
-  system2(
-    command = script_call$command,
-    args = script_call$args,
-    wait = wait
   )
 }
 

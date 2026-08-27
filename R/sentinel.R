@@ -5039,6 +5039,8 @@ summarize_sentinel_ablation_decomposition <- function(
 #'
 #' @return A ggplot object.
 #'
+#' @keywords internal
+#' @noRd
 plot_sentinel_ablation_decomposition_scorecard <- function(x,
                                                            labels = NULL) {
   summary_tbl <- tibble::as_tibble(x@anchor_audit)
@@ -5169,6 +5171,8 @@ plot_sentinel_ablation_decomposition_scorecard <- function(x,
 #'
 #' @return A ggplot object.
 #'
+#' @keywords internal
+#' @noRd
 plot_sentinel_ablation_scorecard <- function(x,
                                              labels = NULL,
                                              title = NULL) {
@@ -5819,6 +5823,8 @@ plot_sentinel_validation_scorecard <- function(x,
 #'
 #' @return A ggplot object.
 #'
+#' @keywords internal
+#' @noRd
 plot_sentinel_coverage_scorecard <- function(
   x,
   estimand = c("conditional", "operational", "estimability")

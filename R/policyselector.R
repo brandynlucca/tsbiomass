@@ -39,8 +39,6 @@ NULL
 #' \dontrun{
 #' predictions <- predict(selector)
 #' predictions
-#' predictions
-#' predictions
 #' }
 #'
 #' @name PolicyPredictions-class
