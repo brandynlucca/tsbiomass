@@ -439,6 +439,32 @@ policy_learner_uncertainty_super_methods <- function(cfg,
   ) %||% fallback
 }
 
+#' Resolve uncertainty-stage outcome clipping
+#'
+#' @param cfg Normalized config list.
+#' @param fallback Optional fallback clipping quantile.
+#'
+#' @return Numeric scalar or `NULL`.
+#'
+#' @keywords internal
+#' @noRd
+policy_learner_uncertainty_outcome_clip_quantile <- function(cfg,
+                                                             fallback = NULL) {
+  value <- policy_selector_config_value(
+    cfg,
+    "outcome_clip_quantile",
+    sections = c("uncertainty", "policy_learner")
+  ) %||% fallback
+  if (is.null(value)) {
+    return(NULL)
+  }
+  value <- suppressWarnings(as.numeric(value[[1]]))
+  if (!is.finite(value) || value <= 0 || value >= 1) {
+    return(NULL)
+  }
+  value
+}
+
 #' Resolve active selection-learner random-intercept columns
 #'
 #' @param cfg Policy-learner configuration.
@@ -1542,6 +1568,11 @@ policy_learner_uncertainty_screen_inputs <- function(object,
   } else {
     ".outcome"
   }
+  outcome_clip_quantile <- policy_learner_uncertainty_outcome_clip_quantile(
+    cfg,
+    fallback = crossfit_obj$uncertainty_outcome_clip_quantile %||%
+      crossfit_obj$outcome_clip_quantile
+  )
   max_selection_tolerance <- suppressWarnings(as.numeric(
     policy_selector_config_value(cfg, "max_selection_tolerance", sections = c("selection", "policy_learner"))
   ))
@@ -1580,6 +1611,7 @@ policy_learner_uncertainty_screen_inputs <- function(object,
   list(
     data = meta_selected,
     outcome_col = calibration_outcome_col,
+    outcome_clip_quantile = outcome_clip_quantile,
     feature_cols = width_feature_cols,
     group_col = width_group_col,
     outcome_transform = crossfit_obj$outcome_transform %||%
@@ -1717,7 +1749,7 @@ S7::method(screen_learners, PolicyLearner) <- function(object,
     method_settings <- uncertainty_inputs$method_settings
     super_methods <- uncertainty_inputs$super_methods
     group_col <- uncertainty_inputs$group_col
-    outcome_clip_quantile <- NULL
+    outcome_clip_quantile <- uncertainty_inputs$outcome_clip_quantile
     outcome_transform <- uncertainty_inputs$outcome_transform
     lambda_rule <- uncertainty_inputs$lambda_rule
     alpha <- uncertainty_inputs$alpha
@@ -2333,6 +2365,11 @@ policy_learner_uncertainty_crossfit_plan <- function(object,
     fallback = (object@fitted_model)$selection_super_methods %||%
       crossfit_obj$selection_super_methods
   )
+  outcome_clip_quantile <- policy_learner_uncertainty_outcome_clip_quantile(
+    cfg,
+    fallback = crossfit_obj$uncertainty_outcome_clip_quantile %||%
+      crossfit_obj$outcome_clip_quantile
+  )
   width_group_col <- if ("anchor_species" %in% names(meta_selected)) {
     "anchor_species"
   } else {
@@ -2386,7 +2423,7 @@ policy_learner_uncertainty_crossfit_plan <- function(object,
         policy_selector_config_value(cfg, "seed", sections = c("uncertainty", "policy_learner")),
       feature_cols = width_feature_cols,
       outcome_col = calibration_outcome_col,
-      outcome_clip_quantile = NULL,
+      outcome_clip_quantile = outcome_clip_quantile,
       outcome_transform = crossfit_obj$outcome_transform %||%
         policy_selector_config_value(cfg, "outcome_transform", sections = c("uncertainty", "policy_learner")),
       lambda_rule = crossfit_obj$lambda_rule %||%
@@ -2413,7 +2450,7 @@ policy_learner_uncertainty_crossfit_plan <- function(object,
       n_rows = nrow(meta_selected),
       n_base_methods = 0L,
       outcome_col = calibration_outcome_col,
-      outcome_clip_quantile = NULL,
+      outcome_clip_quantile = outcome_clip_quantile,
       outcome_clip_cap = NULL
     )
   }
@@ -2431,6 +2468,7 @@ policy_learner_uncertainty_crossfit_plan <- function(object,
     uncertainty_method_settings = uncertainty_method_settings,
     calibration_outcome_col = calibration_outcome_col,
     raw_outcome_col = outcome_col,
+    outcome_clip_quantile = outcome_clip_quantile,
     width_group_col = width_group_col,
     min_width_rows = min_width_rows,
     skip_reason = skip_reason,
@@ -2965,6 +3003,11 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
     fallback = (object@fitted_model)$selection_super_methods %||%
       crossfit_obj$selection_super_methods
   )
+  outcome_clip_quantile <- policy_learner_uncertainty_outcome_clip_quantile(
+    cfg,
+    fallback = crossfit_obj$uncertainty_outcome_clip_quantile %||%
+      crossfit_obj$outcome_clip_quantile
+  )
   width_group_col <- if ("anchor_species" %in% names(meta_selected)) {
     "anchor_species"
   } else {
@@ -2979,6 +3022,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
   width_prediction_source <- NA_character_
   width_fit_error <- NULL
   width_warning <- NULL
+  width_outcome_clip_cap <- NULL
   width_selected <- meta_selected
   configured_min_width_rows <- policy_selector_config_value(
     cfg,
@@ -3082,7 +3126,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
           seed = crossfit_obj$seed %||% policy_selector_config_value(cfg, "seed", sections = c("uncertainty", "policy_learner")),
           feature_cols = width_feature_cols,
           outcome_col = calibration_outcome_col,
-          outcome_clip_quantile = NULL,
+          outcome_clip_quantile = outcome_clip_quantile,
           outcome_transform = crossfit_obj$outcome_transform %||% policy_selector_config_value(cfg, "outcome_transform", sections = c("uncertainty", "policy_learner")),
           lambda_rule = crossfit_obj$lambda_rule %||% policy_selector_config_value(cfg, "lambda_rule", sections = c("uncertainty", "policy_learner")),
           alpha = crossfit_obj$alpha,
@@ -3099,7 +3143,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
         policy_perf = meta_selected,
         outcome_col = calibration_outcome_col,
         feature_cols = width_feature_cols,
-        outcome_clip_quantile = NULL,
+        outcome_clip_quantile = outcome_clip_quantile,
         retain_cols = c(width_group_col, width_lmm_random_intercepts)
       )
       if (!".split_group" %in% names(width_training) &&
@@ -3154,7 +3198,8 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
         crossfit = width_crossfit_result,
         model = width_fit_result,
         selected = width_selected_rows,
-        method = method_now
+        method = method_now,
+        outcome_clip_cap = attr(width_training, "outcome_clip_cap")
       )
     }
 
@@ -3200,6 +3245,7 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
         method = width_attempt$method
       )
       width_selected <- tibble::as_tibble(width_attempt$selected)
+      width_outcome_clip_cap <- width_attempt$outcome_clip_cap %||% NULL
       width_prediction_source <- if (identical(width_attempt$method, width_method)) {
         "learned_conditional_width"
       } else {
@@ -3407,6 +3453,8 @@ S7::method(calibrate_uncertainty, PolicyLearner) <- function(object,
       uncertainty_coverage = width_coverage,
       outcome_col = calibration_outcome_col,
       raw_outcome_col = outcome_col,
+      outcome_clip_quantile = outcome_clip_quantile,
+      outcome_clip_cap = width_outcome_clip_cap,
       max_selection_tolerance = max_selection_tolerance,
       selection_calibration_rule = "point_score",
       use_support_bin_intervals = policy_selector_config_value(

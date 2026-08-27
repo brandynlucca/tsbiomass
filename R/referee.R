@@ -1204,6 +1204,14 @@ build_referee_scorecard <- function(object,
     dplyr::distinct()
   benchmark_ts_error <- tibble::as_tibble((selector@benchmark)$policy_ts_error %||% tibble::tibble())
   benchmark_policy_perf <- tibble::as_tibble((selector@benchmark)$policy_perf %||% tibble::tibble())
+  benchmark_coefficient_perf <- tibble::as_tibble((selector@benchmark)$species_block_perf %||% tibble::tibble())
+  if (nrow(benchmark_coefficient_perf) == 0L) {
+    report_progress(
+      progress,
+      "[Referee] Species-block benchmark coefficient calibration is unavailable; using full pseudo-anchor benchmark rows."
+    )
+    benchmark_coefficient_perf <- benchmark_policy_perf
+  }
   if (nrow(selected_policy_keys) > 0 && nrow(benchmark_ts_error) > 0) {
     benchmark_ts_error <- normalize_policy_columns(benchmark_ts_error)
     benchmark_ts_error$policy <- resolve_policy_names(benchmark_ts_error)
@@ -1274,7 +1282,7 @@ build_referee_scorecard <- function(object,
     summarize_coeff_calibration(
       selected_tbl = coefficient_calibration_source,
       candidate_models = candidate_models,
-      ts_error = benchmark_policy_perf
+      ts_error = benchmark_coefficient_perf
     )
   } else {
     tibble::tibble()

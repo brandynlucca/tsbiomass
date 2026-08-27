@@ -181,3 +181,20 @@ test_that("effective species support does not collapse generalized models", {
   expect_equal(support$local_effective_support[[1]], 2)
   expect_equal(support$local_effective_species_support[[1]], 2)
 })
+
+test_that("empty generalized ensembles are not mislabeled as singleton ensembles", {
+  rows <- tibble::tibble(
+    policy = "weighted_mean_generalized_ocean_basin",
+    policy_family = "weighted_ensemble",
+    aggregation_method = "kernel_weighted_mean",
+    n_models = 0,
+    n_valid_models = 0,
+    multiplier_pred = NA_real_
+  )
+
+  out <- tsbiomass:::apply_policy_selection_validity(rows)
+
+  expect_false(out$selection_valid[[1]])
+  expect_false(out$selection_invalid_singleton_ensemble[[1]])
+  expect_true(is.na(out$selection_invalid_reason[[1]]))
+})

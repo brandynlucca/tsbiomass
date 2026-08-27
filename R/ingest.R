@@ -2612,63 +2612,7 @@ enrich_species_db <- function(db_list,
 
   # Backfill ocean-basin labels from the resolved FAO-area codes only when the
   # merged table still lacks an ocean-basin value for that species.
-  if (all(c("fao_area", "ocean_basin") %in% names(out))) {
-    missing_idx <- is.na(out$ocean_basin) | !nzchar(out$ocean_basin)
-
-    if (any(missing_idx)) {
-      fao_to_basin <- c(
-        "1" = "Inland",
-        "2" = "Inland",
-        "3" = "Inland",
-        "4" = "Inland",
-        "5" = "Inland",
-        "6" = "Inland",
-        "7" = "Inland",
-        "8" = "Inland",
-        "18" = "Arctic Ocean",
-        "21" = "Atlantic Ocean",
-        "27" = "Atlantic Ocean",
-        "31" = "Atlantic Ocean",
-        "34" = "Atlantic Ocean",
-        "37" = "Mediterranean Sea",
-        "41" = "Atlantic Ocean",
-        "47" = "Indian Ocean",
-        "48" = "Southern Ocean",
-        "51" = "Indian Ocean",
-        "57" = "Indian Ocean",
-        "58" = "Southern Ocean",
-        "61" = "Pacific Ocean",
-        "67" = "Pacific Ocean",
-        "71" = "Pacific Ocean",
-        "77" = "Pacific Ocean",
-        "81" = "Pacific Ocean",
-        "87" = "Pacific Ocean",
-        "88" = "Southern Ocean"
-      )
-
-      parsed_basins <- vapply(
-        out$fao_area[missing_idx],
-        function(x) {
-          codes <- stringr::str_split(
-            stringr::str_replace_all(as.character(x), "[^0-9,;| ]", " "),
-            "[,;| ]+"
-          )[[1]]
-          codes <- stringr::str_squish(codes)
-          codes <- unique(codes[nzchar(codes)])
-          basins <- unique(unname(fao_to_basin[codes]))
-          basins <- basins[!is.na(basins) & nzchar(basins)]
-          if (length(basins) == 0) {
-            return(NA_character_)
-          }
-          paste(basins, collapse = ";")
-        },
-        character(1)
-      )
-
-      out$ocean_basin[missing_idx] <- parsed_basins
-      out$ocean_basin[!nzchar(out$ocean_basin)] <- NA_character_
-    }
-  }
+  out <- fill_ocean_basin_from_fao_area(out)
 
   # Recompute derived interval traits after the precedence merge so mixed-source
   # min/max pairs still produce the expected canonical midpoint and range
@@ -2973,6 +2917,7 @@ prepare_traits <- function(species_db,
     midpoint_col = "depth_midpoint",
     range_col = "depth_range"
   )
+  study_tbl <- fill_ocean_basin_from_fao_area(study_tbl)
 
   # Prefix any species columns that would otherwise overwrite existing study
   # columns when the two tables are joined.

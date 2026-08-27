@@ -407,6 +407,40 @@ test_that("Alchemist OOF method-fold socket isolation logs the stored failure me
   expect_true(any(grepl("error reading from connection", output, fixed = TRUE)))
 })
 
+test_that("Alchemist inverse-risk stacker avoids degenerate NNLS weights", {
+  pred_mat <- cbind(
+    strong = c(0.1, 0.2, 0.3, 5.0),
+    stable = c(0.2, 0.3, 0.4, 0.5),
+    weak = c(0.8, 0.7, 0.6, 0.5)
+  )
+  y <- c(0.1, 0.2, 0.3, 0.4)
+
+  nnls_weights <- tsbiomass:::fit_super_learner_weights(pred_mat, y)
+  inverse_weights <- tsbiomass:::fit_super_learner_weights(
+    pred_mat,
+    y,
+    rule = "inverse_risk"
+  )
+
+  expect_equal(sum(inverse_weights), 1)
+  expect_true(all(inverse_weights > 0))
+  expect_gt(max(nnls_weights), max(inverse_weights))
+})
+
+test_that("Alchemist learner rule normalization is explicit", {
+  expect_equal(tsbiomass:::normalize_alchemist_lambda_rule("min"), "lambda.min")
+  expect_equal(tsbiomass:::normalize_alchemist_lambda_rule("1se"), "lambda.1se")
+  expect_equal(tsbiomass:::normalize_alchemist_weight_rule("inverse-mse"), "inverse_risk")
+  expect_error(
+    tsbiomass:::normalize_alchemist_lambda_rule("quiet_fallback"),
+    "lambda_rule"
+  )
+  expect_error(
+    tsbiomass:::normalize_alchemist_weight_rule("quiet_fallback"),
+    "weight_rule"
+  )
+})
+
 test_that("Alchemist fit_super_learner completes across multiple workers", {
   training_data <- tibble::tibble(
     .outcome = c(0.1, 0.2, 0.3, 0.2, 0.25, 0.35, 0.15, 0.3),
@@ -622,6 +656,31 @@ test_that("automatic ordination clustering avoids overlapping hull partitions", 
     ),
     0
   )
+})
+
+test_that("automatic ordination clustering avoids main-cloud outlier splits", {
+  set.seed(11)
+  coords <- rbind(
+    cbind(stats::rnorm(48, -1.2, 0.12), stats::rnorm(48, 0, 0.12)),
+    cbind(stats::rnorm(47, 1.2, 0.12), stats::rnorm(47, 0, 0.12)),
+    cbind(stats::rnorm(5, 5.0, 0.08), stats::rnorm(5, 0, 0.08))
+  )
+  points <- tibble::tibble(
+    model_id = paste0("m", seq_len(nrow(coords))),
+    MDS1 = coords[, 1],
+    MDS2 = coords[, 2]
+  )
+
+  out <- tsbiomass:::assign_ordination_groups(
+    points,
+    max_k = 3,
+    max_cluster_fraction = 0.90,
+    silhouette_tolerance = 0.50
+  )
+  cluster_fraction <- max(table(out$nmds_cluster_id)) / nrow(out)
+
+  expect_equal(unique(out$nmds_cluster_k), 3L)
+  expect_lte(cluster_fraction, 0.90)
 })
 
 test_that("screen_admissibility preserves arbitrary configured trait gates", {
@@ -1052,6 +1111,31 @@ test_that("admissibility records anchors with invalid backscatter as unscorable"
   expect_equal(failures$failure_code, "invalid_anchor_backscatter")
   expect_match(failures$failure_message, "no finite positive anchor backscatter")
   expect_equal(length(screened@admissibility$anchors), 1L)
+})
+
+test_that("admissibility excludes every reference anchor from donor scores", {
+  cfg <- minimal_config_data()
+  cfg$admissibility$species_traits <- c("family")
+  cfg$admissibility$study_traits <- character(0)
+  cfg$admissibility$coherence$frequency$mode <- "none"
+  cfg_obj <- build_configurer(cfg, base_dir = tempdir())
+
+  candidates <- set_reference_anchors(
+    make_candidates(seed_similarity_tuning = FALSE),
+    model_ids = c("1", "4")
+  )
+
+  screened <- screen_admissibility(
+    candidate_models = candidates,
+    config = cfg_obj,
+    refresh = TRUE,
+    progress = FALSE
+  )
+  scores <- tibble::as_tibble(screened@admissibility$all_scores)
+  ref_ids <- as.character(screened@reference_anchors$model_id)
+
+  expect_setequal(unique(as.character(scores$anchor_model_id)), ref_ids)
+  expect_false(any(as.character(scores$model_id) %in% ref_ids))
 })
 
 test_that("reference anchor PDFs can be set from raw empirical lengths", {

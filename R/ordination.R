@@ -826,6 +826,9 @@ ordination_hull_overlap_count <- function(coords, clusters) {
 #'   granular automatic rule.
 #' @param min_cluster_size Minimum allowed cluster size for automatic candidate
 #'   partitions.
+#' @param max_cluster_fraction Maximum fraction of points allowed in the largest
+#'   automatic cluster. Values below 1 prevent outlier-vs-main-cloud partitions
+#'   from winning solely by silhouette width.
 #' @param cluster_col Name of the cluster-ID column to create.
 #'
 #' @return The input point table with cluster columns appended.
@@ -840,6 +843,7 @@ assign_ordination_groups <- function(points_df,
                                      selection_rule = c("granular_silhouette", "max_silhouette"),
                                      silhouette_tolerance = 0.05,
                                      min_cluster_size = 2L,
+                                     max_cluster_fraction = 0.90,
                                      cluster_col = "nmds_cluster_id") {
   # Validate the point table and clustering arguments before building any
   # coordinate distance objects.
@@ -872,6 +876,14 @@ assign_ordination_groups <- function(points_df,
     !is.finite(min_cluster_size) ||
     min_cluster_size < 1) {
     stop("'min_cluster_size' must be one number >= 1.", call. = FALSE)
+  }
+  if (!is.null(max_cluster_fraction) &&
+    (!is.numeric(max_cluster_fraction) ||
+      length(max_cluster_fraction) != 1 ||
+      !is.finite(max_cluster_fraction) ||
+      max_cluster_fraction <= 0 ||
+      max_cluster_fraction > 1)) {
+    stop("'max_cluster_fraction' must be NULL or one number in (0, 1].", call. = FALSE)
   }
   if (!is.character(cluster_col) || length(cluster_col) != 1 || !nzchar(cluster_col)) {
     stop("'cluster_col' must be a single column name.", call. = FALSE)
@@ -938,6 +950,11 @@ assign_ordination_groups <- function(points_df,
       next
     }
     if (any(tabulate(cl) < min_cluster_size)) {
+      next
+    }
+    cluster_sizes <- tabulate(cl)
+    largest_fraction <- max(cluster_sizes) / sum(cluster_sizes)
+    if (!is.null(max_cluster_fraction) && largest_fraction > max_cluster_fraction) {
       next
     }
     sil <- cluster::silhouette(cl, d)

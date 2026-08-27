@@ -970,6 +970,137 @@ normalize_candidate_ocean_basin <- function(x) {
   )
 }
 
+#' Normalize FAO major fishing area values to semicolon-separated codes
+#'
+#' @param x Character vector.
+#'
+#' @return Character vector.
+#'
+#' @keywords internal
+#' @noRd
+normalize_candidate_fao_area <- function(x) {
+  if (length(x) == 0) {
+    return(character(0))
+  }
+
+  allowed <- names(candidate_fao_ocean_basin_map())
+  vapply(
+    as.character(x),
+    function(one) {
+      if (is.na(one) || !nzchar(stringr::str_squish(one))) {
+        return(NA_character_)
+      }
+      codes <- stringr::str_extract_all(one, "\\d+")[[1]]
+      codes <- unique(codes[nzchar(codes) & codes %in% allowed])
+      if (length(codes) == 0) {
+        return(NA_character_)
+      }
+      paste(codes, collapse = ";")
+    },
+    character(1),
+    USE.NAMES = FALSE
+  )
+}
+
+#' FAO major fishing area to ocean-basin lookup
+#'
+#' @return Named character vector keyed by FAO area code.
+#'
+#' @keywords internal
+#' @noRd
+candidate_fao_ocean_basin_map <- function() {
+  c(
+    "1" = "Inland",
+    "2" = "Inland",
+    "3" = "Inland",
+    "4" = "Inland",
+    "5" = "Inland",
+    "6" = "Inland",
+    "7" = "Inland",
+    "8" = "Inland",
+    "18" = "Arctic Ocean",
+    "21" = "Atlantic Ocean",
+    "27" = "Atlantic Ocean",
+    "31" = "Atlantic Ocean",
+    "34" = "Atlantic Ocean",
+    "37" = "Mediterranean Sea",
+    "41" = "Atlantic Ocean",
+    "47" = "Indian Ocean",
+    "48" = "Southern Ocean",
+    "51" = "Indian Ocean",
+    "57" = "Indian Ocean",
+    "58" = "Southern Ocean",
+    "61" = "Pacific Ocean",
+    "67" = "Pacific Ocean",
+    "71" = "Pacific Ocean",
+    "77" = "Pacific Ocean",
+    "81" = "Pacific Ocean",
+    "87" = "Pacific Ocean",
+    "88" = "Southern Ocean"
+  )
+}
+
+#' Derive ocean-basin labels from FAO major fishing areas
+#'
+#' @param x Character vector of FAO area codes.
+#'
+#' @return Character vector of canonical ocean-basin labels.
+#'
+#' @keywords internal
+#' @noRd
+candidate_ocean_basin_from_fao_area <- function(x) {
+  if (length(x) == 0) {
+    return(character(0))
+  }
+
+  fao_to_basin <- candidate_fao_ocean_basin_map()
+  fao_norm <- normalize_candidate_fao_area(x)
+  vapply(
+    fao_norm,
+    function(one) {
+      if (is.na(one) || !nzchar(stringr::str_squish(one))) {
+        return(NA_character_)
+      }
+      codes <- stringr::str_split(one, ";", simplify = FALSE)[[1]]
+      basins <- unique(unname(fao_to_basin[codes]))
+      basins <- basins[!is.na(basins) & nzchar(basins)]
+      if (length(basins) == 0) {
+        return(NA_character_)
+      }
+      paste(basins, collapse = ";")
+    },
+    character(1),
+    USE.NAMES = FALSE
+  )
+}
+
+#' Fill missing ocean-basin values from FAO area codes
+#'
+#' @param tbl Data frame with optional `fao_area` and `ocean_basin` columns.
+#'
+#' @return Tibble/data frame with normalized `fao_area` and `ocean_basin`.
+#'
+#' @keywords internal
+#' @noRd
+fill_ocean_basin_from_fao_area <- function(tbl) {
+  if (!is.data.frame(tbl) || !"fao_area" %in% names(tbl)) {
+    return(tbl)
+  }
+
+  tbl$fao_area <- normalize_candidate_fao_area(tbl$fao_area)
+  fao_basin <- candidate_ocean_basin_from_fao_area(tbl$fao_area)
+  if (!"ocean_basin" %in% names(tbl)) {
+    tbl$ocean_basin <- fao_basin
+  } else {
+    tbl$ocean_basin <- normalize_candidate_ocean_basin(tbl$ocean_basin)
+    missing_idx <- is.na(tbl$ocean_basin) | !nzchar(stringr::str_squish(as.character(tbl$ocean_basin)))
+    fill_idx <- missing_idx & !is.na(fao_basin) & nzchar(fao_basin)
+    tbl$ocean_basin[fill_idx] <- fao_basin[fill_idx]
+  }
+  tbl$ocean_basin <- normalize_candidate_ocean_basin(tbl$ocean_basin)
+  tbl
+}
+
 #' Standardize candidate-model columns to the canonical working schema
 #'
 #' @param data_table Candidate-model table.
@@ -1117,23 +1248,7 @@ standardize_candidate_columns <- function(data_table) {
     out$ocean_basin <- normalize_candidate_ocean_basin(basin_from_flags)
   }
 
-  if ("fao_area" %in% names(out)) {
-    out$fao_area <- vapply(
-      as.character(out$fao_area),
-      function(one) {
-        if (is.na(one) || !nzchar(stringr::str_squish(one))) {
-          return(NA_character_)
-        }
-        codes <- stringr::str_extract_all(one, "\\d+")[[1]]
-        codes <- unique(codes[nzchar(codes)])
-        if (length(codes) == 0) {
-          return(NA_character_)
-        }
-        paste(codes, collapse = ";")
-      },
-      character(1)
-    )
-  }
+  out <- fill_ocean_basin_from_fao_area(out)
 
   if ("lw_a_g" %in% names(out)) {
     out$lw_a_g <- suppressWarnings(as.numeric(out$lw_a_g))

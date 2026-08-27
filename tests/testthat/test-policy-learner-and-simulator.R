@@ -419,11 +419,11 @@ test_that("PolicyLearner prediction preserves the selected policy conformal radi
 
   expect_equal(
     scored_lookup$meta_q_abs_log_factor_source,
-    rep("selected_policy_conformal", 3)
+    c("species_policy_branch", "species_policy_branch_shrunk", "policy_branch")
   )
   expect_equal(
     round(scored_lookup$meta_q_abs_log_conformal_factor, 3),
-    rep(1, 3)
+    c(2.0, 1.6, 2.0)
   )
 })
 
@@ -551,7 +551,8 @@ test_that("PolicyLearner predict ranks and selects anchor-policy rows", {
     scored$meta_post_selection_multiplier_hi,
     scored$multiplier_pred * exp(scored$meta_q_abs_log_total)
   )
-  expect_equal(scored$meta_uncertainty_source, rep("selected_policy_conformal", nrow(scored)))
+  expect_equal(scored$meta_uncertainty_source, rep("direct_global_normalized_residual", nrow(scored)))
+  expect_equal(scored$meta_q_abs_log_factor_source, rep("global_normalized_residual", nrow(scored)))
   expect_equal(scored$meta_q_abs_log_total, scored$q_abs_log)
   alpha_rows <- scored[scored$anchor_model_id == "1", , drop = FALSE]
   expect_equal(
@@ -915,6 +916,26 @@ test_that("policy prediction can reuse a precomputed equation row", {
   expect_equal(pred$policy_slope_len[[1]], equation_row$policy_slope_len[[1]])
   expect_equal(pred$policy_intercept_len[[1]], equation_row$policy_intercept_len[[1]])
   expect_true(is.finite(pred$multiplier_pred[[1]]))
+})
+
+test_that("nearest combined policies stay within the closest taxonomic tier", {
+  rows <- tibble::tibble(
+    species_name = c("Distant distant", "Close close"),
+    equation_form = "standardized_length",
+    slope_len = c(18, 22),
+    intercept_len = c(-66, -72),
+    combined_distance = c(0.10, 0.24),
+    taxonomic_distance_to_anchor = c(0.60, 0.08),
+    w_adm = c(1, 1)
+  )
+  policy_def <- list(aggregation_method = "nearest_by_combined_distance")
+
+  eq <- tsbiomass:::policy_equation(rows, policy_def)
+  summary_rows <- tsbiomass:::policy_summary_rows(rows, policy_def)
+
+  expect_equal(eq$policy_slope_len[[1]], 22)
+  expect_equal(eq$policy_intercept_len[[1]], -72)
+  expect_equal(summary_rows$species_name[[1]], "Close close")
 })
 
 test_that("policy summaries can reuse precomputed donor subsets", {

@@ -124,7 +124,8 @@ alchemist_config_from_config <- function(source) {
       },
       outcome_transform = alch$learner$outcome_transform %||%
         ml$outcome_transform %||% "identity",
-      lambda_rule = alch$learner$lambda_rule %||% ml$lambda_rule %||% "min",
+      lambda_rule = alch$learner$lambda_rule %||% ml$lambda_rule %||% "lambda.1se",
+      weight_rule = alch$learner$weight_rule %||% "nnls",
       oof_mode = alch$learner$oof_mode %||% "anchor_species",
       # Preserve the shared learner-family settings and let any Alchemist-
       # specific overrides replace only the fields they explicitly set.
@@ -189,7 +190,12 @@ normalize_alchemist_config <- function(config, candidates = NULL) {
   }
   config$learner$outcome_transform <- config$learner$outcome_transform %||%
     "identity"
-  config$learner$lambda_rule <- config$learner$lambda_rule %||% "min"
+  config$learner$lambda_rule <- normalize_alchemist_lambda_rule(
+    config$learner$lambda_rule %||% "lambda.1se"
+  )
+  config$learner$weight_rule <- normalize_alchemist_weight_rule(
+    config$learner$weight_rule %||% "nnls"
+  )
   config$learner$oof_mode <- config$learner$oof_mode %||% "anchor_species"
   config$learner$workers <- as.integer(config$learner$workers %||% 1L)
   config$distill_workers <- as.integer(config$distill_workers %||% 1L)
@@ -197,6 +203,54 @@ normalize_alchemist_config <- function(config, candidates = NULL) {
   config$refresh <- isTRUE(config$refresh %||% FALSE)
 
   config
+}
+
+#' Normalize Alchemist GLM lambda selection rule
+#'
+#' @keywords internal
+#' @noRd
+normalize_alchemist_lambda_rule <- function(x) {
+  value <- stringr::str_to_lower(stringr::str_squish(as.character(x %||% "lambda.1se")[[1]]))
+  aliases <- c(
+    "min" = "lambda.min",
+    "lambda_min" = "lambda.min",
+    "lambda.min" = "lambda.min",
+    "1se" = "lambda.1se",
+    "lambda_1se" = "lambda.1se",
+    "lambda.1se" = "lambda.1se"
+  )
+  out <- unname(aliases[value] %||% NA_character_)
+  if (is.na(out) || !nzchar(out)) {
+    stop(
+      "'alchemist.learner.lambda_rule' must be 'lambda.min' or 'lambda.1se'.",
+      call. = FALSE
+    )
+  }
+  out
+}
+
+#' Normalize Alchemist Super Learner weight rule
+#'
+#' @keywords internal
+#' @noRd
+normalize_alchemist_weight_rule <- function(x) {
+  value <- stringr::str_to_lower(stringr::str_squish(as.character(x %||% "nnls")[[1]]))
+  aliases <- c(
+    "nnls" = "nnls",
+    "inverse_risk" = "inverse_risk",
+    "inverse-risk" = "inverse_risk",
+    "inverse_mse" = "inverse_risk",
+    "inverse-mse" = "inverse_risk",
+    "equal" = "equal"
+  )
+  out <- unname(aliases[value] %||% NA_character_)
+  if (is.na(out) || !nzchar(out)) {
+    stop(
+      "'alchemist.learner.weight_rule' must be 'nnls', 'inverse_risk', or 'equal'.",
+      call. = FALSE
+    )
+  }
+  out
 }
 
 # - Class definition -
@@ -2804,6 +2858,7 @@ fit_super_learner <- function(training_data,
                               methods,
                               outcome_transform = "log1p",
                               lambda_rule = "lambda.1se",
+                              weight_rule = "nnls",
                               inner_folds = 5L,
                               seed = NULL,
                               method_settings = NULL,
@@ -2816,6 +2871,8 @@ fit_super_learner <- function(training_data,
   seed <- if (!is.null(seed)) as.integer(seed) else NULL
   workers <- as.integer(workers)
   oof_mode <- normalize_alchemist_oof_mode(oof_mode)
+  lambda_rule <- normalize_alchemist_lambda_rule(lambda_rule)
+  weight_rule <- normalize_alchemist_weight_rule(weight_rule)
 
   x_all <- feature_matrix(training_data, feature_cols)
   y_raw <- training_data$.outcome
@@ -2979,7 +3036,11 @@ fit_super_learner <- function(training_data,
     apply(oof_mat_transformed, 2, pmax, 0)
   }
 
-  weights <- fit_super_learner_weights(oof_mat_transformed, y_all)
+  weights <- fit_super_learner_weights(
+    oof_mat_transformed,
+    y_all,
+    rule = weight_rule
+  )
   names(weights) <- colnames(oof_mat_transformed)
 
   oof_ensemble_transformed <- as.numeric(
@@ -3104,6 +3165,7 @@ fit_super_learner <- function(training_data,
       feature_cols = feature_cols,
       outcome_transform = outcome_transform,
       lambda_rule = lambda_rule,
+      weight_rule = weight_rule,
       inner_fold_splits = fold_splits,
       oof_predictions = tibble::as_tibble(oof_mat),
       oof_ensemble_prediction = oof_ensemble_pred,
@@ -3503,6 +3565,7 @@ S7::method(forge_distances, Alchemist) <- function(object,
       ),
       outcome_transform = learner_cfg$outcome_transform %||% "identity",
       lambda_rule = learner_cfg$lambda_rule %||% "lambda.1se",
+      weight_rule = learner_cfg$weight_rule %||% "nnls",
       inner_folds = folds_lbl,
       seed = if (!is.null(learner_cfg$seed)) as.integer(learner_cfg$seed) else NULL,
       method_settings = learner_cfg$method_settings %||% NULL,
@@ -4873,6 +4936,9 @@ admissibility_bundle_is_current <- function(admissibility_bundle,
   if (!is.list(admissibility_bundle)) {
     return(FALSE)
   }
+  if (!identical(admissibility_bundle$logic_version %||% NULL, anchor_admissibility_logic_version())) {
+    return(FALSE)
+  }
 
   scores_tbl <- tibble::as_tibble(admissibility_bundle$all_scores %||% tibble::tibble())
   if (nrow(scores_tbl) == 0) {
@@ -4953,6 +5019,10 @@ admissibility_bundle_is_current <- function(admissibility_bundle,
   }
 
   TRUE
+}
+
+anchor_admissibility_logic_version <- function() {
+  "reference_anchor_donor_exclusion_v1"
 }
 
 #' Signal that one anchor cannot be scored
@@ -5157,10 +5227,40 @@ S7::method(screen_missing_metadata, S7::class_any) <- function(candidate_models,
     return(out)
   }
 
+  missing_mat <- key_metadata_missing_matrix(out, key_cols)
   out |>
     dplyr::mutate(
-      key_metadata_missing_fraction = rowMeans(is.na(dplyr::pick(dplyr::all_of(key_cols))))
+      key_metadata_missing_fraction = rowMeans(missing_mat)
     )
+}
+
+#' Build a key-metadata missingness matrix
+#'
+#' @param models_tbl Candidate-model table.
+#' @param key_cols Key metadata columns to score.
+#'
+#' @return Logical matrix with rows matching `models_tbl` and columns matching
+#'   retained `key_cols`.
+#' @keywords internal
+#' @noRd
+key_metadata_missing_matrix <- function(models_tbl,
+                                        key_cols) {
+  models_tbl <- tibble::as_tibble(models_tbl)
+  key_cols <- intersect(as.character(key_cols), names(models_tbl))
+  if (length(key_cols) == 0L) {
+    return(matrix(FALSE, nrow = nrow(models_tbl), ncol = 0L))
+  }
+
+  missing_mat <- as.matrix(is.na(models_tbl[, key_cols, drop = FALSE]))
+  group_rows <- generalized_model_indicator(models_tbl)
+  not_applicable_group_cols <- intersect(
+    c("species_name", "species", "genus", "family", "body_shape"),
+    key_cols
+  )
+  if (any(group_rows) && length(not_applicable_group_cols) > 0L) {
+    missing_mat[group_rows, not_applicable_group_cols] <- FALSE
+  }
+  missing_mat
 }
 
 admissibility_overlap_trait_defs <- local({
@@ -5586,6 +5686,14 @@ apply_anchor_gates <- function(candidate_models,
   trait_reason <- rep(NA_character_, nrow(out))
   gate_cols <- character(0)
   registry <- NULL
+  group_model <- generalized_model_indicator(out)
+  trait_value_missing <- function(x) {
+    x_chr <- stringr::str_to_lower(stringr::str_squish(as.character(x)))
+    is.na(x_chr) | !nzchar(x_chr) | x_chr %in% c(
+      "na", "n/a", "unknown", "unknown unknown",
+      "general", "nonspecific", "general/nonspecific"
+    )
+  }
   parse_set_value <- function(x) {
     x_chr <- stringr::str_to_lower(stringr::str_squish(as.character(x)))
     if (length(x_chr) == 0 || is.na(x_chr[[1]]) || !nzchar(x_chr[[1]])) {
@@ -5631,6 +5739,10 @@ apply_anchor_gates <- function(candidate_models,
     if (!identical(trait_name, "frequency") && overlap_col %in% names(out)) {
       gate_pass <- as.logical(out[[overlap_col]])
       gate_pass[is.na(gate_pass)] <- FALSE
+      if (identical(trait_scope, "species")) {
+        missing_group_trait <- group_model %in% TRUE & trait_value_missing(out[[trait_name]])
+        gate_pass[missing_group_trait] <- TRUE
+      }
       out[[gate_col]] <- gate_pass
       gate_cols <- c(gate_cols, gate_col)
       trait_reason[is.na(trait_reason) & !gate_pass] <- fail_reason
@@ -5690,6 +5802,10 @@ apply_anchor_gates <- function(candidate_models,
       candidate_value <- stringr::str_to_lower(stringr::str_squish(as.character(out[[trait_name]])))
       present_idx <- !is.na(candidate_value) & nzchar(candidate_value) & !is.na(anchor_value) & nzchar(anchor_value)
       gate_pass[present_idx] <- candidate_value[present_idx] == anchor_value
+    }
+    if (identical(trait_scope, "species")) {
+      missing_group_trait <- group_model %in% TRUE & trait_value_missing(out[[trait_name]])
+      gate_pass[missing_group_trait] <- TRUE
     }
 
     out[[gate_col]] <- gate_pass
@@ -6751,8 +6867,8 @@ screen_one_anchor_admissibility <- function(anchor_row,
     nrow(tibble::as_tibble(candidates_obj@reference_anchors)) > 0) {
     excluded_model_ids <- if ("model_id" %in% names(candidates_obj@reference_anchors)) {
       as.character(candidates_obj@reference_anchors$model_id)
-    } else if ("model_id" %in% names(candidates_obj@reference_anchors)) {
-      as.character(candidates_obj@reference_anchors$model_id)
+    } else if ("model_id_chr" %in% names(candidates_obj@reference_anchors)) {
+      as.character(candidates_obj@reference_anchors$model_id_chr)
     } else {
       character(0)
     }
@@ -6953,15 +7069,15 @@ screen_admissibility <- function(reference_anchors = NULL,
 
   cfg <- default_anchor_config(config_)
   report_progress(
-    progress,
+    progress_,
     "Screening admissibility for ",
-    nrow(reference_anchors),
+    nrow(reference_anchors_),
     " reference anchors."
   )
-  excluded_model_ids <- if ("model_id" %in% names(reference_anchors)) {
-    as.character(reference_anchors$model_id)
-  } else if ("model_id" %in% names(reference_anchors)) {
-    as.character(reference_anchors$model_id)
+  excluded_model_ids <- if ("model_id" %in% names(reference_anchors_)) {
+    as.character(reference_anchors_$model_id)
+  } else if ("model_id_chr" %in% names(reference_anchors_)) {
+    as.character(reference_anchors_$model_id_chr)
   } else {
     character(0)
   }
@@ -7170,6 +7286,7 @@ screen_admissibility <- function(reference_anchors = NULL,
   }
 
   result <- list(
+    logic_version = anchor_admissibility_logic_version(),
     anchors = anchor_results,
     anchor_failures = dplyr::bind_rows(anchor_failures),
     all_scores = dplyr::bind_rows(all_scores),

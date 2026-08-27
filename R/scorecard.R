@@ -328,11 +328,12 @@ S7::method(summarize_key_missing, S7::class_any) <- function(candidate_models,
     }
   )
 
+  missing_mat <- key_metadata_missing_matrix(models_tbl, key_cols)
   by_field <- tibble::tibble(
     field = key_cols,
-    missing_n = purrr::map_int(key_cols, ~ sum(is.na(models_tbl[[.x]]))),
-    nonmissing_n = purrr::map_int(key_cols, ~ sum(!is.na(models_tbl[[.x]]))),
-    missing_fraction = purrr::map_dbl(key_cols, ~ mean(is.na(models_tbl[[.x]])))
+    missing_n = if (length(key_cols) > 0L) colSums(missing_mat) else integer(0),
+    nonmissing_n = if (length(key_cols) > 0L) nrow(models_tbl) - colSums(missing_mat) else integer(0),
+    missing_fraction = if (length(key_cols) > 0L) colMeans(missing_mat) else numeric(0)
   ) |>
     dplyr::arrange(dplyr::desc(.data$missing_fraction), .data$field)
 

@@ -145,6 +145,46 @@ test_that("candidate standardization synchronizes length-weight aliases", {
   expect_equal(out$lw_a, 0.00351860493755)
 })
 
+test_that("candidate standardization derives generalized model ocean basins from FAO areas", {
+  rows <- tibble::tibble(
+    model_id = c("generalized_pacific", "generalized_atlantic"),
+    species_name = c("NA NA", "NA NA"),
+    fao_area = c("77", "21;27"),
+    slope_len = c(20, 21),
+    intercept_len = c(-70, -71)
+  )
+
+  out <- tsbiomass:::standardize_candidate_columns(rows)
+
+  expect_true(all(out$is_group_model))
+  expect_equal(unname(out$ocean_basin), c("Pacific Ocean", "Atlantic Ocean"))
+})
+
+test_that("study FAO area supplies row-level ocean basin before species backfill", {
+  species_db <- tibble::tibble(
+    species_name = "Sardinops sagax",
+    genus = "Sardinops",
+    species = "sagax",
+    ocean_basin = "Atlantic Ocean;Pacific Ocean;Indian Ocean"
+  )
+  study_db <- tibble::tibble(
+    species_name = "Sardinops sagax",
+    model_id = "study_77",
+    fao_area = "77",
+    equation_form = "standardized_length",
+    slope_len = 20,
+    intercept_len = -70,
+    length_min = 10,
+    length_max = 30
+  )
+
+  out <- tsbiomass:::prepare_traits(species_db, study_db, refresh = TRUE)
+
+  expect_equal(out$fao_area[[1]], "77")
+  expect_equal(out$ocean_basin[[1]], "Pacific Ocean")
+  expect_equal(out$species_ocean_basin[[1]], "Atlantic Ocean;Pacific Ocean;Indian Ocean")
+})
+
 test_that("weight-referenced FishBase metadata converts to standardized length coefficients", {
   rows <- tibble::tibble(
     scientific_name = "Sardinops sagax",

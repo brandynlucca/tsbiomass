@@ -11,6 +11,8 @@ using namespace Rcpp;
 
 namespace {
 
+const double NEAREST_COMBINED_TAXONOMIC_TOLERANCE = 0.05;
+
 inline bool finite_num(double x) {
   return R_finite(x);
 }
@@ -201,13 +203,23 @@ int nearest_lexicographic(const std::vector<int>& idx,
 int nearest_combined_summary(const std::vector<int>& idx,
                              const NumericVector& combined,
                              const NumericVector& taxonomic) {
+  bool any_tax = false;
+  double min_tax = R_PosInf;
+  for (int i : idx) {
+    if (finite_num(taxonomic[i])) {
+      any_tax = true;
+      if (taxonomic[i] < min_tax) min_tax = taxonomic[i];
+    }
+  }
+
   int best = -1;
   double best_combined = R_PosInf;
   double best_tax = R_PosInf;
   for (int i : idx) {
     double c = combined[i];
-    if (!finite_num(c)) c = R_PosInf;
+    if (!finite_num(c)) continue;
     double t = finite_num(taxonomic[i]) ? taxonomic[i] : R_PosInf;
+    if (any_tax && (!finite_num(t) || t > min_tax + NEAREST_COMBINED_TAXONOMIC_TOLERANCE)) continue;
     if (best < 0 || c < best_combined || (c == best_combined && t < best_tax)) {
       best = i;
       best_combined = c;
@@ -393,12 +405,22 @@ SEXP cpp_evaluate_policy_plan(List donors,
     int summary_index = -1;
     if (method == 1) {
       summary_index = nearest_combined_summary(valid, combined, taxonomic);
-      // When the taxonomic column exists, R uses it as a tiny tiebreak and
-      // arithmetic NA propagation requires both fields to be finite. When it
-      // is absent, R ranks on combined distance alone.
+      double min_tax = R_PosInf;
+      bool any_tax = false;
+      if (has_taxonomic) {
+        for (int i : valid) {
+          if (finite_num(taxonomic[i])) {
+            any_tax = true;
+            if (taxonomic[i] < min_tax) min_tax = taxonomic[i];
+          }
+        }
+      }
       double best_score = R_PosInf;
       for (int i : valid) {
-        if (!finite_num(combined[i]) || (has_taxonomic && !finite_num(taxonomic[i]))) continue;
+        if (!finite_num(combined[i])) continue;
+        if (has_taxonomic && any_tax &&
+            (!finite_num(taxonomic[i]) ||
+             taxonomic[i] > min_tax + NEAREST_COMBINED_TAXONOMIC_TOLERANCE)) continue;
         double score = combined[i] + (has_taxonomic ? taxonomic[i] * 1e-9 : 0.0);
         if (score < best_score) { best_score = score; equation_index = i; }
       }

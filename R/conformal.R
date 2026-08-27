@@ -4810,14 +4810,17 @@ rescale_coefficient_covariance <- function(covariance,
   z95 <- stats::qnorm(0.975)
   half_width <- z95 * pred_sd
   avg_half_width <- stats::weighted.mean(half_width, pdf_weights[keep], na.rm = TRUE)
-  scale_factor <- scale_covariance_to_biomass_radius(
-    covariance = covariance,
-    length_grid = length_grid,
-    pdf_weights = pdf_weights,
-    slope_hat = slope_hat,
-    intercept_hat = intercept_hat,
-    q95_log_scalar = q95_scalar
-  )
+  # S11.3 rescales the empirical coefficient covariance by matching the
+  # length-density-weighted mean TS half-width to the selected 95% radius.
+  # The biomass functional sensitivity is used elsewhere for multiplier
+  # intervals; using it here can inflate marginal coefficient intervals along
+  # slope/intercept cancellation directions.
+  scale_factor <- if (is.finite(q95_scalar) && q95_scalar > 0 &&
+    is.finite(avg_half_width) && avg_half_width > 0) {
+    q95_scalar / avg_half_width
+  } else {
+    1
+  }
   shape_modifier <- rep(NA_real_, length(length_grid))
   shape_modifier[keep] <- if (is.finite(avg_half_width) && avg_half_width > 0) {
     half_width / avg_half_width
@@ -4916,15 +4919,9 @@ calibrated_coefficient_covariance <- function(length_grid,
   z95 <- stats::qnorm(0.975)
   shape_half_width <- z95 * pred_sd_shape
   avg_half_width <- stats::weighted.mean(shape_half_width, w, na.rm = TRUE)
-  scale_factor <- if (is.finite(q95_scalar) && q95_scalar > 0) {
-    scale_covariance_to_biomass_radius(
-      covariance = Sigma_shape,
-      length_grid = length_grid,
-      pdf_weights = pdf_weights,
-      slope_hat = slope_hat,
-      intercept_hat = intercept_hat,
-      q95_log_scalar = q95_scalar
-    )
+  scale_factor <- if (is.finite(q95_scalar) && q95_scalar > 0 &&
+    is.finite(avg_half_width) && avg_half_width > 0) {
+    q95_scalar / avg_half_width
   } else {
     0
   }

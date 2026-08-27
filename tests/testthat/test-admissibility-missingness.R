@@ -119,6 +119,38 @@ test_that("admissibility gates reject missing required support and hard-gate met
   expect_true(gated$admissible[[2]])
 })
 
+test_that("generalized model identity blanks are not counted as key metadata missingness", {
+  rows <- tibble::tibble(
+    model_id = c("generalized", "empirical"),
+    species_name = c(NA_character_, "Alpha alpha"),
+    genus = c(NA_character_, "Alpha"),
+    species = c(NA_character_, "alpha"),
+    family = c(NA_character_, "Alphaidae"),
+    body_shape = c(NA_character_, "fusiform"),
+    is_group_model = c(TRUE, FALSE),
+    fao_area = c("77", NA_character_)
+  )
+  key_cols <- c("species_name", "genus", "species", "family", "body_shape", "fao_area")
+
+  scored <- tsbiomass:::screen_missing_metadata(rows, key_cols = key_cols)
+  summary <- tsbiomass:::summarize_key_missing(
+    scored,
+    key_cols = key_cols,
+    threshold = 0.75
+  )
+
+  expect_equal(scored$key_metadata_missing_fraction[[1]], 0)
+  expect_equal(scored$key_metadata_missing_fraction[[2]], 1 / length(key_cols))
+  expect_equal(
+    unname(summary$by_field$missing_n[match("family", summary$by_field$field)]),
+    0
+  )
+  expect_equal(
+    unname(summary$by_field$missing_n[match("fao_area", summary$by_field$field)]),
+    1
+  )
+})
+
 test_that("admissibility currentness does not require finite frequency distances", {
   cfg <- list(
     similarity = list(
@@ -397,6 +429,45 @@ test_that("admissibility gates reuse precomputed overlap columns when available"
 
   expect_identical(gated$gate_trait_swimbladder_type, c(TRUE, FALSE))
   expect_identical(gated$admissible, c(TRUE, FALSE))
+})
+
+test_that("generalized models with missing species-trait gates are not rejected as mismatches", {
+  cfg <- tsbiomass:::default_anchor_config(list(
+    admissibility = list(
+      species_traits = "swimbladder_type",
+      study_traits = character(0),
+      coherence = list(
+        frequency = list(mode = "none")
+      )
+    )
+  ))
+
+  anchor_row <- tibble::tibble(
+    model_id = "anchor",
+    swimbladder_type = "physostome",
+    frequency = 38
+  )
+  scored <- tibble::tibble(
+    model_id = c("generalized_missing", "generalized_nonspecific", "generalized_mismatch", "ordinary_missing"),
+    species_name = c(NA_character_, NA_character_, NA_character_, "Alpha alpha"),
+    is_group_model = c(TRUE, TRUE, TRUE, FALSE),
+    swimbladder_type = c(NA_character_, "general/nonspecific", "physoclist", NA_character_),
+    overlap_same_swimbladder_type = c(FALSE, FALSE, FALSE, FALSE),
+    length_overlap_fraction = c(1, 1, 1, 1),
+    depth_overlap_fraction = c(1, 1, 1, 1),
+    key_metadata_missing_fraction = c(0, 0, 0, 0)
+  )
+
+  gated <- tsbiomass:::apply_anchor_gates(scored, anchor_row, cfg)
+
+  expect_true(gated$gate_trait_swimbladder_type[[1]])
+  expect_true(gated$admissible[[1]])
+  expect_true(gated$gate_trait_swimbladder_type[[2]])
+  expect_true(gated$admissible[[2]])
+  expect_false(gated$gate_trait_swimbladder_type[[3]])
+  expect_false(gated$admissible[[3]])
+  expect_false(gated$gate_trait_swimbladder_type[[4]])
+  expect_false(gated$admissible[[4]])
 })
 test_that("point-valued anchor ranges use point-mass containment overlap", {
   expect_equal(tsbiomass:::compute_range_overlap(4, 4, 0, 100), 1)

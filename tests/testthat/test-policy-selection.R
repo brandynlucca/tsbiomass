@@ -336,6 +336,76 @@ test_that("strategy uncertainty uses the policy-conditioned geometry when residu
   expect_identical(ctx$coefficient_covariance_source, "policy_conditional_ts_geometry")
 })
 
+test_that("empirical coefficient covariance is rescaled to the selected biomass radius", {
+  candidate_models <- tibble::tibble(
+    model_id = "a1",
+    species_name = "Alpha alpha",
+    genus = "Alpha",
+    family_name = "Alphaidae",
+    frequency_khz = 38,
+    slope_len = 20,
+    intercept_len = -70,
+    study_length_min = 10,
+    study_length_max = 30
+  )
+  coefficient_calibration <- tibble::tibble(
+    anchor_model_id = c("c1", "c2", "c3", "c4"),
+    anchor_species = rep("Beta beta", 4),
+    policy = rep("selected_policy", 4),
+    equation_branch_filter = rep("all", 4),
+    post_selection_support_bin = rep(NA_character_, 4),
+    slope_resid = c(-1, 0, 1, 2),
+    intercept_resid = c(-2, -1, 1, 2)
+  )
+  make_ctx <- function(q) {
+    tsbiomass:::strategy_uncertainty_context(
+      row_now = tibble::tibble(
+        anchor_model_id = "a1",
+        anchor_species = "Alpha alpha",
+        selected_policy = "selected_policy",
+        selected_equation_branch_filter = "all",
+        policy_slope_len = 20,
+        policy_intercept_len = -70,
+        q_abs_log_total = q,
+        realized_donor_fingerprint = "d1|d2"
+      ),
+      candidate_models = candidate_models,
+      anchor_scores = tibble::tibble(anchor_model_id = "a1", model_id = "d1"),
+      policy_tbl = tibble::tibble(),
+      ts_calibration = tibble::tibble(),
+      coefficient_calibration = coefficient_calibration,
+      config = list(),
+      policy_lookup = list(),
+      include_competition = FALSE,
+      length_grid_n = 5L
+    )
+  }
+
+  narrow <- make_ctx(0.2)
+  wide <- make_ctx(2)
+
+  expect_identical(narrow$coefficient_covariance_source, "empirical_selected_policy_residuals")
+  expect_identical(wide$coefficient_covariance_source, "empirical_selected_policy_residuals")
+  expect_false(isTRUE(all.equal(wide$coefficient_covariance, narrow$coefficient_covariance)))
+  expect_gt(wide$coefficient_covariance[1, 1], narrow$coefficient_covariance[1, 1])
+
+  interval <- tsbiomass:::coefficient_interval_from_context(
+    row_now = tibble::tibble(
+      anchor_model_id = "a1",
+      anchor_species = "Alpha alpha",
+      selected_policy = "selected_policy",
+      selected_equation_branch_filter = "all",
+      policy_slope_len = 20,
+      policy_intercept_len = -70
+    ),
+    ctx = narrow,
+    coefficient_calibration = coefficient_calibration
+  )
+
+  expect_gt(interval$slope_hi, interval$slope_lo)
+  expect_gt(interval$intercept_hi, interval$intercept_lo)
+})
+
 test_that("coefficient interval does not silently use nearest residual calibration", {
   row_now <- tibble::tibble(
     anchor_model_id = "a1",

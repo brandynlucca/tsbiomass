@@ -120,6 +120,31 @@ test_that("C++ policy engine matches the R oracle column by column", {
   }
 })
 
+test_that("C++ nearest combined engine applies the taxonomic tier guard", {
+  policies <- "closest_within_species"
+  plan <- tsbiomass:::build_policy_execution_plan(
+    policies = policies,
+    policy_params = list(slope_class = "all")
+  )
+  compiled <- tsbiomass:::compile_policy_execution_plan_cpp(plan)
+  eval_obj <- cpp_policy_eval_fixture()
+  eval_obj$admissible_df$combined_distance[1:2] <- c(0.30, 0.05)
+  eval_obj$admissible_df$taxonomic_distance_to_anchor[1:2] <- c(0.00, 0.60)
+
+  r_result <- tsbiomass:::evaluate_policies(
+    eval_obj = eval_obj,
+    execution_plan = plan
+  )
+  cpp_result <- tsbiomass:::evaluate_policies_cpp(
+    eval_obj = eval_obj,
+    compiled_plan = compiled
+  )
+
+  expect_equal(r_result$policy_slope_len[[1]], eval_obj$admissible_df$slope_len[[1]])
+  expect_equal(cpp_result$policy_slope_len[[1]], r_result$policy_slope_len[[1]])
+  expect_equal(cpp_result$local_min_combined_distance[[1]], r_result$local_min_combined_distance[[1]])
+})
+
 test_that("C++ engine matches the complete production policy plan", {
   config <- read_configuration(system.file(
     "templates", "swfscfish_config.yaml",

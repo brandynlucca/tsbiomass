@@ -4721,6 +4721,15 @@ benchmark_cached_admissibility_lookup <- function(candidates_obj,
   evals[!vapply(evals, is.null, logical(1))]
 }
 
+policy_benchmark_logic_version <- function() {
+  "reference_anchor_donor_exclusion_v1"
+}
+
+policy_benchmark_cache_is_current <- function(benchmark_obj) {
+  is.list(benchmark_obj) &&
+    identical(benchmark_obj$logic_version %||% NULL, policy_benchmark_logic_version())
+}
+
 #' Look up one cached benchmark anchor evaluation
 #'
 #' @param cached_anchor_evals Named list of cached evaluations.
@@ -4808,7 +4817,8 @@ benchmark_one_anchor <- function(anchor_row,
                                  species_block = FALSE,
                                  group_block_col = NULL,
                                  ordination_info = NULL,
-                                 resolve_ordination = TRUE) {
+                                 resolve_ordination = TRUE,
+                                 excluded_model_ids = NULL) {
   species_col <- benchmark_field(config, "species")
   candidate_models <- tibble::as_tibble(candidate_models)
   candidate_models$is_group_model <- generalized_model_indicator(candidate_models)
@@ -4824,6 +4834,7 @@ benchmark_one_anchor <- function(anchor_row,
   # species rows, then extract the policy benchmark tables.
   eval_obj_ <- eval_obj
   if (is.null(eval_obj_)) {
+    excluded_model_ids_ <- normalize_reference_ids(excluded_model_ids %||% reference_ids)
     eval_obj_ <- tryCatch(
       screen_one_anchor_admissibility(
         anchor_row = anchor_row,
@@ -4832,7 +4843,8 @@ benchmark_one_anchor <- function(anchor_row,
         registry_path = registry_path,
         sim_obj = sim_obj,
         dist_obj = dist_obj,
-        candidate_models_scored = candidate_models_scored
+        candidate_models_scored = candidate_models_scored,
+        excluded_model_ids = excluded_model_ids_
       ),
       error = function(e) NULL
     )
@@ -5171,8 +5183,17 @@ run_policy_benchmark <- function(candidate_models,
   # Reuse the cached benchmark object when available unless the caller asked
   # for a refresh.
   if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
-    report_progress(progress, "Loading cached policy benchmark from ", cache_path, ".")
-    return(tsb_cache_read(cache_path))
+    cached_benchmark <- tsb_cache_read(cache_path)
+    if (policy_benchmark_cache_is_current(cached_benchmark)) {
+      report_progress(progress, "Loading cached policy benchmark from ", cache_path, ".")
+      return(cached_benchmark)
+    }
+    report_progress(
+      progress,
+      "Cached policy benchmark at ",
+      cache_path,
+      " does not match the current donor-pool logic; rebuilding."
+    )
   }
 
   # Inline the benchmark defaults here so the benchmark layer does not carry a
@@ -5313,7 +5334,12 @@ run_policy_benchmark <- function(candidate_models,
     if (!tsb_cache_exists(cache_file_now)) {
       return(NULL)
     }
-    tsb_cache_read(cache_file_now)
+    cached_anchor <- tsb_cache_read(cache_file_now)
+    if (policy_benchmark_cache_is_current(cached_anchor)) {
+      cached_anchor
+    } else {
+      NULL
+    }
   }
 
   # Persist one anchor bundle atomically so interrupted runs do not leave
@@ -5323,6 +5349,7 @@ run_policy_benchmark <- function(candidate_models,
     if (is.null(cache_shard_dir)) {
       return(invisible(NULL))
     }
+    anchor_result$logic_version <- policy_benchmark_logic_version()
     cache_file_now <- .anchor_cache_file(anchor_id)
     cache_tmp_now <- paste0(cache_file_now, ".tmp")
     tsb_cache_write(anchor_result, cache_tmp_now)
@@ -5432,7 +5459,8 @@ run_policy_benchmark <- function(candidate_models,
           registry_path = registry_path,
           sim_obj = sim_obj,
           dist_obj = dist_obj,
-          candidate_models_scored = candidate_models_scored
+          candidate_models_scored = candidate_models_scored,
+          excluded_model_ids = ref_ids
         ),
         error = function(e) NULL
       )
@@ -5557,7 +5585,8 @@ run_policy_benchmark <- function(candidate_models,
             registry_path = registry_path,
             sim_obj = sim_obj,
             dist_obj = dist_obj,
-            candidate_models_scored = candidate_models_scored
+            candidate_models_scored = candidate_models_scored,
+            excluded_model_ids = ref_ids
           ),
           error = function(e) {
             if (isTRUE(progress)) {
@@ -5612,7 +5641,8 @@ run_policy_benchmark <- function(candidate_models,
           scheme = "pseudo_anchor",
           species_block = FALSE,
           ordination_info = ordination_info_now,
-          resolve_ordination = isTRUE(needs_ordination_context)
+          resolve_ordination = isTRUE(needs_ordination_context),
+          excluded_model_ids = ref_ids
         )
       } else {
         NULL
@@ -5655,7 +5685,8 @@ run_policy_benchmark <- function(candidate_models,
           scheme = config_values$species_block_label,
           species_block = TRUE,
           ordination_info = ordination_info_now,
-          resolve_ordination = isTRUE(needs_ordination_context)
+          resolve_ordination = isTRUE(needs_ordination_context),
+          excluded_model_ids = ref_ids
         )
       } else {
         NULL
@@ -5691,7 +5722,8 @@ run_policy_benchmark <- function(candidate_models,
           species_block = FALSE,
           group_block_col = group_block_col,
           ordination_info = ordination_info_now,
-          resolve_ordination = isTRUE(needs_ordination_context)
+          resolve_ordination = isTRUE(needs_ordination_context),
+          excluded_model_ids = ref_ids
         )
 
         if (!is.null(gb_obj)) {
@@ -5817,7 +5849,8 @@ run_policy_benchmark <- function(candidate_models,
             registry_path = registry_path,
             sim_obj = sim_obj,
             dist_obj = dist_obj,
-            candidate_models_scored = candidate_models_scored
+            candidate_models_scored = candidate_models_scored,
+            excluded_model_ids = ref_ids
           ), err = NULL),
           error = function(e) list(obj = NULL, err = conditionMessage(e))
         )
@@ -5863,7 +5896,8 @@ run_policy_benchmark <- function(candidate_models,
           scheme = "pseudo_anchor",
           species_block = FALSE,
           ordination_info = ordination_info_now,
-          resolve_ordination = isTRUE(needs_ordination_context)
+          resolve_ordination = isTRUE(needs_ordination_context),
+          excluded_model_ids = ref_ids
         )
       } else {
         NULL
@@ -5893,7 +5927,8 @@ run_policy_benchmark <- function(candidate_models,
           scheme = config_values$species_block_label,
           species_block = TRUE,
           ordination_info = ordination_info_now,
-          resolve_ordination = isTRUE(needs_ordination_context)
+          resolve_ordination = isTRUE(needs_ordination_context),
+          excluded_model_ids = ref_ids
         )
       } else {
         NULL
@@ -5925,7 +5960,8 @@ run_policy_benchmark <- function(candidate_models,
           species_block = FALSE,
           group_block_col = group_block_col,
           ordination_info = ordination_info_now,
-          resolve_ordination = isTRUE(needs_ordination_context)
+          resolve_ordination = isTRUE(needs_ordination_context),
+          excluded_model_ids = ref_ids
         )
       }
 
@@ -6098,6 +6134,7 @@ run_policy_benchmark <- function(candidate_models,
   }
 
   result <- list(
+    logic_version = policy_benchmark_logic_version(),
     engine = engine_,
     policy_perf = perf_tbl,
     anchor_features = feat_tbl,
@@ -7693,8 +7730,18 @@ parse_super_learner_loss <- function(loss) {
 #' @noRd
 fit_super_learner_weights <- function(pred_mat,
                                       y,
-                                      loss = "squared_error") {
+                                      loss = "squared_error",
+                                      rule = "nnls") {
   loss_spec <- parse_super_learner_loss(loss)
+  rule <- stringr::str_to_lower(stringr::str_squish(as.character(rule %||% "nnls")[[1]]))
+  rule <- dplyr::case_when(
+    rule %in% c("nnls", "inverse_risk", "equal") ~ rule,
+    rule %in% c("inverse-risk", "inverse_mse", "inverse-mse") ~ "inverse_risk",
+    TRUE ~ NA_character_
+  )
+  if (is.na(rule) || !nzchar(rule)) {
+    stop("'rule' must be 'nnls', 'inverse_risk', or 'equal'.", call. = FALSE)
+  }
   if (identical(loss_spec$kind, "absolute_error")) {
     stop(
       paste(
@@ -7716,6 +7763,26 @@ fit_super_learner_weights <- function(pred_mat,
   }
   if (ncol(pred_mat) == 1L) {
     return(rep(1, 1))
+  }
+
+  loss_by_method <- function() {
+    apply(pred_mat, 2, function(pred) {
+      err <- y - pred
+      if (identical(loss_spec$kind, "pinball")) {
+        mean(pmax(loss_spec$tau * err, (loss_spec$tau - 1) * err), na.rm = TRUE)
+      } else {
+        mean(err^2, na.rm = TRUE)
+      }
+    })
+  }
+
+  if (identical(rule, "equal")) {
+    return(rep(1 / ncol(pred_mat), ncol(pred_mat)))
+  }
+  if (identical(rule, "inverse_risk")) {
+    losses <- loss_by_method()
+    inv <- 1 / pmax(losses, sqrt(.Machine$double.eps))
+    return(inv / sum(inv))
   }
 
   normalize_weights <- function(coef_now) {
@@ -7756,14 +7823,7 @@ fit_super_learner_weights <- function(pred_mat,
   # Fallback: inverse per-learner loss, scored on whichever loss the combiner
   # was asked for, so tail learners are not ranked by a criterion they were
   # never trying to minimize.
-  losses <- apply(pred_mat, 2, function(pred) {
-    err <- y - pred
-    if (identical(loss_spec$kind, "pinball")) {
-      mean(pmax(loss_spec$tau * err, (loss_spec$tau - 1) * err), na.rm = TRUE)
-    } else {
-      mean(err^2, na.rm = TRUE)
-    }
-  })
+  losses <- loss_by_method()
   inv <- 1 / pmax(losses, sqrt(.Machine$double.eps))
   inv / sum(inv)
 }
