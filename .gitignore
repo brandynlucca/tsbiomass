@@ -33,9 +33,14 @@ temp_*
 artifacts/
 .r-lib
 *.o
+*.dll
 docs/
 .codex_*
 *.out
 *.gcda
 .Rcheck-lib/
 inst/scripts
+.workflow-lib/
+.target-lib/
+Rplots.pdf
+*/exploratory/*
