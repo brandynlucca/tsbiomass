@@ -14,7 +14,7 @@ parameters remain direct weights and kernel settings.
 
 ``` r
 
-cfg <- create_configuration_template()
+cfg <- build_configuration_template()
 
 cfg$alchemist <- list(
   taxonomic_distance = TRUE,

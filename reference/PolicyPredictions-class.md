@@ -11,7 +11,5 @@ rows, and the donor-pool consensus summaries returned by
 if (FALSE) { # \dontrun{
 predictions <- predict(selector)
 predictions
-predictions
-predictions
 } # }
 ```

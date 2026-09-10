@@ -12,14 +12,14 @@ Build, read, and inspect analysis configurations.
 - [`read_configuration()`](https://brandynlucca.github.io/tsbiomass/reference/read_configuration.md)
   : Read a configuration YAML file
 
-- [`create_configuration_template()`](https://brandynlucca.github.io/tsbiomass/reference/create_configuration_template.md)
+- [`build_configuration_template()`](https://brandynlucca.github.io/tsbiomass/reference/build_configuration_template.md)
   : Create a configuration template
 
 - [`Configurer-class`](https://brandynlucca.github.io/tsbiomass/reference/Configurer-class.md)
   [`Configurer`](https://brandynlucca.github.io/tsbiomass/reference/Configurer-class.md)
   : Generalized Configurer S7 Class
 
-- [`trait_names()`](https://brandynlucca.github.io/tsbiomass/reference/trait_names.md)
+- [`list_traits()`](https://brandynlucca.github.io/tsbiomass/reference/list_traits.md)
   : Return allowed trait names
 
 - [`trait_definition()`](https://brandynlucca.github.io/tsbiomass/reference/trait_definition.md)
@@ -141,7 +141,7 @@ Benchmark, calibrate, and select transfer policies.
 
   Select benchmark-supported policies from a `PolicySelector`
 
-- [`available_policies()`](https://brandynlucca.github.io/tsbiomass/reference/available_policies.md)
+- [`list_policies()`](https://brandynlucca.github.io/tsbiomass/reference/list_policies.md)
   : List available policy components
 
 - [`list_learners()`](https://brandynlucca.github.io/tsbiomass/reference/list_learners.md)
@@ -241,10 +241,13 @@ Generate predictions and evaluate policy performance.
   [`Referee`](https://brandynlucca.github.io/tsbiomass/reference/Referee-class.md)
   : Referee and Scorecard S7 Classes
 
-- [`referee_rebuild()`](https://brandynlucca.github.io/tsbiomass/reference/referee_rebuild.md)
+- [`update_referee()`](https://brandynlucca.github.io/tsbiomass/reference/update_referee.md)
+  : Update a workflow object's component pieces in place
+
+- [`update_referee.Referee`](https://brandynlucca.github.io/tsbiomass/reference/update_referee.Referee.md)
   :
 
-  Rebuild a `Referee`
+  Update a `Referee` in place
 
 - [`predict.Referee`](https://brandynlucca.github.io/tsbiomass/reference/predict.Referee.md)
   : Predict a referee scorecard
@@ -276,7 +279,7 @@ Sensitivity simulation and outer-loop holdout validation.
   [`PolicySimulator`](https://brandynlucca.github.io/tsbiomass/reference/PolicySimulator-class.md)
   : Policy Simulator S7 Class
 
-- [`create_scenarios()`](https://brandynlucca.github.io/tsbiomass/reference/create_scenarios.md)
+- [`build_scenarios()`](https://brandynlucca.github.io/tsbiomass/reference/build_scenarios.md)
   : Create a named Sentinel scenario grid
 
 - [`build_sentinel()`](https://brandynlucca.github.io/tsbiomass/reference/build_sentinel.md)
@@ -299,24 +302,6 @@ Sensitivity simulation and outer-loop holdout validation.
 
 - [`sentinel_apply_scenario()`](https://brandynlucca.github.io/tsbiomass/reference/sentinel_apply_scenario.md)
   : Apply one Sentinel scenario to a train/test fold
-
-- [`collect_sensitivity_results()`](https://brandynlucca.github.io/tsbiomass/reference/collect_sensitivity_results.md)
-  : Collect scenario benchmark tables
-
-- [`collect_sensitivity_results.default`](https://brandynlucca.github.io/tsbiomass/reference/collect_sensitivity_results.default.md)
-  : Collect scenario benchmark tables from a named scenario-result list
-
-- [`collect_sensitivity_results.PolicySimulator`](https://brandynlucca.github.io/tsbiomass/reference/collect_sensitivity_results.PolicySimulator.md)
-  : Collect scenario benchmark tables from a PolicySimulator
-
-- [`construct_sensitivity_table()`](https://brandynlucca.github.io/tsbiomass/reference/construct_sensitivity_table.md)
-  : Construct a sensitivity scenario manifest
-
-- [`construct_sensitivity_table.default`](https://brandynlucca.github.io/tsbiomass/reference/construct_sensitivity_table.default.md)
-  : Construct a scenario manifest from named sensitivity scenario lists
-
-- [`construct_sensitivity_table.PolicySimulator`](https://brandynlucca.github.io/tsbiomass/reference/construct_sensitivity_table.PolicySimulator.md)
-  : Construct a scenario manifest from a PolicySimulator
 
 ## Visualization
 
@@ -367,14 +352,10 @@ S3 plot methods dispatched via plot(object, …) for all major classes.
 
   Plot a `Scorecard`
 
-- [`plot_sentinel_ablation_decomposition_scorecard()`](https://brandynlucca.github.io/tsbiomass/reference/plot_sentinel_ablation_decomposition_scorecard.md)
-  : Plot the Sentinel ablation decomposition
+- [`plot(`*`<Sentinel>`*`)`](https://brandynlucca.github.io/tsbiomass/reference/plot.Sentinel.md)
+  :
 
-- [`plot_sentinel_ablation_scorecard()`](https://brandynlucca.github.io/tsbiomass/reference/plot_sentinel_ablation_scorecard.md)
-  : Plot paired Sentinel ablation importance from a Scorecard
-
-- [`plot_sentinel_coverage_scorecard()`](https://brandynlucca.github.io/tsbiomass/reference/plot_sentinel_coverage_scorecard.md)
-  : Plot Sentinel interval coverage from a Scorecard
+  Plot a `Sentinel`
 
 ## Utilities
 

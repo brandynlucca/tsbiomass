@@ -13,7 +13,7 @@ library(tsbiomass)
 cfg <- build_configurer("path/to/config.yaml")
 
 # From the default list template (useful for scripted runs)
-cfg <- build_configurer(create_configuration_template())
+cfg <- build_configurer(build_configuration_template())
 ```
 
 Configuration keys are grouped by the pipeline stage they control. Every
@@ -924,7 +924,7 @@ Parameters
 ## Default configuration
 
 The complete default configuration produced by
-[`create_configuration_template()`](https://brandynlucca.github.io/tsbiomass/reference/create_configuration_template.md),
+[`build_configuration_template()`](https://brandynlucca.github.io/tsbiomass/reference/build_configuration_template.md),
 shown in YAML and R-list form. Every value below is the packaged
 default; override only the keys you need.
 

@@ -13,7 +13,7 @@ enough anchors to fit a stable supervised Alchemist model.
 
 ``` r
 
-cfg <- create_configuration_template()
+cfg <- build_configuration_template()
 
 cfg$similarity <- list(
   alpha = 0.7,
