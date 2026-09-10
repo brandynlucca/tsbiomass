@@ -26,6 +26,27 @@ test_that("generalized model rows still honor explicit grouping metadata", {
   expect_equal(generalized$model_id, as.character(c(2, 3, 4)))
 })
 
+test_that("a missing enrichment identity does not convert an explicit species to generalized", {
+  rows <- tibble::tibble(
+    model_id = c("raw_binomial", "joined_binomial", "truly_generalized"),
+    genus = c("Acanthopagrus", "Ammodytes", NA_character_),
+    species = c("schlegeli", "personatus", NA_character_),
+    species_name = NA_character_,
+    species_species_name = c(NA_character_, "Ammodytes personatus", NA_character_)
+  )
+
+  expect_identical(
+    tsbiomass:::generalized_model_indicator(rows),
+    c(FALSE, FALSE, TRUE)
+  )
+  standardized <- tsbiomass:::standardize_candidate_columns(rows)
+  expect_identical(
+    standardized$species_name,
+    c("Acanthopagrus schlegeli", "Ammodytes personatus", NA_character_)
+  )
+  expect_identical(standardized$is_group_model, c(FALSE, FALSE, TRUE))
+})
+
 test_that("candidate standardization flags generalized equations durably", {
   rows <- tibble::tibble(
     model_id = as.character(1:3),

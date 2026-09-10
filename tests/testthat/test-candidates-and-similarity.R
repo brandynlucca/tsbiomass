@@ -155,6 +155,24 @@ test_that("Alchemist policy scoring uses directed learned distance without reapp
     byrow = TRUE,
     dimnames = list(c("a", "b", "c"), c("a", "b", "c"))
   )
+  species_component <- matrix(
+    c(0, .2, .6, .2, 0, .4, .6, .4, 0),
+    nrow = 3,
+    byrow = TRUE,
+    dimnames = list(c("a", "b", "c"), c("a", "b", "c"))
+  )
+  study_component <- matrix(
+    c(0, .3, .9, .3, 0, .7, .9, .7, 0),
+    nrow = 3,
+    byrow = TRUE,
+    dimnames = list(c("a", "b", "c"), c("a", "b", "c"))
+  )
+  coverage <- matrix(
+    c(1, .75, .5, .75, 1, .25, .5, .25, 1),
+    nrow = 3,
+    byrow = TRUE,
+    dimnames = list(c("a", "b", "c"), c("a", "b", "c"))
+  )
   scored <- tsbiomass:::add_anchor_distances(
     model_eval = tibble::tibble(
       model_id = c("b", "c"),
@@ -165,6 +183,10 @@ test_that("Alchemist policy scoring uses directed learned distance without reapp
     dist_obj = list(
       distance_mode = "alchemist_super_learner",
       learned_directed_dist = directed,
+      species_dist_model = species_component,
+      study_dist = study_component,
+      species_component_coverage = coverage,
+      study_component_coverage = coverage,
       taxonomic_dist_model = taxonomy,
       learned_kernel_bandwidth = .5
     ),
@@ -182,7 +204,11 @@ test_that("Alchemist policy scoring uses directed learned distance without reapp
     )
 
   expect_equal(scored$combined_distance, c(.2, .7))
+  expect_equal(scored$d_species, c(.2, .6))
+  expect_equal(scored$d_study, c(.3, .9))
   expect_equal(scored$taxonomic_distance_to_anchor, c(.5, 1))
+  expect_equal(scored$species_component_coverage, c(.75, .5))
+  expect_equal(scored$study_component_coverage, c(.75, .5))
   expect_equal(scored$w_combined_raw, exp(-c(.2, .7) / .5))
   expect_true(is.finite(scored$kernel_length_term[[2]]))
 })
@@ -266,6 +292,30 @@ test_that("forge_distances invalidates stale downstream alchemist state", {
       list(
         oof_ensemble_prediction = c(0.2, 0.3, 0.4, 0.5),
         oof_performance = tibble::tibble(method = "mock", rmse = 0.1, mae = 0.1)
+      )
+    },
+    alchemist_policy_component_matrices = function(models_df, model_ids, ...) {
+      mat <- matrix(
+        0,
+        nrow = length(model_ids),
+        ncol = length(model_ids),
+        dimnames = list(model_ids, model_ids)
+      )
+      list(
+        species_dist_model = mat,
+        study_dist = NULL,
+        species_component_coverage = mat + 1,
+        study_component_coverage = NULL,
+        taxonomic_dist_model = NULL,
+        species_component_cols = ".dist_family",
+        study_component_cols = character(0),
+        species_parent_features = ".dist_family",
+        study_parent_features = character(0),
+        component_feature_normalization = list(),
+        coherence_component_map = character(0),
+        coherence_normalization = list(),
+        component_definition =
+          "unweighted_gower_configured_parent_traits_coherence_replacement_v2"
       )
     },
     .package = "tsbiomass"
@@ -494,6 +544,7 @@ test_that("Alchemist rf honors configured forest controls", {
 test_that("run_ordination works on Alchemist distance objects with model trait tables", {
   candidates <- make_candidates(seed_similarity_tuning = FALSE)
   alchemist <- as_alchemist(candidates, config = minimal_config_data())
+  expect_identical(alchemist@config$coherence$length$source, "both")
 
   testthat::local_mocked_bindings(
     build_pair_data = function(models_df,
@@ -542,12 +593,44 @@ test_that("run_ordination works on Alchemist distance objects with model trait t
   )
 
   alchemist <- forge_distances(alchemist)
+  expect_identical(
+    alchemist@distance_matrix$coherence_config$length$source,
+    "both"
+  )
   expect_no_error(
     ord <- suppressWarnings(
       run_ordination(alchemist, include_loadings = FALSE, include_centroids = FALSE)
     )
   )
   expect_true(length(ord@ordination) > 0L)
+})
+
+test_that("forged distance contracts bind caches to coherence and candidate inputs", {
+  candidates <- make_candidates(seed_similarity_tuning = FALSE)
+  config_both <- minimal_config_data()
+  config_study <- minimal_config_data()
+  config_study$similarity$coherence$length$source <- "study"
+
+  alchemist_both <- as_alchemist(candidates, config = config_both)
+  alchemist_study <- as_alchemist(candidates, config = config_study)
+  contract_both <- tsbiomass:::alchemist_forge_contract(alchemist_both, "gower")
+  contract_study <- tsbiomass:::alchemist_forge_contract(alchemist_study, "gower")
+
+  expect_false(identical(contract_both, contract_study))
+  expect_false(identical(
+    tsbiomass:::admissibility_audit_fingerprint(contract_both),
+    tsbiomass:::admissibility_audit_fingerprint(contract_study)
+  ))
+
+  changed_candidates <- candidates
+  changed_models <- tibble::as_tibble(changed_candidates@candidate_models)
+  changed_models$frequency[[1]] <- changed_models$frequency[[1]] + 1
+  changed_candidates@candidate_models <- changed_models
+  contract_changed_data <- tsbiomass:::alchemist_forge_contract(
+    as_alchemist(changed_candidates, config = config_both),
+    "gower"
+  )
+  expect_false(identical(contract_both, contract_changed_data))
 })
 
 test_that("assign_ordination_groups can use a fixed cluster count", {
@@ -685,6 +768,17 @@ test_that("screen_admissibility preserves arbitrary configured trait gates", {
   expect_true(tsbiomass:::admissibility_bundle_is_current(screened@admissibility, cfg_obj))
   expect_true("gate_trait_family" %in% names(scores))
   expect_true(any(scores$inadmissible_reason == "trait_mismatch:family", na.rm = TRUE))
+  expect_true(is.data.frame(screened@admissibility$all_gate_audit))
+  expect_gt(nrow(screened@admissibility$all_gate_audit), 0L)
+  expect_identical(
+    screened@admissibility$effective_contract_fingerprint,
+    tsbiomass:::admissibility_audit_fingerprint(screened@admissibility$effective_contract)
+  )
+  expect_true(all(c(
+    "path", "exists", "md5", "size_bytes", "modified_utc"
+  ) %in% names(screened@admissibility$input_provenance)))
+  expect_true(nzchar(screened@admissibility$candidate_table_fingerprint))
+  expect_true(nzchar(screened@admissibility$anchor_table_fingerprint))
 })
 
 test_that("missingness summaries dispatch through Candidates and PolicySelector", {

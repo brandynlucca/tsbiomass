@@ -90,6 +90,30 @@ test_that("forge_distances wraps the fitted learner once, at the point it's fit"
         feature_cols = ".dist_family"
       )
     },
+    alchemist_policy_component_matrices = function(models_df, model_ids, ...) {
+      mat <- matrix(
+        0,
+        nrow = length(model_ids),
+        ncol = length(model_ids),
+        dimnames = list(model_ids, model_ids)
+      )
+      list(
+        species_dist_model = mat,
+        study_dist = NULL,
+        species_component_coverage = mat + 1,
+        study_component_coverage = NULL,
+        taxonomic_dist_model = NULL,
+        species_component_cols = ".dist_family",
+        study_component_cols = character(0),
+        species_parent_features = ".dist_family",
+        study_parent_features = character(0),
+        component_feature_normalization = list(),
+        coherence_component_map = character(0),
+        coherence_normalization = list(),
+        component_definition =
+          "unweighted_gower_configured_parent_traits_coherence_replacement_v2"
+      )
+    },
     .package = "tsbiomass"
   )
 

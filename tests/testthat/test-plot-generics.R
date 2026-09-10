@@ -79,7 +79,7 @@ test_that("plot.Candidates renders admissibility and anchor-review plots", {
     n_models = c(3L, 1L)
   )
   candidates <- make_candidates(
-    admissibility = list(
+    admissibility = mark_current_admissibility(list(
       anchors = list(
         "1" = list(
           anchor = anchor_row,
@@ -104,7 +104,7 @@ test_that("plot.Candidates renders admissibility and anchor-review plots", {
         q50_multiplier_admissible = 1.08,
         q95_multiplier_admissible = 1.28
       )
-    )
+    ))
   )
 
   p_gate <- plot(candidates, type = "admissibility", view = "gate_composition")
@@ -306,7 +306,7 @@ test_that("plot_gate_composition derives configured gate labels and omits self",
       coherence = list(
         length = list(mode = "overlap", min = 0.01),
         depth = list(mode = "overlap", min = 0.01),
-        frequency = list(mode = "none", gap = 60)
+        frequency = list(mode = "none")
       ),
       key_metadata_max = 0.75
     )
@@ -345,32 +345,33 @@ test_that("plot.Alchemist exposes admissibility summaries", {
     mean_length_overlap_fraction = 0.54,
     mean_depth_overlap_fraction = 0.43
   )
+  config_data <- list(
+    admissibility = list(
+      species_traits = c("swimbladder_type"),
+      study_traits = character(0),
+      coherence = list(
+        length = list(mode = "overlap", min = 0.01),
+        depth = list(mode = "overlap", min = 0.01),
+        frequency = list(mode = "none")
+      ),
+      key_metadata_max = 0.75
+    )
+  )
   alchemist <- Alchemist(
     candidates = make_candidates(),
-    config = list(
-      config_data = list(
-        admissibility = list(
-          species_traits = c("swimbladder_type"),
-          study_traits = character(0),
-          coherence = list(
-            length = list(mode = "overlap", min = 0.01),
-            depth = list(mode = "overlap", min = 0.01),
-            frequency = list(mode = "none", gap = 60)
-          ),
-          key_metadata_max = 0.75
-        )
-      )
-    ),
+    config = list(config_data = config_data),
     learner = list(),
     distance_matrix = list(),
     trait_importance = list(),
     ordination = list(),
-    admissibility = list(
+    admissibility = mark_current_admissibility(list(
       all_scores = tibble::tibble(
         anchor_model_id = "1",
         anchor_species = "Alpha alpha",
         gate_trait_swimbladder_type = TRUE,
         gate_frequency = TRUE,
+        gate_length_overlap = TRUE,
+        gate_depth_overlap = TRUE,
         frequency = 38,
         frequency_coherence_distance = 0,
         gate_missing_key_metadata = TRUE,
@@ -379,7 +380,7 @@ test_that("plot.Alchemist exposes admissibility summaries", {
       ),
       all_gates = gate_tbl,
       all_overlap = overlap_tbl
-    )
+    ), config = config_data)
   )
 
   p_gate <- plot(alchemist, type = "admissibility")
@@ -393,31 +394,32 @@ test_that("plot.Alchemist exposes admissibility summaries", {
 })
 
 test_that("plot.Alchemist overlap profile handles overlap rows without metric columns", {
+  config_data <- list(
+    admissibility = list(
+      species_traits = c("swimbladder_type"),
+      study_traits = character(0),
+      coherence = list(
+        length = list(mode = "overlap", min = 0.01),
+        depth = list(mode = "overlap", min = 0.01),
+        frequency = list(mode = "none")
+      ),
+      key_metadata_max = 0.75
+    )
+  )
   alchemist <- Alchemist(
     candidates = make_candidates(),
-    config = list(
-      config_data = list(
-        admissibility = list(
-          species_traits = c("swimbladder_type"),
-          study_traits = character(0),
-          coherence = list(
-            length = list(mode = "overlap", min = 0.01),
-            depth = list(mode = "overlap", min = 0.01),
-            frequency = list(mode = "none", gap = 60)
-          ),
-          key_metadata_max = 0.75
-        )
-      )
-    ),
+    config = list(config_data = config_data),
     learner = list(),
     distance_matrix = list(),
     trait_importance = list(),
     ordination = list(),
-    admissibility = list(
+    admissibility = mark_current_admissibility(list(
       all_scores = tibble::tibble(
         anchor_model_id = "1",
         anchor_species = "Alpha alpha",
         gate_trait_swimbladder_type = TRUE,
+        gate_length_overlap = TRUE,
+        gate_depth_overlap = TRUE,
         gate_missing_key_metadata = TRUE,
         key_metadata_missing_fraction = 0,
         admissible = TRUE
@@ -432,7 +434,7 @@ test_that("plot.Alchemist overlap profile handles overlap rows without metric co
         anchor_model_id = "1",
         n_admissible = 1L
       )
-    )
+    ), config = config_data)
   )
 
   p_overlap <- plot(alchemist, type = "admissibility", view = "overlap_profile")
@@ -1033,7 +1035,8 @@ test_that("plot.Scorecard and plot.Referee expose post-prediction figures", {
   ts_text_layers <- Filter(function(layer) inherits(layer$geom, "GeomText"), p_ts$layers)
   expect_true(length(ts_text_layers) > 0L)
   expect_true(any(vapply(ts_text_layers, function(layer) {
-    identical(layer$geom_params$parse, TRUE)
+    identical(layer$aes_params$fontface, "italic") &&
+      !isTRUE(layer$geom_params$parse)
   }, logical(1))))
 })
 

@@ -1,4 +1,11 @@
 test_that("policy benchmark reuses cached admissibility in sequential runs", {
+  benchmark_config <- list(
+    species_traits = list(genus = 1),
+    study_traits = list(fao_area = 1),
+    frequency_coherence_mode = "none",
+    admissibility_species_traits = character(0),
+    admissibility_study_traits = character(0)
+  )
   candidates <- make_candidates(
     seed_similarity_tuning = FALSE,
     similarity_matrix = minimal_similarity_matrix(),
@@ -29,10 +36,10 @@ test_that("policy benchmark reuses cached admissibility in sequential runs", {
   )
   candidates <- candidates_with_admissibility(
     candidates,
-    list(
+    mark_current_admissibility(list(
       anchors = cached_anchors,
       all_scores = minimal_admissibility_scores()
-    )
+    ), config = benchmark_config)
   )
 
   testthat::local_mocked_bindings(
@@ -63,13 +70,7 @@ test_that("policy benchmark reuses cached admissibility in sequential runs", {
       )
     },
     curve_fun = NULL,
-    config = list(
-      species_traits = list(genus = 1),
-      study_traits = list(fao_area = 1),
-      frequency_coherence_mode = "none",
-      admissibility_species_traits = character(0),
-      admissibility_study_traits = character(0)
-    ),
+    config = benchmark_config,
     include_ts_error = FALSE,
     benchmark_schemes = "pseudo_anchor",
     workers = 1L
@@ -120,6 +121,13 @@ test_that("policy benchmark preserves missing optional family metadata", {
 })
 
 test_that("policy benchmark skips ordination rebuild when active pools do not need it", {
+  benchmark_config <- list(
+    species_traits = list(genus = 1),
+    study_traits = list(fao_area = 1),
+    frequency_coherence_mode = "none",
+    admissibility_species_traits = character(0),
+    admissibility_study_traits = character(0)
+  )
   candidates <- make_candidates(
     seed_similarity_tuning = FALSE,
     similarity_matrix = minimal_similarity_matrix(),
@@ -150,10 +158,10 @@ test_that("policy benchmark skips ordination rebuild when active pools do not ne
   )
   candidates <- candidates_with_admissibility(
     candidates,
-    list(
+    mark_current_admissibility(list(
       anchors = cached_anchors,
       all_scores = minimal_admissibility_scores()
-    )
+    ), config = benchmark_config)
   )
 
   testthat::local_mocked_bindings(
@@ -187,13 +195,7 @@ test_that("policy benchmark skips ordination rebuild when active pools do not ne
       )
     },
     curve_fun = NULL,
-    config = list(
-      species_traits = list(genus = 1),
-      study_traits = list(fao_area = 1),
-      frequency_coherence_mode = "none",
-      admissibility_species_traits = character(0),
-      admissibility_study_traits = character(0)
-    ),
+    config = benchmark_config,
     include_ts_error = FALSE,
     benchmark_schemes = "pseudo_anchor",
     workers = 1L
@@ -416,6 +418,13 @@ test_that("policy benchmark rebuilds TS-error output from cached anchor shards",
 })
 
 test_that("policy benchmark builds one shared execution plan per run", {
+  benchmark_config <- list(
+    species_traits = list(genus = 1),
+    study_traits = list(fao_area = 1),
+    frequency_coherence_mode = "none",
+    admissibility_species_traits = character(0),
+    admissibility_study_traits = character(0)
+  )
   candidates <- make_candidates(
     seed_similarity_tuning = FALSE,
     similarity_matrix = minimal_similarity_matrix(),
@@ -446,10 +455,10 @@ test_that("policy benchmark builds one shared execution plan per run", {
   )
   candidates <- candidates_with_admissibility(
     candidates,
-    list(
+    mark_current_admissibility(list(
       anchors = cached_anchors,
       all_scores = minimal_admissibility_scores()
-    )
+    ), config = benchmark_config)
   )
 
   plan_builds <- 0L
@@ -489,13 +498,7 @@ test_that("policy benchmark builds one shared execution plan per run", {
       )
     },
     curve_fun = NULL,
-    config = list(
-      species_traits = list(genus = 1),
-      study_traits = list(fao_area = 1),
-      frequency_coherence_mode = "none",
-      admissibility_species_traits = character(0),
-      admissibility_study_traits = character(0)
-    ),
+    config = benchmark_config,
     include_ts_error = FALSE,
     benchmark_schemes = "pseudo_anchor",
     workers = 1L

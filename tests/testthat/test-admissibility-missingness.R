@@ -1,4 +1,4 @@
-test_that("admissibility missingness uses study metadata plus support fields", {
+test_that("admissibility missingness uses every configured trait plus support fields", {
   cfg <- tsbiomass:::default_anchor_config(list(
     similarity = list(
       study_traits = list(
@@ -25,6 +25,7 @@ test_that("admissibility missingness uses study metadata plus support fields", {
     tsbiomass:::admissibility_key_metadata_cols(cfg),
     c(
       "fao_area", "season", "diel", "pressure_corrected", "length_metric",
+      "swimbladder_type",
       "study_length_min", "study_length_max",
       "study_depth_min", "study_depth_max",
       "frequency"
@@ -119,7 +120,7 @@ test_that("admissibility gates reject missing required support and hard-gate met
   expect_true(gated$admissible[[2]])
 })
 
-test_that("generalized model identity blanks are not counted as key metadata missingness", {
+test_that("generalized models do not bypass configured metadata missingness", {
   rows <- tibble::tibble(
     model_id = c("generalized", "empirical"),
     species_name = c(NA_character_, "Alpha alpha"),
@@ -139,11 +140,11 @@ test_that("generalized model identity blanks are not counted as key metadata mis
     threshold = 0.75
   )
 
-  expect_equal(scored$key_metadata_missing_fraction[[1]], 0)
+  expect_equal(scored$key_metadata_missing_fraction[[1]], 5 / length(key_cols))
   expect_equal(scored$key_metadata_missing_fraction[[2]], 1 / length(key_cols))
   expect_equal(
     unname(summary$by_field$missing_n[match("family", summary$by_field$field)]),
-    0
+    1
   )
   expect_equal(
     unname(summary$by_field$missing_n[match("fao_area", summary$by_field$field)]),
@@ -165,6 +166,7 @@ test_that("admissibility currentness does not require finite frequency distances
   )
 
   bundle <- list(
+    logic_version = tsbiomass:::anchor_admissibility_logic_version(),
     all_scores = tibble::tibble(
       frequency = c(18, 38),
       fao_area = c("61", "61"),
@@ -179,8 +181,12 @@ test_that("admissibility currentness does not require finite frequency distances
       frequency_coherence_distance = c(NA_real_, NA_real_),
       key_metadata_missing_fraction = c(0, 0),
       admissible = c(TRUE, TRUE)
-    )
+    ),
+    all_gate_audit = tibble::tibble(gate = "frequency")
   )
+  contract <- tsbiomass:::build_admissibility_contract(cfg)
+  bundle$effective_contract <- contract
+  bundle$effective_contract_fingerprint <- tsbiomass:::admissibility_audit_fingerprint(contract)
 
   expect_true(tsbiomass:::admissibility_bundle_is_current(bundle, cfg))
 })
@@ -366,6 +372,7 @@ test_that("admissibility cache currentness requires overlap summary metrics", {
     )
   )
   stale_bundle <- list(
+    logic_version = tsbiomass:::anchor_admissibility_logic_version(),
     all_scores = tibble::tibble(
       anchor_species = "Alpha alpha",
       admissible = TRUE,
@@ -378,8 +385,12 @@ test_that("admissibility cache currentness requires overlap summary metrics", {
     all_overlap = tibble::tibble(
       anchor_species = "Alpha alpha",
       n_admissible = 1L
-    )
+    ),
+    all_gate_audit = tibble::tibble(gate = "frequency")
   )
+  contract <- tsbiomass:::build_admissibility_contract(cfg)
+  stale_bundle$effective_contract <- contract
+  stale_bundle$effective_contract_fingerprint <- tsbiomass:::admissibility_audit_fingerprint(contract)
   current_bundle <- stale_bundle
   current_bundle$all_overlap <- tibble::tibble(
     anchor_species = "Alpha alpha",
@@ -431,7 +442,7 @@ test_that("admissibility gates reuse precomputed overlap columns when available"
   expect_identical(gated$admissible, c(TRUE, FALSE))
 })
 
-test_that("generalized models with missing species-trait gates are not rejected as mismatches", {
+test_that("generalized models obey the same configured species-trait gates", {
   cfg <- tsbiomass:::default_anchor_config(list(
     admissibility = list(
       species_traits = "swimbladder_type",
@@ -460,10 +471,12 @@ test_that("generalized models with missing species-trait gates are not rejected 
 
   gated <- tsbiomass:::apply_anchor_gates(scored, anchor_row, cfg)
 
-  expect_true(gated$gate_trait_swimbladder_type[[1]])
-  expect_true(gated$admissible[[1]])
-  expect_true(gated$gate_trait_swimbladder_type[[2]])
-  expect_true(gated$admissible[[2]])
+  expect_false(gated$gate_trait_swimbladder_type[[1]])
+  expect_false(gated$admissible[[1]])
+  expect_match(gated$inadmissible_reasons[[1]], "trait_missing:swimbladder_type")
+  expect_false(gated$gate_trait_swimbladder_type[[2]])
+  expect_false(gated$admissible[[2]])
+  expect_match(gated$inadmissible_reasons[[2]], "trait_missing:swimbladder_type")
   expect_false(gated$gate_trait_swimbladder_type[[3]])
   expect_false(gated$admissible[[3]])
   expect_false(gated$gate_trait_swimbladder_type[[4]])
@@ -493,4 +506,119 @@ test_that("generalized equations never satisfy same-species overlap", {
   )
 
   expect_false(any(overlap$overlap_same_species))
+})
+
+test_that("admissibility range gates compare study ranges only", {
+  cfg <- tsbiomass:::default_anchor_config(list(
+    similarity = list(species_traits = character(0), study_traits = character(0)),
+    admissibility = list(
+      species_traits = character(0),
+      study_traits = character(0),
+      coherence = list(
+        length = list(mode = "overlap", min = 0.5),
+        depth = list(mode = "overlap", min = 0.5),
+        frequency = list(mode = "none")
+      )
+    )
+  ))
+  anchor <- tibble::tibble(
+    model_id = "anchor",
+    species_name = "Anchor species",
+    study_length_min = 6,
+    study_length_max = 10,
+    species_length_min = 100,
+    species_length_max = 200,
+    study_depth_min = 20,
+    study_depth_max = 40,
+    species_depth_min = 500,
+    species_depth_max = 1000
+  )
+  donors <- tibble::tibble(
+    model_id = c("study_match", "species_match_only"),
+    species_name = c("Donor one", "Donor two"),
+    study_length_min = c(6, 100),
+    study_length_max = c(10, 200),
+    species_length_min = c(1, 100),
+    species_length_max = c(2, 200),
+    study_depth_min = c(20, 500),
+    study_depth_max = c(40, 1000),
+    species_depth_min = c(1, 500),
+    species_depth_max = c(2, 1000)
+  )
+
+  scored <- donors |>
+    tsbiomass:::screen_missing_metadata(key_cols = tsbiomass:::admissibility_key_metadata_cols(cfg)) |>
+    tsbiomass:::add_anchor_overlap(anchor_row = anchor, config = cfg) |>
+    tsbiomass:::apply_anchor_gates(anchor_row = anchor, config = cfg)
+
+  expect_identical(scored$gate_length_overlap, c(TRUE, FALSE))
+  expect_identical(scored$gate_depth_overlap, c(TRUE, FALSE))
+  expect_identical(scored$admissible, c(TRUE, FALSE))
+})
+
+test_that("gate audit and table fingerprints are row-order invariant", {
+  cfg <- tsbiomass:::default_anchor_config(list(
+    similarity = list(species_traits = character(0), study_traits = character(0)),
+    admissibility = list(
+      species_traits = character(0),
+      study_traits = character(0),
+      coherence = list(
+        length = list(mode = "none"),
+        depth = list(mode = "none"),
+        frequency = list(mode = "overlap", gap = 20)
+      )
+    )
+  ))
+  anchor <- tibble::tibble(model_id = "anchor", species_name = "Anchor species", frequency = 38)
+  donors <- tibble::tibble(
+    model_id = c("near", "far", "missing"),
+    species_name = c("Near species", "Far species", "Missing species"),
+    frequency = c(50, 70, NA_real_),
+    length_overlap_fraction = 1,
+    depth_overlap_fraction = 1,
+    key_metadata_missing_fraction = c(0, 0, 1)
+  )
+  gate_once <- function(tbl) {
+    gated <- tsbiomass:::apply_anchor_gates(tbl, anchor, cfg)
+    tsbiomass:::build_admissibility_gate_audit(gated, anchor, cfg) |>
+      dplyr::arrange(.data$donor_model_id, .data$gate)
+  }
+
+  expect_equal(gate_once(donors), gate_once(donors[3:1, ]))
+  expect_identical(
+    tsbiomass:::admissibility_table_fingerprint(donors),
+    tsbiomass:::admissibility_table_fingerprint(donors[3:1, ])
+  )
+  audit <- gate_once(donors)
+  expect_equal(
+    audit$reason[audit$donor_model_id == "missing" & audit$gate == "frequency"],
+    "frequency_missing"
+  )
+})
+
+test_that("an unavailable configured anchor gate errors instead of falling back", {
+  cfg <- tsbiomass:::default_anchor_config(list(
+    admissibility = list(
+      species_traits = "swimbladder_type",
+      study_traits = character(0),
+      coherence = list(
+        length = list(mode = "none"),
+        depth = list(mode = "none"),
+        frequency = list(mode = "none")
+      )
+    )
+  ))
+  anchor <- tibble::tibble(model_id = "query", swimbladder_type = NA_character_)
+  donors <- tibble::tibble(
+    model_id = "donor",
+    swimbladder_type = "physostome",
+    overlap_same_swimbladder_type = FALSE,
+    length_overlap_fraction = 1,
+    depth_overlap_fraction = 1,
+    key_metadata_missing_fraction = 0
+  )
+  expect_error(
+    tsbiomass:::apply_anchor_gates(donors, anchor, cfg),
+    "gate cannot be evaluated"
+  )
 })

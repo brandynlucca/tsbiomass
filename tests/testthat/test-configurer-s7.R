@@ -427,6 +427,47 @@ test_that("retired configuration fields are rejected at ingestion", {
   }
 })
 
+test_that("frequency gap is admissibility-only and mode-specific", {
+  misplaced <- minimal_config_data()
+  misplaced$similarity$coherence$frequency$gap <- 20
+  expect_error(
+    build_configurer(misplaced, base_dir = tempdir()),
+    "frequency-gap gating belongs under 'admissibility.coherence.frequency.gap'"
+  )
+
+  overlap <- minimal_config_data()
+  overlap$admissibility$coherence$frequency <- list(mode = "overlap", gap = 20)
+  cfg <- build_configurer(overlap, base_dir = tempdir())
+  expect_equal(cfg@data$admissibility$coherence$frequency$gap, 20)
+  expect_equal(cfg@data$policy$max_frequency_gap_khz, 20)
+
+  literal_with_gap <- minimal_config_data()
+  literal_with_gap$admissibility$coherence$frequency <- list(mode = "literal", gap = 20)
+  expect_error(
+    build_configurer(literal_with_gap, base_dir = tempdir()),
+    "must be omitted unless frequency.mode is overlap"
+  )
+})
+
+test_that("active similarity range coherence requires an explicit data source", {
+  config <- minimal_config_data()
+  config$similarity$coherence$length$source <- NULL
+  expect_error(
+    tsbiomass:::validate_similarity_section(config$similarity),
+    "length.source.*explicitly"
+  )
+})
+
+test_that("one admissibility trait cannot occupy both scopes", {
+  config <- minimal_config_data()
+  config$admissibility$species_traits <- "fao_area"
+  config$admissibility$study_traits <- "fao_area"
+  expect_error(
+    tsbiomass:::validate_admissibility_section(config$admissibility),
+    "both species and study scope"
+  )
+})
+
 test_that("command line requires an explicit config path", {
   expect_equal(
     tsbiomass:::parse_command_line(c("--config", "config.yaml")),

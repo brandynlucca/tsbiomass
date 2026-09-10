@@ -918,7 +918,7 @@ test_that("policy prediction can reuse a precomputed equation row", {
   expect_true(is.finite(pred$multiplier_pred[[1]]))
 })
 
-test_that("nearest combined policies stay within the closest taxonomic tier", {
+test_that("nearest combined policies ignore taxonomic tiers", {
   rows <- tibble::tibble(
     species_name = c("Distant distant", "Close close"),
     equation_form = "standardized_length",
@@ -933,9 +933,9 @@ test_that("nearest combined policies stay within the closest taxonomic tier", {
   eq <- tsbiomass:::policy_equation(rows, policy_def)
   summary_rows <- tsbiomass:::policy_summary_rows(rows, policy_def)
 
-  expect_equal(eq$policy_slope_len[[1]], 22)
-  expect_equal(eq$policy_intercept_len[[1]], -72)
-  expect_equal(summary_rows$species_name[[1]], "Close close")
+  expect_equal(eq$policy_slope_len[[1]], 18)
+  expect_equal(eq$policy_intercept_len[[1]], -66)
+  expect_equal(summary_rows$species_name[[1]], "Distant distant")
 })
 
 test_that("policy summaries can reuse precomputed donor subsets", {

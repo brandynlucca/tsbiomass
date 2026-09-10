@@ -44,6 +44,7 @@ test_that("set_model_metadata restandardizes weight-referenced model metadata", 
     tibble::tibble(
       model_id = "1",
       equation_form = "mlog10_kg",
+      equation_length_unit = "cm",
       slope = -16,
       intercept = -35,
       lw_a_g = 0.002,
@@ -89,6 +90,7 @@ test_that("set_model_metadata preserves generalized model keys", {
       genus = NA_character_,
       species = NA_character_,
       equation_form = "20log10_ind",
+      equation_length_unit = "cm",
       slope = 20,
       intercept = -68,
       slope_len = 20,
@@ -160,7 +162,7 @@ test_that("candidate standardization derives generalized model ocean basins from
   expect_equal(unname(out$ocean_basin), c("Pacific Ocean", "Atlantic Ocean"))
 })
 
-test_that("study FAO area supplies row-level ocean basin before species backfill", {
+test_that("study FAO area remains separate from the species ocean basin", {
   species_db <- tibble::tibble(
     species_name = "Sardinops sagax",
     genus = "Sardinops",
@@ -185,10 +187,46 @@ test_that("study FAO area supplies row-level ocean basin before species backfill
   expect_equal(out$species_ocean_basin[[1]], "Atlantic Ocean;Pacific Ocean;Indian Ocean")
 })
 
+test_that("prepare_traits never fills missing study ranges from species ranges", {
+  species_db <- tibble::tibble(
+    species_name = "Sardinops sagax",
+    genus = "Sardinops",
+    species = "sagax",
+    length_min = 5,
+    length_max = 40,
+    depth_min = 0,
+    depth_max = 500
+  )
+  study_db <- tibble::tibble(
+    species_name = "Sardinops sagax",
+    model_id = "missing_study_ranges",
+    equation_form = "20log10_ind",
+    equation_length_unit = "cm",
+    slope = 20,
+    intercept = -70,
+    length_min = NA_real_,
+    length_max = NA_real_,
+    depth_min = NA_real_,
+    depth_max = NA_real_
+  )
+
+  out <- tsbiomass:::prepare_traits(species_db, study_db, refresh = TRUE)
+
+  expect_true(is.na(out$study_length_min[[1]]))
+  expect_true(is.na(out$study_length_max[[1]]))
+  expect_true(is.na(out$study_depth_min[[1]]))
+  expect_true(is.na(out$study_depth_max[[1]]))
+  expect_equal(out$species_length_min[[1]], 5)
+  expect_equal(out$species_length_max[[1]], 40)
+  expect_equal(out$species_depth_min[[1]], 0)
+  expect_equal(out$species_depth_max[[1]], 500)
+})
+
 test_that("weight-referenced FishBase metadata converts to standardized length coefficients", {
   rows <- tibble::tibble(
     scientific_name = "Sardinops sagax",
     equation_form = "mlog10_kg",
+    equation_length_unit = "cm",
     slope = -14.9,
     intercept = -13.21,
     lw_b = 3.253,
@@ -297,6 +335,10 @@ test_that("Alchemist query-distance augmentation uses the stored learner", {
     coherence_config = list(),
     taxonomic_distance = FALSE,
     feature_normalization = list(family = list(scale = NA_real_)),
+    component_feature_normalization = list(family = list(scale = NA_real_)),
+    coherence_normalization = list(),
+    policy_component_definition =
+      "unweighted_gower_configured_parent_traits_coherence_replacement_v2",
     feature_cols = ".dist_family"
   )
 
@@ -308,6 +350,10 @@ test_that("Alchemist query-distance augmentation uses the stored learner", {
 
   expect_equal(augmented$learned_directed_dist["a", "query"], 1)
   expect_equal(augmented$learned_directed_dist["b", "query"], 0)
+  expect_equal(as.matrix(augmented$combined_dist)["a", "query"], 1)
+  expect_equal(as.matrix(augmented$combined_dist)["b", "query"], 0)
+  expect_equal(augmented$species_dist_model["a", "query"], 1)
+  expect_equal(augmented$species_dist_model["b", "query"], 0)
   expect_error(
     tsbiomass:::augment_alchemist_query_distances(
       models,
@@ -849,6 +895,92 @@ test_that("screening a novel-species query with no backscatter still finds an ad
   expect_true(is.na(eval_obj$anchor_sigma))
   expect_gt(nrow(eval_obj$admissible_df), 0)
   expect_true(all(is.na(eval_obj$admissible_df$biomass_multiplier_if_replace)))
+})
+
+test_that("Alchemist query projection preserves a fitted parent feature for multivalued queries", {
+  models <- tibble::tibble(
+    model_id = c("a", "b", "query"),
+    fao_area = c("21", "27", "21;27")
+  )
+  existing <- matrix(
+    c(0, 1, 1, 0),
+    nrow = 2,
+    dimnames = list(c("a", "b"), c("a", "b"))
+  )
+  learner <- structure(
+    list(feature_cols = ".dist_fao_area", weights = c(.dist_fao_area = 1)),
+    class = "Mahalanobis"
+  )
+  distance_state <- list(
+    distance_mode = "alchemist_super_learner",
+    distance_learner = learner,
+    learned_directed_dist = existing,
+    species_trait_names = character(0),
+    study_trait_names = "fao_area",
+    feature_type = "gower",
+    coherence_config = list(),
+    taxonomic_distance = FALSE,
+    feature_normalization = list(fao_area = list(scale = NA_real_)),
+    component_feature_normalization = list(fao_area = list(scale = NA_real_)),
+    coherence_normalization = list(),
+    policy_component_definition =
+      "unweighted_gower_configured_parent_traits_coherence_replacement_v2",
+    feature_cols = ".dist_fao_area"
+  )
+
+  pairs <- tsbiomass:::alchemist_query_pair_features(
+    models,
+    distance_state,
+    donor_model_ids = models$model_id,
+    anchor_model_ids = "query"
+  )
+  expect_equal(pairs$.dist_fao_area[pairs$.donor_model_id == "a"], 0.5)
+  expect_equal(pairs$.dist_fao_area[pairs$.donor_model_id == "b"], 0.5)
+
+  augmented <- tsbiomass:::augment_alchemist_query_distances(
+    models,
+    distance_state,
+    query_model_ids = "query"
+  )
+
+  expect_equal(augmented$learned_directed_dist["a", "query"], sqrt(0.5))
+  expect_equal(augmented$learned_directed_dist["b", "query"], sqrt(0.5))
+  expect_equal(augmented$study_dist["a", "query"], 0.5)
+  expect_equal(augmented$study_dist["b", "query"], 0.5)
+})
+
+test_that("external query anchors use the same auditable gate contract", {
+  candidates <- make_candidates(seed_similarity_tuning = FALSE)
+  new_anchor <- candidates@candidate_models |>
+    dplyr::filter(.data$model_id == 1L) |>
+    dplyr::slice(1L) |>
+    dplyr::mutate(
+      model_id = 992L,
+      model_id_chr = "992",
+      species_name = "Novel species"
+    )
+  cfg <- minimal_config_data()
+  cfg$admissibility$species_traits <- "family"
+  cfg$admissibility$coherence$frequency <- list(mode = "overlap", gap = 20)
+
+  screened <- screen_admissibility(
+    reference_anchors = new_anchor,
+    candidate_models = candidates@candidate_models,
+    config = cfg,
+    refresh = TRUE,
+    progress = FALSE,
+    registry_path = trait_registry_path()
+  )
+  audit <- tibble::as_tibble(screened$all_gate_audit)
+  scores <- tibble::as_tibble(screened$all_scores)
+
+  expect_gt(nrow(audit), 0L)
+  expect_identical(unique(audit$anchor_model_id), "992")
+  frequency_audit <- audit[audit$gate == "frequency", c("donor_model_id", "gate_pass")]
+  frequency_scores <- scores[, c("model_id", "gate_frequency")]
+  frequency_audit <- frequency_audit[order(frequency_audit$donor_model_id), ]
+  frequency_scores <- frequency_scores[order(as.character(frequency_scores$model_id)), ]
+  expect_identical(frequency_audit$gate_pass, frequency_scores$gate_frequency)
 })
 
 test_that("full anchor screening rejects malformed direct query PDF data", {

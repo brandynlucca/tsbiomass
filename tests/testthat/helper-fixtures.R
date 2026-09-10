@@ -50,9 +50,9 @@ minimal_config_data <- function() {
       species_traits = list(genus = 1, family = 0.5),
       study_traits = list(frequency = 1, fao_area = 1),
       coherence = list(
-        length = list(mode = "overlap", weight = 2),
-        depth = list(mode = "overlap", weight = 1),
-        frequency = list(mode = "overlap", weight = 1, gap = 60)
+        length = list(mode = "overlap", source = "both", weight = 2),
+        depth = list(mode = "overlap", source = "both", weight = 1),
+        frequency = list(mode = "overlap", weight = 1)
       )
     ),
     admissibility = list(
@@ -62,7 +62,7 @@ minimal_config_data <- function() {
       coherence = list(
         length = list(mode = "overlap", min = 0.25),
         depth = list(mode = "overlap", min = 0.25),
-        frequency = list(mode = "none", gap = 60)
+        frequency = list(mode = "none")
       )
     ),
     policies = list(
@@ -167,8 +167,14 @@ minimal_candidate_models <- function() {
     study_length_min = c(10, 12, 20, 15),
     study_length_max = c(30, 25, 35, 28),
     study_length_midpoint = c(20, 18.5, 27.5, 21.5),
+    species_length_min = c(8, 8, 15, 10),
+    species_length_max = c(35, 35, 40, 32),
     depth_min = c(5, 10, 15, 8),
     depth_max = c(50, 60, 80, 55),
+    study_depth_min = c(5, 10, 15, 8),
+    study_depth_max = c(50, 60, 80, 55),
+    species_depth_min = c(0, 0, 10, 5),
+    species_depth_max = c(100, 100, 120, 90),
     slope_len = c(20, 18, 20, 17),
     intercept_len = c(-70, -68, -65, -67),
     lw_a_g = c(0.012, 0.013, 0.011, 0.014),
@@ -289,6 +295,22 @@ minimal_admissibility_scores <- function() {
     admissible = c(TRUE, FALSE, TRUE, TRUE, TRUE, TRUE),
     gate_missing_key_metadata = c(TRUE, FALSE, TRUE, TRUE, TRUE, TRUE)
   )
+}
+
+mark_current_admissibility <- function(bundle, config = NULL) {
+  contract <- tsbiomass:::build_admissibility_contract(config)
+  bundle$logic_version <- tsbiomass:::anchor_admissibility_logic_version()
+  bundle$effective_contract <- contract
+  bundle$effective_contract_fingerprint <- tsbiomass:::admissibility_audit_fingerprint(contract)
+  if (is.null(bundle$all_gate_audit)) {
+    bundle$all_gate_audit <- tibble::tibble(
+      anchor_model_id = character(0),
+      donor_model_id = character(0),
+      gate = character(0),
+      gate_pass = logical(0)
+    )
+  }
+  bundle
 }
 
 minimal_policy_performance <- function() {

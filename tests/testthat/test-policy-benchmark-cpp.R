@@ -7,6 +7,7 @@ cpp_policy_eval_fixture <- function() {
     w_adm = c(0.24, 0.18, 0.16, 0.14, 0.11, 0.08, 0.06, 0.03),
     combined_distance = c(0.05, 0.12, 0.20, 0.28, 0.35, 0.44, 0.55, 0.70),
     trait_gower_distance = c(0.03, 0.10, 0.17, 0.25, 0.31, 0.40, 0.49, 0.62),
+    d_study = c(0.42, 0.05, 0.18, 0.27, 0.36, 0.45, 0.54, 0.63),
     taxonomic_distance_to_anchor = c(0, 0, 0.25, 0.25, 0.5, 0.7, 0.8, 0.9),
     d_species = c(0, 0, 0.2, 0.2, 0.45, 0.65, 0.75, 0.85),
     length_overlap_fraction = c(1, .9, .8, .75, .7, .65, .6, .5),
@@ -100,6 +101,8 @@ test_that("C++ policy engine matches the R oracle column by column", {
     "local_weighted_mean_combined_distance", "local_weighted_q90_combined_distance",
     "local_min_trait_gower_distance", "local_weighted_mean_trait_gower_distance",
     "local_weighted_q90_trait_gower_distance", "local_min_taxonomic_distance",
+    "local_min_survey_distance", "local_weighted_mean_survey_distance",
+    "local_weighted_q90_survey_distance",
     "local_weighted_mean_taxonomic_distance", "local_weighted_q90_taxonomic_distance",
     "local_min_species_distance",
     "local_weighted_mean_species_distance", "local_mean_length_overlap",
@@ -120,7 +123,7 @@ test_that("C++ policy engine matches the R oracle column by column", {
   }
 })
 
-test_that("C++ nearest combined engine applies the taxonomic tier guard", {
+test_that("nearest combined is a pure global combined-distance argmin", {
   policies <- "closest_within_species"
   plan <- tsbiomass:::build_policy_execution_plan(
     policies = policies,
@@ -140,9 +143,97 @@ test_that("C++ nearest combined engine applies the taxonomic tier guard", {
     compiled_plan = compiled
   )
 
-  expect_equal(r_result$policy_slope_len[[1]], eval_obj$admissible_df$slope_len[[1]])
+  expect_equal(r_result$policy_slope_len[[1]], eval_obj$admissible_df$slope_len[[2]])
   expect_equal(cpp_result$policy_slope_len[[1]], r_result$policy_slope_len[[1]])
   expect_equal(cpp_result$local_min_combined_distance[[1]], r_result$local_min_combined_distance[[1]])
+})
+
+test_that("survey-distance policies use d_study and never fall back", {
+  policies <- "survey_distance_across_all_admissible"
+  plan <- tsbiomass:::build_policy_execution_plan(
+    policies = policies,
+    policy_params = list(slope_class = "all")
+  )
+  compiled <- tsbiomass:::compile_policy_execution_plan_cpp(plan)
+  eval_obj <- cpp_policy_eval_fixture()
+
+  r_result <- tsbiomass:::evaluate_policies(eval_obj, execution_plan = plan)
+  cpp_result <- tsbiomass:::evaluate_policies_cpp(eval_obj, compiled_plan = compiled)
+
+  expect_equal(r_result$aggregation_method, "nearest_by_survey_distance")
+  expect_equal(r_result$realized_donor_fingerprint, "d2")
+  expect_equal(cpp_result$realized_donor_fingerprint, "d2")
+  expect_equal(cpp_result$local_min_survey_distance, 0.05)
+
+  eval_obj$admissible_df$d_study <- NULL
+  r_missing <- tsbiomass:::evaluate_policies(eval_obj, execution_plan = plan)
+  cpp_missing <- tsbiomass:::evaluate_policies_cpp(eval_obj, compiled_plan = compiled)
+  expect_true(is.na(r_missing$multiplier_pred[[1]]))
+  expect_true(is.na(cpp_missing$multiplier_pred[[1]]))
+  expect_equal(r_missing$n_valid_models[[1]], 0L)
+  expect_equal(cpp_missing$n_valid_models[[1]], 0L)
+})
+
+test_that("exact nearest-policy ties are invariant to donor row order", {
+  policies <- c(
+    "closest_across_all_admissible",
+    "survey_distance_across_all_admissible",
+    "taxon_distance_across_all_admissible",
+    "species_distance_across_all_admissible"
+  )
+  plan <- tsbiomass:::build_policy_execution_plan(
+    policies = policies,
+    policy_params = list(slope_class = "all")
+  )
+  compiled <- tsbiomass:::compile_policy_execution_plan_cpp(plan)
+  eval_obj <- cpp_policy_eval_fixture()
+  eval_obj$admissible_df$combined_distance[1:2] <- 0.05
+  eval_obj$admissible_df$d_study[1:2] <- 0.05
+  eval_obj$admissible_df$taxonomic_distance_to_anchor[1:2] <- 0
+  eval_obj$admissible_df$d_species[1:2] <- 0
+
+  reversed <- eval_obj
+  reversed$admissible_df <- reversed$admissible_df[rev(seq_len(nrow(reversed$admissible_df))), , drop = FALSE]
+
+  r_original <- tsbiomass:::evaluate_policies(eval_obj, execution_plan = plan)
+  r_reversed <- tsbiomass:::evaluate_policies(reversed, execution_plan = plan)
+  cpp_original <- tsbiomass:::evaluate_policies_cpp(eval_obj, compiled_plan = compiled)
+  cpp_reversed <- tsbiomass:::evaluate_policies_cpp(reversed, compiled_plan = compiled)
+
+  expect_equal(r_original$realized_donor_fingerprint, rep("d1", length(policies)))
+  expect_equal(r_reversed$realized_donor_fingerprint, r_original$realized_donor_fingerprint)
+  expect_equal(cpp_original$realized_donor_fingerprint, r_original$realized_donor_fingerprint)
+  expect_equal(cpp_reversed$realized_donor_fingerprint, r_original$realized_donor_fingerprint)
+})
+
+test_that("component policies use exact lexicographic ordering", {
+  plan <- tsbiomass:::build_policy_execution_plan(
+    policies = "species_distance_across_all_admissible",
+    policy_params = list(slope_class = "all")
+  )
+  compiled <- tsbiomass:::compile_policy_execution_plan_cpp(plan)
+  eval_obj <- cpp_policy_eval_fixture()
+  eval_obj$admissible_df$d_species[1:2] <- c(0.100000000001, 0.1)
+  eval_obj$admissible_df$combined_distance[1:2] <- c(0, 1000)
+
+  r_result <- tsbiomass:::evaluate_policies(eval_obj, execution_plan = plan)
+  cpp_result <- tsbiomass:::evaluate_policies_cpp(eval_obj, compiled_plan = compiled)
+
+  expect_equal(r_result$realized_donor_fingerprint, "d2")
+  expect_equal(cpp_result$realized_donor_fingerprint, "d2")
+})
+
+test_that("nearest-study policy is invalid without study identity", {
+  rows <- cpp_policy_eval_fixture()$admissible_df |>
+    dplyr::select(-dplyr::any_of(c("study_cell_id", "citation")))
+  policy_def <- list(aggregation_method = "nearest_study_then_model")
+
+  equation <- tsbiomass:::policy_equation(rows, policy_def)
+  summary <- tsbiomass:::policy_summary_rows(rows, policy_def)
+
+  expect_true(is.na(equation$policy_slope_len))
+  expect_true(is.na(equation$policy_intercept_len))
+  expect_equal(nrow(summary), 0L)
 })
 
 test_that("C++ engine matches the complete production policy plan", {
@@ -218,9 +309,10 @@ test_that("C++ engine retains generalized rows identified by missing species", {
   expect_equal(cpp_result$multiplier_pred, r_result$multiplier_pred, tolerance = 1e-10)
 })
 
-test_that("C++ engine preserves R fallback semantics for absent distance columns", {
+test_that("named distance policies are invalid when their component is absent", {
   policies <- c(
     "closest_across_all_admissible",
+    "survey_distance_across_all_admissible",
     "taxon_distance_across_all_admissible",
     "species_distance_across_all_admissible"
   )
@@ -230,6 +322,7 @@ test_that("C++ engine preserves R fallback semantics for absent distance columns
   )
   compiled <- tsbiomass:::compile_policy_execution_plan_cpp(plan)
   eval_obj <- cpp_policy_eval_fixture()
+  eval_obj$admissible_df$d_study <- NULL
   eval_obj$admissible_df$taxonomic_distance_to_anchor <- NULL
   eval_obj$admissible_df$d_species <- NULL
 
@@ -244,6 +337,13 @@ test_that("C++ engine preserves R fallback semantics for absent distance columns
 
   expect_setequal(names(cpp_result), names(r_result))
   expect_equal(cpp_result[names(r_result)], r_result, tolerance = 1e-10)
+  expect_true(is.finite(r_result$multiplier_pred[r_result$aggregation_method == "nearest_by_combined_distance"]))
+  component_methods <- c(
+    "nearest_by_survey_distance", "nearest_by_taxonomic_distance",
+    "nearest_by_species_distance"
+  )
+  expect_true(all(is.na(r_result$multiplier_pred[r_result$aggregation_method %in% component_methods])))
+  expect_true(all(r_result$n_valid_models[r_result$aggregation_method %in% component_methods] == 0L))
 })
 
 test_that("C++ TS-error reconstruction matches the R oracle", {
