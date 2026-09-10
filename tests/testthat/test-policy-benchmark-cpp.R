@@ -34,6 +34,56 @@ cpp_policy_eval_fixture <- function() {
   )
 }
 
+cpp_complete_policy_plan_fixture <- function() {
+  all_metrics <- c(
+    "closest", "weighted_mean", "unweighted_mean",
+    "survey_distance", "taxon_distance", "species_distance"
+  )
+  species_metrics <- all_metrics[seq_len(4L)]
+
+  within_group <- function(group, metrics = all_metrics) {
+    paste0(metrics, "_within_", group)
+  }
+  within_group_joint <- function(group, joint, metrics = all_metrics) {
+    if (identical(joint, "study_cell")) {
+      paste0(metrics, "_study_cell_", group)
+    } else {
+      paste0(metrics, "_within_", group, "_", joint)
+    }
+  }
+
+  c(
+    within_group("species", species_metrics),
+    unlist(lapply(
+      c("study_cell", "fao", "ocean_basin", "ocean_basin_season"),
+      within_group_joint,
+      group = "species",
+      metrics = species_metrics
+    ), use.names = FALSE),
+    within_group("genus"),
+    unlist(lapply(
+      c("study_cell", "fao", "ocean_basin", "ocean_basin_season"),
+      within_group_joint,
+      group = "genus"
+    ), use.names = FALSE),
+    within_group("family"),
+    unlist(lapply(
+      c("study_cell", "fao", "ocean_basin", "ocean_basin_season"),
+      within_group_joint,
+      group = "family"
+    ), use.names = FALSE),
+    paste0(all_metrics, "_generalized"),
+    unlist(lapply(
+      c("ocean_basin", "ocean_basin_season"),
+      function(joint) paste0(all_metrics, "_generalized_", joint)
+    ), use.names = FALSE),
+    within_group("ocean_basin"),
+    within_group("fao"),
+    within_group("study_cell"),
+    paste0(all_metrics, "_across_all_admissible")
+  )
+}
+
 test_that("compiled policy plan collapses repeated donor pools", {
   policies <- c(
     "closest_within_species",
@@ -237,15 +287,11 @@ test_that("nearest-study policy is invalid without study identity", {
 })
 
 test_that("C++ engine matches the complete production policy plan", {
-  config <- read_configuration(system.file(
-    "templates", "swfscfish_config.yaml",
-    package = "tsbiomass"
-  ))
-  policies <- tsbiomass:::policy_selector_active_policies(config, NULL)
+  policies <- cpp_complete_policy_plan_fixture()
   plan <- tsbiomass:::build_policy_execution_plan(
     policies = policies,
     policy_params = list(
-      slope_class = config$policies$slope_class
+      slope_class = c("all", "fixed20_only", "free_slope_only")
     )
   )
   compiled <- tsbiomass:::compile_policy_execution_plan_cpp(plan)

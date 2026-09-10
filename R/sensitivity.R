@@ -222,6 +222,8 @@ construct_sensitivity_table <- S7::new_generic("construct_sensitivity_table", "s
 #'
 #' @name construct_sensitivity_table.default
 #' @usage NULL
+#' @keywords internal
+#' @noRd
 #' @param scenario_specifications Named scenario-specification list.
 #' @param scenario_results Named scenario benchmark result list.
 #' @param config Optional JSON path or list with sensitivity settings.
@@ -289,6 +291,8 @@ S7::method(construct_sensitivity_table, S7::class_any) <- function(scenario_spec
 #'
 #' @name construct_sensitivity_table.PolicySimulator
 #' @usage NULL
+#' @keywords internal
+#' @noRd
 S7::method(construct_sensitivity_table, PolicySimulator) <- function(scenario_specifications,
                                                                      scenario_results = NULL,
                                                                      config = NULL) {
@@ -327,6 +331,8 @@ collect_sensitivity_results <- S7::new_generic("collect_sensitivity_results", "s
 #'
 #' @name collect_sensitivity_results.default
 #' @usage NULL
+#' @keywords internal
+#' @noRd
 #' @param scenario_results Named scenario benchmark result list.
 S7::method(collect_sensitivity_results, S7::class_any) <- function(scenario_results) {
   # Bind the benchmark reference tables across scenarios while keeping the
@@ -359,6 +365,8 @@ S7::method(collect_sensitivity_results, S7::class_any) <- function(scenario_resu
 #'
 #' @name collect_sensitivity_results.PolicySimulator
 #' @usage NULL
+#' @keywords internal
+#' @noRd
 S7::method(collect_sensitivity_results, PolicySimulator) <- function(scenario_results) {
   if (length(scenario_results@tables) > 0) {
     return(scenario_results@tables)
