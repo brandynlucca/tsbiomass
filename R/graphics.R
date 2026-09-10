@@ -4482,7 +4482,7 @@ plot_ts_panel <- function(curve_tbl,
   label_tbl <- curve_tbl |>
     dplyr::group_by(.data[[reference_col]]) |>
     dplyr::summarise(
-      label_expr = paste0("italic('", dplyr::first(.data[[reference_col]]), "')"),
+      label_text = dplyr::first(.data[[reference_col]]),
       .groups = "drop"
     ) |>
     dplyr::mutate(
@@ -4534,8 +4534,8 @@ plot_ts_panel <- function(curve_tbl,
     ) +
     ggplot2::geom_text(
       data = label_tbl,
-      ggplot2::aes(x = .data$x_label, y = .data$y_label, label = .data$label_expr),
-      parse = TRUE,
+      ggplot2::aes(x = .data$x_label, y = .data$y_label, label = .data$label_text),
+      fontface = "italic",
       hjust = 1.03,
       vjust = -0.55,
       size = 3.2

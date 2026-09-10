@@ -64,12 +64,16 @@ normalize_similarity_data <- function(candidate_models) {
 #' @noRd
 normalize_similarity_frequency_method <- function(method) {
   method_value <- stringr::str_to_lower(stringr::str_squish(as.character(method %||% "overlap")))[[1]]
-  switch(method_value,
+  normalized <- switch(method_value,
     overlap = "overlap",
     literal = "literal",
     none = "none",
-    method_value
+    NA_character_
   )
+  if (is.na(normalized)) {
+    stop("Frequency similarity mode must be one of: overlap, literal, none.", call. = FALSE)
+  }
+  normalized
 }
 
 #' Expand one trait block for similarity preparation
@@ -248,8 +252,10 @@ collapse_species_profiles <- function(models_df,
 #' @keywords internal
 #' @noRd
 compute_frequency_span <- function(frequency) {
-  # Frequency scaling later uses the observed positive span; when the span is
-  # undefined, fall back to `1` to keep the distance term finite.
+  # Frequency scaling uses the observed positive log span. A unit denominator
+  # is the declared convention for a degenerate training scale (fewer than two
+  # distinct positive frequencies); it prevents an undefined 0/0 without
+  # changing any pairwise offset when all observed frequencies are identical.
   freq_vals <- suppressWarnings(as.numeric(frequency))
   freq_vals <- freq_vals[is.finite(freq_vals) & freq_vals > 0]
   out <- if (length(freq_vals) >= 2) {
@@ -368,7 +374,6 @@ read_similarity_config <- function(config) {
       cache_path = similarity_cfg$cache_path %||% NULL,
       refresh = similarity_cfg$refresh %||% NULL,
       exact_frequency = NULL,
-      frequency_gap = frequency_cfg$gap %||% NULL,
       length_coherence = list(
         method = length_mode,
         weight = length_cfg$weight %||% NULL,
@@ -2202,8 +2207,7 @@ frequency_offset_distance_matrix <- function(freq_vals,
 
   valid_mask <- outer(valid, valid, `&`)
   if (identical(method, "literal")) {
-    rounded <- as.integer(round(freq_vals))
-    out[valid_mask] <- as.numeric(outer(rounded, rounded, `!=`))[valid_mask]
+    out[valid_mask] <- as.numeric(outer(freq_vals, freq_vals, `!=`))[valid_mask]
     diag(out) <- 0
     return(out)
   }

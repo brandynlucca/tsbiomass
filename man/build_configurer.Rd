@@ -52,9 +52,9 @@ cfg <- build_configurer(list(
     species_traits = list(genus = 2, family = 1),
     study_traits = list(frequency = 1, fao_area = 1),
     coherence = list(
-      length = list(mode = "overlap", weight = 2),
-      depth = list(mode = "overlap", weight = 3),
-      frequency = list(mode = "overlap", weight = 2, gap = 60)
+      length = list(mode = "overlap", source = "both", weight = 2),
+      depth = list(mode = "overlap", source = "both", weight = 3),
+      frequency = list(mode = "overlap", weight = 2)
     )
   ),
   admissibility = list(
@@ -62,7 +62,7 @@ cfg <- build_configurer(list(
     coherence = list(
       length = list(mode = "overlap", min = 0.25),
       depth = list(mode = "overlap", min = 0.25),
-      frequency = list(mode = "overlap")
+      frequency = list(mode = "overlap", gap = 60)
     )
   ),
   policies = list(

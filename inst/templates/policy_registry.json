@@ -68,7 +68,7 @@
       "policy_family": "single_model",
       "aggregation_method": "nearest_by_combined_distance",
       "display_template": "Closest {group_phrase} model",
-      "aggregation_definition": "Select the single eligible donor equation with the smallest combined species-study distance; ties are resolved deterministically by the policy ranking code. The biomass multiplier is computed afterward from the selected equation relative to the reference anchor."
+      "aggregation_definition": "Select the single eligible donor equation with the smallest configured combined distance. Taxonomic distance does not prefilter this policy. Exact ties are resolved by the invariant donor identity key. The biomass multiplier is computed afterward from the selected equation relative to the reference anchor."
     },
     {
       "key": "weighted_mean",
@@ -90,9 +90,9 @@
       "key": "survey_distance",
       "coded_prefix": "survey_distance_",
       "policy_family": "single_model",
-      "aggregation_method": "nearest_by_trait_gower_distance",
+      "aggregation_method": "nearest_by_survey_distance",
       "display_template": "Survey-distance nearest {group_phrase} model",
-      "aggregation_definition": "Select the single eligible donor equation with the smallest survey-metadata Gower distance, using combined distance as a deterministic tie-break. The biomass multiplier is computed afterward from the selected equation relative to the reference anchor."
+      "aggregation_definition": "Select the single eligible donor equation with the smallest configured survey distance (`d_study`), using combined distance and then invariant donor identity only for exact ties. If `d_study` is unavailable, the policy is invalid; no substitute distance is used. The biomass multiplier is computed afterward from the selected equation relative to the reference anchor."
     },
     {
       "key": "taxon_distance",
@@ -100,7 +100,7 @@
       "policy_family": "single_model",
       "aggregation_method": "nearest_by_taxonomic_distance",
       "display_template": "Taxon-distance nearest {group_phrase} model",
-      "aggregation_definition": "Select the single eligible donor equation with the smallest numeric taxonomic distance to the anchor, using combined distance as a deterministic tie-break. The biomass multiplier is computed afterward from the selected equation relative to the reference anchor."
+      "aggregation_definition": "Select the single eligible donor equation with the smallest numeric taxonomic distance to the anchor, using combined distance and then invariant donor identity only for exact ties. If taxonomic distance is unavailable, the policy is invalid; no substitute distance is used. The biomass multiplier is computed afterward from the selected equation relative to the reference anchor."
     },
     {
       "key": "species_distance",
@@ -108,7 +108,7 @@
       "policy_family": "single_model",
       "aggregation_method": "nearest_by_species_distance",
       "display_template": "Species-distance nearest {group_phrase} model",
-      "aggregation_definition": "Select the single eligible donor equation with the smallest species-distance term after excluding same-species donors, using combined distance as a deterministic tie-break. The biomass multiplier is computed afterward from the selected equation relative to the reference anchor."
+      "aggregation_definition": "Select the single eligible donor equation with the smallest configured species distance after excluding same-species donors, using combined distance and then invariant donor identity only for exact ties. If species distance is unavailable, the policy is invalid; no substitute distance is used. The biomass multiplier is computed afterward from the selected equation relative to the reference anchor."
     },
     {
       "key": "random",

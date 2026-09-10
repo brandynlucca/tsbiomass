@@ -66,6 +66,64 @@ NULL
 
 # - Config normalization -
 
+#' Identify coherence fields that do not define Alchemist distance features
+#'
+#' Empirical weights belong to the legacy empirical similarity kernel, while
+#' frequency `gap` belongs to admissibility. Neither defines an Alchemist
+#' distance feature.
+#'
+#' @keywords internal
+#' @noRd
+alchemist_non_distance_coherence_names <- function() {
+  c(
+    "weight", "length_weight", "depth_weight", "frequency_weight",
+    "length_overlap_weight", "depth_overlap_weight",
+    "frequency_coherence_weight", "gap"
+  )
+}
+
+#' Locate non-distance fields in nested coherence settings
+#' @keywords internal
+#' @noRd
+alchemist_coherence_non_distance_paths <- function(coherence,
+                                                   prefix = "coherence") {
+  if (!is.list(coherence)) {
+    return(character(0))
+  }
+  paths <- character(0)
+  for (name in names(coherence)) {
+    path <- paste(prefix, name, sep = ".")
+    if (name %in% alchemist_non_distance_coherence_names()) {
+      paths <- c(paths, path)
+    }
+    if (is.list(coherence[[name]])) {
+      paths <- c(
+        paths,
+        alchemist_coherence_non_distance_paths(coherence[[name]], path)
+      )
+    }
+  }
+  unique(paths)
+}
+
+#' Remove non-distance fields from Alchemist coherence settings
+#' @keywords internal
+#' @noRd
+alchemist_coherence_distance_view <- function(coherence) {
+  coherence <- coherence %||% list()
+  if (!is.list(coherence)) {
+    stop("'alchemist.coherence' must be a named list.", call. = FALSE)
+  }
+  strip <- function(x) {
+    if (!is.list(x)) {
+      return(x)
+    }
+    x[intersect(names(x), alchemist_non_distance_coherence_names())] <- NULL
+    lapply(x, strip)
+  }
+  strip(coherence)
+}
+
 #' Extract Alchemist config fields from a broader config source
 #'
 #' @param source Candidates, Configurer, or config-like list.
@@ -107,12 +165,39 @@ alchemist_config_from_config <- function(source) {
     (cfg$cache %||% list())$refresh %||%
     FALSE
 
+  alchemist_coherence_supplied <- !is.null(alch$coherence)
+  coherence_raw <- alch$coherence %||% sim$coherence %||% list()
+  non_distance_paths <- alchemist_coherence_non_distance_paths(
+    coherence_raw,
+    prefix = if (alchemist_coherence_supplied) {
+      "alchemist.coherence"
+    } else {
+      "similarity.coherence"
+    }
+  )
+  if (alchemist_coherence_supplied && length(non_distance_paths) > 0L) {
+    stop(
+      paste0(
+        "Alchemist coherence accepts distance modes and sources only. ",
+        "Empirical weights belong to similarity tuning and frequency gap belongs to admissibility: ",
+        paste(non_distance_paths, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+  excluded_non_distance_parameters <- c(
+    if (!is.null(sim$alpha)) "similarity.alpha" else character(0),
+    if (!alchemist_coherence_supplied) non_distance_paths else character(0)
+  )
+
   list(
     species_traits = alch$species_traits %||% sim$species_traits %||% list(),
     study_traits = alch$study_traits %||% sim$study_traits %||% list(),
-    coherence = alch$coherence %||% sim$coherence %||% list(),
+    coherence = alchemist_coherence_distance_view(coherence_raw),
+    excluded_non_distance_similarity_parameters = excluded_non_distance_parameters,
     taxonomic_distance = alch$taxonomic_distance %||% FALSE,
     feature_type = alch$feature_type %||% "gower",
+    categorical_distance = alch$categorical_distance %||% "observed_indicators",
     learner = list(
       methods = alch$learner$methods %||% ml$super_methods %||% NULL,
       inner_folds = as.integer(alch$learner$inner_folds %||%
@@ -182,6 +267,25 @@ normalize_alchemist_config <- function(config, candidates = NULL) {
   }
 
   if (is.null(config$learner)) config$learner <- list()
+  direct_non_distance_paths <- alchemist_coherence_non_distance_paths(
+    config$coherence %||% list(),
+    prefix = "alchemist.coherence"
+  )
+  already_separated <- !is.null(
+    config$excluded_non_distance_similarity_parameters
+  )
+  if (!already_separated && length(direct_non_distance_paths) > 0L) {
+    stop(
+      paste0(
+        "Alchemist coherence accepts distance modes and sources only; move empirical weights to similarity tuning and frequency gap to admissibility: ",
+        paste(direct_non_distance_paths, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+  config$coherence <- alchemist_coherence_distance_view(
+    config$coherence %||% list()
+  )
   config$learner$inner_folds <- as.integer(config$learner$inner_folds %||% 5L)
   config$learner$seed <- if (!is.null(config$learner$seed)) {
     as.integer(config$learner$seed)
@@ -200,6 +304,9 @@ normalize_alchemist_config <- function(config, candidates = NULL) {
   config$learner$workers <- as.integer(config$learner$workers %||% 1L)
   config$distill_workers <- as.integer(config$distill_workers %||% 1L)
   config$feature_type <- config$feature_type %||% "gower"
+  config$categorical_distance <- normalize_alchemist_categorical_distance(
+    config$categorical_distance %||% "observed_indicators"
+  )
   config$refresh <- isTRUE(config$refresh %||% FALSE)
 
   config
@@ -857,8 +964,9 @@ tax_dist_mat <- function(models_df, tax_col_map) {
 #' Compute pairwise coherence distance matrices
 #'
 #' Builds length-, depth-, and frequency-coherence feature matrices for all
-#' candidate model pairs. Missing columns or `mode = "none"` silently return
-#' `NULL` for that dimension. The asymmetric convention matches
+#' candidate model pairs. `mode = "none"` disables a dimension. An active
+#' configured dimension with unavailable columns or values is an error rather
+#' than a signal to substitute another source. The asymmetric convention matches
 #' `build_pair_data()`: `mat[i, j]` is the coherence distance when
 #' model j is the anchor and model i is the donor.
 #'
@@ -866,25 +974,28 @@ tax_dist_mat <- function(models_df, tax_col_map) {
 #' @param coherence_cfg Named list with sub-lists `length`, `depth`, and
 #'   `frequency`, each carrying a `mode` character field (`"overlap"`,
 #'   `"literal"`, or `"none"`).
+#' @param normalization Optional training-derived normalization values. The
+#'   query path must reuse these values rather than rescale to the query.
 #'
 #' @return Named list of matrices (or `NULL` entries for disabled dimensions).
 #'   Names: `length_coherence`, `depth_coherence`, `frequency_coherence`.
 #'
 #' @keywords internal
 #' @noRd
-coherence_mats <- function(models_df, coherence_cfg) {
+coherence_mats <- function(models_df,
+                           coherence_cfg,
+                           normalization = NULL) {
   len_mode <- as.character(coherence_cfg$length$mode %||% "none")
   dep_mode <- as.character(coherence_cfg$depth$mode %||% "none")
   freq_mode <- as.character(coherence_cfg$frequency$mode %||% "none")
 
   # source controls which column(s) back each interval dimension:
-  #   "best"    - study columns if present, species columns as fallback [def]
   #   "study"   - study-level sampling range only
   #   "species" - species-level biological range only
   #   "both"    - compute independently for both; returns two keyed matrices
   #               (e.g. length_coherence_study + length_coherence_species)
-  len_source <- as.character(coherence_cfg$length$source %||% "best")
-  dep_source <- as.character(coherence_cfg$depth$source %||% "best")
+  len_source <- as.character(coherence_cfg$length$source %||% NA_character_)
+  dep_source <- as.character(coherence_cfg$depth$source %||% NA_character_)
 
   n <- nrow(models_df)
 
@@ -918,43 +1029,62 @@ coherence_mats <- function(models_df, coherence_cfg) {
     if (identical(mode, "none")) {
       return(stats::setNames(list(NULL), base_key))
     }
+    if (!source %in% c("study", "species", "both")) {
+      stop(
+        sprintf(
+          "Active %s coherence requires an explicit source: study, species, or both.",
+          dim_key
+        ),
+        call. = FALSE
+      )
+    }
 
-    if (identical(source, "both")) {
-      result <- list()
-      lo_s <- resolve_num(resolve_col(study_lo))
-      hi_s <- resolve_num(resolve_col(study_hi))
-      if (any(is.finite(lo_s)) && any(is.finite(hi_s))) {
-        result[[paste0(base_key, "_study")]] <- interval_mat(lo_s, hi_s, mode)
-      }
-      lo_sp <- resolve_num(resolve_col(sp_lo))
-      hi_sp <- resolve_num(resolve_col(sp_hi))
-      if (any(is.finite(lo_sp)) && any(is.finite(hi_sp))) {
-        result[[paste0(base_key, "_species")]] <- interval_mat(
-          lo_sp, hi_sp,
-          mode
+    build_one <- function(lo_candidates, hi_candidates, source_label) {
+      lo_col <- resolve_col(lo_candidates)
+      hi_col <- resolve_col(hi_candidates)
+      if (is.null(lo_col) || is.null(hi_col)) {
+        stop(
+          sprintf(
+            "Active %s coherence source '%s' requires both configured range columns.",
+            dim_key,
+            source_label
+          ),
+          call. = FALSE
         )
       }
-      if (length(result) == 0L) result[[base_key]] <- NULL
+      lo <- resolve_num(lo_col)
+      hi <- resolve_num(hi_col)
+      if (!any(is.finite(lo) & is.finite(hi))) {
+        stop(
+          sprintf(
+            "Active %s coherence source '%s' has no finite paired range values.",
+            dim_key,
+            source_label
+          ),
+          call. = FALSE
+        )
+      }
+      interval_mat(lo, hi, mode)
+    }
+
+    if (identical(source, "both")) {
+      study_key <- paste0(base_key, "_study")
+      species_key <- paste0(base_key, "_species")
+      result <- stats::setNames(list(NULL, NULL), c(study_key, species_key))
+      result[[study_key]] <- build_one(study_lo, study_hi, "study")
+      result[[species_key]] <- build_one(sp_lo, sp_hi, "species")
       return(result)
     }
 
     lo_candidates <- switch(source,
       study = study_lo,
-      species = sp_lo,
-      c(study_lo, sp_lo) # "best": prefer study
+      species = sp_lo
     )
     hi_candidates <- switch(source,
       study = study_hi,
-      species = sp_hi,
-      c(study_hi, sp_hi)
+      species = sp_hi
     )
-    lo <- resolve_num(resolve_col(lo_candidates))
-    hi <- resolve_num(resolve_col(hi_candidates))
-    mat <- if (any(is.finite(lo)) && any(is.finite(hi))) {
-      interval_mat(lo, hi, mode)
-    } else {
-      NULL
-    }
+    mat <- build_one(lo_candidates, hi_candidates, source)
     stats::setNames(list(mat), base_key)
   }
 
@@ -972,11 +1102,22 @@ coherence_mats <- function(models_df, coherence_cfg) {
   )
 
   freq_mat <- NULL
+  freq_span <- suppressWarnings(as.numeric(
+    (normalization %||% list())$frequency_span %||% NA_real_
+  )[[1]])
   if (!identical(freq_mode, "none")) {
+    if (!"frequency" %in% names(models_df)) {
+      stop("Active frequency coherence requires the configured frequency column.", call. = FALSE)
+    }
     freq_vals <- resolve_num("frequency")
     valid_freq <- freq_vals[is.finite(freq_vals) & freq_vals > 0]
-    if (length(valid_freq) >= 2L) {
+    if (length(valid_freq) == 0L) {
+      stop("Active frequency coherence has no finite positive frequency values.", call. = FALSE)
+    }
+    if (!is.finite(freq_span) || freq_span <= 0) {
       freq_span <- compute_frequency_span(valid_freq)
+    }
+    if (length(valid_freq) >= 1L) {
       if (is.finite(freq_span) && freq_span > 0) {
         freq_mat <- frequency_offset_distance_matrix(
           freq_vals, freq_mode,
@@ -986,7 +1127,206 @@ coherence_mats <- function(models_df, coherence_cfg) {
     }
   }
 
-  c(len_mats, dep_mats, list(frequency_coherence = freq_mat))
+  out <- c(len_mats, dep_mats, list(frequency_coherence = freq_mat))
+
+  resolve_dimension_component <- function(dimension, source) {
+    source <- as.character(source %||% NA_character_)[[1]]
+    if (source %in% c("study", "species")) {
+      return(source)
+    }
+    NA_character_
+  }
+  component_map <- vapply(names(out), function(name) {
+    if (identical(name, "frequency_coherence")) {
+      return("study")
+    }
+    if (grepl("_study$", name)) {
+      return("study")
+    }
+    if (grepl("_species$", name)) {
+      return("species")
+    }
+    if (grepl("^length_coherence", name)) {
+      return(resolve_dimension_component("length", len_source))
+    }
+    if (grepl("^depth_coherence", name)) {
+      return(resolve_dimension_component("depth", dep_source))
+    }
+    NA_character_
+  }, character(1))
+  names(component_map) <- paste0(".dist_", names(out))
+  attr(out, "policy_component_map") <- component_map
+  attr(out, "normalization") <- list(frequency_span = freq_span)
+  out
+}
+
+#' Normalize the categorical/set-distance representation
+#'
+#' `observed_indicators` preserves the historical, training-data-dependent
+#' expansion. `registry_indicators` expands only registry-declared set traits
+#' over their complete allowed-value vocabulary. `set_jaccard` uses one scalar
+#' Jaccard distance per configured categorical trait; ordinary singleton
+#' categories are the special case in which Jaccard equals categorical
+#' mismatch.
+#'
+#' @keywords internal
+#' @noRd
+normalize_alchemist_categorical_distance <- function(x) {
+  value <- stringr::str_to_lower(stringr::str_squish(
+    as.character(x %||% "observed_indicators")[[1L]]
+  ))
+  aliases <- c(
+    "observed_indicators" = "observed_indicators",
+    "observed-indicators" = "observed_indicators",
+    "indicator" = "observed_indicators",
+    "indicators" = "observed_indicators",
+    "registry_indicators" = "registry_indicators",
+    "registry-indicators" = "registry_indicators",
+    "registry" = "registry_indicators",
+    "set_jaccard" = "set_jaccard",
+    "set-jaccard" = "set_jaccard",
+    "jaccard" = "set_jaccard"
+  )
+  out <- unname(aliases[value])
+  if (is.na(out) || !nzchar(out)) {
+    stop(
+      paste(
+        "Alchemist `categorical_distance` must be `observed_indicators`,",
+        "`registry_indicators`, or `set_jaccard`."
+      ),
+      call. = FALSE
+    )
+  }
+  out
+}
+
+#' Resolve complete allowed-value vocabularies for configured set traits
+#'
+#' @keywords internal
+#' @noRd
+alchemist_registry_set_levels <- function(trait_names, registry_path = NULL) {
+  registry <- read_trait_registry(registry_path = registry_path)
+  definitions <- c(
+    registry$species_traits %||% list(),
+    registry$study_traits %||% list()
+  )
+  names(definitions) <- vapply(
+    definitions,
+    function(x) as.character(x$coded_name %||% NA_character_),
+    character(1)
+  )
+  output <- list()
+  for (trait in unique(as.character(trait_names))) {
+    definition <- definitions[[trait]] %||% NULL
+    if (is.null(definition) ||
+        !identical(as.character(definition$data_type %||% "categorical"), "set")) {
+      next
+    }
+    allowed <- unique(as.character(unlist(
+      definition$allowed_values %||% character(0), use.names = FALSE
+    )))
+    allowed <- allowed[!is.na(allowed) & nzchar(trimws(allowed))]
+    if (!length(allowed)) {
+      stop(
+        sprintf(
+          "Registry-defined Alchemist set trait `%s` has no allowed values.",
+          trait
+        ),
+        call. = FALSE
+      )
+    }
+    output[[trait]] <- sort(allowed)
+  }
+  output
+}
+
+#' Expand a set trait over its complete registry-declared vocabulary
+#'
+#' @keywords internal
+#' @noRd
+expand_registry_set_col <- function(x, col_fn, tr, allowed_values) {
+  allowed_values <- unique(trimws(as.character(allowed_values)))
+  allowed_values <- allowed_values[!is.na(allowed_values) & nzchar(allowed_values)]
+  if (!length(allowed_values)) {
+    stop("Registry-indicator expansion requires declared allowed values.", call. = FALSE)
+  }
+  encoded_names <- gsub("[^A-Za-z0-9]", "_", allowed_values)
+  if (anyDuplicated(encoded_names)) {
+    stop(
+      sprintf("Registry values for `%s` do not produce unique feature names.", tr),
+      call. = FALSE
+    )
+  }
+  x_chr <- trimws(as.character(x))
+  missing_value <- is.na(x) | !nzchar(x_chr) |
+    toupper(x_chr) %in% c("NA", "N/A", "UNKNOWN", "NULL")
+  values <- lapply(seq_along(x_chr), function(i) {
+    if (missing_value[[i]]) return(character(0))
+    unique(trimws(strsplit(x_chr[[i]], ";", fixed = TRUE)[[1L]]))
+  })
+  observed <- unique(unlist(values, use.names = FALSE))
+  unknown <- setdiff(observed[nzchar(observed)], allowed_values)
+  if (length(unknown)) {
+    stop(
+      sprintf(
+        "Alchemist set trait `%s` contains value(s) absent from its registry: %s.",
+        tr, paste(sort(unknown), collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+  matrices <- lapply(allowed_values, function(value) {
+    binary <- vapply(seq_along(values), function(i) {
+      if (missing_value[[i]]) return(NA_integer_)
+      as.integer(value %in% values[[i]])
+    }, integer(1))
+    col_fn(binary)
+  })
+  stats::setNames(
+    matrices,
+    paste0(".dist_", tr, "__", encoded_names)
+  )
+}
+
+# Compute one stable set-valued distance matrix for query projection.
+#
+# A fold whose training rows all contain singleton sets fits the ordinary
+# categorical parent feature (for example, `.dist_fao_area`). Categorical
+# mismatch and Jaccard distance are identical on singleton sets. If a held-out
+# query contains multiple values, extending that same parent feature with
+# Jaccard distance preserves its training semantics without changing the fitted
+# feature basis or learning query-only indicator columns.
+#'
+#' @keywords internal
+#' @noRd
+alchemist_set_jaccard_matrix <- function(x) {
+  x_chr <- trimws(as.character(x))
+  missing_value <- is.na(x) | !nzchar(x_chr) |
+    toupper(x_chr) %in% c("NA", "N/A", "UNKNOWN", "NULL")
+  values <- lapply(seq_along(x_chr), function(i) {
+    if (missing_value[[i]]) return(character(0))
+    parts <- trimws(strsplit(x_chr[[i]], ";", fixed = TRUE)[[1L]])
+    sort(unique(parts[nzchar(parts)]))
+  })
+  n <- length(values)
+  all_levels <- sort(unique(unlist(values, use.names = FALSE)))
+  incidence <- matrix(FALSE, nrow = n, ncol = length(all_levels))
+  if (length(all_levels)) {
+    for (i in which(!missing_value)) {
+      incidence[i, match(values[[i]], all_levels)] <- TRUE
+    }
+  }
+  intersection_size <- tcrossprod(incidence + 0)
+  set_size <- rowSums(incidence)
+  union_size <- outer(set_size, set_size, "+") - intersection_size
+  out <- matrix(1, nrow = n, ncol = n)
+  valid_pairs <- outer(!missing_value, !missing_value, "&")
+  nonempty_union <- valid_pairs & union_size > 0
+  out[nonempty_union] <- 1 -
+    intersection_size[nonempty_union] / union_size[nonempty_union]
+  out[valid_pairs & union_size == 0] <- 0
+  diag(out)[!missing_value] <- 0
+  out
 }
 
 #' Build directed pair-feature matrices for Alchemist distance prediction
@@ -1001,9 +1341,19 @@ build_pair_feature_matrices <- function(models_df,
                                         feature_type = c(
                                           "gower", "difference", "mahalanobis"
                                         ),
+                                        categorical_distance = c(
+                                          "observed_indicators",
+                                          "registry_indicators",
+                                          "set_jaccard"
+                                        ),
+                                        categorical_levels = NULL,
                                         feature_normalization = NULL,
+                                        coherence_normalization = NULL,
                                         progress = FALSE) {
   feature_type <- match.arg(feature_type)
+  categorical_distance <- normalize_alchemist_categorical_distance(
+    categorical_distance[[1L]]
+  )
   all_traits <- unique(c(species_trait_names, study_trait_names))
   if (length(all_traits) == 0L) {
     stop(
@@ -1070,7 +1420,22 @@ build_pair_feature_matrices <- function(models_df,
     }
     if (!is.finite(scale) || scale <= 0) scale <- NA_real_
     normalization[[tr]] <<- list(scale = scale)
-    expand_multival_col(x, function(values) col_fn(values, scale = scale), tr)
+    if (!is.numeric(x) && identical(categorical_distance, "registry_indicators") &&
+        !is.null(categorical_levels[[tr]])) {
+      expand_registry_set_col(
+        x,
+        function(values) col_fn(values, scale = scale),
+        tr,
+        categorical_levels[[tr]]
+      )
+    } else if (!is.numeric(x) && identical(categorical_distance, "set_jaccard")) {
+      stats::setNames(
+        list(alchemist_set_jaccard_matrix(x)),
+        paste0(".dist_", tr)
+      )
+    } else {
+      expand_multival_col(x, function(values) col_fn(values, scale = scale), tr)
+    }
   })
   trait_mats <- do.call(c, trait_mat_list)
 
@@ -1112,22 +1477,53 @@ build_pair_feature_matrices <- function(models_df,
           " with .dist_tax (", tax_method, ")."
         )
       } else {
-        report_progress(
-          progress,
-          "  [Alchemist]   WARNING: phylogenetic distance failed; keeping individual Gower features."
+        stop(
+          "Configured phylogenetic distance could not be constructed; raw taxonomy is not substituted.",
+          call. = FALSE
         )
       }
     }
   }
 
+  coherence_feature_components <- character(0)
+  coherence_normalization_out <- coherence_normalization %||% list()
+  coherence_feature_replacements <- character(0)
   if (!is.null(coherence_cfg) && length(coherence_cfg) > 0L) {
     report_progress(progress, "  [Alchemist] Computing coherence feature matrices...")
-    coh_mats <- coherence_mats(models_df, coherence_cfg)
+    coh_mats <- coherence_mats(
+      models_df,
+      coherence_cfg,
+      normalization = coherence_normalization
+    )
+    coherence_feature_components <- attr(coh_mats, "policy_component_map") %||%
+      character(0)
+    coherence_normalization_out <- attr(coh_mats, "normalization") %||%
+      coherence_normalization_out
     for (coh_nm in names(coh_mats)) {
       if (!is.null(coh_mats[[coh_nm]])) {
         trait_mats[[paste0(".dist_", coh_nm)]] <- coh_mats[[coh_nm]]
         report_progress(progress, "    + ", coh_nm, " added.")
       }
+    }
+
+    frequency_mode <- as.character(
+      (coherence_cfg$frequency %||% list())$mode %||% "none"
+    )[[1]]
+    frequency_mode <- stringr::str_to_lower(stringr::str_squish(frequency_mode))
+    if (!identical(frequency_mode, "none") && "frequency" %in% all_traits) {
+      raw_frequency_cols <- c(
+        ".dist_frequency",
+        grep(
+          "^\\.dist_frequency__",
+          names(trait_mats),
+          value = TRUE
+        )
+      )
+      trait_mats <- trait_mats[
+        setdiff(names(trait_mats), raw_frequency_cols)
+      ]
+      coherence_feature_replacements[["frequency"]] <-
+        paste0(".dist_frequency_coherence:", frequency_mode)
     }
   }
 
@@ -1143,14 +1539,202 @@ build_pair_feature_matrices <- function(models_df,
     species_feature_cols,
     if (".dist_tax" %in% names(trait_mats)) ".dist_tax" else character(0)
   )
+  study_feature_cols <- unlist(lapply(study_trait_names, function(tr) {
+    base <- paste0(".dist_", tr)
+    prefix <- paste0(base, "__")
+    c(
+      if (base %in% names(trait_mats)) base else character(0),
+      grep(paste0("^\\Q", prefix, "\\E"), names(trait_mats), value = TRUE)
+    )
+  }), use.names = FALSE)
 
   list(
     trait_mats = trait_mats,
     feature_cols = names(trait_mats),
     all_traits = all_traits,
     species_feature_cols = species_feature_cols,
+    study_feature_cols = study_feature_cols,
+    coherence_feature_components = coherence_feature_components,
+    coherence_feature_replacements = coherence_feature_replacements,
     feature_type = feature_type,
-    feature_normalization = normalization
+    categorical_distance = categorical_distance,
+    categorical_levels = categorical_levels,
+    feature_normalization = normalization,
+    coherence_normalization = coherence_normalization_out
+  )
+}
+
+#' Average configured parent-trait distances without manual weights
+#'
+#' Expanded indicators from one multivalued trait are recombined before parent
+#' traits are averaged. Missing traits are omitted pairwise and recorded in a
+#' companion coverage matrix rather than replaced or assigned a hidden weight.
+#'
+#' @keywords internal
+#' @noRd
+alchemist_policy_component_matrix <- function(trait_mats,
+                                               feature_cols,
+                                               model_ids) {
+  # Retain explicitly configured-but-unavailable features in the denominator.
+  # They contribute no distance, but lower pairwise coverage instead of being
+  # silently erased from the component definition.
+  feature_cols <- unique(as.character(feature_cols))
+  n <- length(model_ids)
+  if (length(feature_cols) == 0L) {
+    return(NULL)
+  }
+
+  parent <- sub("__.*$", "", feature_cols)
+  groups <- split(feature_cols, parent)
+  component_sum <- matrix(0, nrow = n, ncol = n)
+  component_n <- matrix(0, nrow = n, ncol = n)
+
+  for (group_cols in groups) {
+    group_sum <- matrix(0, nrow = n, ncol = n)
+    group_n <- matrix(0, nrow = n, ncol = n)
+    for (feature_col in group_cols) {
+      if (!feature_col %in% names(trait_mats)) {
+        next
+      }
+      mat <- suppressWarnings(as.matrix(trait_mats[[feature_col]]))
+      if (!identical(dim(mat), c(n, n))) {
+        next
+      }
+      ok <- is.finite(mat)
+      group_sum[ok] <- group_sum[ok] + mat[ok]
+      group_n[ok] <- group_n[ok] + 1
+    }
+    group_distance <- matrix(NA_real_, nrow = n, ncol = n)
+    group_ok <- group_n > 0
+    group_distance[group_ok] <- group_sum[group_ok] / group_n[group_ok]
+    component_sum[group_ok] <- component_sum[group_ok] + group_distance[group_ok]
+    component_n[group_ok] <- component_n[group_ok] + 1
+  }
+
+  out <- matrix(NA_real_, nrow = n, ncol = n)
+  ok <- component_n > 0
+  out[ok] <- component_sum[ok] / component_n[ok]
+  coverage <- component_n / length(groups)
+  dimnames(out) <- list(model_ids, model_ids)
+  dimnames(coverage) <- list(model_ids, model_ids)
+  diag(out) <- 0
+  diag(coverage) <- 1
+  attr(out, "coverage_matrix") <- coverage
+  attr(out, "feature_cols") <- feature_cols
+  attr(out, "parent_features") <- names(groups)
+  attr(out, "component_definition") <-
+    "unweighted_gower_configured_parent_traits_coherence_replacement_v2"
+  out
+}
+
+#' Build transparent species and survey policy-component distances
+#'
+#' These matrices are diagnostics for policies that explicitly name a
+#' component. They do not enter, reweight, or post-process the supervised
+#' Alchemist combined distance. Gower features and their training scales are
+#' used regardless of the feature representation selected for the learner.
+#'
+#' @keywords internal
+#' @noRd
+alchemist_policy_component_matrices <- function(models_df,
+                                                species_trait_names,
+                                                study_trait_names,
+                                                coherence_cfg = NULL,
+                                                taxonomic_distance = FALSE,
+                                                taxonomic_matrix = NULL,
+                                                categorical_distance = "observed_indicators",
+                                                categorical_levels = NULL,
+                                                feature_normalization = NULL,
+                                                coherence_normalization = NULL,
+                                                model_ids = NULL,
+                                                progress = FALSE) {
+  use_supplied_taxonomy <- !is.null(taxonomic_matrix)
+  feature_data <- build_pair_feature_matrices(
+    models_df = models_df,
+    species_trait_names = species_trait_names,
+    study_trait_names = study_trait_names,
+    coherence_cfg = coherence_cfg,
+    taxonomic_distance = isTRUE(taxonomic_distance) && !use_supplied_taxonomy,
+    feature_type = "gower",
+    categorical_distance = categorical_distance,
+    categorical_levels = categorical_levels,
+    feature_normalization = feature_normalization,
+    coherence_normalization = coherence_normalization,
+    progress = progress
+  )
+  model_ids <- as.character(
+    model_ids %||% models_df$model_id %||% seq_len(nrow(models_df))
+  )
+
+  taxonomic_mat <- if (use_supplied_taxonomy) {
+    suppressWarnings(as.matrix(taxonomic_matrix))
+  } else {
+    feature_data$trait_mats[[".dist_tax"]] %||% NULL
+  }
+  species_cols <- feature_data$species_feature_cols
+  if (use_supplied_taxonomy) {
+    tax_rank_names <- intersect(tolower(species_trait_names), .ALCH_TAX_RANKS)
+    tax_rank_cols <- unique(unlist(lapply(tax_rank_names, function(tr) {
+      base <- paste0(".dist_", tr)
+      c(
+        base,
+        grep(
+          paste0("^\\Q", base, "__\\E"),
+          names(feature_data$trait_mats),
+          value = TRUE
+        )
+      )
+    }), use.names = FALSE))
+    feature_data$trait_mats <- feature_data$trait_mats[
+      setdiff(names(feature_data$trait_mats), tax_rank_cols)
+    ]
+    species_cols <- c(setdiff(species_cols, tax_rank_cols), ".dist_tax")
+    feature_data$trait_mats[[".dist_tax"]] <- taxonomic_mat
+  }
+  if (!is.null(taxonomic_mat)) {
+    dimnames(taxonomic_mat) <- list(model_ids, model_ids)
+    diag(taxonomic_mat) <- 0
+  }
+
+  coherence_map <- feature_data$coherence_feature_components %||%
+    character(0)
+  species_cols <- unique(c(
+    species_cols,
+    names(coherence_map)[coherence_map == "species"]
+  ))
+  study_cols <- unique(c(
+    feature_data$study_feature_cols,
+    names(coherence_map)[coherence_map == "study"]
+  ))
+
+  species_mat <- alchemist_policy_component_matrix(
+    feature_data$trait_mats,
+    species_cols,
+    model_ids
+  )
+  study_mat <- alchemist_policy_component_matrix(
+    feature_data$trait_mats,
+    study_cols,
+    model_ids
+  )
+
+  list(
+    species_dist_model = species_mat,
+    study_dist = study_mat,
+    species_component_coverage = attr(species_mat, "coverage_matrix") %||% NULL,
+    study_component_coverage = attr(study_mat, "coverage_matrix") %||% NULL,
+    taxonomic_dist_model = taxonomic_mat,
+    species_component_cols = attr(species_mat, "feature_cols") %||% character(0),
+    study_component_cols = attr(study_mat, "feature_cols") %||% character(0),
+    species_parent_features = attr(species_mat, "parent_features") %||% character(0),
+    study_parent_features = attr(study_mat, "parent_features") %||% character(0),
+    component_feature_normalization = feature_data$feature_normalization,
+    coherence_normalization = feature_data$coherence_normalization,
+    coherence_component_map = coherence_map,
+    coherence_feature_replacements =
+      feature_data$coherence_feature_replacements,
+    component_definition =
+      "unweighted_gower_configured_parent_traits_coherence_replacement_v2"
   )
 }
 
@@ -1182,6 +1766,8 @@ build_pair_data <- function(models_df,
                               "gower", "difference",
                               "mahalanobis"
                             ),
+                            categorical_distance = "observed_indicators",
+                            categorical_levels = NULL,
                             progress = FALSE) {
   feature_type <- match.arg(feature_type)
   feature_data <- build_pair_feature_matrices(
@@ -1191,12 +1777,15 @@ build_pair_data <- function(models_df,
     coherence_cfg = coherence_cfg,
     taxonomic_distance = taxonomic_distance,
     feature_type = feature_type,
+    categorical_distance = categorical_distance,
+    categorical_levels = categorical_levels,
     progress = progress
   )
   all_traits <- feature_data$all_traits
   trait_mats <- feature_data$trait_mats
   feature_cols <- feature_data$feature_cols
   species_feature_cols <- feature_data$species_feature_cols
+  study_feature_cols <- feature_data$study_feature_cols
   n <- nrow(models_df)
 
   slope_col <- intersect(
@@ -1340,14 +1929,68 @@ build_pair_data <- function(models_df,
     all_traits = all_traits,
     species_trait_names = species_trait_names,
     species_feature_cols = species_feature_cols,
+    study_feature_cols = study_feature_cols,
+    coherence_feature_components = feature_data$coherence_feature_components,
+    coherence_feature_replacements =
+      feature_data$coherence_feature_replacements,
+    coherence_normalization = feature_data$coherence_normalization,
     feature_normalization = feature_data$feature_normalization,
     n_models = n,
     model_ids = model_ids,
     donor_sigma_matrix = donor_sigma_mat,
     target_sigma = target_sigma,
     trait_mats = trait_mats,
-    feature_type = feature_type
+    feature_type = feature_type,
+    categorical_distance = feature_data$categorical_distance,
+    categorical_levels = feature_data$categorical_levels
   )
+}
+
+#' Re-express query taxonomy on the training distance scale
+#'
+#' OpenTree/Grafen distances are normalized by the tree used to construct
+#' them. Adding a query can change that normalization. Convert the augmented
+#' matrix back to raw units and divide by the frozen training scale so a query
+#' cannot redefine the learner's feature scale.
+#'
+#' @keywords internal
+#' @noRd
+alchemist_query_taxonomy_on_training_scale <- function(taxonomic_matrix,
+                                                       distance_state) {
+  if (is.null(taxonomic_matrix)) {
+    return(NULL)
+  }
+  out <- suppressWarnings(as.matrix(taxonomic_matrix))
+  query_scale <- suppressWarnings(as.numeric(
+    attr(taxonomic_matrix, "taxonomic_distance_scale") %||% NA_real_
+  )[[1]])
+  training_scale <- suppressWarnings(as.numeric(
+    distance_state$taxonomic_distance_scale %||% NA_real_
+  )[[1]])
+  query_method <- attr(taxonomic_matrix, "taxonomic_distance_method") %||%
+    NA_character_
+  training_method <- distance_state$taxonomic_distance_method %||%
+    NA_character_
+
+  if (!identical(as.character(query_method), as.character(training_method))) {
+    stop(
+      "Query and training taxonomic distances use different construction methods; they cannot be combined.",
+      call. = FALSE
+    )
+  }
+  if (!is.finite(query_scale) || query_scale <= 0 ||
+      !is.finite(training_scale) || training_scale <= 0) {
+    stop(
+      "Taxonomic query distance requires finite positive training and query normalization scales.",
+      call. = FALSE
+    )
+  }
+  finite <- is.finite(out)
+  out[finite] <- out[finite] * query_scale / training_scale
+  attr(out, "taxonomic_distance_scale") <- training_scale
+  attr(out, "taxonomic_distance_method") <- training_method
+  diag(out) <- 0
+  out
 }
 
 #' Materialize fitted Alchemist feature rows for query anchors
@@ -1362,7 +2005,8 @@ alchemist_query_pair_features <- function(candidate_models,
   required_state <- c(
     "distance_learner", "species_trait_names", "study_trait_names",
     "feature_type", "coherence_config", "taxonomic_distance",
-    "feature_normalization"
+    "feature_normalization", "component_feature_normalization",
+    "coherence_normalization", "policy_component_definition"
   )
   missing_state <- required_state[vapply(
     required_state,
@@ -1393,13 +2037,54 @@ alchemist_query_pair_features <- function(candidate_models,
     coherence_cfg = distance_state$coherence_config,
     taxonomic_distance = isTRUE(distance_state$taxonomic_distance),
     feature_type = as.character(distance_state$feature_type),
+    categorical_distance = distance_state$categorical_distance %||%
+      "observed_indicators",
+    categorical_levels = distance_state$categorical_levels %||% list(),
     feature_normalization = distance_state$feature_normalization,
+    coherence_normalization = distance_state$coherence_normalization %||% list(),
     progress = FALSE
   )
+  if (!is.null(feature_data$trait_mats[[".dist_tax"]])) {
+    feature_data$trait_mats[[".dist_tax"]] <-
+      alchemist_query_taxonomy_on_training_scale(
+        feature_data$trait_mats[[".dist_tax"]],
+        distance_state
+      )
+  }
   learner <- resolve_distance_learner(distance_state$distance_learner)
   feature_cols <- as.character(learner$feature_cols)
   if (length(feature_cols) == 0L) {
     stop("The stored Alchemist learner has no feature columns.", call. = FALSE)
+  }
+  missing_parent_features <- setdiff(feature_cols, names(feature_data$trait_mats))
+  missing_parent_features <- missing_parent_features[
+    !grepl("__", missing_parent_features, fixed = TRUE)
+  ]
+  all_traits <- unique(c(
+    as.character(distance_state$species_trait_names),
+    as.character(distance_state$study_trait_names)
+  ))
+  for (feature_col in missing_parent_features) {
+    trait <- sub("^\\.dist_", "", feature_col)
+    expanded_prefix <- paste0(feature_col, "__")
+    if (!trait %in% all_traits ||
+        !any(startsWith(names(feature_data$trait_mats), expanded_prefix))) {
+      next
+    }
+    values <- candidate_models[[trait]]
+    if (identical(trait, "ocean_basin")) {
+      values <- normalize_alchemist_ocean_basin(values)
+    } else if (identical(trait, "fao_area")) {
+      values <- normalize_alchemist_fao_area(values)
+    } else if (identical(trait, "species") && "genus" %in% names(candidate_models)) {
+      genus <- trimws(as.character(candidate_models[["genus"]]))
+      species <- trimws(as.character(values))
+      values <- paste(genus, species)
+      values[is.na(genus) | genus == "NA" |
+        is.na(species) | species == "NA"] <- NA_character_
+    }
+    feature_data$trait_mats[[feature_col]] <-
+      alchemist_set_jaccard_matrix(values)
   }
   missing_features <- setdiff(feature_cols, names(feature_data$trait_mats))
   if (length(missing_features) > 0L) {
@@ -1518,44 +2203,109 @@ augment_alchemist_query_distances <- function(candidate_models,
     diag(learned_disagreement) <- 0
   }
 
-  taxonomic_dist <- distance_state$taxonomic_dist_model %||% NULL
-  if (!is.null(taxonomic_dist)) {
-    trait_mats <- attr(query_pairs, "trait_mats")
-    if (is.null(trait_mats[[".dist_tax"]])) {
-      stop("The stored Alchemist taxonomic distance cannot be constructed for the query anchor.", call. = FALSE)
-    }
-    taxonomic_dist_new <- matrix(NA_real_,
-      nrow = length(model_ids), ncol = length(model_ids),
-      dimnames = list(model_ids, model_ids)
-    )
-    tax_shared_ids <- intersect(model_ids, rownames(taxonomic_dist))
-    taxonomic_dist_new[tax_shared_ids, tax_shared_ids] <-
-      taxonomic_dist[tax_shared_ids, tax_shared_ids, drop = FALSE]
-    all_query_pairs <- alchemist_query_pair_features(
-      candidate_models = candidate_models,
-      distance_state = distance_state,
-      donor_model_ids = model_ids,
-      anchor_model_ids = query_model_ids
-    )
-    if (nrow(all_query_pairs) > 0L) {
-      donor_idx <- match(all_query_pairs$.donor_model_id, model_ids)
-      anchor_idx <- match(all_query_pairs$.anchor_model_id, model_ids)
-      taxonomic_dist_new[cbind(all_query_pairs$.donor_model_id, all_query_pairs$.anchor_model_id)] <-
-        trait_mats[[".dist_tax"]][cbind(donor_idx, anchor_idx)]
-    }
-    diag(taxonomic_dist_new) <- 0
-    taxonomic_dist <- taxonomic_dist_new
+  query_trait_mats <- attr(query_pairs, "trait_mats") %||% list()
+  query_taxonomic <- query_trait_mats[[".dist_tax"]] %||% NULL
+  if (!is.null(distance_state$taxonomic_dist_model) && is.null(query_taxonomic)) {
+    stop("The stored Alchemist taxonomic distance cannot be constructed for the query anchor.", call. = FALSE)
   }
+
+  component_mats <- alchemist_policy_component_matrices(
+    models_df = candidate_models,
+    species_trait_names = distance_state$species_trait_names,
+    study_trait_names = distance_state$study_trait_names,
+    coherence_cfg = distance_state$coherence_config,
+    taxonomic_distance = isTRUE(distance_state$taxonomic_distance),
+    taxonomic_matrix = query_taxonomic,
+    categorical_distance = distance_state$categorical_distance %||%
+      "observed_indicators",
+    categorical_levels = distance_state$categorical_levels %||% list(),
+    feature_normalization = distance_state$component_feature_normalization,
+    coherence_normalization = distance_state$coherence_normalization,
+    model_ids = model_ids,
+    progress = FALSE
+  )
+
+  merge_augmented_component <- function(existing,
+                                        augmented,
+                                        diagonal = 0) {
+    if (is.null(augmented)) {
+      return(NULL)
+    }
+    out <- suppressWarnings(as.matrix(augmented))
+    if (!is.null(existing)) {
+      existing <- suppressWarnings(as.matrix(existing))
+      shared <- Reduce(
+        intersect,
+        list(base_ids, rownames(existing), colnames(existing))
+      )
+      if (length(shared) > 0L) {
+        out[shared, shared] <- existing[shared, shared, drop = FALSE]
+      }
+    }
+    diag(out) <- diagonal
+    out
+  }
+
+  species_dist <- merge_augmented_component(
+    distance_state$species_dist_model %||% distance_state$species_dist,
+    component_mats$species_dist_model
+  )
+  study_dist <- merge_augmented_component(
+    distance_state$study_dist,
+    component_mats$study_dist
+  )
+  species_coverage <- merge_augmented_component(
+    distance_state$species_component_coverage,
+    component_mats$species_component_coverage,
+    diagonal = 1
+  )
+  study_coverage <- merge_augmented_component(
+    distance_state$study_component_coverage,
+    component_mats$study_component_coverage,
+    diagonal = 1
+  )
+  taxonomic_dist <- merge_augmented_component(
+    distance_state$taxonomic_dist_model,
+    component_mats$taxonomic_dist_model
+  )
 
   out <- distance_state
   out$learned_directed_dist <- learned_dist
   out$learned_distance_disagreement <- learned_disagreement
   out$learned_distance_diagnostic_available <- diagnostic_available
   out$taxonomic_dist_model <- taxonomic_dist
-  out$dist_matrix <- (learned_dist + t(learned_dist)) / 2
+  out$species_dist_model <- species_dist
+  out$species_dist <- species_dist
+  out$study_dist <- study_dist
+  out$species_component_coverage <- species_coverage
+  out$study_component_coverage <- study_coverage
+  out$species_component_cols <- component_mats$species_component_cols
+  out$study_component_cols <- component_mats$study_component_cols
+  out$species_parent_features <- component_mats$species_parent_features
+  out$study_parent_features <- component_mats$study_parent_features
+  out$component_feature_normalization <-
+    component_mats$component_feature_normalization
+  out$coherence_normalization <- component_mats$coherence_normalization
+  out$coherence_component_map <- component_mats$coherence_component_map
+  out$coherence_feature_replacements <-
+    component_mats$coherence_feature_replacements
+  out$policy_component_definition <- component_mats$component_definition
+  learned_reverse <- t(learned_dist)
+  both_finite <- is.finite(learned_dist) & is.finite(learned_reverse)
+  only_forward <- is.finite(learned_dist) & !is.finite(learned_reverse)
+  only_reverse <- !is.finite(learned_dist) & is.finite(learned_reverse)
+  out$dist_matrix <- matrix(
+    NA_real_,
+    nrow = length(model_ids),
+    ncol = length(model_ids),
+    dimnames = list(model_ids, model_ids)
+  )
+  out$dist_matrix[both_finite] <-
+    (learned_dist[both_finite] + learned_reverse[both_finite]) / 2
+  out$dist_matrix[only_forward] <- learned_dist[only_forward]
+  out$dist_matrix[only_reverse] <- learned_reverse[only_reverse]
   diag(out$dist_matrix) <- 0
   out$combined_dist <- stats::as.dist(out$dist_matrix)
-  out$species_dist <- out$combined_dist
   out
 }
 
@@ -3394,6 +4144,49 @@ canonicalize_distance_learner <- function(x) {
 
 # - forge_distances -
 
+#' Build the exact contract governing a forged Alchemist geometry
+#'
+#' @keywords internal
+#' @noRd
+alchemist_forge_contract <- function(object, feature_type) {
+  config <- object@config
+  categorical_distance <- normalize_alchemist_categorical_distance(
+    config$categorical_distance %||% "observed_indicators"
+  )
+  models <- tibble::as_tibble(object@candidates@candidate_models)
+  species_traits <- alchemist_trait_names(
+    config$species_traits %||% list(), models
+  )
+  study_traits <- alchemist_trait_names(
+    config$study_traits %||% list(), models
+  )
+  categorical_levels <- if (identical(
+      categorical_distance, "registry_indicators"
+    )) {
+    alchemist_registry_set_levels(
+      c(species_traits, study_traits),
+      registry_path = config$registry_path %||% NULL
+    )
+  } else {
+    list()
+  }
+  list(
+    contract_version = "forge_distance_contract_v2",
+    feature_type = as.character(feature_type),
+    categorical_distance = categorical_distance,
+    categorical_levels = categorical_levels,
+    registry_path = config$registry_path %||% NULL,
+    species_traits = config$species_traits %||% list(),
+    study_traits = config$study_traits %||% list(),
+    coherence = config$coherence %||% list(),
+    taxonomic_distance = isTRUE(config$taxonomic_distance),
+    learner = config$learner %||% list(),
+    candidate_table_fingerprint = admissibility_table_fingerprint(
+      tibble::as_tibble(object@candidates@candidate_models)
+    )
+  )
+}
+
 #' Learn the distance matrix for an `Alchemist`
 #'
 #' Fits the Alchemist distance learner and writes the learned geometry back to
@@ -3437,6 +4230,9 @@ S7::method(forge_distances, Alchemist) <- function(object,
   config <- object@config
   progress <- progress %||% config$progress %||% FALSE
   feature_type <- feature_type %||% config$feature_type %||% "gower"
+  categorical_distance <- normalize_alchemist_categorical_distance(
+    config$categorical_distance %||% "observed_indicators"
+  )
   refresh <- if (is.null(refresh)) {
     isTRUE(config$refresh %||% FALSE)
   } else {
@@ -3449,7 +4245,11 @@ S7::method(forge_distances, Alchemist) <- function(object,
   if (!refresh &&
     length(object@distance_matrix) > 0 &&
     length(object@learner) > 0 &&
-    identical(object@distance_matrix$feature_type %||% NULL, feature_type)) {
+    identical(object@distance_matrix$feature_type %||% NULL, feature_type) &&
+    identical(
+      object@distance_matrix$categorical_distance %||% "observed_indicators",
+      categorical_distance
+    )) {
     report_progress(
       progress,
       "[Alchemist] Object already has forged distances for feature_type = ",
@@ -3467,15 +4267,29 @@ S7::method(forge_distances, Alchemist) <- function(object,
     # training so constructed "NA NA" identities cannot define nearest donors.
     # v4 trains replacement-error targets on the same stored/reference length
     # PDFs used by policy evaluation, rather than a separate uniform interval.
-    suffix = paste(feature_type, "nonself_pairs_v4_no_generalized_reference_pdf", sep = "_")
+    suffix = paste(
+      feature_type,
+      categorical_distance,
+      "nonself_pairs_v6_coherence_replaces_raw_frequency",
+      sep = "_"
+    )
   )
+  forge_contract <- alchemist_forge_contract(object, feature_type)
   if (!is.null(cache_path) && tsb_cache_exists(cache_path) && !refresh) {
     report_progress(progress, "[Alchemist] Loading cached forged distances: ", cache_path)
     cached <- tsb_cache_read(cache_path)
-    if (.is_alchemist(cached)) {
+    cached_contract <- if (.is_alchemist(cached)) {
+      cached@distance_matrix$forge_contract %||% NULL
+    } else {
+      NULL
+    }
+    if (.is_alchemist(cached) && identical(cached_contract, forge_contract)) {
       return(cached)
     }
-    report_progress(progress, "[Alchemist] Cached forged distances were not an Alchemist object; rebuilding.")
+    report_progress(
+      progress,
+      "[Alchemist] Cached forged distances do not match the current explicit forge contract; rebuilding."
+    )
   }
 
   models_df <- tibble::as_tibble(object@candidates@candidate_models)
@@ -3486,6 +4300,16 @@ S7::method(forge_distances, Alchemist) <- function(object,
 
   sp_names <- alchemist_trait_names(config$species_traits %||% list(), models_df)
   st_names <- alchemist_trait_names(config$study_traits %||% list(), models_df)
+  categorical_levels <- if (identical(
+      categorical_distance, "registry_indicators"
+    )) {
+    alchemist_registry_set_levels(
+      c(sp_names, st_names),
+      registry_path = config$registry_path %||% NULL
+    )
+  } else {
+    list()
+  }
 
   report_progress(
     progress,
@@ -3523,7 +4347,7 @@ S7::method(forge_distances, Alchemist) <- function(object,
     if (taxonomic_distance) " + taxonomic distance" else "",
     ")..."
   )
-  pair_data <- build_pair_data(
+  pair_data_args <- list(
     models_df,
     sp_names,
     st_names,
@@ -3532,6 +4356,15 @@ S7::method(forge_distances, Alchemist) <- function(object,
     feature_type = feature_type,
     progress = progress
   )
+  # Preserve the historical helper-call contract for the default
+  # representation. The two experimental fold-invariant representations need
+  # the additional declared schema arguments; legacy callers and test doubles
+  # that implement the original helper signature do not.
+  if (!identical(categorical_distance, "observed_indicators")) {
+    pair_data_args$categorical_distance <- categorical_distance
+    pair_data_args$categorical_levels <- categorical_levels
+  }
+  pair_data <- do.call(build_pair_data, pair_data_args)
   n_pairs <- nrow(pair_data$training_data)
 
   learner_cfg <- config$learner %||% list()
@@ -3618,9 +4451,30 @@ S7::method(forge_distances, Alchemist) <- function(object,
   }
 
   taxonomic_mat <- pair_data$trait_mats[[".dist_tax"]] %||% NULL
+  taxonomic_distance_scale <- attr(
+    taxonomic_mat,
+    "taxonomic_distance_scale"
+  ) %||% NA_real_
+  taxonomic_distance_method <- attr(
+    taxonomic_mat,
+    "taxonomic_distance_method"
+  ) %||% NA_character_
   if (!is.null(taxonomic_mat)) {
     dimnames(taxonomic_mat) <- list(model_ids, model_ids)
   }
+
+  component_mats <- alchemist_policy_component_matrices(
+    models_df = models_df,
+    species_trait_names = sp_names,
+    study_trait_names = st_names,
+    coherence_cfg = if (has_coh) coherence_cfg else NULL,
+    taxonomic_distance = taxonomic_distance,
+    taxonomic_matrix = taxonomic_mat,
+    categorical_distance = categorical_distance,
+    categorical_levels = categorical_levels,
+    model_ids = model_ids,
+    progress = FALSE
+  )
 
   report_progress(
     progress,
@@ -3637,11 +4491,30 @@ S7::method(forge_distances, Alchemist) <- function(object,
   )
 
   distance_matrix <- list(
+    forge_contract = forge_contract,
     combined_dist = stats::as.dist(sym_mat),
     dist_matrix = sym_mat,
     directed_dist_matrix = directed_mat,
     taxonomic_dist_matrix = taxonomic_mat,
-    taxonomic_distance_method = attr(taxonomic_mat, "taxonomic_distance_method") %||% NA_character_,
+    taxonomic_distance_method = taxonomic_distance_method,
+    taxonomic_distance_scale = taxonomic_distance_scale,
+    species_dist_matrix = component_mats$species_dist_model,
+    study_dist_matrix = component_mats$study_dist,
+    species_component_coverage = component_mats$species_component_coverage,
+    study_component_coverage = component_mats$study_component_coverage,
+    species_component_cols = component_mats$species_component_cols,
+    study_component_cols = component_mats$study_component_cols,
+    species_parent_features = component_mats$species_parent_features,
+    study_parent_features = component_mats$study_parent_features,
+    policy_component_definition = component_mats$component_definition,
+    component_feature_normalization =
+      component_mats$component_feature_normalization,
+    coherence_component_map = component_mats$coherence_component_map,
+    coherence_feature_replacements =
+      component_mats$coherence_feature_replacements,
+    coherence_normalization = component_mats$coherence_normalization,
+    excluded_non_distance_similarity_parameters =
+      config$excluded_non_distance_similarity_parameters %||% character(0),
     learned_kernel_bandwidth = learned_bandwidth,
     model_ids = model_ids,
     all_traits = pair_data$all_traits,
@@ -3654,6 +4527,8 @@ S7::method(forge_distances, Alchemist) <- function(object,
     feature_cols = pair_data$feature_cols,
     trait_mats = pair_data$trait_mats,
     feature_type = feature_type,
+    categorical_distance = categorical_distance,
+    categorical_levels = categorical_levels,
     coherence_config = coherence_cfg,
     taxonomic_distance = taxonomic_distance,
     feature_normalization = pair_data$feature_normalization,
@@ -4197,42 +5072,52 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
   # Coherence distances are pairwise and cannot be used directly by envfit.
   # Instead, add the per-model scalar columns that drive each configured
   # coherence dimension so they appear as continuous vectors in the ordination.
-  # The set of columns depends on the `source` field in each coherence dimension:
-  #   "best"    - whichever of study/species is available (study preferred)
+  # The set of columns depends on the explicit `source` field in each coherence dimension:
   #   "study"   - study-level columns only
   #   "species" - species-level columns only
   #   "both"    - all available columns from both sources
-  coherence_cfg <- config$coherence %||% list()
-  coh_cols_for_dim <- function(mode, source, study_cols, sp_cols) {
+  # Ordination must describe the geometry that was actually fitted. The
+  # forged distance artifact is therefore authoritative; the object-level
+  # config is used only for older objects that predate stored coherence
+  # provenance.
+  coherence_cfg <- alchemist@distance_matrix$coherence_config %||%
+    config$coherence %||%
+    list()
+  coh_cols_for_dim <- function(dimension, mode, source, study_cols, sp_cols) {
     if (identical(as.character(mode %||% "none"), "none")) {
       return(character(0))
     }
     all_avail <- names(candidate_models)
-    switch(as.character(source %||% "best"),
+    switch(as.character(source %||% NA_character_),
       study = intersect(study_cols, all_avail),
       species = intersect(sp_cols, all_avail),
       both = intersect(c(study_cols, sp_cols), all_avail),
-      {
-        # "best": first available study column, or fall back to species column
-        s_match <- intersect(study_cols, all_avail)
-        sp_match <- intersect(sp_cols, all_avail)
-        if (length(s_match) > 0L) s_match else sp_match
-      }
+      stop(
+        sprintf(
+          "Active ordination %s coherence requires an explicit source (received '%s').",
+          dimension,
+          as.character(source %||% NA_character_)
+        ),
+        call. = FALSE
+      )
     )
   }
   coh_cols <- unique(c(
     coh_cols_for_dim(
+      "length",
       coherence_cfg$length$mode, coherence_cfg$length$source,
       c("study_length_min", "study_length_max"),
       c("species_length_min", "species_length_max")
     ),
     coh_cols_for_dim(
+      "depth",
       coherence_cfg$depth$mode, coherence_cfg$depth$source,
       c("study_depth_min", "study_depth_max"),
       c("species_depth_min", "species_depth_max")
     ),
     coh_cols_for_dim(
-      coherence_cfg$frequency$mode, NULL,
+      "frequency",
+      coherence_cfg$frequency$mode, "study",
       "frequency", "frequency"
     )
   ))
@@ -4337,6 +5222,83 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
 
 # - screen_admissibility dispatch -
 
+#' Materialize the audited Alchemist policy-distance bundle
+#'
+#' The learned combined distance and the descriptive species, study/survey,
+#' and taxonomic distances have different meanings. This helper centralizes
+#' their provenance and deliberately refuses to substitute one for another.
+#'
+#' @keywords internal
+#' @noRd
+alchemist_policy_distance_bundle <- function(alchemist) {
+  if (!.is_alchemist(alchemist)) {
+    stop("'alchemist' must be an Alchemist object.", call. = FALSE)
+  }
+  dm <- alchemist@distance_matrix
+  if (length(dm) == 0L) {
+    stop("Run `forge_distances()` before requesting policy distances.", call. = FALSE)
+  }
+
+  species_dist <- dm$species_dist_matrix %||% NULL
+  study_dist <- dm$study_dist_matrix %||% NULL
+  if (length(dm$species_trait_names %||% character(0)) > 0L &&
+      is.null(species_dist)) {
+    stop(
+      "The forged Alchemist object lacks its configured species-component distance; rebuild it.",
+      call. = FALSE
+    )
+  }
+  if (length(dm$study_trait_names %||% character(0)) > 0L &&
+      is.null(study_dist)) {
+    stop(
+      "The forged Alchemist object lacks its configured study-component distance; rebuild it.",
+      call. = FALSE
+    )
+  }
+
+  list(
+    combined_dist = dm$combined_dist,
+    species_dist = species_dist,
+    study_dist = study_dist,
+    species_dist_model = species_dist,
+    species_component_coverage = dm$species_component_coverage %||% NULL,
+    study_component_coverage = dm$study_component_coverage %||% NULL,
+    species_component_cols = dm$species_component_cols %||% character(0),
+    study_component_cols = dm$study_component_cols %||% character(0),
+    species_parent_features = dm$species_parent_features %||% character(0),
+    study_parent_features = dm$study_parent_features %||% character(0),
+    policy_component_definition = dm$policy_component_definition %||% NA_character_,
+    learned_directed_dist = dm$directed_dist_matrix %||% NULL,
+    taxonomic_dist_model = dm$taxonomic_dist_matrix %||% NULL,
+    taxonomic_distance_method = dm$taxonomic_distance_method %||% NA_character_,
+    taxonomic_distance_scale = dm$taxonomic_distance_scale %||% NA_real_,
+    learned_kernel_bandwidth = dm$learned_kernel_bandwidth %||% NULL,
+    distance_mode = "alchemist_super_learner",
+    trait_cols = dm$trait_cols %||% dm$all_traits %||% character(0),
+    distance_learner = canonicalize_distance_learner(alchemist@learner),
+    feature_cols = dm$feature_cols %||%
+      resolve_distance_learner(alchemist@learner)$feature_cols %||%
+      character(0),
+    species_trait_names = dm$species_trait_names %||% character(0),
+    study_trait_names = dm$study_trait_names %||% character(0),
+    feature_type = dm$feature_type %||% NULL,
+    categorical_distance = dm$categorical_distance %||%
+      "observed_indicators",
+    categorical_levels = dm$categorical_levels %||% list(),
+    coherence_config = dm$coherence_config %||% NULL,
+    taxonomic_distance = dm$taxonomic_distance %||% NULL,
+    feature_normalization = dm$feature_normalization %||% NULL,
+    component_feature_normalization =
+      dm$component_feature_normalization %||% NULL,
+    coherence_normalization = dm$coherence_normalization %||% NULL,
+    coherence_component_map = dm$coherence_component_map %||% character(0),
+    coherence_feature_replacements =
+      dm$coherence_feature_replacements %||% character(0),
+    excluded_non_distance_similarity_parameters =
+      dm$excluded_non_distance_similarity_parameters %||% character(0)
+  )
+}
+
 #' @keywords internal
 #' @noRd
 .screen_admissibility_alchemist <- function(alchemist,
@@ -4351,26 +5313,7 @@ S7::method(distill_traits, Alchemist) <- function(object, kernel_scale = 1,
   }
 
   dm <- alchemist@distance_matrix
-
-  gower_bundle <- list(
-    combined_dist = dm$combined_dist,
-    species_dist = dm$combined_dist,
-    study_dist = as.matrix(dm$dist_matrix),
-    species_dist_model = as.matrix(dm$dist_matrix),
-    learned_directed_dist = dm$directed_dist_matrix %||% NULL,
-    taxonomic_dist_model = dm$taxonomic_dist_matrix %||% NULL,
-    learned_kernel_bandwidth = dm$learned_kernel_bandwidth %||% NULL,
-    distance_mode = "alchemist_super_learner",
-    trait_cols = dm$trait_cols %||% dm$all_traits %||% character(0),
-    distance_learner = canonicalize_distance_learner(alchemist@learner),
-    feature_cols = dm$feature_cols %||% resolve_distance_learner(alchemist@learner)$feature_cols %||% character(0),
-    species_trait_names = dm$species_trait_names %||% character(0),
-    study_trait_names = dm$study_trait_names %||% character(0),
-    feature_type = dm$feature_type %||% NULL,
-    coherence_config = dm$coherence_config %||% NULL,
-    taxonomic_distance = dm$taxonomic_distance %||% NULL,
-    feature_normalization = dm$feature_normalization %||% NULL
-  )
+  gower_bundle <- alchemist_policy_distance_bundle(alchemist)
 
   injected_candidates <- candidates_with_gower_distances(
     alchemist@candidates,
@@ -4774,10 +5717,8 @@ default_anchor_config <- function(config = NULL) {
 
   frequency_mode <- admissibility_cfg$frequency_mode %||%
     ((admissibility_cfg$coherence %||% list())$frequency %||% list())$mode %||%
-    similarity_cfg$frequency_mode %||%
-    policy_cfg$frequency_coherence_mode %||%
-    "overlap"
-  if (isTRUE(admissibility_cfg$exact_frequency %||% similarity_cfg$exact_frequency %||% policy_cfg$require_same_frequency_label %||% FALSE)) {
+    "none"
+  if (isTRUE(admissibility_cfg$exact_frequency %||% FALSE)) {
     frequency_mode <- "literal"
   }
 
@@ -4812,6 +5753,10 @@ default_anchor_config <- function(config = NULL) {
         length_midpoint = "study_length_midpoint",
         depth_min = "study_depth_min",
         depth_max = "study_depth_max",
+        species_length_min = "species_length_min",
+        species_length_max = "species_length_max",
+        species_depth_min = "species_depth_min",
+        species_depth_max = "species_depth_max",
         frequency = "frequency",
         slope = "slope_standard",
         intercept = "intercept_standard",
@@ -4821,20 +5766,18 @@ default_anchor_config <- function(config = NULL) {
       study_traits = as.character(admissibility_cfg$study_traits %||% direct_overrides$admissibility_study_traits %||% character(0)),
       similarity_species_traits = similarity_cfg$species_traits %||% direct_overrides$species_traits %||% list(),
       similarity_study_traits = similarity_cfg$study_traits %||% direct_overrides$study_traits %||% list(),
+      similarity_coherence = similarity_cfg$coherence %||% list(),
       alpha = similarity_cfg$alpha %||% policy_cfg$alpha %||% NULL,
       k_species = similarity_cfg$kernel_scale %||% similarity_cfg$k_species %||% policy_cfg$k_species %||% NULL,
       k_study = similarity_cfg$kernel_scale %||% similarity_cfg$k_study %||% policy_cfg$k_study %||% NULL,
       min_length_overlap_fraction = admissibility_cfg$length_overlap_min %||%
         ((admissibility_cfg$coherence %||% list())$length %||% list())$min %||%
-        policy_cfg$min_length_overlap_fraction %||%
-        0.25,
+        NA_real_,
       min_depth_overlap_fraction = admissibility_cfg$depth_overlap_min %||%
         ((admissibility_cfg$coherence %||% list())$depth %||% list())$min %||%
-        policy_cfg$min_depth_overlap_fraction %||%
-        0.25,
+        NA_real_,
       missing_key_metadata_max_fraction = admissibility_cfg$key_metadata_max %||%
-        policy_cfg$missing_key_metadata_max_fraction %||%
-        0.25,
+        NA_real_,
       length_overlap_weight = similarity_cfg$length_weight %||%
         policy_cfg$length_overlap_weight %||%
         2,
@@ -4847,12 +5790,8 @@ default_anchor_config <- function(config = NULL) {
       frequency_coherence_mode = frequency_mode,
       frequency_gap = admissibility_cfg$frequency_gap %||%
         ((admissibility_cfg$coherence %||% list())$frequency %||% list())$gap %||%
-        similarity_cfg$frequency_gap %||%
-        policy_cfg$max_frequency_gap_khz %||%
         NULL,
       exact_frequency = admissibility_cfg$exact_frequency %||%
-        similarity_cfg$exact_frequency %||%
-        policy_cfg$require_same_frequency_label %||%
         NULL,
       seed = cfg_data$tuning$seed %||% cfg_data$benchmark$seed %||% NULL
     ),
@@ -4880,36 +5819,85 @@ admissibility_key_metadata_cols <- function(config = NULL) {
       }
       return(as.character(unlist(x, use.names = FALSE)))
     }
+    x_names <- names(x)
+    if (!is.null(x_names) && any(!is.na(x_names) & nzchar(x_names))) {
+      return(as.character(x_names[!is.na(x_names) & nzchar(x_names)]))
+    }
     as.character(x)
   }
 
-  key_cols <- trait_names(cfg$similarity_study_traits %||% character(0))
-  if (length(key_cols) == 0) {
-    key_cols <- trait_names(cfg$study_traits %||% character(0))
-  }
-  if (length(key_cols) == 0) {
-    key_cols <- unique(c(
-      trait_names(cfg$similarity_species_traits %||% character(0)),
-      trait_names(cfg$similarity_study_traits %||% character(0))
-    ))
-  }
-  if (length(key_cols) == 0) {
-    key_cols <- unique(c(
-      trait_names(cfg$species_traits %||% character(0)),
-      trait_names(cfg$study_traits %||% character(0))
-    ))
-  }
+  # Missingness is evaluated over one explicit union: every configured
+  # similarity trait plus every configured hard-gate trait. There is no
+  # study-first or other cascading fallback.
+  key_cols <- unique(c(
+    trait_names(cfg$similarity_species_traits %||% character(0)),
+    trait_names(cfg$similarity_study_traits %||% character(0)),
+    trait_names(cfg$species_traits %||% character(0)),
+    trait_names(cfg$study_traits %||% character(0))
+  ))
 
   length_min <- build_anchor_field(cfg, "length_min")
   length_max <- build_anchor_field(cfg, "length_max")
   depth_min <- build_anchor_field(cfg, "depth_min")
   depth_max <- build_anchor_field(cfg, "depth_max")
+  species_length_min <- build_anchor_field(cfg, "species_length_min")
+  species_length_max <- build_anchor_field(cfg, "species_length_max")
+  species_depth_min <- build_anchor_field(cfg, "species_depth_min")
+  species_depth_max <- build_anchor_field(cfg, "species_depth_max")
   freq_col <- build_anchor_field(cfg, "frequency")
+
+  similarity_coherence <- cfg$similarity_coherence %||% list()
+  append_similarity_domain <- function(dimension,
+                                       study_cols,
+                                       species_cols) {
+    dimension_cfg <- similarity_coherence[[dimension]] %||% list()
+    mode <- stringr::str_to_lower(stringr::str_squish(
+      as.character(dimension_cfg$mode %||% "none")
+    ))[[1]]
+    if (identical(mode, "none")) {
+      return(character(0))
+    }
+    source <- stringr::str_to_lower(stringr::str_squish(
+      as.character(dimension_cfg$source %||% "")
+    ))[[1]]
+    switch(source,
+      study = study_cols,
+      species = species_cols,
+      both = c(study_cols, species_cols),
+      stop(
+        sprintf(
+          "Configured similarity coherence '%s.source' must explicitly be study, species, or both.",
+          dimension
+        ),
+        call. = FALSE
+      )
+    )
+  }
+
+  key_cols <- c(
+    key_cols,
+    append_similarity_domain(
+      "length",
+      c(length_min, length_max),
+      c(species_length_min, species_length_max)
+    ),
+    append_similarity_domain(
+      "depth",
+      c(depth_min, depth_max),
+      c(species_depth_min, species_depth_max)
+    )
+  )
+  similarity_frequency_mode <- stringr::str_to_lower(stringr::str_squish(
+    as.character((similarity_coherence$frequency %||% list())$mode %||% "none")
+  ))[[1]]
+  if (!identical(similarity_frequency_mode, "none")) {
+    key_cols <- c(key_cols, freq_col)
+  }
 
   min_length_overlap <- suppressWarnings(as.numeric(cfg$min_length_overlap_fraction %||% NA_real_))
   min_depth_overlap <- suppressWarnings(as.numeric(cfg$min_depth_overlap_fraction %||% NA_real_))
   frequency_mode <- stringr::str_to_lower(
-    stringr::str_squish(as.character(cfg$frequency_coherence_mode %||% "overlap"))
+    stringr::str_squish(as.character(cfg$frequency_coherence_mode %||% "none"))
   )[[1]]
 
   if (is.finite(min_length_overlap)) {
@@ -4939,7 +5927,20 @@ admissibility_bundle_is_current <- function(admissibility_bundle,
     return(FALSE)
   }
   logic_version <- admissibility_bundle$logic_version %||% NULL
-  if (!is.null(logic_version) && !identical(logic_version, anchor_admissibility_logic_version())) {
+  if (!identical(logic_version, anchor_admissibility_logic_version())) {
+    return(FALSE)
+  }
+  current_contract <- build_admissibility_contract(config)
+  if (is.null(admissibility_bundle$effective_contract) ||
+    !identical(admissibility_bundle$effective_contract, current_contract) ||
+    !identical(
+      admissibility_bundle$effective_contract_fingerprint %||% NULL,
+      admissibility_audit_fingerprint(current_contract)
+    )) {
+    return(FALSE)
+  }
+  if (is.null(admissibility_bundle$all_gate_audit) ||
+    !is.data.frame(admissibility_bundle$all_gate_audit)) {
     return(FALSE)
   }
 
@@ -4964,13 +5965,25 @@ admissibility_bundle_is_current <- function(admissibility_bundle,
   }
 
   freq_mode <- stringr::str_to_lower(
-    stringr::str_squish(as.character(cfg$frequency_coherence_mode %||% "overlap"))
+    stringr::str_squish(as.character(cfg$frequency_coherence_mode %||% "none"))
   )[[1]]
   if (!identical(freq_mode, "none")) {
     if (!"gate_frequency" %in% names(scores_tbl) ||
       !"frequency_coherence_distance" %in% names(scores_tbl)) {
       return(FALSE)
     }
+  }
+  if (is.finite(suppressWarnings(as.numeric(cfg$min_length_overlap_fraction %||% NA_real_))) &&
+    !"gate_length_overlap" %in% names(scores_tbl)) {
+    return(FALSE)
+  }
+  if (is.finite(suppressWarnings(as.numeric(cfg$min_depth_overlap_fraction %||% NA_real_))) &&
+    !"gate_depth_overlap" %in% names(scores_tbl)) {
+    return(FALSE)
+  }
+  if (is.finite(suppressWarnings(as.numeric(cfg$missing_key_metadata_max_fraction %||% NA_real_))) &&
+    !"gate_missing_key_metadata" %in% names(scores_tbl)) {
+    return(FALSE)
   }
 
   expected_key_cols <- intersect(admissibility_key_metadata_cols(cfg), names(scores_tbl))
@@ -5025,7 +6038,217 @@ admissibility_bundle_is_current <- function(admissibility_bundle,
 }
 
 anchor_admissibility_logic_version <- function() {
-  "reference_anchor_donor_exclusion_v1"
+  "explicit_configured_gate_contract_v2"
+}
+
+#' Build the effective admissibility contract recorded with every screen
+#'
+#' @keywords internal
+#' @noRd
+build_admissibility_contract <- function(config = NULL) {
+  cfg <- default_anchor_config(config)
+  frequency_mode <- stringr::str_to_lower(stringr::str_squish(
+    as.character(cfg$frequency_coherence_mode %||% "none")
+  ))[[1]]
+  list(
+    logic_version = anchor_admissibility_logic_version(),
+    species_traits = sort(unique(as.character(cfg$species_traits %||% character(0)))),
+    study_traits = sort(unique(as.character(cfg$study_traits %||% character(0)))),
+    length = list(
+      active = is.finite(suppressWarnings(as.numeric(cfg$min_length_overlap_fraction %||% NA_real_))),
+      minimum_overlap = suppressWarnings(as.numeric(cfg$min_length_overlap_fraction %||% NA_real_)),
+      donor_min_field = build_anchor_field(cfg, "length_min"),
+      donor_max_field = build_anchor_field(cfg, "length_max")
+    ),
+    depth = list(
+      active = is.finite(suppressWarnings(as.numeric(cfg$min_depth_overlap_fraction %||% NA_real_))),
+      minimum_overlap = suppressWarnings(as.numeric(cfg$min_depth_overlap_fraction %||% NA_real_)),
+      donor_min_field = build_anchor_field(cfg, "depth_min"),
+      donor_max_field = build_anchor_field(cfg, "depth_max")
+    ),
+    frequency = list(
+      mode = frequency_mode,
+      gap = if (identical(frequency_mode, "overlap")) {
+        suppressWarnings(as.numeric(cfg$frequency_gap %||% NA_real_))
+      } else {
+        NA_real_
+      },
+      field = build_anchor_field(cfg, "frequency")
+    ),
+    key_metadata = list(
+      maximum_missing_fraction = suppressWarnings(as.numeric(
+        cfg$missing_key_metadata_max_fraction %||% NA_real_
+      )),
+      fields = sort(admissibility_key_metadata_cols(cfg))
+    )
+  )
+}
+
+#' Compute a compact deterministic fingerprint for an audit object
+#'
+#' @keywords internal
+#' @noRd
+admissibility_audit_fingerprint <- function(x) {
+  path <- tempfile(pattern = "tsbiomass_audit_", fileext = ".rds")
+  on.exit(unlink(path), add = TRUE)
+  saveRDS(x, path, version = 2L, compress = FALSE)
+  unname(as.character(tools::md5sum(path)[[1]]))
+}
+
+#' Fingerprint an input table independently of row and column order
+#'
+#' @keywords internal
+#' @noRd
+admissibility_table_fingerprint <- function(x, id_col = "model_id") {
+  tbl <- as.data.frame(x, stringsAsFactors = FALSE)
+  tbl <- tbl[, sort(names(tbl)), drop = FALSE]
+  if (id_col %in% names(tbl)) {
+    tbl <- tbl[order(as.character(tbl[[id_col]]), na.last = TRUE, method = "radix"), , drop = FALSE]
+  }
+  rownames(tbl) <- NULL
+  admissibility_audit_fingerprint(tbl)
+}
+
+#' Record input-file provenance when it is available
+#'
+#' @keywords internal
+#' @noRd
+admissibility_input_provenance <- function(config = NULL) {
+  cfg_data <- resolve_config_data(config)
+  path <- (cfg_data$paths %||% list())$input_file %||% NULL
+  if (is.null(path) || length(path) != 1L || is.na(path) || !nzchar(path)) {
+    return(list(path = NA_character_, exists = FALSE, md5 = NA_character_, size_bytes = NA_real_, modified_utc = NA_character_))
+  }
+  normalized <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  exists <- file.exists(path)
+  if (!exists) {
+    return(list(path = normalized, exists = FALSE, md5 = NA_character_, size_bytes = NA_real_, modified_utc = NA_character_))
+  }
+  info <- file.info(path)
+  modified <- format(as.POSIXct(info$mtime[[1]], tz = "UTC"), tz = "UTC", usetz = TRUE)
+  list(
+    path = normalized,
+    exists = TRUE,
+    md5 = unname(as.character(tools::md5sum(path)[[1]])),
+    size_bytes = unname(as.numeric(info$size[[1]])),
+    modified_utc = modified
+  )
+}
+
+#' Build a long-form per-anchor, per-donor gate audit
+#'
+#' @keywords internal
+#' @noRd
+build_admissibility_gate_audit <- function(scored, anchor_row, config = NULL) {
+  scored <- tibble::as_tibble(scored)
+  cfg <- default_anchor_config(config)
+  donor_id_col <- build_anchor_field(cfg, "model_id")
+  anchor_id <- build_anchor_model_id(anchor_row, cfg)
+  anchor_species_col <- build_anchor_field(cfg, "species_name")
+  anchor_species <- as.character(anchor_row[[anchor_species_col]][[1]])
+  donor_ids <- as.character(scored[[donor_id_col]])
+
+  make_rows <- function(gate, pass, candidate_value = NA_character_, anchor_value = NA_character_, criterion = NA_character_, reason = NA_character_) {
+    n <- nrow(scored)
+    recycle <- function(x) rep_len(as.character(x), n)
+    tibble::tibble(
+      anchor_model_id = anchor_id,
+      anchor_species = anchor_species,
+      donor_model_id = donor_ids,
+      gate = gate,
+      gate_pass = as.logical(pass),
+      candidate_value = recycle(candidate_value),
+      anchor_value = recycle(anchor_value),
+      criterion = recycle(criterion),
+      reason = recycle(reason)
+    )
+  }
+
+  audit <- list(make_rows(
+    "not_self",
+    scored$gate_not_self,
+    candidate_value = donor_ids,
+    anchor_value = anchor_id,
+    criterion = "donor_model_id != anchor_model_id",
+    reason = scored$gate_reason_not_self
+  ))
+
+  trait_names <- unique(c(
+    as.character(cfg$species_traits %||% character(0)),
+    as.character(cfg$study_traits %||% character(0))
+  ))
+  trait_names <- trait_names[!is.na(trait_names) & nzchar(trait_names)]
+  for (trait_name in trait_names) {
+    gate_col <- paste0("gate_trait_", trait_name)
+    reason_col <- paste0("gate_reason_trait_", trait_name)
+    if (gate_col %in% names(scored)) {
+      audit[[length(audit) + 1L]] <- make_rows(
+        paste0("trait:", trait_name),
+        scored[[gate_col]],
+        candidate_value = scored[[trait_name]],
+        anchor_value = anchor_row[[trait_name]][[1]],
+        criterion = "configured exact/set-overlap match",
+        reason = scored[[reason_col]]
+      )
+    }
+  }
+
+  frequency_mode <- stringr::str_to_lower(stringr::str_squish(
+    as.character(cfg$frequency_coherence_mode %||% "none")
+  ))[[1]]
+  if (!identical(frequency_mode, "none") && !"frequency" %in% trait_names) {
+    frequency_col <- build_anchor_field(cfg, "frequency")
+    frequency_gap <- suppressWarnings(as.numeric(cfg$frequency_gap %||% NA_real_))
+    criterion <- if (identical(frequency_mode, "literal")) {
+      "exact numeric frequency match"
+    } else {
+      paste0("absolute frequency difference <= ", format(frequency_gap, trim = TRUE), " kHz")
+    }
+    audit[[length(audit) + 1L]] <- make_rows(
+      "frequency",
+      scored$gate_frequency,
+      candidate_value = scored[[frequency_col]],
+      anchor_value = anchor_row[[frequency_col]][[1]],
+      criterion = criterion,
+      reason = scored$gate_reason_frequency
+    )
+  }
+
+  min_length <- suppressWarnings(as.numeric(cfg$min_length_overlap_fraction %||% NA_real_))
+  if (is.finite(min_length)) {
+    audit[[length(audit) + 1L]] <- make_rows(
+      "study_length_overlap",
+      scored$gate_length_overlap,
+      candidate_value = scored$length_overlap_fraction,
+      anchor_value = min_length,
+      criterion = "directional study-range overlap >= configured minimum",
+      reason = scored$gate_reason_length_overlap
+    )
+  }
+  min_depth <- suppressWarnings(as.numeric(cfg$min_depth_overlap_fraction %||% NA_real_))
+  if (is.finite(min_depth)) {
+    audit[[length(audit) + 1L]] <- make_rows(
+      "study_depth_overlap",
+      scored$gate_depth_overlap,
+      candidate_value = scored$depth_overlap_fraction,
+      anchor_value = min_depth,
+      criterion = "directional study-range overlap >= configured minimum",
+      reason = scored$gate_reason_depth_overlap
+    )
+  }
+  max_missing <- suppressWarnings(as.numeric(cfg$missing_key_metadata_max_fraction %||% NA_real_))
+  if (is.finite(max_missing)) {
+    audit[[length(audit) + 1L]] <- make_rows(
+      "key_metadata_missingness",
+      scored$gate_missing_key_metadata,
+      candidate_value = scored$key_metadata_missing_fraction,
+      anchor_value = max_missing,
+      criterion = "missing fraction <= configured maximum",
+      reason = scored$gate_reason_missing_key_metadata
+    )
+  }
+
+  dplyr::bind_rows(audit)
 }
 
 #' Signal that one anchor cannot be scored
@@ -5050,21 +6273,6 @@ abort_unscorable_anchor <- function(message,
   )
   stop(condition)
 }
-
-#' Build an anchor length PDF
-#'
-#' Builds a length-density grid from the anchor study length metadata. When a
-#' study length interval is available, the returned density is uniform over
-#' that interval. When only a midpoint is available, the returned density is a
-#' point mass at that midpoint. No species-maximum fallback is used.
-#'
-#' @param anchor_row One-row anchor table.
-#' @param n Number of support points in the output grid.
-#'
-#' @return A tibble with `length_cm` and `f_len`.
-#'
-#' @keywords internal
-#' @noRd
 
 #' Compute vectorized directional interval overlap
 #'
@@ -5142,8 +6350,7 @@ compute_frequency_gap <- function(candidate_freq,
   if (identical(mode_, "literal")) {
     out <- rep(NA_real_, n_out)
     out[valid_freqs] <- as.numeric(
-      as.integer(round(candidate_freq_[valid_freqs])) !=
-        as.integer(round(anchor_freq_))
+      candidate_freq_[valid_freqs] != anchor_freq_
     )
     return(out)
   }
@@ -5191,7 +6398,17 @@ S7::method(screen_missing_metadata, S7::class_any) <- function(candidate_models,
                                                                key_cols) {
   # Normalize the requested key columns first, then compute one row-wise
   # missingness fraction across the retained fields.
-  key_cols <- intersect(as.character(key_cols), names(candidate_models))
+  key_cols <- unique(as.character(key_cols))
+  missing_cols <- setdiff(key_cols, names(candidate_models))
+  if (length(missing_cols) > 0L) {
+    stop(
+      sprintf(
+        "Configured key-metadata column(s) are absent from candidate models: %s",
+        paste(missing_cols, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
   out <- tibble::as_tibble(candidate_models)
 
   if (length(key_cols) == 0) {
@@ -5206,6 +6423,32 @@ S7::method(screen_missing_metadata, S7::class_any) <- function(candidate_models,
     )
 }
 
+#' Identify unavailable configured metadata values
+#'
+#' @keywords internal
+#' @noRd
+admissibility_value_missing <- function(x) {
+  if (is.numeric(x) || is.integer(x)) {
+    return(!is.finite(x))
+  }
+  if (is.logical(x)) {
+    return(is.na(x))
+  }
+  if (is.list(x)) {
+    return(vapply(x, function(value) {
+      if (is.null(value) || length(value) == 0L) {
+        return(TRUE)
+      }
+      all(admissibility_value_missing(value))
+    }, logical(1)))
+  }
+  x_chr <- stringr::str_to_lower(stringr::str_squish(as.character(x)))
+  is.na(x_chr) | !nzchar(x_chr) | x_chr %in% c(
+    "na", "n/a", "unknown", "unknown unknown",
+    "general", "nonspecific", "general/nonspecific"
+  )
+}
+
 #' Build a key-metadata missingness matrix
 #'
 #' @param models_tbl Candidate-model table.
@@ -5218,19 +6461,32 @@ S7::method(screen_missing_metadata, S7::class_any) <- function(candidate_models,
 key_metadata_missing_matrix <- function(models_tbl,
                                         key_cols) {
   models_tbl <- tibble::as_tibble(models_tbl)
-  key_cols <- intersect(as.character(key_cols), names(models_tbl))
+  key_cols <- unique(as.character(key_cols))
+  missing_cols <- setdiff(key_cols, names(models_tbl))
+  if (length(missing_cols) > 0L) {
+    stop(
+      sprintf(
+        "Configured key-metadata column(s) are absent from candidate models: %s",
+        paste(missing_cols, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
   if (length(key_cols) == 0L) {
     return(matrix(FALSE, nrow = nrow(models_tbl), ncol = 0L))
   }
 
-  missing_mat <- as.matrix(is.na(models_tbl[, key_cols, drop = FALSE]))
-  group_rows <- generalized_model_indicator(models_tbl)
-  not_applicable_group_cols <- intersect(
-    c("species_name", "species", "genus", "family", "body_shape"),
-    key_cols
+  missing_mat <- vapply(
+    models_tbl[key_cols],
+    admissibility_value_missing,
+    logical(nrow(models_tbl))
   )
-  if (any(group_rows) && length(not_applicable_group_cols) > 0L) {
-    missing_mat[group_rows, not_applicable_group_cols] <- FALSE
+  if (length(key_cols) == 1L) {
+    missing_mat <- matrix(
+      missing_mat,
+      ncol = 1L,
+      dimnames = list(NULL, key_cols)
+    )
   }
   missing_mat
 }
@@ -5637,8 +6893,19 @@ apply_anchor_gates <- function(candidate_models,
 
   out <- tibble::as_tibble(candidate_models)
   out$gate_not_self <- out[[id_col]] != anchor_id
-  gate_species_traits <- config$admissibility_species_traits %||% config$species_traits %||% character(0)
-  gate_study_traits <- config$admissibility_study_traits %||% config$study_traits %||% character(0)
+  out$gate_reason_not_self <- ifelse(out$gate_not_self, NA_character_, "self")
+  gate_species_traits <- as.character(config$admissibility_species_traits %||% config$species_traits %||% character(0))
+  gate_study_traits <- as.character(config$admissibility_study_traits %||% config$study_traits %||% character(0))
+  duplicate_scope_traits <- intersect(gate_species_traits, gate_study_traits)
+  if (length(duplicate_scope_traits) > 0L) {
+    stop(
+      sprintf(
+        "Admissibility trait(s) cannot be assigned to both species and study scope: %s",
+        paste(duplicate_scope_traits, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
   gate_specs <- data.frame(
     trait_name = c(
       as.character(gate_species_traits),
@@ -5651,21 +6918,9 @@ apply_anchor_gates <- function(candidate_models,
     stringsAsFactors = FALSE
   )
   gate_specs <- gate_specs[!is.na(gate_specs$trait_name) & nzchar(gate_specs$trait_name), , drop = FALSE]
-  if (nrow(gate_specs) > 0) {
-    gate_specs <- gate_specs[!duplicated(gate_specs$trait_name), , drop = FALSE]
-  }
-
-  trait_reason <- rep(NA_character_, nrow(out))
   gate_cols <- character(0)
+  gate_reason_cols <- "gate_reason_not_self"
   registry <- NULL
-  group_model <- generalized_model_indicator(out)
-  trait_value_missing <- function(x) {
-    x_chr <- stringr::str_to_lower(stringr::str_squish(as.character(x)))
-    is.na(x_chr) | !nzchar(x_chr) | x_chr %in% c(
-      "na", "n/a", "unknown", "unknown unknown",
-      "general", "nonspecific", "general/nonspecific"
-    )
-  }
   parse_set_value <- function(x) {
     x_chr <- stringr::str_to_lower(stringr::str_squish(as.character(x)))
     if (length(x_chr) == 0 || is.na(x_chr[[1]]) || !nzchar(x_chr[[1]])) {
@@ -5703,21 +6958,36 @@ apply_anchor_gates <- function(candidate_models,
     }
 
     gate_col <- paste0("gate_trait_", trait_name)
-    fail_reason <- paste0("trait_mismatch:", trait_name)
+    reason_col <- paste0("gate_reason_trait_", trait_name)
     overlap_col <- paste0("overlap_same_", trait_name)
+    anchor_missing <- admissibility_value_missing(anchor_row[[trait_name]])[[1]]
+    if (isTRUE(anchor_missing)) {
+      stop(
+        sprintf(
+          "Anchor '%s' lacks configured %s admissibility trait '%s'; the gate cannot be evaluated.",
+          anchor_id,
+          trait_scope,
+          trait_name
+        ),
+        call. = FALSE
+      )
+    }
+    candidate_missing <- admissibility_value_missing(out[[trait_name]])
 
     # Reuse precomputed overlap flags whenever they already exist so the gate
     # layer does not re-parse the same trait strings for every anchor.
     if (!identical(trait_name, "frequency") && overlap_col %in% names(out)) {
       gate_pass <- as.logical(out[[overlap_col]])
       gate_pass[is.na(gate_pass)] <- FALSE
-      if (identical(trait_scope, "species")) {
-        missing_group_trait <- group_model %in% TRUE & trait_value_missing(out[[trait_name]])
-        gate_pass[missing_group_trait] <- TRUE
-      }
+      gate_pass[candidate_missing] <- FALSE
       out[[gate_col]] <- gate_pass
+      out[[reason_col]] <- ifelse(
+        gate_pass,
+        NA_character_,
+        ifelse(candidate_missing, paste0("trait_missing:", trait_name), paste0("trait_mismatch:", trait_name))
+      )
       gate_cols <- c(gate_cols, gate_col)
-      trait_reason[is.na(trait_reason) & !gate_pass] <- fail_reason
+      gate_reason_cols <- c(gate_reason_cols, reason_col)
       next
     }
 
@@ -5733,7 +7003,7 @@ apply_anchor_gates <- function(candidate_models,
     gate_pass <- rep(FALSE, nrow(out))
 
     if (identical(trait_name, "frequency")) {
-      freq_mode <- stringr::str_to_lower(stringr::str_squish(as.character(config$frequency_coherence_mode %||% "overlap")))[[1]]
+      freq_mode <- stringr::str_to_lower(stringr::str_squish(as.character(config$frequency_coherence_mode %||% "none")))[[1]]
       candidate_freq <- suppressWarnings(as.numeric(out[[trait_name]]))
       anchor_freq <- suppressWarnings(as.numeric(anchor_row[[trait_name]][[1]]))
       if (identical(freq_mode, "none")) {
@@ -5741,7 +7011,7 @@ apply_anchor_gates <- function(candidate_models,
       }
       if (identical(freq_mode, "literal")) {
         present_idx <- is.finite(candidate_freq) & candidate_freq > 0 & is.finite(anchor_freq) & anchor_freq > 0
-        gate_pass[present_idx] <- as.integer(round(candidate_freq[present_idx])) == as.integer(round(anchor_freq))
+        gate_pass[present_idx] <- candidate_freq[present_idx] == anchor_freq
       } else if (identical(freq_mode, "overlap")) {
         freq_gap <- suppressWarnings(as.numeric(config$frequency_gap %||% NA_real_))
         if (is.finite(freq_gap) && freq_gap >= 0) {
@@ -5749,7 +7019,6 @@ apply_anchor_gates <- function(candidate_models,
           gate_pass[present_idx] <- abs(candidate_freq[present_idx] - anchor_freq) <= freq_gap
         }
       }
-      fail_reason <- "frequency_nonoverlap"
     } else if (identical(trait_type, "set")) {
       anchor_set <- parse_set_value(anchor_row[[trait_name]][[1]])
       if (length(anchor_set) > 0) {
@@ -5775,14 +7044,15 @@ apply_anchor_gates <- function(candidate_models,
       present_idx <- !is.na(candidate_value) & nzchar(candidate_value) & !is.na(anchor_value) & nzchar(anchor_value)
       gate_pass[present_idx] <- candidate_value[present_idx] == anchor_value
     }
-    if (identical(trait_scope, "species")) {
-      missing_group_trait <- group_model %in% TRUE & trait_value_missing(out[[trait_name]])
-      gate_pass[missing_group_trait] <- TRUE
-    }
-
+    gate_pass[candidate_missing] <- FALSE
     out[[gate_col]] <- gate_pass
+    out[[reason_col]] <- ifelse(
+      gate_pass,
+      NA_character_,
+      ifelse(candidate_missing, paste0("trait_missing:", trait_name), paste0("trait_mismatch:", trait_name))
+    )
     gate_cols <- c(gate_cols, gate_col)
-    trait_reason[is.na(trait_reason) & !gate_pass] <- fail_reason
+    gate_reason_cols <- c(gate_reason_cols, reason_col)
   }
 
   out$gate_configured_traits <- if (length(gate_cols) == 0) {
@@ -5794,7 +7064,7 @@ apply_anchor_gates <- function(candidate_models,
     out$gate_trait_frequency
   } else {
     freq_mode <- stringr::str_to_lower(
-      stringr::str_squish(as.character(config$frequency_coherence_mode %||% "overlap"))
+      stringr::str_squish(as.character(config$frequency_coherence_mode %||% "none"))
     )[[1]]
     freq_col <- build_anchor_field(config, "frequency")
     gate_pass <- if (identical(freq_mode, "none")) rep(TRUE, nrow(out)) else rep(FALSE, nrow(out))
@@ -5808,7 +7078,7 @@ apply_anchor_gates <- function(candidate_models,
         is.finite(anchor_freq) &
         anchor_freq > 0
       if (identical(freq_mode, "literal")) {
-        gate_pass[present_idx] <- as.integer(round(candidate_freq[present_idx])) == as.integer(round(anchor_freq))
+        gate_pass[present_idx] <- candidate_freq[present_idx] == anchor_freq
       } else if (identical(freq_mode, "overlap")) {
         freq_gap <- suppressWarnings(as.numeric(config$frequency_gap %||% NA_real_))
         if (is.finite(freq_gap) && freq_gap >= 0) {
@@ -5818,11 +7088,59 @@ apply_anchor_gates <- function(candidate_models,
     }
     gate_pass
   }
+  freq_mode <- stringr::str_to_lower(
+    stringr::str_squish(as.character(config$frequency_coherence_mode %||% "none"))
+  )[[1]]
+  freq_col <- build_anchor_field(config, "frequency")
+  if (!identical(freq_mode, "none")) {
+    if (!freq_col %in% names(out) || !freq_col %in% names(anchor_row)) {
+      stop("The active frequency admissibility gate requires the configured frequency column.", call. = FALSE)
+    }
+    anchor_freq <- suppressWarnings(as.numeric(anchor_row[[freq_col]][[1]]))
+    if (!is.finite(anchor_freq) || anchor_freq <= 0) {
+      stop(
+        sprintf("Anchor '%s' lacks a finite positive frequency; the frequency gate cannot be evaluated.", anchor_id),
+        call. = FALSE
+      )
+    }
+    candidate_freq <- suppressWarnings(as.numeric(out[[freq_col]]))
+    frequency_missing <- !is.finite(candidate_freq) | candidate_freq <= 0
+    out$gate_reason_frequency <- ifelse(
+      out$gate_frequency,
+      NA_character_,
+      ifelse(frequency_missing, "frequency_missing", "frequency_nonoverlap")
+    )
+  } else {
+    out$gate_reason_frequency <- NA_character_
+  }
+  gate_reason_cols <- c(gate_reason_cols, "gate_reason_frequency")
   # Resolve the remaining scalar gate thresholds with direct vectorized checks
   # so this hot path does not spend time in repeated case_when evaluation.
   min_length_overlap <- suppressWarnings(as.numeric(config$min_length_overlap_fraction %||% NA_real_))
   min_depth_overlap <- suppressWarnings(as.numeric(config$min_depth_overlap_fraction %||% NA_real_))
   max_missing_key <- suppressWarnings(as.numeric(config$missing_key_metadata_max_fraction %||% NA_real_))
+
+  require_anchor_range <- function(min_field, max_field, label) {
+    min_value <- suppressWarnings(as.numeric(anchor_row[[min_field]][[1]]))
+    max_value <- suppressWarnings(as.numeric(anchor_row[[max_field]][[1]]))
+    if (!is.finite(min_value) || !is.finite(max_value) || max_value < min_value) {
+      stop(
+        sprintf(
+          "Anchor '%s' lacks a valid configured study %s range; the %s-overlap gate cannot be evaluated.",
+          anchor_id,
+          label,
+          label
+        ),
+        call. = FALSE
+      )
+    }
+  }
+  if (is.finite(min_length_overlap)) {
+    require_anchor_range(build_anchor_field(config, "length_min"), build_anchor_field(config, "length_max"), "length")
+  }
+  if (is.finite(min_depth_overlap)) {
+    require_anchor_range(build_anchor_field(config, "depth_min"), build_anchor_field(config, "depth_max"), "depth")
+  }
 
   out$gate_length_overlap <- if (is.na(min_length_overlap)) {
     rep(TRUE, nrow(out))
@@ -5837,20 +7155,44 @@ apply_anchor_gates <- function(candidate_models,
   out$gate_missing_key_metadata <- if (is.na(max_missing_key)) {
     rep(TRUE, nrow(out))
   } else {
-    is.na(out$key_metadata_missing_fraction) | out$key_metadata_missing_fraction <= max_missing_key
+    is.finite(out$key_metadata_missing_fraction) & out$key_metadata_missing_fraction <= max_missing_key
   }
+  out$gate_reason_length_overlap <- ifelse(
+    out$gate_length_overlap,
+    NA_character_,
+    ifelse(is.finite(out$length_overlap_fraction), "length_domain_nonoverlap", "length_domain_missing")
+  )
+  out$gate_reason_depth_overlap <- ifelse(
+    out$gate_depth_overlap,
+    NA_character_,
+    ifelse(is.finite(out$depth_overlap_fraction), "depth_domain_nonoverlap", "depth_domain_missing")
+  )
+  out$gate_reason_missing_key_metadata <- ifelse(
+    out$gate_missing_key_metadata,
+    NA_character_,
+    ifelse(is.finite(out$key_metadata_missing_fraction), "metadata_missing_excess", "metadata_missing_unavailable")
+  )
+  gate_reason_cols <- c(
+    gate_reason_cols,
+    "gate_reason_length_overlap",
+    "gate_reason_depth_overlap",
+    "gate_reason_missing_key_metadata"
+  )
   out$admissible <- out$gate_not_self &
     out$gate_configured_traits &
     out$gate_frequency &
     out$gate_length_overlap &
     out$gate_depth_overlap &
     out$gate_missing_key_metadata
-  out$inadmissible_reason <- trait_reason
-  out$inadmissible_reason[!out$gate_not_self] <- "self"
-  out$inadmissible_reason[is.na(out$inadmissible_reason) & !out$gate_frequency] <- "frequency_nonoverlap"
-  out$inadmissible_reason[is.na(out$inadmissible_reason) & !out$gate_length_overlap] <- "length_domain_nonoverlap"
-  out$inadmissible_reason[is.na(out$inadmissible_reason) & !out$gate_depth_overlap] <- "depth_domain_nonoverlap"
-  out$inadmissible_reason[is.na(out$inadmissible_reason) & !out$gate_missing_key_metadata] <- "metadata_missing_excess"
+  out$inadmissible_reasons <- apply(
+    out[, unique(gate_reason_cols), drop = FALSE],
+    1L,
+    function(reason_row) {
+      reasons <- unique(reason_row[!is.na(reason_row) & nzchar(reason_row)])
+      if (length(reasons) == 0L) NA_character_ else paste(reasons, collapse = ";")
+    }
+  )
+  out$inadmissible_reason <- sub(";.*$", "", out$inadmissible_reasons)
 
   out
 }
@@ -6405,22 +7747,43 @@ add_anchor_distances <- function(model_eval,
   model_eval_ <- model_eval
   model_ids <- model_eval_[[build_anchor_field(config, "model_id")]]
   if (identical(dist_obj$distance_mode %||% "", "alchemist_super_learner")) {
+    model_keys <- as.character(model_ids)
+    anchor_key <- as.character(anchor_id)
     learned_mat <- dist_obj$learned_directed_dist
     bandwidth <- suppressWarnings(as.numeric(dist_obj$learned_kernel_bandwidth)[[1]])
     if (is.null(learned_mat) || !is.matrix(learned_mat) ||
-      !all(c(as.character(model_ids), as.character(anchor_id)) %in% rownames(learned_mat)) ||
-      !all(c(as.character(model_ids), as.character(anchor_id)) %in% colnames(learned_mat)) ||
+      !all(c(model_keys, anchor_key) %in% rownames(learned_mat)) ||
+      !all(c(model_keys, anchor_key) %in% colnames(learned_mat)) ||
       !is.finite(bandwidth) || bandwidth <= 0) {
       stop("Alchemist policy scoring requires a directed learned-distance matrix and positive bandwidth.", call. = FALSE)
     }
-    taxonomic_mat <- dist_obj$taxonomic_dist_model %||% NULL
-    model_eval_$learned_distance <- as.numeric(learned_mat[model_ids, anchor_id])
+    component_values <- function(mat, component_name) {
+      if (is.null(mat)) {
+        return(rep(NA_real_, length(model_keys)))
+      }
+      if (!is.matrix(mat) || is.null(rownames(mat)) || is.null(colnames(mat)) ||
+          !all(c(model_keys, anchor_key) %in% rownames(mat)) ||
+          !all(c(model_keys, anchor_key) %in% colnames(mat))) {
+        stop(
+          sprintf(
+            "Alchemist %s is malformed or does not cover the anchor candidates; rebuild the distance bundle.",
+            component_name
+          ),
+          call. = FALSE
+        )
+      }
+      as.numeric(mat[model_keys, anchor_key])
+    }
+
+    model_eval_$learned_distance <- as.numeric(
+      learned_mat[model_keys, anchor_key]
+    )
     disagreement_mat <- dist_obj$learned_distance_disagreement %||% NULL
     model_eval_$learned_distance_disagreement <- if (!is.null(disagreement_mat) &&
       is.matrix(disagreement_mat) &&
-      all(c(as.character(model_ids), as.character(anchor_id)) %in% rownames(disagreement_mat)) &&
-      all(c(as.character(model_ids), as.character(anchor_id)) %in% colnames(disagreement_mat))) {
-      as.numeric(disagreement_mat[model_ids, anchor_id])
+      all(c(model_keys, anchor_key) %in% rownames(disagreement_mat)) &&
+      all(c(model_keys, anchor_key) %in% colnames(disagreement_mat))) {
+      as.numeric(disagreement_mat[model_keys, anchor_key])
     } else {
       NA_real_
     }
@@ -6428,15 +7791,26 @@ add_anchor_distances <- function(model_eval,
       dist_obj$learned_distance_diagnostic_available
     )
     model_eval_$learned_kernel_bandwidth <- bandwidth
-    model_eval_$d_species <- if (!is.null(taxonomic_mat) && is.matrix(taxonomic_mat) &&
-      all(c(as.character(model_ids), as.character(anchor_id)) %in% rownames(taxonomic_mat)) &&
-      all(c(as.character(model_ids), as.character(anchor_id)) %in% colnames(taxonomic_mat))) {
-      as.numeric(taxonomic_mat[model_ids, anchor_id])
-    } else {
-      NA_real_
-    }
-    model_eval_$d_study <- NA_real_
-    model_eval_$taxonomic_distance_to_anchor <- model_eval_$d_species
+    model_eval_$d_species <- component_values(
+      dist_obj$species_dist_model %||% dist_obj$species_dist,
+      "species-component distance"
+    )
+    model_eval_$d_study <- component_values(
+      dist_obj$study_dist,
+      "study-component distance"
+    )
+    model_eval_$taxonomic_distance_to_anchor <- component_values(
+      dist_obj$taxonomic_dist_model,
+      "taxonomic distance"
+    )
+    model_eval_$species_component_coverage <- component_values(
+      dist_obj$species_component_coverage,
+      "species-component coverage"
+    )
+    model_eval_$study_component_coverage <- component_values(
+      dist_obj$study_component_coverage,
+      "study-component coverage"
+    )
     return(model_eval_)
   }
   model_eval_$d_species <- as.numeric(dist_obj$species_dist_model[model_ids, anchor_id])
@@ -6488,7 +7862,7 @@ add_anchor_terms <- function(model_eval,
     candidate_freq = out$frequency,
     anchor_freq = anchor_freq,
     freq_span = sim_obj$frequency_span,
-    mode = config$frequency_coherence_mode %||% "overlap"
+    mode = config$frequency_coherence_mode %||% "none"
   )
   out$kernel_species_term <- alpha * k_species * d_species
   out$kernel_study_term <- (1 - alpha) * k_study * d_study
@@ -7055,6 +8429,7 @@ screen_admissibility <- function(reference_anchors = NULL,
   all_scores <- list()
   all_overlap <- list()
   all_gates <- list()
+  all_gate_audit <- list()
   all_summary <- list()
   anchor_results <- list()
   anchor_failures <- list()
@@ -7219,6 +8594,7 @@ screen_admissibility <- function(reference_anchors = NULL,
       summarize_anchor_overlap(config = config_) |>
       dplyr::mutate(anchor_model_id = anchor_id, anchor_species = anchor_species)
     gates <- summarize_gate_counts(scored, anchor_row, cfg)
+    gate_audit <- build_admissibility_gate_audit(scored, anchor_row, cfg)
     summary <- summarize_anchor_pool(scored)
 
     # Build a compact stored evaluation to avoid duplicating the full distance
@@ -7246,22 +8622,37 @@ screen_admissibility <- function(reference_anchors = NULL,
       ranked = ranked,
       overlap = overlap,
       gates = gates,
+      gate_audit = gate_audit,
       summary = summary
     )
 
     all_scores[[length(all_scores) + 1]] <- scored
     all_overlap[[length(all_overlap) + 1]] <- overlap
     all_gates[[length(all_gates) + 1]] <- gates
+    all_gate_audit[[length(all_gate_audit) + 1]] <- gate_audit
     all_summary[[length(all_summary) + 1]] <- summary
   }
 
+  effective_contract <- build_admissibility_contract(cfg)
   result <- list(
     logic_version = anchor_admissibility_logic_version(),
+    effective_contract = effective_contract,
+    effective_contract_fingerprint = admissibility_audit_fingerprint(effective_contract),
+    input_provenance = admissibility_input_provenance(config_),
+    candidate_table_fingerprint = admissibility_table_fingerprint(
+      candidate_models_,
+      build_anchor_field(cfg, "model_id")
+    ),
+    anchor_table_fingerprint = admissibility_table_fingerprint(
+      reference_anchors_,
+      build_anchor_field(cfg, "model_id")
+    ),
     anchors = anchor_results,
     anchor_failures = dplyr::bind_rows(anchor_failures),
     all_scores = dplyr::bind_rows(all_scores),
     all_overlap = dplyr::bind_rows(all_overlap),
     all_gates = dplyr::bind_rows(all_gates),
+    all_gate_audit = dplyr::bind_rows(all_gate_audit),
     anchor_summary = dplyr::bind_rows(all_summary)
   )
   report_progress(progress, "Completed anchor admissibility screening.")

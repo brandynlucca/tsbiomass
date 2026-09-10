@@ -221,7 +221,7 @@ reject_retired_configuration_fields <- function(config) {
     list(section = "similarity", field = "length_weight", replacement = "similarity.coherence.length.weight"),
     list(section = "similarity", field = "depth_weight", replacement = "similarity.coherence.depth.weight"),
     list(section = "similarity", field = "frequency_weight", replacement = "similarity.coherence.frequency.weight"),
-    list(section = "similarity", field = "frequency_gap", replacement = "similarity.coherence.frequency.gap"),
+    list(section = "similarity", field = "frequency_gap", replacement = "admissibility.coherence.frequency.gap"),
     list(section = "admissibility", field = "traits", replacement = "admissibility.species_traits and admissibility.study_traits"),
     list(section = "admissibility", field = "length_mode", replacement = "admissibility.coherence.length.mode"),
     list(section = "admissibility", field = "depth_mode", replacement = "admissibility.coherence.depth.mode"),
@@ -399,9 +399,9 @@ S7::S4_register(Configurer)
 #'     species_traits = list(genus = 2, family = 1),
 #'     study_traits = list(frequency = 1, fao_area = 1),
 #'     coherence = list(
-#'       length = list(mode = "overlap", weight = 2),
-#'       depth = list(mode = "overlap", weight = 3),
-#'       frequency = list(mode = "overlap", weight = 2, gap = 60)
+#'       length = list(mode = "overlap", source = "both", weight = 2),
+#'       depth = list(mode = "overlap", source = "both", weight = 3),
+#'       frequency = list(mode = "overlap", weight = 2)
 #'     )
 #'   ),
 #'   admissibility = list(
@@ -409,7 +409,7 @@ S7::S4_register(Configurer)
 #'     coherence = list(
 #'       length = list(mode = "overlap", min = 0.25),
 #'       depth = list(mode = "overlap", min = 0.25),
-#'       frequency = list(mode = "overlap")
+#'       frequency = list(mode = "overlap", gap = 60)
 #'     )
 #'   ),
 #'   policies = list(
@@ -1125,7 +1125,6 @@ normalize_similarity_config_shape <- function(config) {
   similarity$length_weight <- length_cfg$weight %||% NULL
   similarity$depth_weight <- depth_cfg$weight %||% NULL
   similarity$frequency_weight <- frequency_cfg$weight %||% NULL
-  similarity$frequency_gap <- frequency_cfg$gap %||% NULL
   similarity$kernel_scale <- similarity$kernel_scale %||% NULL
 
   admissibility_coherence <- admissibility$coherence %||% list()
@@ -1134,19 +1133,19 @@ normalize_similarity_config_shape <- function(config) {
   admissibility_frequency_cfg <- admissibility_coherence$frequency %||% list()
   admissibility$species_traits <- admissibility$species_traits %||% character(0)
   admissibility$study_traits <- admissibility$study_traits %||% character(0)
-  admissibility$length_mode <- admissibility_length_cfg$mode %||% similarity$length_mode %||% "overlap"
-  admissibility$depth_mode <- admissibility_depth_cfg$mode %||% similarity$depth_mode %||% "overlap"
-  admissibility$frequency_mode <- admissibility_frequency_cfg$mode %||% similarity$frequency_mode %||% "overlap"
+  admissibility$length_mode <- admissibility_length_cfg$mode %||% "none"
+  admissibility$depth_mode <- admissibility_depth_cfg$mode %||% "none"
+  admissibility$frequency_mode <- admissibility_frequency_cfg$mode %||% "none"
   admissibility$length_overlap_min <- admissibility_length_cfg$min %||% NULL
   admissibility$depth_overlap_min <- admissibility_depth_cfg$min %||% NULL
-  admissibility$frequency_gap <- admissibility_frequency_cfg$gap %||% similarity$frequency_gap %||% NULL
+  admissibility$frequency_gap <- admissibility_frequency_cfg$gap %||% NULL
   admissibility$key_metadata_max <- admissibility$key_metadata_max %||% NULL
 
-  admissibility_frequency_mode_internal <- switch(stringr::str_to_lower(stringr::str_squish(as.character(admissibility$frequency_mode %||% "overlap")))[[1]],
+  admissibility_frequency_mode_internal <- switch(stringr::str_to_lower(stringr::str_squish(as.character(admissibility$frequency_mode %||% "none")))[[1]],
     overlap = "overlap",
     literal = "literal",
     none = "none",
-    "overlap"
+    "none"
   )
   admissibility_exact_frequency <- identical(admissibility_frequency_mode_internal, "literal")
 
@@ -1160,10 +1159,10 @@ normalize_similarity_config_shape <- function(config) {
       k_study = similarity$kernel_scale %||% NULL,
       frequency_coherence_mode = admissibility_frequency_mode_internal,
       require_same_frequency_label = admissibility_exact_frequency,
-      max_frequency_gap_khz = admissibility$frequency_gap %||% NULL,
-      min_length_overlap_fraction = admissibility$length_overlap_min %||% NULL,
-      min_depth_overlap_fraction = admissibility$depth_overlap_min %||% NULL,
-      missing_key_metadata_max_fraction = admissibility$key_metadata_max %||% NULL,
+      max_frequency_gap_khz = admissibility$frequency_gap %||% NA_real_,
+      min_length_overlap_fraction = admissibility$length_overlap_min %||% NA_real_,
+      min_depth_overlap_fraction = admissibility$depth_overlap_min %||% NA_real_,
+      missing_key_metadata_max_fraction = admissibility$key_metadata_max %||% NA_real_,
       length_overlap_weight = similarity$length_weight %||% NULL,
       depth_overlap_weight = similarity$depth_weight %||% NULL,
       frequency_coherence_weight = similarity$frequency_weight %||% NULL,
@@ -1913,9 +1912,9 @@ build_configuration_template <- function(input_file = "input.xlsx",
       species_traits = stats::setNames(list(1), species_traits[[1]]),
       study_traits = stats::setNames(list(1), study_traits[[1]]),
       coherence = list(
-        length = list(mode = "overlap", weight = 2),
-        depth = list(mode = "overlap", weight = 3),
-        frequency = list(mode = "overlap", weight = 2, gap = 60)
+        length = list(mode = "overlap", source = "both", weight = 2),
+        depth = list(mode = "overlap", source = "both", weight = 3),
+        frequency = list(mode = "overlap", weight = 2)
       ),
       conformal_alpha = 0.1
     ),
@@ -1944,7 +1943,7 @@ build_configuration_template <- function(input_file = "input.xlsx",
       coherence = list(
         length = list(mode = "overlap", min = 0.25),
         depth = list(mode = "overlap", min = 0.25),
-        frequency = list(mode = "none", gap = 60)
+        frequency = list(mode = "none")
       ),
       key_metadata_max = 0.25
     ),
@@ -2586,8 +2585,20 @@ validate_similarity_section <- function(similarity_section,
   for (field_name in c("length", "depth", "frequency")) {
     field_cfg <- coherence[[field_name]] %||% list()
     mode_value <- stringr::str_to_lower(stringr::str_squish(as.character(field_cfg$mode %||% "")))[[1]]
-    if (!mode_value %in% c("overlap", "literal", "none")) {
-      stop(sprintf("Similarity coherence field '%s.mode' must be one of: overlap, literal, none.", field_name), call. = FALSE)
+    allowed_modes <- if (identical(field_name, "frequency")) {
+      c("overlap", "literal", "none")
+    } else {
+      c("overlap", "none")
+    }
+    if (!mode_value %in% allowed_modes) {
+      stop(
+        sprintf(
+          "Similarity coherence field '%s.mode' must be one of: %s.",
+          field_name,
+          paste(allowed_modes, collapse = ", ")
+        ),
+        call. = FALSE
+      )
     }
     if (field_name %in% c("length", "depth") && "min" %in% names(field_cfg)) {
       stop(
@@ -2599,7 +2610,31 @@ validate_similarity_section <- function(similarity_section,
         call. = FALSE
       )
     }
-    for (numeric_name in intersect(c("weight", "gap"), names(field_cfg))) {
+    if ("gap" %in% names(field_cfg)) {
+      stop(
+        sprintf(
+          "Similarity coherence field '%s.gap' is unsupported; frequency-gap gating belongs under 'admissibility.coherence.frequency.gap'.",
+          field_name
+        ),
+        call. = FALSE
+      )
+    }
+    if (field_name %in% c("length", "depth") &&
+      !identical(mode_value, "none")) {
+      source_value <- stringr::str_to_lower(stringr::str_squish(
+        as.character(field_cfg$source %||% "")
+      ))[[1]]
+      if (!source_value %in% c("study", "species", "both")) {
+        stop(
+          sprintf(
+            "Similarity coherence field '%s.source' must explicitly be one of: study, species, both.",
+            field_name
+          ),
+          call. = FALSE
+        )
+      }
+    }
+    for (numeric_name in intersect("weight", names(field_cfg))) {
       field_value <- field_cfg[[numeric_name]]
       if (!is.numeric(field_value) || length(field_value) != 1 || !is.finite(field_value)) {
         stop(sprintf("Similarity coherence field '%s.%s' must be one finite numeric value.", field_name, numeric_name), call. = FALSE)
@@ -2782,6 +2817,17 @@ validate_admissibility_section <- function(admissibility_section,
     )
   }
 
+  duplicate_scope_traits <- intersect(species_traits, study_traits)
+  if (length(duplicate_scope_traits) > 0L) {
+    stop(
+      sprintf(
+        "Admissibility traits cannot be assigned to both species and study scope: %s",
+        paste(duplicate_scope_traits, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+
   for (trait_name in species_traits) {
     trait_defn <- registry$species_map[[trait_name]]
     trait_type <- trait_defn$data_type %||% "categorical"
@@ -2851,6 +2897,84 @@ validate_admissibility_section <- function(admissibility_section,
     (!is.logical(admissibility_section$progress) || length(admissibility_section$progress) != 1 ||
       is.na(admissibility_section$progress))) {
     stop("Admissibility field 'progress' must be TRUE or FALSE.", call. = FALSE)
+  }
+
+
+  coherence <- admissibility_section$coherence %||% list()
+  for (dimension in c("length", "depth")) {
+    dimension_cfg <- coherence[[dimension]] %||% list()
+    mode <- stringr::str_to_lower(stringr::str_squish(
+      as.character(dimension_cfg$mode %||% "none")
+    ))[[1]]
+    if (!mode %in% c("overlap", "none")) {
+      stop(
+        sprintf(
+          "Admissibility coherence field '%s.mode' must be one of: overlap, none.",
+          dimension
+        ),
+        call. = FALSE
+      )
+    }
+    min_value <- dimension_cfg$min %||% NULL
+    if (identical(mode, "overlap")) {
+      min_numeric <- suppressWarnings(as.numeric(min_value))
+      if (length(min_numeric) != 1L || !is.finite(min_numeric) ||
+        min_numeric < 0 || min_numeric > 1) {
+        stop(
+          sprintf(
+            "Admissibility coherence field '%s.min' must be one finite value in [0, 1] when mode is overlap.",
+            dimension
+          ),
+          call. = FALSE
+        )
+      }
+    } else if (!is.null(min_value)) {
+      stop(
+        sprintf(
+          "Admissibility coherence field '%s.min' must be omitted when mode is none.",
+          dimension
+        ),
+        call. = FALSE
+      )
+    }
+  }
+
+  frequency_cfg <- coherence$frequency %||% list()
+  frequency_mode <- stringr::str_to_lower(stringr::str_squish(
+    as.character(frequency_cfg$mode %||% "none")
+  ))[[1]]
+  if (!frequency_mode %in% c("overlap", "literal", "none")) {
+    stop(
+      "Admissibility coherence field 'frequency.mode' must be one of: overlap, literal, none.",
+      call. = FALSE
+    )
+  }
+  frequency_gap <- frequency_cfg$gap %||% NULL
+  if (identical(frequency_mode, "overlap")) {
+    gap_numeric <- suppressWarnings(as.numeric(frequency_gap))
+    if (length(gap_numeric) != 1L || !is.finite(gap_numeric) || gap_numeric < 0) {
+      stop(
+        "Admissibility coherence field 'frequency.gap' must be one finite non-negative value when mode is overlap.",
+        call. = FALSE
+      )
+    }
+  } else if (!is.null(frequency_gap)) {
+    stop(
+      "Admissibility coherence field 'frequency.gap' must be omitted unless frequency.mode is overlap.",
+      call. = FALSE
+    )
+  }
+
+  key_metadata_max <- admissibility_section$key_metadata_max %||% NULL
+  if (!is.null(key_metadata_max)) {
+    key_numeric <- suppressWarnings(as.numeric(key_metadata_max))
+    if (length(key_numeric) != 1L || !is.finite(key_numeric) ||
+      key_numeric < 0 || key_numeric > 1) {
+      stop(
+        "Admissibility field 'key_metadata_max' must be one finite value in [0, 1].",
+        call. = FALSE
+      )
+    }
   }
 
   invisible(NULL)
@@ -3350,9 +3474,7 @@ validate_policy_section <- function(policy_section,
   # Validate the scalar policy controls before checking the selected traits and
   # their weights against the trait registry.
   scalar_fields <- c(
-    "alpha", "k_species", "k_study", "max_frequency_gap_khz",
-    "min_length_overlap_fraction", "min_depth_overlap_fraction",
-    "missing_key_metadata_max_fraction", "length_overlap_weight",
+    "alpha", "k_species", "k_study", "length_overlap_weight",
     "depth_overlap_weight", "frequency_coherence_weight",
     "conformal_alpha"
   )
@@ -3360,6 +3482,22 @@ validate_policy_section <- function(policy_section,
     field_value <- policy_section[[field_name]]
     if (!is.numeric(field_value) || length(field_value) != 1 || !is.finite(field_value)) {
       stop(sprintf("Policy field '%s' must be one finite numeric value.", field_name), call. = FALSE)
+    }
+  }
+  inactive_gate_fields <- c(
+    "max_frequency_gap_khz",
+    "min_length_overlap_fraction",
+    "min_depth_overlap_fraction",
+    "missing_key_metadata_max_fraction"
+  )
+  for (field_name in inactive_gate_fields) {
+    field_value <- policy_section[[field_name]]
+    if (!is.numeric(field_value) || length(field_value) != 1L ||
+      (!is.na(field_value) && !is.finite(field_value))) {
+      stop(
+        sprintf("Policy field '%s' must be one finite numeric value or NA when the gate is disabled.", field_name),
+        call. = FALSE
+      )
     }
   }
   if (!is.null(policy_section$core_weight_cutoff) &&

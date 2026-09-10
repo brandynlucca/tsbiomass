@@ -1116,7 +1116,34 @@ standardize_candidate_columns <- function(data_table) {
 
   out <- tibble::as_tibble(data_table)
 
-  species_name <- candidate_coalesce_column(out, c("species_name", "species", "species_species_name"))
+  species_name <- candidate_coalesce_column(
+    out, c("species_name", "species_species_name")
+  )
+  if (all(c("genus", "species") %in% names(out))) {
+    genus_raw <- stringr::str_squish(as.character(out$genus))
+    species_raw <- stringr::str_squish(as.character(out$species))
+    missing_name <- if (is.null(species_name)) {
+      rep(TRUE, nrow(out))
+    } else {
+      is_missing_species_identity(species_name)
+    }
+    explicit_binomial <- !is_missing_species_identity(genus_raw) &
+      !is_missing_species_identity(species_raw)
+    if (is.null(species_name)) species_name <- rep(NA_character_, nrow(out))
+    species_name[missing_name & explicit_binomial] <- stringr::str_squish(
+      paste(genus_raw[missing_name & explicit_binomial],
+            species_raw[missing_name & explicit_binomial])
+    )
+  }
+  if ("species" %in% names(out)) {
+    species_name <- candidate_coalesce_column(
+      tibble::tibble(
+        resolved_species_name = species_name,
+        raw_species = out$species
+      ),
+      c("resolved_species_name", "raw_species")
+    )
+  }
   if (!is.null(species_name)) {
     out$species_name <- as.character(species_name)
   } else if (!"species_name" %in% names(out)) {

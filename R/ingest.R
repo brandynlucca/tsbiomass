@@ -251,7 +251,10 @@ read_tsl_table <- function(path, sheet = NULL) {
 
   # Require the core TS-model columns up front so downstream preparation does
   # not silently proceed with an unusable study table.
-  required_cols <- c("genus", "species", "equation_form", "slope", "intercept")
+  required_cols <- c(
+    "genus", "species", "equation_form", "slope", "intercept",
+    "equation_length_unit"
+  )
   missing_cols <- setdiff(required_cols, names(dat))
   if (length(missing_cols) > 0) {
     stop(
@@ -307,6 +310,43 @@ read_tsl_table <- function(path, sheet = NULL) {
 
   if ("equation_form" %in% names(dat)) {
     dat$equation_form <- stringr::str_to_lower(dat$equation_form)
+  }
+
+  # The numerical intercept is inseparable from the length unit used inside
+  # log10(L). Require that unit explicitly instead of silently assuming that
+  # every source equation used centimetres. Study fitting ranges remain in
+  # centimetres and are a separate field.
+  dat$equation_length_unit <- stringr::str_to_lower(
+    stringr::str_squish(as.character(dat$equation_length_unit))
+  )
+  dat$equation_length_unit <- dplyr::recode(
+    dat$equation_length_unit,
+    "centimetre" = "cm",
+    "centimeter" = "cm",
+    "centimetres" = "cm",
+    "centimeters" = "cm",
+    "millimetre" = "mm",
+    "millimeter" = "mm",
+    "millimetres" = "mm",
+    "millimeters" = "mm",
+    "metre" = "m",
+    "meter" = "m",
+    "metres" = "m",
+    "meters" = "m"
+  )
+  invalid_equation_units <- is.na(dat$equation_length_unit) |
+    !dat$equation_length_unit %in% c("mm", "cm", "m")
+  if (any(invalid_equation_units)) {
+    stop(
+      sprintf(
+        paste0(
+          "TSL table has %d row(s) with missing or unsupported ",
+          "'equation_length_unit'; allowed values are 'mm', 'cm', and 'm'."
+        ),
+        sum(invalid_equation_units)
+      ),
+      call. = FALSE
+    )
   }
 
   if ("derivation" %in% names(dat) && !"derivation_type" %in% names(dat)) {
@@ -439,6 +479,8 @@ read_tsl_table <- function(path, sheet = NULL) {
     "swimbladder_type",
     "source_type",
     "equation_form",
+    "equation_length_unit",
+    "equation_length_unit_provenance",
     "slope",
     "intercept",
     "length_metric",
@@ -456,7 +498,9 @@ read_tsl_table <- function(path, sheet = NULL) {
     "depth_range",
     "season",
     "diel",
-    "reference_tsl_short"
+    "reference_tsl_short",
+    "reference_tsl_link",
+    "misc_factors"
   )
 
   # Add any missing canonical columns explicitly as NA so downstream code can
@@ -2935,23 +2979,10 @@ prepare_traits <- function(species_db,
     by = c("genus", "species")
   )
 
-  if (length(overlap_cols) > 0) {
-    is_missing_like <- function(x) {
-      if (is.character(x)) {
-        return(is.na(x) | !nzchar(stringr::str_squish(x)))
-      }
-      is.na(x)
-    }
-
-    for (nm in overlap_cols) {
-      species_nm <- paste0("species_", nm)
-      if (!nm %in% names(out) || !species_nm %in% names(out)) {
-        next
-      }
-      miss_idx <- is_missing_like(out[[nm]])
-      out[[nm]][miss_idx] <- out[[species_nm]][miss_idx]
-    }
-  }
+  # Preserve scope exactly. A missing study value remains missing and the
+  # corresponding biological value remains in its `species_` column. Filling
+  # one scope from the other would silently change the meaning of configured
+  # study and species distances, coherence terms, and admissibility gates.
 
   # Convert TS models into the shared TS-length form after the study and
   # species traits have been merged.
@@ -3192,6 +3223,35 @@ convert_to_length_form <- function(tbl) {
   slope_num_ <- suppressWarnings(as.numeric(tbl_$slope))
   intercept_num_ <- suppressWarnings(as.numeric(tbl_$intercept))
   eq_form_ <- stringr::str_to_lower(as.character(tbl_$equation_form))
+  equation_length_unit_ <- if ("equation_length_unit" %in% names(tbl_)) {
+    stringr::str_to_lower(stringr::str_squish(as.character(tbl_$equation_length_unit)))
+  } else {
+    rep(NA_character_, nrow(tbl_))
+  }
+  invalid_equation_units_ <- is.na(equation_length_unit_) |
+    !equation_length_unit_ %in% c("mm", "cm", "m")
+  if (any(invalid_equation_units_)) {
+    stop(
+      sprintf(
+        paste0(
+          "Cannot standardize %d TS equation(s): explicit ",
+          "'equation_length_unit' must be one of 'mm', 'cm', or 'm'."
+        ),
+        sum(invalid_equation_units_)
+      ),
+      call. = FALSE
+    )
+  }
+
+  # Rewrite every raw equation to use L in centimetres before any independent-
+  # variable conversion. If TS = m log10(L_u) + b and L_u = k L_cm, then the
+  # centimetre intercept is b + m log10(k): k = 10 for mm and 0.01 for m.
+  unit_log10_scale_ <- dplyr::case_when(
+    equation_length_unit_ == "mm" ~ 1,
+    equation_length_unit_ == "cm" ~ 0,
+    equation_length_unit_ == "m" ~ -2
+  )
+  intercept_cm_ <- intercept_num_ + slope_num_ * unit_log10_scale_
 
   # Force evaluation
   force(valid_lw_)
@@ -3210,8 +3270,8 @@ convert_to_length_form <- function(tbl) {
   )
 
   tbl_$intercept_len <- dplyr::case_when(
-    eq_form_ %in% c("20log10_ind", "mlog10_ind") ~ intercept_num_,
-    eq_form_ == "mlog10_kg" & valid_lw_ ~ intercept_num_ + 10 * (log10(lw_a) - 3),
+    eq_form_ %in% c("20log10_ind", "mlog10_ind") ~ intercept_cm_,
+    eq_form_ == "mlog10_kg" & valid_lw_ ~ intercept_cm_ + 10 * (log10(lw_a) - 3),
     eq_form_ == "mlog10_kg" ~ NA_real_,
     TRUE ~ intercept_num_
   )

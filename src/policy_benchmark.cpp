@@ -11,8 +11,6 @@ using namespace Rcpp;
 
 namespace {
 
-const double NEAREST_COMBINED_TAXONOMIC_TOLERANCE = 0.05;
-
 inline bool finite_num(double x) {
   return R_finite(x);
 }
@@ -181,63 +179,50 @@ double finite_iqr(const NumericVector& x, const std::vector<int>& idx) {
 int nearest_lexicographic(const std::vector<int>& idx,
                           const NumericVector& primary,
                           const NumericVector& secondary,
+                          const CharacterVector& stable_key,
                           bool require_primary) {
   int best = -1;
   double best_primary = R_PosInf;
   double best_secondary = R_PosInf;
+  std::string best_key;
   for (int i : idx) {
     double p = primary[i];
     double s = secondary[i];
     if (require_primary && !finite_num(p)) continue;
     if (!finite_num(p)) p = R_PosInf;
     if (!finite_num(s)) s = R_PosInf;
-    if (best < 0 || p < best_primary || (p == best_primary && s < best_secondary)) {
+    std::string key = CharacterVector::is_na(stable_key[i])
+      ? std::string("<NA>")
+      : as<std::string>(stable_key[i]);
+    if (best < 0 || p < best_primary ||
+        (p == best_primary && s < best_secondary) ||
+        (p == best_primary && s == best_secondary && key < best_key)) {
       best = i;
       best_primary = p;
       best_secondary = s;
-    }
-  }
-  return best;
-}
-
-int nearest_combined_summary(const std::vector<int>& idx,
-                             const NumericVector& combined,
-                             const NumericVector& taxonomic) {
-  bool any_tax = false;
-  double min_tax = R_PosInf;
-  for (int i : idx) {
-    if (finite_num(taxonomic[i])) {
-      any_tax = true;
-      if (taxonomic[i] < min_tax) min_tax = taxonomic[i];
-    }
-  }
-
-  int best = -1;
-  double best_combined = R_PosInf;
-  double best_tax = R_PosInf;
-  for (int i : idx) {
-    double c = combined[i];
-    if (!finite_num(c)) continue;
-    double t = finite_num(taxonomic[i]) ? taxonomic[i] : R_PosInf;
-    if (any_tax && (!finite_num(t) || t > min_tax + NEAREST_COMBINED_TAXONOMIC_TOLERANCE)) continue;
-    if (best < 0 || c < best_combined || (c == best_combined && t < best_tax)) {
-      best = i;
-      best_combined = c;
-      best_tax = t;
+      best_key = key;
     }
   }
   return best;
 }
 
 int nearest_single(const std::vector<int>& idx,
-                   const NumericVector& distance) {
+                   const NumericVector& distance,
+                   const CharacterVector& stable_key) {
   int best = -1;
   double best_distance = R_PosInf;
+  std::string best_key;
   for (int i : idx) {
-    double value = finite_num(distance[i]) ? distance[i] : R_PosInf;
-    if (best < 0 || value < best_distance) {
+    if (!finite_num(distance[i])) continue;
+    double value = distance[i];
+    std::string key = CharacterVector::is_na(stable_key[i])
+      ? std::string("<NA>")
+      : as<std::string>(stable_key[i]);
+    if (best < 0 || value < best_distance ||
+        (value == best_distance && key < best_key)) {
       best = i;
       best_distance = value;
+      best_key = key;
     }
   }
   return best;
@@ -299,11 +284,13 @@ SEXP cpp_evaluate_policy_plan(List donors,
   NumericVector weight = donors["weight"];
   NumericVector combined = donors["combined_distance"];
   NumericVector trait = donors["trait_distance"];
+  NumericVector survey = donors["survey_distance"];
   NumericVector taxonomic = donors["taxonomic_distance"];
   NumericVector species = donors["species_distance"];
   NumericVector learned_disagreement = donors["learned_distance_disagreement"];
   LogicalVector learned_diagnostic_available = donors["learned_distance_diagnostic_available"];
   bool has_trait = as<bool>(donors["has_trait_distance"]);
+  bool has_survey = as<bool>(donors["has_survey_distance"]);
   bool has_taxonomic = as<bool>(donors["has_taxonomic_distance"]);
   bool has_species = as<bool>(donors["has_species_distance"]);
   bool has_learned_diagnostic = as<bool>(donors["has_learned_distance_diagnostic"]);
@@ -311,6 +298,7 @@ SEXP cpp_evaluate_policy_plan(List donors,
   NumericVector depth_overlap = donors["depth_overlap"];
   NumericVector donor_multiplier = donors["donor_multiplier"];
   CharacterVector donor_id = donors["donor_id"];
+  CharacterVector stable_key = donors["stable_key"];
   CharacterVector donor_species = donors["donor_species"];
   LogicalMatrix overlap = donors["overlap"];
 
@@ -319,7 +307,7 @@ SEXP cpp_evaluate_policy_plan(List donors,
   int n_plan = pool_id.size();
   int n_donor = slope.size();
   if (pool_masks.ncol() != n_donor || aggregation_code.size() != n_plan ||
-      donor_species.size() != n_donor) {
+      donor_species.size() != n_donor || stable_key.size() != n_donor) {
     stop("Compiled policy-plan dimensions do not match donor payload.");
   }
 
@@ -369,6 +357,8 @@ SEXP cpp_evaluate_policy_plan(List donors,
   NumericVector weighted_q90_combined(n_plan, NA_REAL);
   NumericVector min_trait(n_plan, NA_REAL), weighted_trait(n_plan, NA_REAL);
   NumericVector weighted_q90_trait(n_plan, NA_REAL);
+  NumericVector min_survey(n_plan, NA_REAL), weighted_survey(n_plan, NA_REAL);
+  NumericVector weighted_q90_survey(n_plan, NA_REAL);
   NumericVector min_taxonomic(n_plan, NA_REAL), weighted_taxonomic(n_plan, NA_REAL), weighted_q90_taxonomic(n_plan, NA_REAL);
   NumericVector min_species(n_plan, NA_REAL), weighted_species(n_plan, NA_REAL);
   NumericVector weighted_learned_disagreement(n_plan, NA_REAL), max_learned_disagreement(n_plan, NA_REAL);
@@ -404,50 +394,34 @@ SEXP cpp_evaluate_policy_plan(List donors,
     int equation_index = -1;
     int summary_index = -1;
     if (method == 1) {
-      summary_index = nearest_combined_summary(valid, combined, taxonomic);
-      double min_tax = R_PosInf;
-      bool any_tax = false;
-      if (has_taxonomic) {
-        for (int i : valid) {
-          if (finite_num(taxonomic[i])) {
-            any_tax = true;
-            if (taxonomic[i] < min_tax) min_tax = taxonomic[i];
-          }
-        }
-      }
-      double best_score = R_PosInf;
-      for (int i : valid) {
-        if (!finite_num(combined[i])) continue;
-        if (has_taxonomic && any_tax &&
-            (!finite_num(taxonomic[i]) ||
-             taxonomic[i] > min_tax + NEAREST_COMBINED_TAXONOMIC_TOLERANCE)) continue;
-        double score = combined[i] + (has_taxonomic ? taxonomic[i] * 1e-9 : 0.0);
-        if (score < best_score) { best_score = score; equation_index = i; }
-      }
-    } else if (method >= 2 && method <= 4) {
-      const NumericVector* primary = method == 2 ? &trait : (method == 3 ? &taxonomic : &species);
-      bool has_primary = method == 2 ? has_trait : (method == 3 ? has_taxonomic : has_species);
+      // This policy is the pure global combined-distance argmin. Taxonomic
+      // distance is a separate policy and must not restrict this candidate set.
+      summary_index = nearest_single(valid, combined, stable_key);
+      equation_index = summary_index;
+    } else if (method >= 2 && method <= 5) {
+      const NumericVector* primary = method == 2 ? &trait :
+        (method == 3 ? &survey : (method == 4 ? &taxonomic : &species));
+      bool has_primary = method == 2 ? has_trait :
+        (method == 3 ? has_survey : (method == 4 ? has_taxonomic : has_species));
       bool any_primary = false;
       if (has_primary) {
         for (int i : valid) if (finite_num((*primary)[i])) { any_primary = true; break; }
       }
-      summary_index = any_primary ? nearest_lexicographic(valid, *primary, combined, true)
-                                  : nearest_single(valid, combined);
-      double best_score = R_PosInf;
-      for (int i : valid) {
-        if (!finite_num(combined[i]) || (has_primary && !finite_num((*primary)[i]))) continue;
-        double score = has_primary ? (*primary)[i] + combined[i] * 1e-9 : combined[i];
-        if (score < best_score) { best_score = score; equation_index = i; }
+      if (has_primary && any_primary) {
+        summary_index = nearest_lexicographic(
+          valid, *primary, combined, stable_key, true
+        );
+        equation_index = summary_index;
       }
     }
 
-    if (method >= 1 && method <= 4) {
+    if (method >= 1 && method <= 5) {
       if (equation_index >= 0) {
         policy_slope[p] = slope[equation_index];
         policy_intercept[p] = intercept[equation_index];
       }
       constructed[p] = false;
-    } else if (method == 5) {
+    } else if (method == 6) {
       double sw = 0.0, ss = 0.0, si = 0.0;
       for (int i : valid) {
         if (finite_num(weight[i]) && weight[i] > 0.0) {
@@ -461,7 +435,7 @@ SEXP cpp_evaluate_policy_plan(List donors,
         policy_intercept[p] = si / sw;
       }
       constructed[p] = true;
-    } else if (method == 6) {
+    } else if (method == 7) {
       if (!valid.empty()) {
         double ss = 0.0, si = 0.0;
         for (int i : valid) { ss += slope[i]; si += intercept[i]; }
@@ -478,7 +452,7 @@ SEXP cpp_evaluate_policy_plan(List donors,
     }
 
     std::vector<int> summary_idx;
-    if (method >= 1 && method <= 4) {
+    if (method >= 1 && method <= 5) {
       if (summary_index >= 0) summary_idx.push_back(summary_index);
     } else {
       summary_idx = valid;
@@ -487,7 +461,7 @@ SEXP cpp_evaluate_policy_plan(List donors,
     // All diagnostics must follow the weights that construct this policy's
     // equation. In particular, arithmetic means give every donor equal
     // influence; using admissibility weights here conceals distant donors.
-    bool equal_structural_weight = method == 6 || (method >= 1 && method <= 4);
+    bool equal_structural_weight = method == 7 || (method >= 1 && method <= 5);
     std::vector<double> support_weights = normalized_weights(
       weight,
       summary_idx,
@@ -500,6 +474,9 @@ SEXP cpp_evaluate_policy_plan(List donors,
     min_trait[p] = finite_min(trait, summary_idx);
     weighted_trait[p] = indexed_weighted_mean(trait, summary_idx, support_weights);
     weighted_q90_trait[p] = indexed_weighted_quantile(trait, summary_idx, support_weights, 0.90);
+    min_survey[p] = finite_min(survey, summary_idx);
+    weighted_survey[p] = indexed_weighted_mean(survey, summary_idx, support_weights);
+    weighted_q90_survey[p] = indexed_weighted_quantile(survey, summary_idx, support_weights, 0.90);
     min_taxonomic[p] = finite_min(taxonomic, summary_idx);
     weighted_taxonomic[p] = indexed_weighted_mean(taxonomic, summary_idx, support_weights);
     weighted_q90_taxonomic[p] = indexed_weighted_quantile(taxonomic, summary_idx, support_weights, 0.90);
@@ -558,7 +535,7 @@ SEXP cpp_evaluate_policy_plan(List donors,
     // Structural rows are the selected nearest donor or the complete valid
     // pool. Their weighting follows policy_structural_rows().
     std::vector<int> structural_idx;
-    if (method >= 1 && method <= 4) {
+    if (method >= 1 && method <= 5) {
       if (summary_index >= 0) structural_idx.push_back(summary_index);
     } else {
       structural_idx = valid;
@@ -567,7 +544,7 @@ SEXP cpp_evaluate_policy_plan(List donors,
       std::vector<double> structural_weights = normalized_weights(
         weight,
         structural_idx,
-        method == 6 || (method >= 1 && method <= 4)
+        method == 7 || (method >= 1 && method <= 5)
       );
       std::unordered_map<std::string, double> species_weights;
       for (std::size_t k = 0; k < structural_idx.size(); ++k) {
@@ -642,6 +619,9 @@ SEXP cpp_evaluate_policy_plan(List donors,
     _["local_min_trait_gower_distance"] = min_trait,
     _["local_weighted_mean_trait_gower_distance"] = weighted_trait,
     _["local_weighted_q90_trait_gower_distance"] = weighted_q90_trait,
+    _["local_min_survey_distance"] = min_survey,
+    _["local_weighted_mean_survey_distance"] = weighted_survey,
+    _["local_weighted_q90_survey_distance"] = weighted_q90_survey,
     _["local_min_taxonomic_distance"] = min_taxonomic,
     _["local_weighted_mean_taxonomic_distance"] = weighted_taxonomic,
     _["local_weighted_q90_taxonomic_distance"] = weighted_q90_taxonomic,

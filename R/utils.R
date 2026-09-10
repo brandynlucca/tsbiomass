@@ -21,6 +21,32 @@ NULL
   if (is.null(x) || length(x) == 0) y else x
 }
 
+#' Numerically stable weighted mean
+#'
+#' Centering before accumulation preserves the exact common value when every
+#' finite observation is identical. This matters for lexicographic burden
+#' comparisons: an ensemble of donors with identical burden must not outrank a
+#' singleton solely because ordinary floating-point summation rounded downward.
+#'
+#' @keywords internal
+#' @noRd
+stable_weighted_mean <- function(x, weights) {
+  x <- suppressWarnings(as.numeric(x))
+  weights <- suppressWarnings(as.numeric(weights))
+  keep <- is.finite(x) & is.finite(weights) & weights > 0
+  if (!any(keep)) {
+    return(NA_real_)
+  }
+  x <- x[keep]
+  weights <- weights[keep]
+  weight_sum <- sum(weights)
+  if (!is.finite(weight_sum) || weight_sum <= 0) {
+    return(NA_real_)
+  }
+  origin <- x[[1L]]
+  origin + sum(weights * (x - origin)) / weight_sum
+}
+
 #' Identify missing biological species identities
 #'
 #' Candidate ingestion represents generalized equations with a constructed
@@ -62,8 +88,11 @@ generalized_model_indicator <- function(rows) {
     names(out)
   )
   if (length(species_cols) > 0L) {
+    # A row is generalized only when every available identity field is
+    # missing-like. A failed enrichment join must not erase an explicit raw
+    # genus/species identity by contributing one NA auxiliary column.
     missing_species <- Reduce(
-      `|`,
+      `&`,
       lapply(species_cols, function(col) {
         value <- stringr::str_to_lower(stringr::str_squish(as.character(out[[col]])))
         is_missing_species_identity(out[[col]]) |

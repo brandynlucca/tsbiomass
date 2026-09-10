@@ -396,6 +396,7 @@ resolve_policy_display_names <- function(policy_data) {
       nearest = "nearest",
       nearest_by_combined_distance = "nearest",
       nearest_by_trait_gower_distance = "trait-nearest",
+      nearest_by_survey_distance = "survey-nearest",
       nearest_study_then_model = "study-nearest",
       .default = snake_lower_dash(aggregation_method_values)
     )
@@ -487,6 +488,7 @@ resolve_selected_policy_names <- function(policy_data) {
       nearest = "nearest",
       nearest_by_combined_distance = "nearest",
       nearest_by_trait_gower_distance = "trait-nearest",
+      nearest_by_survey_distance = "survey-nearest",
       nearest_study_then_model = "study-nearest",
       .default = snake_lower_dash(aggregation_method_values)
     )
@@ -620,6 +622,7 @@ policy_component_labels <- function(policy_data,
     nearest = "Nearest",
     nearest_by_combined_distance = "Nearest",
     nearest_by_trait_gower_distance = "Trait nearest",
+    nearest_by_survey_distance = "Survey nearest",
     nearest_study_then_model = "Study nearest",
     weighted_mean = "Weighted mean",
     .default = snake_sentence(aggregation_values)
@@ -2200,20 +2203,14 @@ policy_rows <- function(rows,
     selected_rows <- pool_rows
   }
   if (is.null(selected_rows) && identical(pool_name, "nearest_phylogenetic")) {
-    for (out in list(
-      subset_flag("overlap_same_species"),
-      pool_rows[(as.logical(pool_rows$overlap_same_genus) %in% TRUE) & !(as.logical(pool_rows$overlap_same_species) %in% TRUE), , drop = FALSE],
-      pool_rows[(as.logical(pool_rows$overlap_same_family) %in% TRUE) & !(as.logical(pool_rows$overlap_same_genus) %in% TRUE), , drop = FALSE],
-      pool_rows[(as.logical(pool_rows$overlap_same_order) %in% TRUE) & !(as.logical(pool_rows$overlap_same_family) %in% TRUE), , drop = FALSE]
-    )) {
-      if (nrow(out) > 0) {
-        selected_rows <- out
-        break
-      }
-    }
-    if (is.null(selected_rows)) {
-      selected_rows <- pool_rows[0, , drop = FALSE]
-    }
+    stop(
+      paste0(
+        "Candidate pool 'nearest_phylogenetic' is retired because it encodes ",
+        "an implicit species/genus/family/order cascade. Configure an explicit ",
+        "trait scope or numeric taxonomic-distance policy instead."
+      ),
+      call. = FALSE
+    )
   }
   if (is.null(selected_rows) && identical(pool_name, "phylogenetic_neighborhood")) {
     out <- pool_rows[!(as.logical(pool_rows$overlap_same_species) %in% TRUE), , drop = FALSE]
@@ -2254,19 +2251,29 @@ policy_rows <- function(rows,
   }
   if (is.null(selected_rows) && identical(pool_name, "closest_study_cell")) {
     cell_col <- "study_cell_id"
-    ranked <- valid_equation_rows(pool_rows) |>
-      dplyr::arrange(.data$combined_distance)
-    if (nrow(ranked) == 0) {
+    ranked <- valid_equation_rows(pool_rows)
+    if (nrow(ranked) == 0 ||
+      !cell_col %in% names(ranked) ||
+      !"combined_distance" %in% names(ranked)) {
       selected_rows <- pool_rows[0, , drop = FALSE]
-    } else if (!cell_col %in% names(ranked)) {
-      selected_rows <- dplyr::slice_head(ranked, n = 1)
     } else {
-      cell_id <- ranked[[cell_col]][[1]]
-      if (is.na(cell_id) || !nzchar(as.character(cell_id))) {
-        selected_rows <- dplyr::slice_head(ranked, n = 1)
+      ranked$.stable_policy_key <- policy_stable_row_key(ranked)
+      ranked <- ranked |>
+        dplyr::filter(is.finite(.data$combined_distance)) |>
+        dplyr::arrange(.data$combined_distance, .data$.stable_policy_key)
+      if (nrow(ranked) == 0L) {
+        selected_rows <- pool_rows[0, , drop = FALSE]
       } else {
-        selected_rows <- valid_equation_rows(pool_rows) |>
-          dplyr::filter(.data[[cell_col]] == cell_id)
+        cell_id <- ranked[[cell_col]][[1]]
+        if (is.na(cell_id) || !nzchar(as.character(cell_id))) {
+          selected_rows <- pool_rows[0, , drop = FALSE]
+        } else {
+          selected_rows <- valid_equation_rows(pool_rows) |>
+            dplyr::filter(.data[[cell_col]] == cell_id)
+        }
+      }
+      if (".stable_policy_key" %in% names(selected_rows)) {
+        selected_rows$.stable_policy_key <- NULL
       }
     }
   }
@@ -2331,13 +2338,39 @@ build_policy_equation_row <- function(slope,
   )
 }
 
+#' Stable identity key for deterministic policy-row ordering
+#'
+#' @param candidate_rows Candidate-policy row table.
+#'
+#' @return Character vector with one deterministic identity per row.
+#' @keywords internal
+#' @noRd
+policy_stable_row_key <- function(candidate_rows) {
+  candidate_rows <- tibble::as_tibble(candidate_rows)
+  stable_key_columns <- intersect(
+    c(
+      "model_id_chr", "model_id", "model_uid", "study_cell_id",
+      "species_name"
+    ),
+    names(candidate_rows)
+  )
+  if (length(stable_key_columns) == 0L) {
+    return(rep("", nrow(candidate_rows)))
+  }
+  apply(
+    candidate_rows[, stable_key_columns, drop = FALSE],
+    1L,
+    function(values) paste(ifelse(is.na(values), "<NA>", values), collapse = "\r")
+  )
+}
+
 #' Select one nearest policy equation by distance column
 #'
 #' @param candidate_rows Candidate-policy row table.
 #' @param distance_column Optional distance column used as the primary ranking
 #'   key. When `NULL`, `combined_distance` is used.
 #' @param distance_as_tiebreak Logical scalar. When `TRUE`, `distance_column`
-#'   is used only as a tiny tiebreak on top of `combined_distance`.
+#'   is used only as an exact secondary key after `combined_distance`.
 #'
 #' @return One-row tibble.
 #'
@@ -2353,37 +2386,36 @@ nearest_equation_by <- function(candidate_rows,
     return(build_policy_equation_row(NA_real_, NA_real_))
   }
 
+  stable_key <- policy_stable_row_key(candidate_rows)
+  combined_distance <- suppressWarnings(as.numeric(candidate_rows$combined_distance))
   ranking_rows <- candidate_rows
-  ranking_score <- suppressWarnings(as.numeric(candidate_rows$combined_distance))
   if (!is.null(distance_column) && distance_column %in% names(candidate_rows)) {
     primary_distance <- suppressWarnings(as.numeric(candidate_rows[[distance_column]]))
-    if (isTRUE(distance_as_tiebreak)) {
-      keep <- is.finite(primary_distance)
-      if (any(keep)) {
-        min_primary <- min(primary_distance[keep], na.rm = TRUE)
-        tier_keep <- keep & primary_distance <= min_primary + 0.05
-        ranking_rows <- candidate_rows[tier_keep, , drop = FALSE]
-        primary_distance <- primary_distance[tier_keep]
-        ranking_score <- suppressWarnings(as.numeric(ranking_rows$combined_distance)) +
-          primary_distance * 1e-9
-      } else {
-        ranking_score <- ranking_score + primary_distance * 1e-9
-      }
-    } else {
-      keep <- is.finite(primary_distance)
-      if (any(keep)) {
-        ranking_rows <- candidate_rows[keep, , drop = FALSE]
-        primary_distance <- primary_distance[keep]
-      }
-      ranking_score <- primary_distance + suppressWarnings(as.numeric(ranking_rows$combined_distance)) * 1e-9
+    keep <- is.finite(primary_distance)
+    if (!any(keep)) {
+      return(build_policy_equation_row(NA_real_, NA_real_))
     }
+    ranking_rows <- candidate_rows[keep, , drop = FALSE]
+    primary_distance <- primary_distance[keep]
+    combined_distance <- combined_distance[keep]
+    stable_key <- stable_key[keep]
+    if (isTRUE(distance_as_tiebreak)) {
+      row_order <- order(combined_distance, primary_distance, stable_key, na.last = TRUE)
+    } else {
+      row_order <- order(primary_distance, combined_distance, stable_key, na.last = TRUE)
+    }
+  } else if (!is.null(distance_column) && !isTRUE(distance_as_tiebreak)) {
+    return(build_policy_equation_row(NA_real_, NA_real_))
+  } else {
+    row_order <- order(combined_distance, stable_key, na.last = TRUE)
   }
 
-  if (!any(is.finite(ranking_score))) {
+  if (!any(is.finite(combined_distance)) &&
+      (is.null(distance_column) || isTRUE(distance_as_tiebreak))) {
     return(build_policy_equation_row(NA_real_, NA_real_))
   }
 
-  row_index <- which.min(ranking_score)
+  row_index <- row_order[[1L]]
   if (length(row_index) == 0L) {
     return(build_policy_equation_row(NA_real_, NA_real_))
   }
@@ -2548,6 +2580,7 @@ policy_structural_rows <- function(rows,
     "nearest_by_combined_distance",
     "nearest",
     "nearest_by_trait_gower_distance",
+    "nearest_by_survey_distance",
     "nearest_by_taxonomic_distance",
     "nearest_by_species_distance",
     "nearest_study_then_model"
@@ -2655,11 +2688,7 @@ nearest_study_then_model_equation <- function(rows) {
   keep_rows <- valid_equation_rows(rows)
   group_cols <- study_group_columns(keep_rows)
   if (nrow(keep_rows) == 0 || length(group_cols) == 0) {
-    return(nearest_equation_by(
-      candidate_rows = keep_rows,
-      distance_column = "taxonomic_distance_to_anchor",
-      distance_as_tiebreak = TRUE
-    ))
+    return(build_policy_equation_row(NA_real_, NA_real_))
   }
   study_rank <- keep_rows |>
     dplyr::group_by(dplyr::across(dplyr::all_of(group_cols))) |>
@@ -2679,11 +2708,7 @@ nearest_study_then_model_equation <- function(rows) {
       if (is.na(selected_value)) is.na(.data[[nm]]) else .data[[nm]] == selected_value
     )
   }
-  nearest_equation_by(
-    candidate_rows = keep_rows,
-    distance_column = "taxonomic_distance_to_anchor",
-    distance_as_tiebreak = TRUE
-  )
+  nearest_equation_by(candidate_rows = keep_rows)
 }
 
 #' Compute one arithmetic-mean equation
@@ -2750,17 +2775,12 @@ policy_summary_rows <- function(rows,
     if (nrow(keep_rows) == 0) {
       return(keep_rows)
     }
-    if ("taxonomic_distance_to_anchor" %in% names(keep_rows)) {
-      taxonomic_distance <- suppressWarnings(as.numeric(keep_rows$taxonomic_distance_to_anchor))
-      keep <- is.finite(taxonomic_distance)
-      if (any(keep)) {
-        min_taxonomic <- min(taxonomic_distance[keep], na.rm = TRUE)
-        keep_rows <- keep_rows[keep & taxonomic_distance <= min_taxonomic + 0.05, , drop = FALSE]
-      }
-      ord <- order(keep_rows$combined_distance, keep_rows$taxonomic_distance_to_anchor, na.last = TRUE)
-    } else {
-      ord <- order(keep_rows$combined_distance, na.last = TRUE)
-    }
+    combined <- suppressWarnings(as.numeric(keep_rows$combined_distance))
+    ok <- is.finite(combined)
+    if (!any(ok)) return(keep_rows[0, , drop = FALSE])
+    keep_rows <- keep_rows[ok, , drop = FALSE]
+    combined <- combined[ok]
+    ord <- order(combined, policy_stable_row_key(keep_rows), na.last = TRUE)
     return(keep_rows[ord[1], , drop = FALSE])
   }
 
@@ -2768,52 +2788,70 @@ policy_summary_rows <- function(rows,
     if (nrow(keep_rows) == 0) {
       return(keep_rows)
     }
-    if ("trait_gower_distance" %in% names(keep_rows)) {
-      ok <- is.finite(keep_rows$trait_gower_distance)
-      sub <- if (any(ok)) keep_rows[ok, , drop = FALSE] else keep_rows
-      ord <- order(sub$trait_gower_distance, sub$combined_distance, na.last = TRUE)
-    } else {
-      sub <- keep_rows
-      ord <- order(sub$combined_distance, na.last = TRUE)
+    if (!"trait_gower_distance" %in% names(keep_rows)) {
+      return(keep_rows[0, , drop = FALSE])
     }
+    ok <- is.finite(keep_rows$trait_gower_distance)
+    if (!any(ok)) return(keep_rows[0, , drop = FALSE])
+    sub <- keep_rows[ok, , drop = FALSE]
+    ord <- order(
+      sub$trait_gower_distance, sub$combined_distance,
+      policy_stable_row_key(sub), na.last = TRUE
+    )
+    return(sub[ord[1], , drop = FALSE])
+  }
+  if (identical(method_name, "nearest_by_survey_distance")) {
+    if (nrow(keep_rows) == 0) {
+      return(keep_rows)
+    }
+    if (!"d_study" %in% names(keep_rows)) {
+      return(keep_rows[0, , drop = FALSE])
+    }
+    ok <- is.finite(keep_rows$d_study)
+    if (!any(ok)) return(keep_rows[0, , drop = FALSE])
+    sub <- keep_rows[ok, , drop = FALSE]
+    ord <- order(
+      sub$d_study, sub$combined_distance,
+      policy_stable_row_key(sub), na.last = TRUE
+    )
     return(sub[ord[1], , drop = FALSE])
   }
   if (identical(method_name, "nearest_by_taxonomic_distance")) {
     if (nrow(keep_rows) == 0) {
       return(keep_rows)
     }
-    if ("taxonomic_distance_to_anchor" %in% names(keep_rows)) {
-      ok <- is.finite(keep_rows$taxonomic_distance_to_anchor)
-      sub <- if (any(ok)) keep_rows[ok, , drop = FALSE] else keep_rows
-      ord <- order(sub$taxonomic_distance_to_anchor, sub$combined_distance, na.last = TRUE)
-    } else {
-      sub <- keep_rows
-      ord <- order(sub$combined_distance, na.last = TRUE)
+    if (!"taxonomic_distance_to_anchor" %in% names(keep_rows)) {
+      return(keep_rows[0, , drop = FALSE])
     }
+    ok <- is.finite(keep_rows$taxonomic_distance_to_anchor)
+    if (!any(ok)) return(keep_rows[0, , drop = FALSE])
+    sub <- keep_rows[ok, , drop = FALSE]
+    ord <- order(
+      sub$taxonomic_distance_to_anchor, sub$combined_distance,
+      policy_stable_row_key(sub), na.last = TRUE
+    )
     return(sub[ord[1], , drop = FALSE])
   }
   if (identical(method_name, "nearest_by_species_distance")) {
     if (nrow(keep_rows) == 0) {
       return(keep_rows)
     }
-    if ("d_species" %in% names(keep_rows)) {
-      ok <- is.finite(keep_rows$d_species)
-      sub <- if (any(ok)) keep_rows[ok, , drop = FALSE] else keep_rows
-      ord <- order(sub$d_species, sub$combined_distance, na.last = TRUE)
-    } else {
-      sub <- keep_rows
-      ord <- order(sub$combined_distance, na.last = TRUE)
+    if (!"d_species" %in% names(keep_rows)) {
+      return(keep_rows[0, , drop = FALSE])
     }
+    ok <- is.finite(keep_rows$d_species)
+    if (!any(ok)) return(keep_rows[0, , drop = FALSE])
+    sub <- keep_rows[ok, , drop = FALSE]
+    ord <- order(
+      sub$d_species, sub$combined_distance,
+      policy_stable_row_key(sub), na.last = TRUE
+    )
     return(sub[ord[1], , drop = FALSE])
   }
   if (identical(method_name, "nearest_study_then_model")) {
     group_cols <- study_group_columns(keep_rows)
     if (nrow(keep_rows) == 0 || length(group_cols) == 0) {
-      if (nrow(keep_rows) == 0) {
-        return(keep_rows)
-      }
-      ord <- order(keep_rows$combined_distance, na.last = TRUE)
-      return(keep_rows[ord[1], , drop = FALSE])
+      return(keep_rows[0, , drop = FALSE])
     }
     study_rank <- keep_rows |>
       dplyr::group_by(dplyr::across(dplyr::all_of(group_cols))) |>
@@ -2831,7 +2869,11 @@ policy_summary_rows <- function(rows,
         keep_rows[!is.na(keep_rows[[nm]]) & keep_rows[[nm]] == selected_value, , drop = FALSE]
       }
     }
-    ord <- order(keep_rows$combined_distance, na.last = TRUE)
+    ord <- order(
+      keep_rows$combined_distance,
+      policy_stable_row_key(keep_rows),
+      na.last = TRUE
+    )
     return(keep_rows[ord[1], , drop = FALSE])
   }
   if (method_name %in% c("study_kernel_weighted_mean", "study_equal_weight_mean")) {
@@ -2891,7 +2933,7 @@ policy_support_summary <- function(rows,
     if (!any(ok)) {
       return(NA_real_)
     }
-    stats::weighted.mean(x[ok], w[ok], na.rm = TRUE)
+    stable_weighted_mean(x[ok], w[ok])
   }
   weighted_q_col <- function(value_col, prob = 0.90) {
     if (!value_col %in% names(keep_rows)) {
@@ -2973,6 +3015,9 @@ policy_support_summary <- function(rows,
     local_min_trait_gower_distance = if ("trait_gower_distance" %in% names(keep_rows)) finite_min(keep_rows$trait_gower_distance) else NA_real_,
     local_weighted_mean_trait_gower_distance = weighted_mean_col("trait_gower_distance"),
     local_weighted_q90_trait_gower_distance = weighted_q_col("trait_gower_distance"),
+    local_min_survey_distance = if ("d_study" %in% names(keep_rows)) finite_min(keep_rows$d_study) else NA_real_,
+    local_weighted_mean_survey_distance = weighted_mean_col("d_study"),
+    local_weighted_q90_survey_distance = weighted_q_col("d_study"),
     local_min_taxonomic_distance = if ("taxonomic_distance_to_anchor" %in% names(keep_rows)) finite_min(keep_rows$taxonomic_distance_to_anchor) else NA_real_,
     local_weighted_mean_taxonomic_distance = weighted_mean_col("taxonomic_distance_to_anchor"),
     local_weighted_q90_taxonomic_distance = weighted_q_col("taxonomic_distance_to_anchor"),
@@ -3043,6 +3088,7 @@ policy_structural_summary <- function(rows,
       "nearest_by_combined_distance",
       "nearest",
       "nearest_by_trait_gower_distance",
+      "nearest_by_survey_distance",
       "nearest_by_taxonomic_distance",
       "nearest_by_species_distance",
       "nearest_study_then_model"
@@ -3157,6 +3203,7 @@ policy_structural_summary <- function(rows,
       "nearest_by_combined_distance",
       "nearest",
       "nearest_by_trait_gower_distance",
+      "nearest_by_survey_distance",
       "nearest_by_taxonomic_distance",
       "nearest_by_species_distance",
       "nearest_study_then_model"
@@ -3312,21 +3359,16 @@ policy_equation <- function(rows,
   method_name <- as.character(policy_def$aggregation_method)[[1]]
 
   if (identical(method_name, "nearest_by_combined_distance")) {
-    return(nearest_equation_by(
-      candidate_rows = rows,
-      distance_column = "taxonomic_distance_to_anchor",
-      distance_as_tiebreak = TRUE
-    ))
+    return(nearest_equation_by(candidate_rows = rows))
   }
   if (identical(method_name, "nearest")) {
-    return(nearest_equation_by(
-      candidate_rows = rows,
-      distance_column = "taxonomic_distance_to_anchor",
-      distance_as_tiebreak = TRUE
-    ))
+    return(nearest_equation_by(candidate_rows = rows))
   }
   if (identical(method_name, "nearest_by_trait_gower_distance")) {
     return(nearest_equation_by(candidate_rows = rows, distance_column = "trait_gower_distance"))
+  }
+  if (identical(method_name, "nearest_by_survey_distance")) {
+    return(nearest_equation_by(candidate_rows = rows, distance_column = "d_study"))
   }
   if (identical(method_name, "nearest_by_taxonomic_distance")) {
     return(nearest_equation_by(candidate_rows = rows, distance_column = "taxonomic_distance_to_anchor"))
@@ -3565,10 +3607,11 @@ compile_policy_execution_plan_cpp <- function(execution_plan) {
   aggregation_codes <- c(
     nearest_by_combined_distance = 1L,
     nearest_by_trait_gower_distance = 2L,
-    nearest_by_taxonomic_distance = 3L,
-    nearest_by_species_distance = 4L,
-    kernel_weighted_mean = 5L,
-    arithmetic_mean = 6L
+    nearest_by_survey_distance = 3L,
+    nearest_by_taxonomic_distance = 4L,
+    nearest_by_species_distance = 5L,
+    kernel_weighted_mean = 6L,
+    arithmetic_mean = 7L
   )
   methods <- as.character(plan_tbl$aggregation_method)
   unsupported <- setdiff(unique(methods), names(aggregation_codes))
@@ -3716,11 +3759,13 @@ policy_donor_payload_cpp <- function(eval_obj) {
     weight = numeric_col("w_adm"),
     combined_distance = numeric_col("combined_distance"),
     trait_distance = numeric_col("trait_gower_distance"),
+    survey_distance = numeric_col("d_study"),
     taxonomic_distance = numeric_col("taxonomic_distance_to_anchor"),
     species_distance = numeric_col("d_species"),
     learned_distance_disagreement = numeric_col("learned_distance_disagreement"),
     learned_distance_diagnostic_available = logical_col("learned_distance_diagnostic_available"),
     has_trait_distance = "trait_gower_distance" %in% names(donors),
+    has_survey_distance = "d_study" %in% names(donors),
     has_taxonomic_distance = "taxonomic_distance_to_anchor" %in% names(donors),
     has_species_distance = "d_species" %in% names(donors),
     has_learned_distance_diagnostic = "learned_distance_diagnostic_available" %in% names(donors),
@@ -3728,6 +3773,7 @@ policy_donor_payload_cpp <- function(eval_obj) {
     depth_overlap = numeric_col("depth_overlap_fraction"),
     donor_multiplier = numeric_col("biomass_multiplier_if_replace"),
     donor_id = character_col(c("model_id", "model_id_chr")),
+    stable_key = policy_stable_row_key(donors),
     donor_species = character_col(c("species_name", "scientific_name", "species")),
     overlap = overlap
   )
